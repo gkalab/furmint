@@ -42,7 +42,8 @@ fn main() -> Result<()> {
 
     };
 
-    loop {
+    let mut should_exit = false;
+    while !should_exit {
         terminal.draw(|f| {
             let size = f.area();
             let vertical_chunks = Layout::default()
@@ -72,9 +73,14 @@ fn main() -> Result<()> {
             draw_panel_status(f, &app.right, status_chunks[1], &palette, app.active == PanelSide::Right);
         })?;
 
-        if event::poll(std::time::Duration::from_millis(100))? {
+        while event::poll(std::time::Duration::from_millis(10))? {
             match event::read()? {
                 Event::Key(KeyEvent { code, modifiers, .. }) => {
+                    // Quit on Ctrl-q or Esc
+                    if (code == KeyCode::Char('q') && modifiers == KeyModifiers::CONTROL) || code == KeyCode::Esc {
+                        should_exit = true;
+                        break;
+                    }
                     match (code, modifiers) {
                         (KeyCode::Tab, _) => {
                             app.active = match app.active {
@@ -243,7 +249,7 @@ fn main() -> Result<()> {
                             }
                         }
                         (KeyCode::Char('q'), _) => {
-                            break;
+                            // Do nothing, handled above
                         }
                         _ => {}
                     }
@@ -256,3 +262,4 @@ fn main() -> Result<()> {
     disable_raw_mode()?;
     Ok(())
 }
+
