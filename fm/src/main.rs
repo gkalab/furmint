@@ -259,6 +259,7 @@ fn main() -> Result<()> {
             }
         }
     }
+    terminal.clear()?;
     disable_raw_mode()?;
     Ok(())
 }
