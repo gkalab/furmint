@@ -1,23 +1,56 @@
 Here’s a detailed summary so future work can seamlessly continue:
 
-Project:  
+Project Context
 
-A cross-platform, Rust-based Norton Commander-style file manager TUI ("fm") using ratatui and the Catppuccin Macchiato color palette. File browsing and navigation are implemented, and file panel UIs feature file name, size (right-aligned and human-readable, with <DIR> padded), modified time, and attributes columns.
+You are refactoring and extending a Rust-based Norton Commander-style TUI file manager (fm) using the ratatui library and the Catppuccin Macchiato color palette. The main files involved are:
+- src/main.rs (entry point, sets up app state and delegates to event loop)
+- src/event_loop.rs (main event loop, event polling, event handling, split by action)
+- src/app.rs (application state structs)
+- src/fs_ops.rs (filesystem operations, file entry type)
+- src/ui.rs (UI rendering: panels, table, status bar, scroll bar)
+- src/panel_status.rs (status bar drawing)
 
-What was accomplished:
-- The initial TUI app with double panel browsing using ratatui, file navigation, and a status bar.
-- Navigation (Tab to switch panel, Up/Down for selection, history keys, etc.), layout, and visual style were implemented according to your requirements.
+---
 
-Next steps:
-- UI improvements: right-aligned "Size" header.
-- Directory count in the status bar excludes the .. entry.
-- Coloring for directory rows (blue) and executable files (green); other files use default text color.
-- Vertical scroll support and basic scrollbars logic (use block style for scrollbars).
+What Has Been Accomplished
+1. Code refactoring: Split logic into clear modules (ui.rs, fs_ops.rs, app.rs, event_loop.rs) for extensibility and maintainability. Main loop is now in event_loop.rs, with event handling split by action. Cleaned up imports and warnings.
+2. UI improvements:
+   - File size column header ("Size") is right-aligned and padded to match column contents.
+   - Directory count in status bar excludes the ".." entry.
+   - The status bar is now just text (no borders), always visible, left-aligned, and matches the normal file row color.
+   - Directory names are blue, executable names are green, other files use the palette default color.
+   - Symlinked directories are detected and shown as <LNK> in the "Size" column.
+3. Navigation controls: Up/Down, PageUp/PageDown, Home/End, Tab, Enter, Backspace, Ctrl-Left/Right for panel navigation; selection offset and scroll are managed.
+4. Scrollbars:
+   - Vertical scrollbars were added using the built-in ratatui Scrollbar widget for consistency and better maintainability.
+5. Key constraints/requests:
+   - Use Catppuccin palette throughout.
+   - Always fix warnings and unused imports before committing.
+   - Keep status bar visible and unobtrusive.
+   - Clear the screen after exit.
+   - Quit keys: Ctrl-q and Esc.
 
-Key User Constraints and Requests:  
-- Catppuccin Macchiato palette throughout.
-- File size formatting ("K", "M", "G", right-aligned, decimal precision, padded).
-- Exclude ".." from directory count.
-- Visual distinction for directories and executables.
-- Vertical scrollbars (block style) if panel overflows.
-- Code cleanup: no unreachable/duplicate code; brace/paren matching; maintain a modular and maintainable structure.
+---
+
+Recent Refactor Highlights
+- The main event loop and all event handling logic are now in src/event_loop.rs, with each action (navigation, quit, etc.) split into its own function for clarity and maintainability.
+- main.rs is now clean and delegates to run_event_loop.
+- Buffered key lag and slow navigation have been addressed by:
+  - Reducing poll timeout to 10ms for more frequent event checks.
+  - Draining and processing all pending events per frame.
+  - Optimizing navigation actions so PageDown, End, etc. jump as far as possible in one action.
+- The terminal is cleared after exit for a clean shell.
+
+---
+
+Performance Improvements: Step-by-Step
+1. Reduce poll timeout to 10ms for more frequent event checks.
+2. Process all pending events in each loop iteration before drawing the frame.
+3. Optimize navigation actions so PageDown, End, etc. jump as far as possible in one action.
+
+---
+
+For future work:
+- Continue to keep modules focused and maintainable.
+- Add more tests and documentation as features grow.
+- Consider further UI/UX improvements and performance profiling as needed.
