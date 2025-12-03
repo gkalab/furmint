@@ -8,6 +8,7 @@ use anyhow::Result;
 pub struct FileEntry {
     pub name: String,
     pub is_dir: bool,
+    pub is_symlink: bool,
     pub size: Option<u64>,
     pub modified: Option<SystemTime>,
     pub attributes: String,
@@ -17,10 +18,14 @@ impl FileEntry {
     pub fn from_path(path: &PathBuf, meta: &Metadata) -> Self {
         let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
         let is_dir = meta.is_dir();
+        let is_symlink = match fs::symlink_metadata(path) {
+            Ok(m) => m.file_type().is_symlink(),
+            Err(_) => false,
+        };
         let size = if is_dir { None } else { Some(meta.len()) };
         let modified = meta.modified().ok();
         let attributes = get_attributes(meta, is_dir);
-        FileEntry { name, is_dir, size, modified, attributes }
+        FileEntry { name, is_dir, is_symlink, size, modified, attributes }
     }
 }
 
@@ -54,14 +59,18 @@ pub fn list_dir(path: &PathBuf) -> Result<Vec<FileEntry>> {
     entries.push(FileEntry {
         name: "..".to_string(),
         is_dir: true,
+        is_symlink: false,
         size: None,
         modified: None,
         attributes: "".to_string(),
     });
     for entry in fs::read_dir(path)? {
         let entry = entry?;
-        let meta = entry.metadata()?;
         let file_path = entry.path();
+        let meta = match fs::metadata(&file_path) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
         entries.push(FileEntry::from_path(&file_path, &meta));
     }
     // Sort: dirs first, then files, both alphabetically
@@ -75,10 +84,14 @@ pub fn list_dir(path: &PathBuf) -> Result<Vec<FileEntry>> {
     Ok(entries)
 }
 
-pub fn format_size(size: Option<u64>, is_dir: bool) -> String {
-    // Use up to 1 decimal precision, units G/M/K, no space, pad <DIR> to 7 chars
+pub fn format_size(size: Option<u64>, is_dir: bool, is_symlink: bool) -> String {
+    // Use up to 1 decimal precision, units G/M/K, no space, pad <DIR>/<LNK> to 7 chars
     if is_dir {
-        format!("{:>7}", "<DIR>")
+        if is_symlink {
+            format!("{:>7}", "<LNK>")
+        } else {
+            format!("{:>7}", "<DIR>")
+        }
     } else if let Some(s) = size {
         if s >= 1_000_000_000 {
             format!("{:>6.1}G", s as f64 / 1_000_000_000.0)

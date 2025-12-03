@@ -13,19 +13,63 @@ pub fn draw_panel(
 ) {
     // Compute max width for Size column
     let size_width = panel.entries.iter()
-        .map(|e| format_size(e.size, e.is_dir).len())
+        .map(|e| format_size(e.size, e.is_dir, e.is_symlink).len())
         .max()
         .unwrap_or(4);
     let size_header = format!("{:>width$}", "Size", width = size_width);
     let header = ["Name", &size_header, "Modified", "Attributes"];
     let rows = panel.entries.iter().map(|e| {
-         Row::new(vec![
-            Cell::from(e.name.clone()),
-            Cell::from(format_size(e.size, e.is_dir)),
+        let mut name_cell = Cell::from(e.name.clone());
+        let full_path = panel.current_dir.join(&e.name);
+        let name_style = if e.is_dir {
+            Style::default().fg(Color::Rgb(
+                palette.colors.blue.rgb.r,
+                palette.colors.blue.rgb.g,
+                palette.colors.blue.rgb.b,
+            ))
+        } else if is_executable(&full_path, e) {
+            Style::default().fg(Color::Rgb(
+                palette.colors.green.rgb.r,
+                palette.colors.green.rgb.g,
+                palette.colors.green.rgb.b,
+            ))
+        } else {
+            Style::default().fg(Color::Rgb(
+                palette.colors.text.rgb.r,
+                palette.colors.text.rgb.g,
+                palette.colors.text.rgb.b,
+            ))
+        };
+        name_cell = name_cell.style(name_style);
+        Row::new(vec![
+            name_cell,
+            Cell::from(format_size(e.size, e.is_dir, e.is_symlink)),
             Cell::from(format_modified(e.modified)),
             Cell::from(e.attributes.clone()),
         ])
     });
+
+// Helper to detect executables
+fn is_executable(full_path: &std::path::Path, e: &crate::fs_ops::FileEntry) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::symlink_metadata(full_path) {
+            let mode = meta.permissions().mode();
+            mode & 0o111 != 0 && !e.is_dir
+        } else {
+            false
+        }
+    }
+    #[cfg(windows)]
+    {
+        let lower = e.name.to_lowercase();
+        (lower.ends_with(".exe") || lower.ends_with(".bat") || lower.ends_with(".cmd")) && !e.is_dir
+    }
+}
+
+
+
     let border_color = if active {
         Color::Rgb(
             palette.colors.blue.rgb.r,
@@ -96,10 +140,11 @@ pub fn draw_panel_status(
     } else {
         format!("{} files, {} dirs", file_count, dir_count)
     };
+    // Use the same background as file/directory rows (surface1)
     let bg = Color::Rgb(
-        palette.colors.surface2.rgb.r,
-        palette.colors.surface2.rgb.g,
-        palette.colors.surface2.rgb.b,
+        palette.colors.surface1.rgb.r,
+        palette.colors.surface1.rgb.g,
+        palette.colors.surface1.rgb.b,
     );
     let fg = Color::Rgb(
         palette.colors.text.rgb.r,
