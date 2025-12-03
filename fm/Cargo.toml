@@ -1,0 +1,15 @@
+[package]
+name = "fm"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.100"
+bytesize = "2.3.1"
+catppuccin = "2.6.0"
+chrono = "0.4.42"
+crossterm = "0.29.0"
+humantime = "2.3.0"
+ratatui = "0.29.0"
+tokio = "1.48.0"
+walkdir = "2.5.0"
