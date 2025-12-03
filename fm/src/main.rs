@@ -9,9 +9,6 @@ use std::env;
 use crossterm::terminal::{enable_raw_mode, disable_raw_mode};
 use crate::app::{AppState, PanelState, PanelSide};
 use crate::fs_ops::{list_dir};
-use crate::ui::{draw_panel, draw_panel_status};
-use ratatui::prelude::*;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 
 fn main() -> Result<()> {
     enable_raw_mode()?;

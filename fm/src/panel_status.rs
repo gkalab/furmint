@@ -18,20 +18,7 @@ pub fn draw_panel_status(
     } else {
         format!("{} files, {} dirs", file_count, dir_count)
     };
-    let bg = Color::Rgb(
-        palette.colors.surface2.rgb.r,
-        palette.colors.surface2.rgb.g,
-        palette.colors.surface2.rgb.b,
-    );
-    let fg = Color::Rgb(
-        palette.colors.text.rgb.r,
-        palette.colors.text.rgb.g,
-        palette.colors.text.rgb.b,
-    );
-    let block = Block::default()
-        .borders(Borders::NONE);
     let paragraph = ratatui::widgets::Paragraph::new(status)
-        .block(block)
-        .style(Style::default().fg(fg));
+        .gray();
     f.render_widget(paragraph, area);
 }

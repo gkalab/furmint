@@ -171,17 +171,19 @@ pub fn draw_panel_status(
         format!("{} files, {} dirs", file_count, dir_count)
     };
     // Use the same background as file/directory rows (surface1)
-    let bg = Color::Rgb(
-        palette.colors.surface1.rgb.r,
-        palette.colors.surface1.rgb.g,
-        palette.colors.surface1.rgb.b,
-    );
     let fg = Color::Rgb(
         palette.colors.text.rgb.r,
         palette.colors.text.rgb.g,
         palette.colors.text.rgb.b,
     );
+    // Move status line one character to the right and remove background color
+    let status_area = Rect {
+        x: area.x + 1,
+        y: area.y,
+        width: area.width.saturating_sub(1),
+        height: area.height,
+    };
     let paragraph = ratatui::widgets::Paragraph::new(status)
-        .style(Style::default().fg(fg).bg(bg));
-    f.render_widget(paragraph, area);
+        .style(Style::default().fg(fg)); // No background color
+    f.render_widget(paragraph, status_area);
 }
