@@ -123,6 +123,36 @@ fn is_executable(full_path: &std::path::Path, e: &crate::fs_ops::FileEntry) -> b
             .fg(highlight_fg)
         );
     f.render_stateful_widget(table, area, &mut TableState::default().with_selected(Some(panel.selected)));
+
+    // Draw unobtrusive vertical scrollbar if needed
+    let visible_rows = area.height.saturating_sub(1) as usize; // 1 for header
+    let total_entries = panel.entries.len();
+    if total_entries > visible_rows {
+        use ratatui::widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState};
+        let mut scrollbar_state = ScrollbarState::new(total_entries)
+            .viewport_content_length(visible_rows)
+            .position(panel.selected);
+        let scrollbar_color = Color::Rgb(
+            palette.colors.overlay0.rgb.r,
+            palette.colors.overlay0.rgb.g,
+            palette.colors.overlay0.rgb.b,
+        );
+        let scroll_area = Rect {
+            x: area.x + area.width - 1,
+            y: area.y + 1, // +1 for header
+            width: 1,
+            height: visible_rows as u16,
+        };
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .thumb_symbol("▐")
+            .track_symbol(Some(" "))
+            .style(Style::default().fg(scrollbar_color))
+            .thumb_style(Style::default().fg(scrollbar_color))
+            .track_style(Style::default().fg(scrollbar_color))
+            .begin_symbol(None)
+            .end_symbol(None);
+        f.render_stateful_widget(scrollbar, scroll_area, &mut scrollbar_state);
+    }
 }
 
 pub fn draw_panel_status(
@@ -151,11 +181,7 @@ pub fn draw_panel_status(
         palette.colors.text.rgb.g,
         palette.colors.text.rgb.b,
     );
-    let block = Block::default()
-        .borders(Borders::NONE)
-        .style(Style::default().bg(bg).fg(fg));
     let paragraph = ratatui::widgets::Paragraph::new(status)
-        .block(block)
-        .style(Style::default().fg(fg));
+        .style(Style::default().fg(fg).bg(bg));
     f.render_widget(paragraph, area);
 }

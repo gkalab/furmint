@@ -29,8 +29,7 @@ pub fn draw_panel_status(
         palette.colors.text.rgb.b,
     );
     let block = Block::default()
-        .borders(Borders::NONE)
-        .style(Style::default().bg(bg).fg(fg));
+        .borders(Borders::NONE);
     let paragraph = ratatui::widgets::Paragraph::new(status)
         .block(block)
         .style(Style::default().fg(fg));

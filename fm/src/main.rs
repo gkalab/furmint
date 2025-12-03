@@ -100,6 +100,47 @@ fn main() -> Result<()> {
                                 panel.selected += 1;
                             }
                         }
+                        (KeyCode::PageUp, _) => {
+                            let panel = match app.active {
+                                PanelSide::Left => &mut app.left,
+                                PanelSide::Right => &mut app.right,
+                            };
+                            let visible_rows = 20; // fallback, will be recalculated in draw_panel
+                            if panel.selected >= visible_rows {
+                                panel.selected -= visible_rows;
+                            } else {
+                                panel.selected = 0;
+                            }
+                        }
+                        (KeyCode::PageDown, _) => {
+                            let panel = match app.active {
+                                PanelSide::Left => &mut app.left,
+                                PanelSide::Right => &mut app.right,
+                            };
+                            let visible_rows = 20; // fallback, will be recalculated in draw_panel
+                            let max_idx = panel.entries.len().saturating_sub(1);
+                            if panel.selected + visible_rows <= max_idx {
+                                panel.selected += visible_rows;
+                            } else {
+                                panel.selected = max_idx;
+                            }
+                        }
+                        (KeyCode::Home, _) => {
+                            let panel = match app.active {
+                                PanelSide::Left => &mut app.left,
+                                PanelSide::Right => &mut app.right,
+                            };
+                            panel.selected = 0;
+                        }
+                        (KeyCode::End, _) => {
+                            let panel = match app.active {
+                                PanelSide::Left => &mut app.left,
+                                PanelSide::Right => &mut app.right,
+                            };
+                            if !panel.entries.is_empty() {
+                                panel.selected = panel.entries.len() - 1;
+                            }
+                        }
                         (KeyCode::Enter, _) => {
                             let panel = match app.active {
                                 PanelSide::Left => &mut app.left,
