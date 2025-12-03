@@ -19,6 +19,7 @@ This repository currently contains no source code or configuration files. Please
 - Document public items with `///` doc comments.
 - Keep functions short and focused; prefer small modules.
 - Avoid unused dependencies and dead code.
+- **Always fix warnings and remove unused imports before committing.**
 
 ## Cursor/Copilot Rules
 No Cursor or Copilot rules found. Add them if needed in `.cursor/rules/` or `.github/copilot-instructions.md`.

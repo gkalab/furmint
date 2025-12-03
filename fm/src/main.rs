@@ -1,141 +1,16 @@
-use std::fs::{self, Metadata};
-use std::path::{PathBuf};
-use std::time::SystemTime;
-
-use std::env;
-
-use ratatui::prelude::*;
-use ratatui::widgets::{Table, Row, Cell, Block, Borders};
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
-use crossterm::terminal::{enable_raw_mode, disable_raw_mode};
-use chrono::{DateTime, Local};
-
+mod fs_ops;
+mod ui;
+mod app;
 
 use anyhow::Result;
 use catppuccin::PALETTE;
-
-#[derive(Clone)]
-struct FileEntry {
-    name: String,
-    is_dir: bool,
-    size: Option<u64>,
-    modified: Option<SystemTime>,
-    attributes: String,
-}
-
-struct PanelState {
-    current_dir: PathBuf,
-    entries: Vec<FileEntry>,
-    selected: usize,
-    history: Vec<PathBuf>,
-    history_index: usize,
-    error: Option<String>,
-}
-
-#[derive(PartialEq)]
-enum PanelSide {
-    Left,
-    Right,
-}
-
-struct AppState {
-    left: PanelState,
-    right: PanelState,
-    active: PanelSide,
-    status: Option<String>,
-}
-
-impl FileEntry {
-    fn from_path(path: &PathBuf, meta: &Metadata) -> Self {
-        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-        let is_dir = meta.is_dir();
-        let size = if is_dir { None } else { Some(meta.len()) };
-        let modified = meta.modified().ok();
-        let attributes = get_attributes(meta, is_dir);
-        FileEntry { name, is_dir, size, modified, attributes }
-    }
-}
-
-fn get_attributes(meta: &Metadata, is_dir: bool) -> String {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = meta.permissions().mode();
-        let mut attrs = String::new();
-        attrs.push(if is_dir { 'd' } else { '-' });
-        for i in (0..9).rev() {
-            let bit = (mode >> i) & 1;
-            attrs.push(match i % 3 {
-                2 => if bit == 1 { 'r' } else { '-' },
-                1 => if bit == 1 { 'w' } else { '-' },
-                0 => if bit == 1 { 'x' } else { '-' },
-                _ => '-',
-            });
-        }
-        attrs
-    }
-    #[cfg(not(unix))]
-    {
-        if is_dir { "<DIR>".to_string() } else { "<FILE>".to_string() }
-    }
-}
-
-fn list_dir(path: &PathBuf) -> Result<Vec<FileEntry>> {
-    let mut entries = vec![];
-    // Always add .. for going up
-    entries.push(FileEntry {
-        name: "..".to_string(),
-        is_dir: true,
-        size: None,
-        modified: None,
-        attributes: "".to_string(),
-    });
-    for entry in fs::read_dir(path)? {
-        let entry = entry?;
-        let meta = entry.metadata()?;
-        let file_path = entry.path();
-        entries.push(FileEntry::from_path(&file_path, &meta));
-    }
-    // Sort: dirs first, then files, both alphabetically
-    entries.sort_by(|a, b| {
-        match (a.is_dir, b.is_dir) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-        }
-    });
-    Ok(entries)
-}
-
-use bytesize::ByteSize;
-
-fn format_size(size: Option<u64>, is_dir: bool) -> String {
-    // Use up to 1 decimal precision, units G/M/K, no space, pad <DIR> to 7 chars
-    if is_dir {
-        format!("{:>7}", "<DIR>")
-    } else if let Some(s) = size {
-        if s >= 1_000_000_000 {
-            format!("{:>6.1}G", s as f64 / 1_000_000_000.0)
-        } else if s >= 1_000_000 {
-            format!("{:>6.1}M", s as f64 / 1_000_000.0)
-        } else if s >= 1_000 {
-            format!("{:>6.1}K", s as f64 / 1_000.0)
-        } else {
-            format!("{:>7}", s)
-        }
-    } else {
-        "       ".to_string()
-    }
-}
-
-fn format_modified(modified: Option<SystemTime>) -> String {
-    if let Some(m) = modified {
-        let dt: DateTime<Local> = m.into();
-        dt.format("%Y-%m-%d %H:%M:%S").to_string()
-    } else {
-        "".to_string()
-    }
-}
+use std::env;
+use crossterm::terminal::{enable_raw_mode, disable_raw_mode};
+use crate::app::{AppState, PanelState, PanelSide};
+use crate::fs_ops::{list_dir};
+use crate::ui::{draw_panel, draw_panel_status};
+use ratatui::prelude::*;
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 
 fn main() -> Result<()> {
     enable_raw_mode()?;
@@ -164,12 +39,12 @@ fn main() -> Result<()> {
         left: left_panel,
         right: right_panel,
         active: PanelSide::Left,
-        status: None,
+
     };
 
     loop {
         terminal.draw(|f| {
-            let size = f.size();
+            let size = f.area();
             let vertical_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
@@ -340,85 +215,3 @@ fn main() -> Result<()> {
     disable_raw_mode()?;
     Ok(())
 }
-
-use ratatui::widgets::TableState;
-
-fn draw_panel(
-    f: &mut ratatui::Frame,
-    panel: &PanelState,
-    active: bool,
-    area: Rect,
-    palette: &catppuccin::Flavor,
-) {
-    // Compute max width for Size column
-    let size_width = panel.entries.iter()
-        .map(|e| format_size(e.size, e.is_dir).len())
-        .max()
-        .unwrap_or(4);
-    let size_header = format!("{:>width$}", "Size", width = size_width);
-    let header = ["Name", &size_header, "Modified", "Attributes"];
-    let rows = panel.entries.iter().map(|e| {
-         Row::new(vec![
-            Cell::from(e.name.clone()),
-            Cell::from(format_size(e.size, e.is_dir)),
-            Cell::from(format_modified(e.modified)),
-            Cell::from(e.attributes.clone()),
-        ])
-    });
-    let border_color = if active {
-        Color::Rgb(
-            palette.colors.blue.rgb.r,
-            palette.colors.blue.rgb.g,
-            palette.colors.blue.rgb.b,
-        )
-    } else {
-        Color::Rgb(
-            palette.colors.overlay0.rgb.r,
-            palette.colors.overlay0.rgb.g,
-            palette.colors.overlay0.rgb.b,
-        )
-    };
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title(panel.current_dir.to_string_lossy())
-        .border_style(Style::default().fg(border_color));
-    let widths = [
-        Constraint::Percentage(40),
-        Constraint::Percentage(20),
-        Constraint::Percentage(20),
-        Constraint::Percentage(20),
-    ];
-    let highlight_bg = if active {
-        Color::Rgb(
-            palette.colors.surface2.rgb.r,
-            palette.colors.surface2.rgb.g,
-            palette.colors.surface2.rgb.b,
-        )
-    } else {
-        Color::Rgb(
-            palette.colors.surface1.rgb.r,
-            palette.colors.surface1.rgb.g,
-            palette.colors.surface1.rgb.b,
-        )
-    };
-    let highlight_fg = Color::Rgb(
-        palette.colors.text.rgb.r,
-        palette.colors.text.rgb.g,
-        palette.colors.text.rgb.b,
-    );
-    let table = Table::new(rows, widths)
-        .header(Row::new(header).style(Style::default().fg(Color::Rgb(
-            palette.colors.yellow.rgb.r,
-            palette.colors.yellow.rgb.g,
-            palette.colors.yellow.rgb.b,
-        ))))
-        .block(block)
-        .row_highlight_style(Style::default()
-            .bg(highlight_bg)
-            .fg(highlight_fg)
-        );
-    f.render_stateful_widget(table, area, &mut TableState::default().with_selected(Some(panel.selected)));
-}
-
-mod panel_status;
-use panel_status::draw_panel_status;
