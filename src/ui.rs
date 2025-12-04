@@ -112,9 +112,67 @@ pub fn draw_panel(
     } else {
         Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b)
     };
+    // Truncate panel title path with ellipsis if too long
+    fn truncate_path_with_ellipsis(path: &std::path::Path, max_width: usize) -> String {
+        use std::path::MAIN_SEPARATOR;
+        let sep = MAIN_SEPARATOR;
+        let path_str = path.to_string_lossy();
+        let segments: Vec<&str> = path_str.split(sep).collect();
+        if path_str.chars().count() <= max_width {
+            return path_str.to_string();
+        }
+        let ellipsis = "…";
+        let sep_str = sep.to_string();
+        let seg_len = segments.len();
+        // Always show as many segments as possible, ellipsis in the middle
+        // Start with 1 left, 1 right, and increase until it doesn't fit
+        let mut left_count = 1;
+        let mut right_count = 1;
+        let mut result = String::new();
+        let mut last_result = String::new();
+        let mut last_left = left_count;
+        let mut last_right = right_count;
+        // Try all possible combinations, keep the best that fits
+        while left_count + right_count < seg_len {
+            let mut parts = Vec::new();
+            if left_count > 0 {
+                parts.extend_from_slice(&segments[..left_count.min(seg_len)]);
+            }
+            parts.push(ellipsis);
+            if right_count > 0 {
+                parts.extend_from_slice(&segments[seg_len.saturating_sub(right_count)..]);
+            }
+            result = parts.join(&sep_str);
+            if result.chars().count() > max_width {
+                break;
+            }
+            last_result = result.clone();
+            last_left = left_count;
+            last_right = right_count;
+            // Try to add more segments
+            if left_count <= right_count {
+                left_count += 1;
+            } else {
+                right_count += 1;
+            }
+        }
+        // If nothing fit, fallback to first/ellipsis/last
+        if last_result.is_empty() {
+            let first = segments.first().map_or("", |v| *v);
+            let last = segments.last().map_or("", |v| *v);
+            last_result = format!("{}{}{}{}{}", first, sep_str, ellipsis, sep_str, last);
+            if last_result.chars().count() > max_width {
+                last_result = last_result.chars().take(max_width).collect();
+            }
+        }
+        last_result
+    }
+
+    let title_width = area.width.saturating_sub(2) as usize;
+    let panel_title = truncate_path_with_ellipsis(&panel.current_dir, title_width);
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(panel.current_dir.to_string_lossy())
+        .title(panel_title)
         .border_style(Style::default().fg(border_color));
     let widths = [
         Constraint::Min(10),    // Name: dynamic, at least 10
