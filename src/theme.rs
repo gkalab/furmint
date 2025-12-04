@@ -208,8 +208,8 @@ pub fn breakers() -> ThemePalette {
         mantle: Rgb::new(238, 238, 238),   // Slightly darker #eeeeee
         surface0: Rgb::new(228, 228, 228), // Surface
         surface1: Rgb::new(210, 210, 210), // Surface variant
-        surface2: Rgb::new(190, 210, 225), // Selection (light blue tint)
-        overlay0: Rgb::new(120, 130, 140), // Comment/muted
+        overlay0: Rgb::new(190, 210, 225), // Selection (light blue tint)
+        surface2: Rgb::new(120, 130, 140), // Comment/muted
         text: Rgb::new(48, 56, 65),        // Dark text (Mariana's bg)
         subtext: Rgb::new(80, 90, 100),    // Secondary text
         blue: Rgb::new(53, 124, 176),      // Blue (directories)

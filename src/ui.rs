@@ -108,11 +108,20 @@ fn is_executable(full_path: &std::path::Path, e: &crate::fs_ops::FileEntry) -> b
             palette.mantle.b,
         )
     };
-    let highlight_fg = Color::Rgb(
-        palette.text.r,
-        palette.text.g,
-        palette.text.b,
-    );
+    let highlight_fg = if !palette.is_dark && active {
+        // For light themes, use the base background color for text on the dark selection background
+        Color::Rgb(
+            palette.base.r,
+            palette.base.g,
+            palette.base.b,
+        )
+    } else {
+        Color::Rgb(
+            palette.text.r,
+            palette.text.g,
+            palette.text.b,
+        )
+    };
     let table = Table::new(rows, widths)
         .header(Row::new(header).style(Style::default().fg(Color::Rgb(
             palette.yellow.r,
