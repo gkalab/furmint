@@ -75,7 +75,9 @@ name = "catppuccin macchiato"
   - **Catppuccin** (light): `catppuccin latte`
   - **Dracula** (dark): `dracula`
   - **Nord** (dark): `nord`
+  - **Mariana** (dark): `mariana`
   - **Solarized** (light): `solarized light`
+  - **Breakers** (light): `breakers`
 
 ### Behavior
 - If the config file is missing, the app uses sensible defaults (as above).

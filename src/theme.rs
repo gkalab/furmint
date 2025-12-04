@@ -176,6 +176,50 @@ pub fn solarized_light() -> ThemePalette {
     }
 }
 
+// ============================================================================
+// Mariana Theme
+// ============================================================================
+
+pub fn mariana() -> ThemePalette {
+    ThemePalette {
+        base: Rgb::new(48, 56, 65),        // Background #303841
+        mantle: Rgb::new(38, 45, 53),      // Darker background
+        surface0: Rgb::new(60, 70, 82),    // Surface
+        surface1: Rgb::new(75, 88, 103),   // Surface variant
+        surface2: Rgb::new(90, 105, 122),  // Selection #5a6978
+        overlay0: Rgb::new(160, 166, 175), // Comment color #a0a6af
+        text: Rgb::new(213, 220, 230),     // Foreground #d5dce6
+        subtext: Rgb::new(180, 188, 198),  // Secondary text
+        blue: Rgb::new(102, 175, 224),     // Blue #66afe0 (directories)
+        green: Rgb::new(153, 199, 148),    // Green #99c794 (executables)
+        yellow: Rgb::new(250, 200, 99),    // Yellow #fac863 (headers)
+        red: Rgb::new(236, 95, 103),       // Red #ec5f67 (errors)
+        is_dark: true,
+    }
+}
+
+// ============================================================================
+// Breakers Theme
+// ============================================================================
+
+pub fn breakers() -> ThemePalette {
+    ThemePalette {
+        base: Rgb::new(248, 248, 248),     // Light background #f8f8f8
+        mantle: Rgb::new(238, 238, 238),   // Slightly darker #eeeeee
+        surface0: Rgb::new(228, 228, 228), // Surface
+        surface1: Rgb::new(210, 210, 210), // Surface variant
+        surface2: Rgb::new(190, 210, 225), // Selection (light blue tint)
+        overlay0: Rgb::new(120, 130, 140), // Comment/muted
+        text: Rgb::new(48, 56, 65),        // Dark text (Mariana's bg)
+        subtext: Rgb::new(80, 90, 100),    // Secondary text
+        blue: Rgb::new(53, 124, 176),      // Blue (directories)
+        green: Rgb::new(85, 145, 85),      // Green (executables)
+        yellow: Rgb::new(180, 140, 40),    // Yellow/orange (headers)
+        red: Rgb::new(200, 60, 70),        // Red (errors)
+        is_dark: false,
+    }
+}
+
 /// Get theme palette by name
 pub fn get_theme(name: &str) -> Option<ThemePalette> {
     match name {
@@ -186,6 +230,8 @@ pub fn get_theme(name: &str) -> Option<ThemePalette> {
         "dracula" => Some(dracula()),
         "nord" => Some(nord()),
         "solarized light" => Some(solarized_light()),
+        "mariana" => Some(mariana()),
+        "breakers" => Some(breakers()),
         _ => None,
     }
 }
@@ -204,4 +250,7 @@ pub const THEME_NAMES: &[&str] = &[
     "dracula",
     "nord",
     "solarized light",
+    "mariana",
+    "breakers",
 ];
+
