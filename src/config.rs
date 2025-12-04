@@ -5,8 +5,8 @@ use directories::ProjectDirs;
 
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct KeyboardConfig {
-    pub previous_directory: Option<Vec<String>>,
-    pub next_directory: Option<Vec<String>>,
+    pub history_previous: Option<Vec<String>>,
+    pub history_next: Option<Vec<String>>,
     // Add more actions as needed
 }
 
@@ -25,8 +25,8 @@ pub struct AppConfig {
 // Default key bindings (update as needed)
 pub fn default_keyboard_config() -> KeyboardConfig {
     KeyboardConfig {
-        previous_directory: Some(vec!["Ctrl-Up".to_string(), "Left".to_string()]),
-        next_directory: Some(vec!["Ctrl-Down".to_string(), "Right".to_string()]),
+        history_previous: Some(vec!["Alt-Left".to_string()]),
+        history_next: Some(vec!["Alt-Right".to_string()]),
         // Add more actions and their default shortcuts here
     }
 }
@@ -40,8 +40,8 @@ pub fn default_theme_config() -> ThemeConfig {
 
 pub fn merge_keyboard_config(user: &Option<KeyboardConfig>, default: &KeyboardConfig) -> KeyboardConfig {
     KeyboardConfig {
-        previous_directory: user.as_ref().and_then(|k| k.previous_directory.clone()).or_else(|| default.previous_directory.clone()),
-        next_directory: user.as_ref().and_then(|k| k.next_directory.clone()).or_else(|| default.next_directory.clone()),
+        history_previous: user.as_ref().and_then(|k| k.history_previous.clone()).or_else(|| default.history_previous.clone()),
+        history_next: user.as_ref().and_then(|k| k.history_next.clone()).or_else(|| default.history_next.clone()),
         // Add more actions as needed
     }
 }

@@ -154,17 +154,17 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
                 return false;
             }
             let shortcut = keyevent_to_string(code, modifiers);
-            // Previous directory
-            if let Some(keys) = &keyboard.previous_directory {
+            // Previous directory from history
+            if let Some(keys) = &keyboard.history_previous {
                 if keys.contains(&shortcut) {
-                    handle_ctrl_left(app);
+                    handle_history_previous(app);
                     return false;
                 }
             }
-            // Next directory
-            if let Some(keys) = &keyboard.next_directory {
+            // Next directory from history
+            if let Some(keys) = &keyboard.history_next {
                 if keys.contains(&shortcut) {
-                    handle_ctrl_right(app);
+                    handle_history_next(app);
                     return false;
                 }
             }
@@ -353,7 +353,7 @@ fn handle_backspace(app: &mut AppState) {
     }
 }
 
-fn handle_ctrl_left(app: &mut AppState) {
+fn handle_history_previous(app: &mut AppState) {
     let panel = match app.active {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
@@ -366,7 +366,7 @@ fn handle_ctrl_left(app: &mut AppState) {
     }
 }
 
-fn handle_ctrl_right(app: &mut AppState) {
+fn handle_history_next(app: &mut AppState) {
     let panel = match app.active {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
