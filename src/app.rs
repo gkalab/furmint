@@ -177,11 +177,13 @@ pub struct FileViewerState {
 }
 
 impl FileViewerState {
-    pub fn new(is_dark_theme: bool) -> Self {
+    pub fn new(is_dark_theme: bool, app_theme_name: &str) -> Self {
         let syntax_set = syntect::parsing::SyntaxSet::load_defaults_newlines();
         let theme_set = syntect::highlighting::ThemeSet::load_defaults();
         // Select theme based on app theme variant
-        let theme_name = if is_dark_theme {
+        let theme_name = if app_theme_name == "solarized light" {
+            "Solarized (light)"
+        } else if is_dark_theme {
             "base16-eighties.dark"
         } else {
             "InspiredGitHub"
