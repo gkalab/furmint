@@ -180,6 +180,10 @@ fn handle_enter(app: &mut AppState) {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
+    // Save current selection to history
+    if panel.history_index < panel.history.len() {
+        panel.history[panel.history_index].selected = panel.selected;
+    }
     let entry = &panel.entries[panel.selected];
     if entry.is_dir {
         let mut new_dir = panel.current_dir.clone();
@@ -194,13 +198,19 @@ fn handle_enter(app: &mut AppState) {
             Ok(entries) => {
                 panel.current_dir = new_dir.clone();
                 panel.entries = entries;
-                panel.selected = 0;
-                // Update history
-                if panel.history_index + 1 < panel.history.len() {
-                    panel.history.truncate(panel.history_index + 1);
+                // Restore selection if new_dir is in history
+                if let Some((idx, hist)) = panel.history.iter().enumerate().find(|(_, h)| h.path == new_dir) {
+                    panel.selected = hist.selected.min(panel.entries.len().saturating_sub(1));
+                    panel.history_index = idx;
+                } else {
+                    panel.selected = 0;
+                    // Update history
+                    if panel.history_index + 1 < panel.history.len() {
+                        panel.history.truncate(panel.history_index + 1);
+                    }
+                    panel.history.push(crate::app::HistoryEntry { path: new_dir.clone(), selected: 0 });
+                    panel.history_index += 1;
                 }
-                panel.history.push(new_dir);
-                panel.history_index += 1;
                 panel.error = None;
             }
             Err(e) => {
@@ -215,18 +225,28 @@ fn handle_backspace(app: &mut AppState) {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
+    // Save current selection to history
+    if panel.history_index < panel.history.len() {
+        panel.history[panel.history_index].selected = panel.selected;
+    }
     if let Some(parent) = panel.current_dir.parent() {
         let parent = parent.to_path_buf();
         match list_dir(&parent) {
             Ok(entries) => {
                 panel.current_dir = parent.clone();
                 panel.entries = entries;
-                panel.selected = 0;
-                if panel.history_index + 1 < panel.history.len() {
-                    panel.history.truncate(panel.history_index + 1);
+                // Restore selection if parent is in history
+                if let Some((idx, hist)) = panel.history.iter().enumerate().find(|(_, h)| h.path == parent) {
+                    panel.selected = hist.selected.min(panel.entries.len().saturating_sub(1));
+                    panel.history_index = idx;
+                } else {
+                    panel.selected = 0;
+                    if panel.history_index + 1 < panel.history.len() {
+                        panel.history.truncate(panel.history_index + 1);
+                    }
+                    panel.history.push(crate::app::HistoryEntry { path: parent.clone(), selected: 0 });
+                    panel.history_index += 1;
                 }
-                panel.history.push(parent);
-                panel.history_index += 1;
                 panel.error = None;
             }
             Err(e) => {
@@ -241,14 +261,18 @@ fn handle_ctrl_left(app: &mut AppState) {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
+    // Save current selection to history
+    if panel.history_index < panel.history.len() {
+        panel.history[panel.history_index].selected = panel.selected;
+    }
     if panel.history_index > 0 {
         panel.history_index -= 1;
-        let dir = panel.history[panel.history_index].clone();
-        match list_dir(&dir) {
+        let hist = &panel.history[panel.history_index];
+        match list_dir(&hist.path) {
             Ok(entries) => {
-                panel.current_dir = dir;
+                panel.current_dir = hist.path.clone();
                 panel.entries = entries;
-                panel.selected = 0;
+                panel.selected = hist.selected.min(panel.entries.len().saturating_sub(1));
                 panel.error = None;
             }
             Err(e) => {
@@ -263,14 +287,18 @@ fn handle_ctrl_right(app: &mut AppState) {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
+    // Save current selection to history
+    if panel.history_index < panel.history.len() {
+        panel.history[panel.history_index].selected = panel.selected;
+    }
     if panel.history_index + 1 < panel.history.len() {
         panel.history_index += 1;
-        let dir = panel.history[panel.history_index].clone();
-        match list_dir(&dir) {
+        let hist = &panel.history[panel.history_index];
+        match list_dir(&hist.path) {
             Ok(entries) => {
-                panel.current_dir = dir;
+                panel.current_dir = hist.path.clone();
                 panel.entries = entries;
-                panel.selected = 0;
+                panel.selected = hist.selected.min(panel.entries.len().saturating_sub(1));
                 panel.error = None;
             }
             Err(e) => {
