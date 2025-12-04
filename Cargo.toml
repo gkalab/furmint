@@ -16,4 +16,6 @@ syntect = "5.2.0"
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
 directories = "6.0"
+
+[target.'cfg(windows)'.dependencies]
 winreg = "0.10"
