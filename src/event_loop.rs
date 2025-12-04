@@ -4,6 +4,9 @@ use crate::theme::ThemePalette;
 use crate::ui::{draw_panel, draw_panel_status};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::prelude::*;
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
+use std::process::Command;
+use std::env;
 
 pub fn run_event_loop(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
@@ -235,13 +238,40 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
     false
 }
 
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-use std::process::Command;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn get_default_editor() -> String {
+    // First check $EDITOR, then $VISUAL
+    env::var("EDITOR")
+        .or_else(|_| env::var("VISUAL"))
+        .unwrap_or_else(|_| "vi".to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn get_default_editor() -> String {
+    use winreg::enums::*;
+    use winreg::RegKey;
+
+    let hkcr = RegKey::predef(HKEY_CLASSES_ROOT);
+
+    // Look up the ProgID for .txt files
+    if let Ok(txt_key) = hkcr.open_subkey(".txt") {
+        if let Ok(prog_id) = txt_key.get_value::<String, _>("") {
+            // Open the ProgID key
+            if let Ok(prog_key) = hkcr.open_subkey(&prog_id) {
+                if let Ok(app) = prog_key.get_value::<String, _>("") {
+                    return app;
+                }
+            }
+        }
+    }
+
+    // Fallback if registry lookup fails
+    "notepad.exe".to_string()
+}
 
 fn open_in_default_editor(file_path: &std::path::Path) -> anyhow::Result<()> {
     // Get the default editor
-    let editor =
-        default_editor::get().map_err(|e| anyhow::anyhow!("No default editor found: {}", e))?;
+    let editor = get_default_editor();
     // Suspend TUI
     disable_raw_mode()?;
     // Launch editor as blocking subprocess
