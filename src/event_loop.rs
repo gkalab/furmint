@@ -87,8 +87,8 @@ fn draw_ui(
 
 fn poll_events() -> anyhow::Result<Vec<Event>> {
     let mut events = Vec::new();
-    while event::poll(std::time::Duration::from_millis(10))? {
-        events.push(event::read()?);
+    if event::poll(std::time::Duration::from_millis(10))? {
+        events.push(event::read()?); // Only process one event per frame
     }
     Ok(events)
 }
@@ -97,7 +97,10 @@ fn poll_events() -> anyhow::Result<Vec<Event>> {
 pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) -> bool {
     match ev {
         Event::Key(KeyEvent {
-            code, modifiers, ..
+            kind: crossterm::event::KeyEventKind::Press,
+            code,
+            modifiers,
+            ..
         }) => {
             if (code == KeyCode::Char('q') && modifiers == KeyModifiers::CONTROL)
                 || (code == KeyCode::Esc && !app.file_viewer.is_visible)
