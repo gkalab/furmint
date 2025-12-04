@@ -12,6 +12,7 @@ pub struct FileEntry {
     pub size: Option<u64>,
     pub modified: Option<SystemTime>,
     pub attributes: String,
+    pub selected: bool,
 }
 
 impl FileEntry {
@@ -25,7 +26,7 @@ impl FileEntry {
         let size = if is_dir { None } else { Some(meta.len()) };
         let modified = meta.modified().ok();
         let attributes = get_attributes(meta, is_dir);
-        FileEntry { name, is_dir, is_symlink, size, modified, attributes }
+        FileEntry { name, is_dir, is_symlink, size, modified, attributes, selected: false }
     }
 }
 
@@ -63,6 +64,7 @@ pub fn list_dir(path: &PathBuf) -> Result<Vec<FileEntry>> {
         size: None,
         modified: None,
         attributes: "".to_string(),
+        selected: false,
     });
     for entry in fs::read_dir(path)? {
         let entry = entry?;
@@ -144,3 +146,115 @@ pub fn format_modified(modified: Option<SystemTime>) -> String {
         "".to_string()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_size_bytes() {
+        assert_eq!(format_size(Some(500), false, false), "    500");
+        assert_eq!(format_size(Some(0), false, false), "      0");
+        assert_eq!(format_size(Some(999), false, false), "    999");
+    }
+
+    #[test]
+    fn test_format_size_kilobytes() {
+        assert_eq!(format_size(Some(1000), false, false), "   1.0K");
+        assert_eq!(format_size(Some(1500), false, false), "   1.5K");
+    }
+
+    #[test]
+    fn test_format_size_megabytes() {
+        assert_eq!(format_size(Some(1_000_000), false, false), "   1.0M");
+        assert_eq!(format_size(Some(1_500_000), false, false), "   1.5M");
+    }
+
+    #[test]
+    fn test_format_size_gigabytes() {
+        assert_eq!(format_size(Some(1_000_000_000), false, false), "   1.0G");
+        assert_eq!(format_size(Some(2_500_000_000), false, false), "   2.5G");
+    }
+
+    #[test]
+    fn test_format_size_dir() {
+        assert_eq!(format_size(None, true, false), "  <DIR>");
+        assert_eq!(format_size(Some(100), true, false), "  <DIR>");
+    }
+
+    #[test]
+    fn test_format_size_symlink() {
+        assert_eq!(format_size(None, true, true), "  <LNK>");
+    }
+
+    #[test]
+    fn test_format_modified_some() {
+        let now = SystemTime::now();
+        let result = format_modified(Some(now));
+        assert_eq!(result.len(), 19);
+        assert!(result.contains('-'));
+        assert!(result.contains(':'));
+    }
+
+    #[test]
+    fn test_format_modified_none() {
+        assert_eq!(format_modified(None), "");
+    }
+
+    #[test]
+    fn test_read_file_content_valid() {
+        use std::io::Write;
+        let temp_dir = std::env::temp_dir();
+        let test_file = temp_dir.join("fm_test_read.txt");
+        let mut file = std::fs::File::create(&test_file).unwrap();
+        file.write_all(b"Hello, World!").unwrap();
+        
+        let result = read_file_content(&test_file, 1024);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "Hello, World!");
+        
+        std::fs::remove_file(&test_file).ok();
+    }
+
+    #[test]
+    fn test_read_file_content_too_large() {
+        use std::io::Write;
+        let temp_dir = std::env::temp_dir();
+        let test_file = temp_dir.join("fm_test_large.txt");
+        let mut file = std::fs::File::create(&test_file).unwrap();
+        file.write_all(&vec![b'a'; 100]).unwrap();
+        
+        let result = read_file_content(&test_file, 50);
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("too large"));
+        
+        std::fs::remove_file(&test_file).ok();
+    }
+
+    #[test]
+    fn test_read_file_content_binary() {
+        use std::io::Write;
+        let temp_dir = std::env::temp_dir();
+        let test_file = temp_dir.join("fm_test_binary.bin");
+        let mut file = std::fs::File::create(&test_file).unwrap();
+        file.write_all(&[0u8, 1, 2, 0, 3]).unwrap();
+        
+        let result = read_file_content(&test_file, 1024);
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("Binary"));
+        
+        std::fs::remove_file(&test_file).ok();
+    }
+
+    #[test]
+    fn test_list_dir_includes_parent() {
+        let temp_dir = std::env::temp_dir();
+        let result = list_dir(&temp_dir);
+        assert!(result.is_ok());
+        let entries = result.unwrap();
+        assert!(!entries.is_empty());
+        assert_eq!(entries[0].name, "..");
+        assert!(entries[0].is_dir);
+    }
+}
+

@@ -2,7 +2,6 @@ use ratatui::prelude::*;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use crate::app::{AppState, PanelSide};
 use catppuccin::Flavor;
-use crate::fs_ops::list_dir;
 use crate::ui::{draw_panel, draw_panel_status};
 use crate::config::KeyboardConfig;
 
@@ -266,10 +265,8 @@ fn handle_up(app: &mut AppState) {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
-    if panel.cursor > 0 {
-        panel.cursor -= 1;
-        update_viewer_content(app);
-    }
+    panel.move_cursor_up();
+    update_viewer_content(app);
 }
 
 fn handle_down(app: &mut AppState) {
@@ -277,10 +274,8 @@ fn handle_down(app: &mut AppState) {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
-    if panel.cursor + 1 < panel.entries.len() {
-        panel.cursor += 1;
-        update_viewer_content(app);
-    }
+    panel.move_cursor_down();
+    update_viewer_content(app);
 }
 
 fn handle_page_up(app: &mut AppState) {
@@ -288,12 +283,7 @@ fn handle_page_up(app: &mut AppState) {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
-    let visible_rows = 20; // fallback, will be recalculated in draw_panel
-    if panel.cursor >= visible_rows {
-        panel.cursor -= visible_rows;
-    } else {
-        panel.cursor = 0;
-    }
+    panel.move_cursor_page_up(20);
     update_viewer_content(app);
 }
 
@@ -302,13 +292,7 @@ fn handle_page_down(app: &mut AppState) {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
-    let visible_rows = 20; // fallback, will be recalculated in draw_panel
-    let max_idx = panel.entries.len().saturating_sub(1);
-    if panel.cursor + visible_rows <= max_idx {
-        panel.cursor += visible_rows;
-    } else {
-        panel.cursor = max_idx;
-    }
+    panel.move_cursor_page_down(20);
     update_viewer_content(app);
 }
 
@@ -317,7 +301,7 @@ fn handle_home(app: &mut AppState) {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
-    panel.cursor = 0;
+    panel.move_cursor_home();
     update_viewer_content(app);
 }
 
@@ -326,9 +310,7 @@ fn handle_end(app: &mut AppState) {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
-    if !panel.entries.is_empty() {
-        panel.cursor = panel.entries.len() - 1;
-    }
+    panel.move_cursor_end();
     update_viewer_content(app);
 }
 
@@ -337,42 +319,21 @@ fn handle_enter(app: &mut AppState) {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
-    // Save current selection to history
-    if panel.history_index < panel.history.len() {
-        panel.history[panel.history_index].cursor = panel.cursor;
-    }
-    let entry = &panel.entries[panel.cursor];
-    if entry.is_dir {
-        let mut new_dir = panel.current_dir.clone();
-        if entry.name == ".." {
-            if let Some(parent) = panel.current_dir.parent() {
-                new_dir = parent.to_path_buf();
-            }
-        } else {
-            new_dir.push(&entry.name);
-        }
-        match list_dir(&new_dir) {
-            Ok(entries) => {
-                panel.current_dir = new_dir.clone();
-                panel.entries = entries;
-                // Restore cursor if new_dir is in history
-                if let Some((idx, hist)) = panel.history.iter().enumerate().find(|(_, h)| h.path == new_dir) {
-                    panel.cursor = hist.cursor.min(panel.entries.len().saturating_sub(1));
-                    panel.history_index = idx;
+    
+    if let Some(entry) = panel.current_entry().cloned() {
+        if entry.is_dir {
+            let new_dir = if entry.name == ".." {
+                panel.current_dir.parent().map(|p| p.to_path_buf())
+            } else {
+                Some(panel.current_dir.join(&entry.name))
+            };
+            
+            if let Some(path) = new_dir {
+                if let Err(e) = panel.navigate_to(path) {
+                    panel.error = Some(format!("Error: {}", e));
                 } else {
-                    panel.cursor = 0;
-                    // Update history
-                    if panel.history_index + 1 < panel.history.len() {
-                        panel.history.truncate(panel.history_index + 1);
-                    }
-                    panel.history.push(crate::app::HistoryEntry { path: new_dir.clone(), cursor: 0 });
-                    panel.history_index += 1;
+                    update_viewer_content(app);
                 }
-                panel.error = None;
-                update_viewer_content(app);
-            }
-            Err(e) => {
-                panel.error = Some(format!("Error: {}", e));
             }
         }
     }
@@ -383,35 +344,11 @@ fn handle_backspace(app: &mut AppState) {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
-    // Save current selection to history
-    if panel.history_index < panel.history.len() {
-        panel.history[panel.history_index].cursor = panel.cursor;
-    }
-    if let Some(parent) = panel.current_dir.parent() {
-        let parent = parent.to_path_buf();
-        match list_dir(&parent) {
-            Ok(entries) => {
-                panel.current_dir = parent.clone();
-                panel.entries = entries;
-                // Restore cursor if parent is in history
-                if let Some((idx, hist)) = panel.history.iter().enumerate().find(|(_, h)| h.path == parent) {
-                    panel.cursor = hist.cursor.min(panel.entries.len().saturating_sub(1));
-                    panel.history_index = idx;
-                } else {
-                    panel.cursor = 0;
-                    if panel.history_index + 1 < panel.history.len() {
-                        panel.history.truncate(panel.history_index + 1);
-                    }
-                    panel.history.push(crate::app::HistoryEntry { path: parent.clone(), cursor: 0 });
-                    panel.history_index += 1;
-                }
-                panel.error = None;
-                update_viewer_content(app);
-            }
-            Err(e) => {
-                panel.error = Some(format!("Error: {}", e));
-            }
-        }
+    
+    if let Err(e) = panel.go_up() {
+        panel.error = Some(format!("Error: {}", e));
+    } else {
+        update_viewer_content(app);
     }
 }
 
@@ -420,25 +357,11 @@ fn handle_ctrl_left(app: &mut AppState) {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
-    // Save current selection to history
-    if panel.history_index < panel.history.len() {
-        panel.history[panel.history_index].cursor = panel.cursor;
-    }
-    if panel.history_index > 0 {
-        panel.history_index -= 1;
-        let hist = &panel.history[panel.history_index];
-        match list_dir(&hist.path) {
-            Ok(entries) => {
-                panel.current_dir = hist.path.clone();
-                panel.entries = entries;
-                panel.cursor = hist.cursor.min(panel.entries.len().saturating_sub(1));
-                panel.error = None;
-                update_viewer_content(app);
-            }
-            Err(e) => {
-                panel.error = Some(format!("Error: {}", e));
-            }
-        }
+    
+    if let Err(e) = panel.go_back() {
+        panel.error = Some(format!("Error: {}", e));
+    } else {
+        update_viewer_content(app);
     }
 }
 
@@ -447,25 +370,11 @@ fn handle_ctrl_right(app: &mut AppState) {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
-    // Save current selection to history
-    if panel.history_index < panel.history.len() {
-        panel.history[panel.history_index].cursor = panel.cursor;
-    }
-    if panel.history_index + 1 < panel.history.len() {
-        panel.history_index += 1;
-        let hist = &panel.history[panel.history_index];
-        match list_dir(&hist.path) {
-            Ok(entries) => {
-                panel.current_dir = hist.path.clone();
-                panel.entries = entries;
-                panel.cursor = hist.cursor.min(panel.entries.len().saturating_sub(1));
-                panel.error = None;
-                update_viewer_content(app);
-            }
-            Err(e) => {
-                panel.error = Some(format!("Error: {}", e));
-            }
-        }
+    
+    if let Err(e) = panel.go_forward() {
+        panel.error = Some(format!("Error: {}", e));
+    } else {
+        update_viewer_content(app);
     }
 }
 
