@@ -33,7 +33,7 @@ pub fn default_keyboard_config() -> KeyboardConfig {
 
 pub fn default_theme_config() -> ThemeConfig {
     ThemeConfig {
-        name: Some("catppuccin macchiato".to_string()),
+        name: Some("mariana".to_string()),
         // Add more theme defaults here
     }
 }
