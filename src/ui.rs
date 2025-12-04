@@ -222,9 +222,9 @@ pub fn draw_file_viewer(
         return;
     }
 
-    // Syntax highlighting
-    let syntax = viewer.syntax_set.find_syntax_for_file(&viewer.path)
-        .unwrap_or(None)
+    // Use cached syntax name
+    let syntax = viewer.syntax_name.as_ref()
+        .and_then(|name| viewer.syntax_set.find_syntax_by_name(name))
         .unwrap_or_else(|| viewer.syntax_set.find_syntax_plain_text());
     
     let mut h = HighlightLines::new(syntax, &viewer.theme);

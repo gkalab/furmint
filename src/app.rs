@@ -39,6 +39,7 @@ pub struct FileViewerState {
     pub is_visible: bool,
     pub syntax_set: syntect::parsing::SyntaxSet,
     pub theme: syntect::highlighting::Theme,
+    pub syntax_name: Option<String>,
     pub focused: bool,
 }
 
@@ -56,6 +57,7 @@ impl FileViewerState {
             is_visible: false,
             syntax_set,
             theme,
+            syntax_name: None,
             focused: false,
         }
     }
@@ -63,6 +65,13 @@ impl FileViewerState {
     pub fn load_content(&mut self, path: PathBuf) {
         self.path = path.clone();
         self.scroll_offset = 0;
+        
+        // Determine syntax once
+        let syntax = self.syntax_set.find_syntax_for_file(&self.path)
+            .unwrap_or(None)
+            .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text());
+        self.syntax_name = Some(syntax.name.clone());
+
         match crate::fs_ops::read_file_content(&self.path, 10 * 1024 * 1024) { // 10MB limit
             Ok(content) => {
                 self.content = content.lines().map(String::from).collect();
