@@ -7,6 +7,8 @@ use directories::ProjectDirs;
 pub struct KeyboardConfig {
     pub history_previous: Option<Vec<String>>,
     pub history_next: Option<Vec<String>>,
+    pub enter_directory: Option<Vec<String>>,
+    pub directory_up: Option<Vec<String>>,
     // Add more actions as needed
 }
 
@@ -27,6 +29,8 @@ pub fn default_keyboard_config() -> KeyboardConfig {
     KeyboardConfig {
         history_previous: Some(vec!["Alt-Left".to_string()]),
         history_next: Some(vec!["Alt-Right".to_string()]),
+        enter_directory: Some(vec!["Right".to_string()]),
+        directory_up: Some(vec!["Backspace".to_string(), "Left".to_string()]),
         // Add more actions and their default shortcuts here
     }
 }
@@ -42,6 +46,8 @@ pub fn merge_keyboard_config(user: &Option<KeyboardConfig>, default: &KeyboardCo
     KeyboardConfig {
         history_previous: user.as_ref().and_then(|k| k.history_previous.clone()).or_else(|| default.history_previous.clone()),
         history_next: user.as_ref().and_then(|k| k.history_next.clone()).or_else(|| default.history_next.clone()),
+        enter_directory: user.as_ref().and_then(|k| k.enter_directory.clone()).or_else(|| default.enter_directory.clone()),
+        directory_up: user.as_ref().and_then(|k| k.directory_up.clone()).or_else(|| default.directory_up.clone()),
         // Add more actions as needed
     }
 }

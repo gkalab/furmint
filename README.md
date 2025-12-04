@@ -62,8 +62,10 @@ The app supports user-configurable keyboard shortcuts and theme selection via a 
 ### Example `config.toml`
 ```toml
 [keyboard]
-history_previous = ["Ctrl-Up", "Left"]
-history_next = ["Ctrl-Down", "Right"]
+enter_directory = ["Right"]
+directory_up = ["Backspace", "Left"]
+history_previous = ["Alt-Left"]
+history_next = ["Alt-Right"]
 
 [theme]
 name = "catppuccin macchiato"

@@ -168,6 +168,20 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
                     return false;
                 }
             }
+            // Enter directory
+            if let Some(keys) = &keyboard.enter_directory {
+                if keys.contains(&shortcut) {
+                    handle_enter_directory(app);
+                    return false;
+                }
+            }
+            // Directory up
+            if let Some(keys) = &keyboard.directory_up {
+                if keys.contains(&shortcut) {
+                    handle_directory_up(app);
+                    return false;
+                }
+            }
             match (code, modifiers) {
                 (KeyCode::Char(c), KeyModifiers::NONE) | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
                     handle_type_char(app, c);
@@ -188,8 +202,7 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
                         (KeyCode::PageDown, _) => handle_page_down(app),
                         (KeyCode::Home, _) => handle_home(app),
                         (KeyCode::End, _) => handle_end(app),
-                        (KeyCode::Enter, _) => handle_enter(app),
-                        (KeyCode::Backspace, _) => handle_backspace(app),
+                        (KeyCode::Enter, _) => handle_enter_directory(app),
                         _ => {}
                     }
                 }
@@ -315,7 +328,7 @@ fn handle_end(app: &mut AppState) {
     update_viewer_content(app);
 }
 
-fn handle_enter(app: &mut AppState) {
+fn handle_enter_directory(app: &mut AppState) {
     let panel = match app.active {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
@@ -340,7 +353,7 @@ fn handle_enter(app: &mut AppState) {
     }
 }
 
-fn handle_backspace(app: &mut AppState) {
+fn handle_directory_up(app: &mut AppState) {
     let panel = match app.active {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
