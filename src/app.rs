@@ -177,11 +177,16 @@ pub struct FileViewerState {
 }
 
 impl FileViewerState {
-    pub fn new() -> Self {
+    pub fn new(is_dark_theme: bool) -> Self {
         let syntax_set = syntect::parsing::SyntaxSet::load_defaults_newlines();
         let theme_set = syntect::highlighting::ThemeSet::load_defaults();
-        // Use a default theme initially, will be updated to match app theme
-        let theme = theme_set.themes["base16-mocha.dark"].clone();
+        // Select theme based on app theme variant
+        let theme_name = if is_dark_theme {
+            "base16-mocha.dark"
+        } else {
+            "base16-ocean.light"
+        };
+        let theme = theme_set.themes[theme_name].clone();
         
         Self {
             path: PathBuf::new(),

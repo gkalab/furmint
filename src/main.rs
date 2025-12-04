@@ -58,11 +58,14 @@ fn main() -> Result<()> {
         last_type_time: None,
     };
 
+    // Determine if theme is dark (latte is light, others are dark)
+    let is_dark_theme = !matches!(theme.name.as_deref(), Some("catppuccin latte"));
+
     let mut app = AppState {
         left: left_panel,
         right: right_panel,
         active: PanelSide::Left,
-        file_viewer: crate::app::FileViewerState::new(),
+        file_viewer: crate::app::FileViewerState::new(is_dark_theme),
     };
 
     event_loop::run_event_loop(&mut terminal, &mut app, palette, keyboard)?;
