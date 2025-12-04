@@ -101,10 +101,11 @@ fn is_executable(full_path: &std::path::Path, e: &crate::fs_ops::FileEntry) -> b
             palette.colors.surface2.rgb.b,
         )
     } else {
+        // Use a lighter color for the selection line of the inactive panel
         Color::Rgb(
-            palette.colors.surface1.rgb.r,
-            palette.colors.surface1.rgb.g,
-            palette.colors.surface1.rgb.b,
+            palette.colors.mantle.rgb.r,
+            palette.colors.mantle.rgb.g,
+            palette.colors.mantle.rgb.b,
         )
     };
     let highlight_fg = Color::Rgb(
