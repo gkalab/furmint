@@ -30,6 +30,15 @@ pub fn run_event_loop(
 fn draw_ui(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &AppState, palette: &Flavor) -> anyhow::Result<()> {
     terminal.draw(|f| {
         let size = f.area();
+        // Fill the entire terminal with the theme background color
+        let bg_color = Color::Rgb(
+            palette.colors.base.rgb.r,
+            palette.colors.base.rgb.g,
+            palette.colors.base.rgb.b,
+        );
+        let bg = ratatui::widgets::Paragraph::new("").style(Style::default().bg(bg_color));
+        f.render_widget(bg, size);
+
         let vertical_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
