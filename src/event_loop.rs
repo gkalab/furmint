@@ -1,14 +1,14 @@
 use ratatui::prelude::*;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use crate::app::{AppState, PanelSide};
-use catppuccin::Flavor;
+use crate::theme::ThemePalette;
 use crate::ui::{draw_panel, draw_panel_status};
 use crate::config::KeyboardConfig;
 
 pub fn run_event_loop(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
     app: &mut AppState,
-    palette: &Flavor,
+    palette: &ThemePalette,
     keyboard: KeyboardConfig,
 ) -> anyhow::Result<()> {
     let mut should_exit = false;
@@ -26,17 +26,18 @@ pub fn run_event_loop(
     Ok(())
 }
 
-fn draw_ui(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &AppState, palette: &Flavor) -> anyhow::Result<()> {
+fn draw_ui(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &AppState, palette: &ThemePalette) -> anyhow::Result<()> {
     terminal.draw(|f| {
         let size = f.area();
         // Fill the entire terminal with the theme background color
         let bg_color = Color::Rgb(
-            palette.colors.base.rgb.r,
-            palette.colors.base.rgb.g,
-            palette.colors.base.rgb.b,
+            palette.base.r,
+            palette.base.g,
+            palette.base.b,
         );
         let bg = ratatui::widgets::Paragraph::new("").style(Style::default().bg(bg_color));
         f.render_widget(bg, size);
+
 
         let vertical_chunks = Layout::default()
             .direction(Direction::Vertical)

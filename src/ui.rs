@@ -1,15 +1,15 @@
 use ratatui::prelude::*;
 use ratatui::widgets::{Table, Row, Cell, Block, Borders, TableState};
 use crate::fs_ops::{format_size, format_modified};
-use crate::app::{PanelState};
-use catppuccin::Flavor;
+use crate::app::PanelState;
+use crate::theme::ThemePalette;
 
 pub fn draw_panel(
     f: &mut ratatui::Frame,
     panel: &PanelState,
     active: bool,
     area: Rect,
-    palette: &catppuccin::Flavor,
+    palette: &ThemePalette,
 ) {
     // Compute max width for Size column
     let size_width = panel.entries.iter()
@@ -19,24 +19,24 @@ pub fn draw_panel(
     let size_header = format!("{:>width$}", "Size", width = size_width);
     let header = ["Name", &size_header, "Modified", "Attributes"];
     let text_fg = Color::Rgb(
-        palette.colors.text.rgb.r,
-        palette.colors.text.rgb.g,
-        palette.colors.text.rgb.b,
+        palette.text.r,
+        palette.text.g,
+        palette.text.b,
     );
     let rows = panel.entries.iter().map(|e| {
         let mut name_cell = Cell::from(e.name.clone());
         let full_path = panel.current_dir.join(&e.name);
         let name_style = if e.is_dir {
             Style::default().fg(Color::Rgb(
-                palette.colors.blue.rgb.r,
-                palette.colors.blue.rgb.g,
-                palette.colors.blue.rgb.b,
+                palette.blue.r,
+                palette.blue.g,
+                palette.blue.b,
             ))
         } else if is_executable(&full_path, e) {
             Style::default().fg(Color::Rgb(
-                palette.colors.green.rgb.r,
-                palette.colors.green.rgb.g,
-                palette.colors.green.rgb.b,
+                palette.green.r,
+                palette.green.g,
+                palette.green.b,
             ))
         } else {
             Style::default().fg(text_fg)
@@ -73,15 +73,15 @@ fn is_executable(full_path: &std::path::Path, e: &crate::fs_ops::FileEntry) -> b
 
     let border_color = if active {
         Color::Rgb(
-            palette.colors.blue.rgb.r,
-            palette.colors.blue.rgb.g,
-            palette.colors.blue.rgb.b,
+            palette.blue.r,
+            palette.blue.g,
+            palette.blue.b,
         )
     } else {
         Color::Rgb(
-            palette.colors.overlay0.rgb.r,
-            palette.colors.overlay0.rgb.g,
-            palette.colors.overlay0.rgb.b,
+            palette.overlay0.r,
+            palette.overlay0.g,
+            palette.overlay0.b,
         )
     };
     let block = Block::default()
@@ -96,28 +96,28 @@ fn is_executable(full_path: &std::path::Path, e: &crate::fs_ops::FileEntry) -> b
     ];
     let highlight_bg = if active {
         Color::Rgb(
-            palette.colors.surface2.rgb.r,
-            palette.colors.surface2.rgb.g,
-            palette.colors.surface2.rgb.b,
+            palette.surface2.r,
+            palette.surface2.g,
+            palette.surface2.b,
         )
     } else {
         // Use a lighter color for the selection line of the inactive panel
         Color::Rgb(
-            palette.colors.mantle.rgb.r,
-            palette.colors.mantle.rgb.g,
-            palette.colors.mantle.rgb.b,
+            palette.mantle.r,
+            palette.mantle.g,
+            palette.mantle.b,
         )
     };
     let highlight_fg = Color::Rgb(
-        palette.colors.text.rgb.r,
-        palette.colors.text.rgb.g,
-        palette.colors.text.rgb.b,
+        palette.text.r,
+        palette.text.g,
+        palette.text.b,
     );
     let table = Table::new(rows, widths)
         .header(Row::new(header).style(Style::default().fg(Color::Rgb(
-            palette.colors.yellow.rgb.r,
-            palette.colors.yellow.rgb.g,
-            palette.colors.yellow.rgb.b,
+            palette.yellow.r,
+            palette.yellow.g,
+            palette.yellow.b,
         ))))
         .block(block)
         .row_highlight_style(Style::default()
@@ -135,9 +135,9 @@ fn is_executable(full_path: &std::path::Path, e: &crate::fs_ops::FileEntry) -> b
             .viewport_content_length(visible_rows)
             .position(panel.cursor);
         let scrollbar_color = Color::Rgb(
-            palette.colors.overlay0.rgb.r,
-            palette.colors.overlay0.rgb.g,
-            palette.colors.overlay0.rgb.b,
+            palette.overlay0.r,
+            palette.overlay0.g,
+            palette.overlay0.b,
         );
         let scroll_area = Rect {
             x: area.x + area.width - 1,
@@ -161,7 +161,7 @@ pub fn draw_panel_status(
     f: &mut ratatui::Frame,
     panel: &PanelState,
     area: Rect,
-    palette: &Flavor,
+    palette: &ThemePalette,
     _active: bool,
 ) {
     let error = panel.error.as_ref().map(|s| s.as_str()).unwrap_or("");
@@ -174,9 +174,9 @@ pub fn draw_panel_status(
     };
     // Use the same background as file/directory rows (surface1)
     let fg = Color::Rgb(
-        palette.colors.text.rgb.r,
-        palette.colors.text.rgb.g,
-        palette.colors.text.rgb.b,
+        palette.text.r,
+        palette.text.g,
+        palette.text.b,
     );
     // Move status line one character to the right and remove background color
     let status_area = Rect {
@@ -194,7 +194,7 @@ pub fn draw_file_viewer(
     f: &mut ratatui::Frame,
     viewer: &crate::app::FileViewerState,
     area: Rect,
-    palette: &Flavor,
+    palette: &ThemePalette,
 ) {
     use syntect::easy::HighlightLines;
 
@@ -203,15 +203,15 @@ pub fn draw_file_viewer(
         .title(viewer.path.to_string_lossy())
         .border_style(Style::default().fg(if viewer.focused {
             Color::Rgb(
-                palette.colors.blue.rgb.r,
-                palette.colors.blue.rgb.g,
-                palette.colors.blue.rgb.b,
+                palette.blue.r,
+                palette.blue.g,
+                palette.blue.b,
             )
         } else {
             Color::Rgb(
-                palette.colors.overlay0.rgb.r,
-                palette.colors.overlay0.rgb.g,
-                palette.colors.overlay0.rgb.b,
+                palette.overlay0.r,
+                palette.overlay0.g,
+                palette.overlay0.b,
             )
         }));
     
@@ -256,9 +256,9 @@ pub fn draw_file_viewer(
             .viewport_content_length(visible_lines)
             .position(viewer.scroll_offset);
         let scrollbar_color = Color::Rgb(
-            palette.colors.overlay0.rgb.r,
-            palette.colors.overlay0.rgb.g,
-            palette.colors.overlay0.rgb.b,
+            palette.overlay0.r,
+            palette.overlay0.g,
+            palette.overlay0.b,
         );
         let scroll_area = Rect {
             x: area.x + area.width - 1,

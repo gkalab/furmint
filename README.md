@@ -70,7 +70,12 @@ name = "catppuccin macchiato"
 ```
 - You can assign multiple shortcuts to the same action.
 - Shortcut format: `Ctrl-Up`, `Left`, `Ctrl-Down`, etc.
-- Supported theme names: `catppuccin macchiato`, `catppuccin latte`, `catppuccin frappe`, `catppuccin mocha`.
+- Supported themes:
+  - **Catppuccin** (dark): `catppuccin macchiato`, `catppuccin frappe`, `catppuccin mocha`
+  - **Catppuccin** (light): `catppuccin latte`
+  - **Dracula** (dark): `dracula`
+  - **Nord** (dark): `nord`
+  - **Solarized** (light): `solarized light`
 
 ### Behavior
 - If the config file is missing, the app uses sensible defaults (as above).
