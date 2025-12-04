@@ -18,6 +18,11 @@ pub fn draw_panel(
         .unwrap_or(4);
     let size_header = format!("{:>width$}", "Size", width = size_width);
     let header = ["Name", &size_header, "Modified", "Attributes"];
+    let text_fg = Color::Rgb(
+        palette.colors.text.rgb.r,
+        palette.colors.text.rgb.g,
+        palette.colors.text.rgb.b,
+    );
     let rows = panel.entries.iter().map(|e| {
         let mut name_cell = Cell::from(e.name.clone());
         let full_path = panel.current_dir.join(&e.name);
@@ -34,18 +39,14 @@ pub fn draw_panel(
                 palette.colors.green.rgb.b,
             ))
         } else {
-            Style::default().fg(Color::Rgb(
-                palette.colors.text.rgb.r,
-                palette.colors.text.rgb.g,
-                palette.colors.text.rgb.b,
-            ))
+            Style::default().fg(text_fg)
         };
         name_cell = name_cell.style(name_style);
         Row::new(vec![
             name_cell,
-            Cell::from(format_size(e.size, e.is_dir, e.is_symlink)),
-            Cell::from(format_modified(e.modified)),
-            Cell::from(e.attributes.clone()),
+            Cell::from(format_size(e.size, e.is_dir, e.is_symlink)).style(Style::default().fg(text_fg)),
+            Cell::from(format_modified(e.modified)).style(Style::default().fg(text_fg)),
+            Cell::from(e.attributes.clone()).style(Style::default().fg(text_fg)),
         ])
     });
 
