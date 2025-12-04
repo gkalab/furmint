@@ -69,18 +69,32 @@ pub fn handle_event(ev: Event, app: &mut AppState) -> bool {
                 return true;
             }
             match (code, modifiers) {
-                (KeyCode::Tab, _) => handle_tab(app),
-                (KeyCode::Up, _) => handle_up(app),
-                (KeyCode::Down, _) => handle_down(app),
-                (KeyCode::PageUp, _) => handle_page_up(app),
-                (KeyCode::PageDown, _) => handle_page_down(app),
-                (KeyCode::Home, _) => handle_home(app),
-                (KeyCode::End, _) => handle_end(app),
-                (KeyCode::Enter, _) => handle_enter(app),
-                (KeyCode::Backspace, _) => handle_backspace(app),
-                (KeyCode::Left, KeyModifiers::CONTROL) => handle_ctrl_left(app),
-                (KeyCode::Right, KeyModifiers::CONTROL) => handle_ctrl_right(app),
-                _ => {}
+                (KeyCode::Char(c), KeyModifiers::NONE) | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
+                    handle_type_char(app, c);
+                }
+                _ => {
+                    // Clear buffer for any non-letter key
+                    let panel = match app.active {
+                        PanelSide::Left => &mut app.left,
+                        PanelSide::Right => &mut app.right,
+                    };
+                    panel.typed_buffer.clear();
+                    panel.last_type_time = None;
+                    match (code, modifiers) {
+                        (KeyCode::Tab, _) => handle_tab(app),
+                        (KeyCode::Up, _) => handle_up(app),
+                        (KeyCode::Down, _) => handle_down(app),
+                        (KeyCode::PageUp, _) => handle_page_up(app),
+                        (KeyCode::PageDown, _) => handle_page_down(app),
+                        (KeyCode::Home, _) => handle_home(app),
+                        (KeyCode::End, _) => handle_end(app),
+                        (KeyCode::Enter, _) => handle_enter(app),
+                        (KeyCode::Backspace, _) => handle_backspace(app),
+                        (KeyCode::Left, KeyModifiers::CONTROL) => handle_ctrl_left(app),
+                        (KeyCode::Right, KeyModifiers::CONTROL) => handle_ctrl_right(app),
+                        _ => {}
+                    }
+                }
             }
         }
         Event::Resize(_, _) => {}
@@ -263,5 +277,27 @@ fn handle_ctrl_right(app: &mut AppState) {
                 panel.error = Some(format!("Error: {}", e));
             }
         }
+    }
+}
+
+fn handle_type_char(app: &mut AppState, c: char) {
+    use std::time::Instant;
+    let panel = match app.active {
+        PanelSide::Left => &mut app.left,
+        PanelSide::Right => &mut app.right,
+    };
+    let now = Instant::now();
+    let reset_threshold = std::time::Duration::from_secs(1);
+    // If last_type_time is None or too old, reset buffer
+    if panel.last_type_time.map_or(true, |t| now.duration_since(t) > reset_threshold) {
+        panel.typed_buffer.clear();
+    }
+    panel.typed_buffer.push(c);
+    panel.last_type_time = Some(now);
+    let typed = panel.typed_buffer.to_lowercase();
+    // Find first entry whose name starts with typed
+    if let Some((idx, _)) = panel.entries.iter().enumerate()
+        .find(|(_, entry)| entry.name.to_lowercase().starts_with(&typed)) {
+        panel.selected = idx;
     }
 }

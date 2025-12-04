@@ -9,6 +9,9 @@ pub struct PanelState {
     pub history: Vec<PathBuf>,
     pub history_index: usize,
     pub error: Option<String>,
+    // For incremental search
+    pub typed_buffer: String,
+    pub last_type_time: Option<std::time::Instant>,
 }
 
 #[derive(PartialEq)]

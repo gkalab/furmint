@@ -24,6 +24,8 @@ fn main() -> Result<()> {
         history: vec![cwd.clone()],
         history_index: 0,
         error: None,
+        typed_buffer: String::new(),
+        last_type_time: None,
     };
     let right_panel = PanelState {
         current_dir: cwd.clone(),
@@ -32,7 +34,10 @@ fn main() -> Result<()> {
         history: vec![cwd.clone()],
         history_index: 0,
         error: None,
+        typed_buffer: String::new(),
+        last_type_time: None,
     };
+
     let mut app = AppState {
         left: left_panel,
         right: right_panel,
