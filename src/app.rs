@@ -4,13 +4,13 @@ use crate::fs_ops::FileEntry;
 #[derive(Clone)]
 pub struct HistoryEntry {
     pub path: PathBuf,
-    pub selected: usize,
+    pub cursor: usize,
 }
 
 pub struct PanelState {
     pub current_dir: PathBuf,
     pub entries: Vec<FileEntry>,
-    pub selected: usize,
+    pub cursor: usize,
     pub history: Vec<HistoryEntry>,
     pub history_index: usize,
     pub error: Option<String>,

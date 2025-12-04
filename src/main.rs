@@ -40,8 +40,8 @@ fn main() -> Result<()> {
     let left_panel = PanelState {
         current_dir: cwd.clone(),
         entries: list_dir(&cwd).unwrap_or_default(),
-        selected: 0,
-        history: vec![app::HistoryEntry { path: cwd.clone(), selected: 0 }],
+        cursor: 0,
+        history: vec![app::HistoryEntry { path: cwd.clone(), cursor: 0 }],
         history_index: 0,
         error: None,
         typed_buffer: String::new(),
@@ -50,8 +50,8 @@ fn main() -> Result<()> {
     let right_panel = PanelState {
         current_dir: cwd.clone(),
         entries: list_dir(&cwd).unwrap_or_default(),
-        selected: 0,
-        history: vec![app::HistoryEntry { path: cwd.clone(), selected: 0 }],
+        cursor: 0,
+        history: vec![app::HistoryEntry { path: cwd.clone(), cursor: 0 }],
         history_index: 0,
         error: None,
         typed_buffer: String::new(),

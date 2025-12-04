@@ -124,7 +124,7 @@ fn is_executable(full_path: &std::path::Path, e: &crate::fs_ops::FileEntry) -> b
             .bg(highlight_bg)
             .fg(highlight_fg)
         );
-    f.render_stateful_widget(table, area, &mut TableState::default().with_selected(Some(panel.selected)));
+    f.render_stateful_widget(table, area, &mut TableState::default().with_selected(Some(panel.cursor)));
 
     // Draw unobtrusive vertical scrollbar if needed
     let visible_rows = area.height.saturating_sub(1) as usize; // 1 for header
@@ -133,7 +133,7 @@ fn is_executable(full_path: &std::path::Path, e: &crate::fs_ops::FileEntry) -> b
         use ratatui::widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState};
         let mut scrollbar_state = ScrollbarState::new(total_entries)
             .viewport_content_length(visible_rows)
-            .position(panel.selected);
+            .position(panel.cursor);
         let scrollbar_color = Color::Rgb(
             palette.colors.overlay0.rgb.r,
             palette.colors.overlay0.rgb.g,
