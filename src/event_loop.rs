@@ -63,13 +63,15 @@ fn draw_ui(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &App
         if app.file_viewer.is_visible && app.active == PanelSide::Right {
             crate::ui::draw_file_viewer(f, &app.file_viewer, panel_chunks[0], palette);
         } else {
-            draw_panel(f, &app.left, app.active == PanelSide::Left, panel_chunks[0], palette);
+            let is_active = app.active == PanelSide::Left && !app.file_viewer.focused;
+            draw_panel(f, &app.left, is_active, panel_chunks[0], palette);
         }
 
         if app.file_viewer.is_visible && app.active == PanelSide::Left {
             crate::ui::draw_file_viewer(f, &app.file_viewer, panel_chunks[1], palette);
         } else {
-            draw_panel(f, &app.right, app.active == PanelSide::Right, panel_chunks[1], palette);
+            let is_active = app.active == PanelSide::Right && !app.file_viewer.focused;
+            draw_panel(f, &app.right, is_active, panel_chunks[1], palette);
         }
 
         draw_panel_status(f, &app.left, status_chunks[0], palette, app.active == PanelSide::Left);
@@ -98,6 +100,13 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
                 if app.file_viewer.is_visible {
                     update_viewer_content(app);
                 } else {
+                    // If viewer was focused, switch to the panel it was replacing
+                    if app.file_viewer.focused {
+                        app.active = match app.active {
+                            PanelSide::Left => PanelSide::Right,
+                            PanelSide::Right => PanelSide::Left,
+                        };
+                    }
                     app.file_viewer.focused = false;
                 }
                 return false;
