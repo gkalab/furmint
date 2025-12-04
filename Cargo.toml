@@ -16,3 +16,4 @@ syntect = "5.2.0"
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
 directories = "5.0"
+default-editor = "0.1.0"

@@ -182,6 +182,13 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
                     return false;
                 }
             }
+            // Edit
+            if let Some(keys) = &keyboard.edit {
+                if keys.contains(&shortcut) {
+                    handle_edit(app);
+                    return false;
+                }
+            }
             match (code, modifiers) {
                 (KeyCode::Char(c), KeyModifiers::NONE) | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
                     handle_type_char(app, c);
@@ -214,6 +221,27 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
     false
 }
 
+use crossterm::terminal::{enable_raw_mode, disable_raw_mode};
+use std::process::Command;
+
+fn open_in_default_editor(file_path: &std::path::Path) -> anyhow::Result<()> {
+    // Get the default editor
+    let editor = default_editor::get().map_err(|e| anyhow::anyhow!("No default editor found: {}", e))?;
+    // Suspend TUI
+    disable_raw_mode()?;
+    // Launch editor as blocking subprocess
+    let status = Command::new(editor)
+        .arg(file_path)
+        .status();
+    // Resume TUI
+    enable_raw_mode()?;
+    match status {
+        Ok(s) if s.success() => Ok(()),
+        Ok(s) => Err(anyhow::anyhow!("Editor exited with status: {}", s)),
+        Err(e) => Err(anyhow::anyhow!("Failed to launch editor: {}", e)),
+    }
+}
+
 fn keyevent_to_string(code: KeyCode, modifiers: KeyModifiers) -> String {
     let mut parts: Vec<String> = Vec::new();
     if modifiers.contains(KeyModifiers::CONTROL) {
@@ -238,6 +266,7 @@ fn keyevent_to_string(code: KeyCode, modifiers: KeyModifiers) -> String {
         KeyCode::Backspace => "Backspace".to_string(),
         KeyCode::Tab => "Tab".to_string(),
         KeyCode::Char(c) => c.to_string(),
+        KeyCode::F(n) => format!("F{}", n),
         _ => String::new(),
     };
     parts.push(key);
@@ -327,6 +356,36 @@ fn handle_end(app: &mut AppState) {
     panel.move_cursor_end();
     update_viewer_content(app);
 }
+
+fn handle_edit(app: &mut AppState) {
+    let panel = match app.active {
+        PanelSide::Left => &mut app.left,
+        PanelSide::Right => &mut app.right,
+    };
+    if let Some(entry) = panel.current_entry().cloned() {
+        if !entry.is_dir {
+            let file_path = panel.current_dir.join(&entry.name);
+            // Check if file is text (not binary)
+            match crate::fs_ops::read_file_content(&file_path, 8192) {
+                Ok(content) => {
+                    if content.contains("Binary file detected") {
+                        panel.error = Some("Cannot open binary file in editor".to_string());
+                    } else {
+                        // Launch editor
+                        match open_in_default_editor(&file_path) {
+                            Ok(_) => {},
+                            Err(e) => panel.error = Some(format!("Editor error: {}", e)),
+                        }
+                    }
+                }
+                Err(e) => {
+                    panel.error = Some(format!("Error reading file: {}", e));
+                }
+            }
+        }
+    }
+}
+
 
 fn handle_enter_directory(app: &mut AppState) {
     let panel = match app.active {

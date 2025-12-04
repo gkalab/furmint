@@ -50,6 +50,19 @@ Performance Improvements: Step-by-Step
 
 ---
 
+## Text File Editing Feature
+
+### Open Text File in Default Editor
+
+- When Enter is pressed while a text file (non-binary) is selected in the active panel, the app will open the file in your system's default editor.
+- The default editor is detected using the `default_editor` crate.
+- If the file is binary, an error message is shown in the status bar and the editor is not launched.
+- After the editor exits, the app returns to its previous state and redraws the UI.
+- If the editor cannot be launched, an error message is shown in the status bar.
+- Only the file path is passed to the editor (no extra arguments).
+
+---
+
 ## Keyboard and Theme Configuration
 
 The app supports user-configurable keyboard shortcuts and theme selection via a TOML config file.
@@ -66,6 +79,7 @@ enter_directory = ["Right"]
 directory_up = ["Backspace", "Left"]
 history_previous = ["Alt-Left"]
 history_next = ["Alt-Right"]
+edit = ["F4"]
 
 [theme]
 name = "catppuccin macchiato"

@@ -9,6 +9,7 @@ pub struct KeyboardConfig {
     pub history_next: Option<Vec<String>>,
     pub enter_directory: Option<Vec<String>>,
     pub directory_up: Option<Vec<String>>,
+    pub edit: Option<Vec<String>>,
     // Add more actions as needed
 }
 
@@ -31,6 +32,7 @@ pub fn default_keyboard_config() -> KeyboardConfig {
         history_next: Some(vec!["Alt-Right".to_string()]),
         enter_directory: Some(vec!["Right".to_string()]),
         directory_up: Some(vec!["Backspace".to_string(), "Left".to_string()]),
+        edit: Some(vec!["F4".to_string()]),
         // Add more actions and their default shortcuts here
     }
 }
@@ -48,6 +50,7 @@ pub fn merge_keyboard_config(user: &Option<KeyboardConfig>, default: &KeyboardCo
         history_next: user.as_ref().and_then(|k| k.history_next.clone()).or_else(|| default.history_next.clone()),
         enter_directory: user.as_ref().and_then(|k| k.enter_directory.clone()).or_else(|| default.enter_directory.clone()),
         directory_up: user.as_ref().and_then(|k| k.directory_up.clone()).or_else(|| default.directory_up.clone()),
+        edit: user.as_ref().and_then(|k| k.edit.clone()).or_else(|| default.edit.clone()),
         // Add more actions as needed
     }
 }
