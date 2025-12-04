@@ -60,8 +60,18 @@ fn draw_ui(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &App
                 Constraint::Percentage(50),
             ])
             .split(vertical_chunks[1]);
-        draw_panel(f, &app.left, app.active == PanelSide::Left, panel_chunks[0], palette);
-        draw_panel(f, &app.right, app.active == PanelSide::Right, panel_chunks[1], palette);
+        if app.file_viewer.is_visible && app.active == PanelSide::Right {
+            crate::ui::draw_file_viewer(f, &app.file_viewer, panel_chunks[0], palette);
+        } else {
+            draw_panel(f, &app.left, app.active == PanelSide::Left, panel_chunks[0], palette);
+        }
+
+        if app.file_viewer.is_visible && app.active == PanelSide::Left {
+            crate::ui::draw_file_viewer(f, &app.file_viewer, panel_chunks[1], palette);
+        } else {
+            draw_panel(f, &app.right, app.active == PanelSide::Right, panel_chunks[1], palette);
+        }
+
         draw_panel_status(f, &app.left, status_chunks[0], palette, app.active == PanelSide::Left);
         draw_panel_status(f, &app.right, status_chunks[1], palette, app.active == PanelSide::Right);
     })?;
@@ -82,6 +92,57 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
         Event::Key(KeyEvent { code, modifiers, .. }) => {
             if (code == KeyCode::Char('q') && modifiers == KeyModifiers::CONTROL) || code == KeyCode::Esc {
                 return true;
+            }
+            if code == KeyCode::F(3) {
+                app.file_viewer.is_visible = !app.file_viewer.is_visible;
+                if app.file_viewer.is_visible {
+                    update_viewer_content(app);
+                } else {
+                    app.file_viewer.focused = false;
+                }
+                return false;
+            }
+            if app.file_viewer.focused {
+                match code {
+                    KeyCode::Tab => {
+                        app.file_viewer.focused = false;
+                    }
+                    KeyCode::Up => {
+                        if app.file_viewer.scroll_offset > 0 {
+                            app.file_viewer.scroll_offset -= 1;
+                        }
+                    }
+                    KeyCode::Down => {
+                        if app.file_viewer.scroll_offset + 1 < app.file_viewer.content.len() {
+                            app.file_viewer.scroll_offset += 1;
+                        }
+                    }
+                    KeyCode::PageUp => {
+                        let visible_rows = 20; // Approximation
+                        if app.file_viewer.scroll_offset >= visible_rows {
+                            app.file_viewer.scroll_offset -= visible_rows;
+                        } else {
+                            app.file_viewer.scroll_offset = 0;
+                        }
+                    }
+                    KeyCode::PageDown => {
+                        let visible_rows = 20; // Approximation
+                        let max_scroll = app.file_viewer.content.len().saturating_sub(1);
+                        if app.file_viewer.scroll_offset + visible_rows <= max_scroll {
+                            app.file_viewer.scroll_offset += visible_rows;
+                        } else {
+                            app.file_viewer.scroll_offset = max_scroll;
+                        }
+                    }
+                    KeyCode::Home => {
+                        app.file_viewer.scroll_offset = 0;
+                    }
+                    KeyCode::End => {
+                         app.file_viewer.scroll_offset = app.file_viewer.content.len().saturating_sub(1);
+                    }
+                    _ => {}
+                }
+                return false;
             }
             let shortcut = keyevent_to_string(code, modifiers);
             // Previous directory
@@ -162,10 +223,33 @@ fn keyevent_to_string(code: KeyCode, modifiers: KeyModifiers) -> String {
 }
 
 fn handle_tab(app: &mut AppState) {
-    app.active = match app.active {
-        PanelSide::Left => PanelSide::Right,
-        PanelSide::Right => PanelSide::Left,
+    if app.file_viewer.is_visible {
+        app.file_viewer.focused = true;
+    } else {
+        app.active = match app.active {
+            PanelSide::Left => PanelSide::Right,
+            PanelSide::Right => PanelSide::Left,
+        };
+    }
+}
+
+fn update_viewer_content(app: &mut AppState) {
+    if !app.file_viewer.is_visible { return; }
+    let panel = match app.active {
+        PanelSide::Left => &app.left,
+        PanelSide::Right => &app.right,
     };
+    if panel.entries.is_empty() {
+        app.file_viewer.content = vec![];
+        return;
+    }
+    let entry = &panel.entries[panel.cursor];
+    if entry.is_dir {
+        app.file_viewer.content = vec!["Directory".to_string()];
+    } else {
+        let full_path = panel.current_dir.join(&entry.name);
+        app.file_viewer.load_content(full_path);
+    }
 }
 
 fn handle_up(app: &mut AppState) {
@@ -175,6 +259,7 @@ fn handle_up(app: &mut AppState) {
     };
     if panel.cursor > 0 {
         panel.cursor -= 1;
+        update_viewer_content(app);
     }
 }
 
@@ -185,6 +270,7 @@ fn handle_down(app: &mut AppState) {
     };
     if panel.cursor + 1 < panel.entries.len() {
         panel.cursor += 1;
+        update_viewer_content(app);
     }
 }
 
@@ -199,6 +285,7 @@ fn handle_page_up(app: &mut AppState) {
     } else {
         panel.cursor = 0;
     }
+    update_viewer_content(app);
 }
 
 fn handle_page_down(app: &mut AppState) {
@@ -213,6 +300,7 @@ fn handle_page_down(app: &mut AppState) {
     } else {
         panel.cursor = max_idx;
     }
+    update_viewer_content(app);
 }
 
 fn handle_home(app: &mut AppState) {
@@ -221,6 +309,7 @@ fn handle_home(app: &mut AppState) {
         PanelSide::Right => &mut app.right,
     };
     panel.cursor = 0;
+    update_viewer_content(app);
 }
 
 fn handle_end(app: &mut AppState) {
@@ -231,6 +320,7 @@ fn handle_end(app: &mut AppState) {
     if !panel.entries.is_empty() {
         panel.cursor = panel.entries.len() - 1;
     }
+    update_viewer_content(app);
 }
 
 fn handle_enter(app: &mut AppState) {
@@ -270,6 +360,7 @@ fn handle_enter(app: &mut AppState) {
                     panel.history_index += 1;
                 }
                 panel.error = None;
+                update_viewer_content(app);
             }
             Err(e) => {
                 panel.error = Some(format!("Error: {}", e));
@@ -306,6 +397,7 @@ fn handle_backspace(app: &mut AppState) {
                     panel.history_index += 1;
                 }
                 panel.error = None;
+                update_viewer_content(app);
             }
             Err(e) => {
                 panel.error = Some(format!("Error: {}", e));
@@ -332,6 +424,7 @@ fn handle_ctrl_left(app: &mut AppState) {
                 panel.entries = entries;
                 panel.cursor = hist.cursor.min(panel.entries.len().saturating_sub(1));
                 panel.error = None;
+                update_viewer_content(app);
             }
             Err(e) => {
                 panel.error = Some(format!("Error: {}", e));
@@ -358,6 +451,7 @@ fn handle_ctrl_right(app: &mut AppState) {
                 panel.entries = entries;
                 panel.cursor = hist.cursor.min(panel.entries.len().saturating_sub(1));
                 panel.error = None;
+                update_viewer_content(app);
             }
             Err(e) => {
                 panel.error = Some(format!("Error: {}", e));
@@ -385,5 +479,6 @@ fn handle_type_char(app: &mut AppState, c: char) {
     if let Some((idx, _)) = panel.entries.iter().enumerate()
         .find(|(_, entry)| entry.name.to_lowercase().starts_with(&typed)) {
         panel.cursor = idx;
+        update_viewer_content(app);
     }
 }

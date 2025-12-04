@@ -84,6 +84,35 @@ pub fn list_dir(path: &PathBuf) -> Result<Vec<FileEntry>> {
     Ok(entries)
 }
 
+pub fn read_file_content(path: &std::path::Path, limit: usize) -> anyhow::Result<String> {
+    use std::fs::File;
+    use std::io::Read;
+
+    let metadata = std::fs::metadata(path)?;
+    if metadata.len() > limit as u64 {
+        return Ok(format!("File too large to display (size: {}, limit: {})", 
+            format_size(Some(metadata.len()), false, false), 
+            format_size(Some(limit as u64), false, false)));
+    }
+
+    let file = File::open(path)?;
+    let mut buffer = Vec::new();
+    // Read up to limit + 1 to detect if it's exactly limit or more (though metadata check covers most cases)
+    file.take((limit + 1) as u64).read_to_end(&mut buffer)?;
+
+    // Check for binary content (null bytes in first 8KB)
+    let check_len = buffer.len().min(8192);
+    if buffer[..check_len].contains(&0) {
+        return Ok("Binary file detected".to_string());
+    }
+
+    // Try to convert to string
+    match String::from_utf8(buffer) {
+        Ok(s) => Ok(s),
+        Err(_) => Ok("File content is not valid UTF-8".to_string()),
+    }
+}
+
 pub fn format_size(size: Option<u64>, is_dir: bool, is_symlink: bool) -> String {
     // Use up to 1 decimal precision, units G/M/K, no space, pad <DIR>/<LNK> to 7 chars
     if is_dir {

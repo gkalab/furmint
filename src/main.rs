@@ -62,6 +62,7 @@ fn main() -> Result<()> {
         left: left_panel,
         right: right_panel,
         active: PanelSide::Left,
+        file_viewer: crate::app::FileViewerState::new(),
     };
 
     event_loop::run_event_loop(&mut terminal, &mut app, palette, keyboard)?;

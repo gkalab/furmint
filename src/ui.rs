@@ -189,3 +189,91 @@ pub fn draw_panel_status(
         .style(Style::default().fg(fg)); // No background color
     f.render_widget(paragraph, status_area);
 }
+
+pub fn draw_file_viewer(
+    f: &mut ratatui::Frame,
+    viewer: &crate::app::FileViewerState,
+    area: Rect,
+    palette: &Flavor,
+) {
+    use syntect::easy::HighlightLines;
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(viewer.path.to_string_lossy())
+        .border_style(Style::default().fg(if viewer.focused {
+            Color::Rgb(
+                palette.colors.blue.rgb.r,
+                palette.colors.blue.rgb.g,
+                palette.colors.blue.rgb.b,
+            )
+        } else {
+            Color::Rgb(
+                palette.colors.overlay0.rgb.r,
+                palette.colors.overlay0.rgb.g,
+                palette.colors.overlay0.rgb.b,
+            )
+        }));
+    
+    let inner_area = block.inner(area);
+    f.render_widget(block, area);
+
+    if viewer.content.is_empty() {
+        return;
+    }
+
+    // Syntax highlighting
+    let syntax = viewer.syntax_set.find_syntax_for_file(&viewer.path)
+        .unwrap_or(None)
+        .unwrap_or_else(|| viewer.syntax_set.find_syntax_plain_text());
+    
+    let mut h = HighlightLines::new(syntax, &viewer.theme);
+    
+    let visible_lines = inner_area.height as usize;
+    let max_lines = viewer.content.len();
+    let start_line = viewer.scroll_offset;
+    let end_line = (start_line + visible_lines).min(max_lines);
+
+    for (i, line) in viewer.content[start_line..end_line].iter().enumerate() {
+        let ranges: Vec<(syntect::highlighting::Style, &str)> = h.highlight_line(line, &viewer.syntax_set).unwrap_or_default();
+        let spans: Vec<Span> = ranges.into_iter().map(|(style, text)| {
+            let fg = style.foreground;
+            Span::styled(text, Style::default().fg(Color::Rgb(fg.r, fg.g, fg.b)))
+        }).collect();
+        
+        f.render_widget(Line::from(spans), Rect {
+            x: inner_area.x,
+            y: inner_area.y + i as u16,
+            width: inner_area.width,
+            height: 1,
+        });
+    }
+
+    // Scrollbar
+    if max_lines > visible_lines {
+        use ratatui::widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState};
+        let mut scrollbar_state = ScrollbarState::new(max_lines)
+            .viewport_content_length(visible_lines)
+            .position(viewer.scroll_offset);
+        let scrollbar_color = Color::Rgb(
+            palette.colors.overlay0.rgb.r,
+            palette.colors.overlay0.rgb.g,
+            palette.colors.overlay0.rgb.b,
+        );
+        let scroll_area = Rect {
+            x: area.x + area.width - 1,
+            y: area.y + 1,
+            width: 1,
+            height: area.height.saturating_sub(2),
+        };
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .thumb_symbol("▐")
+            .track_symbol(Some(" "))
+            .style(Style::default().fg(scrollbar_color))
+            .thumb_style(Style::default().fg(scrollbar_color))
+            .track_style(Style::default().fg(scrollbar_color))
+            .begin_symbol(None)
+            .end_symbol(None);
+        f.render_stateful_widget(scrollbar, scroll_area, &mut scrollbar_state);
+    }
+}
