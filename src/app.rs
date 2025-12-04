@@ -182,9 +182,9 @@ impl FileViewerState {
         let theme_set = syntect::highlighting::ThemeSet::load_defaults();
         // Select theme based on app theme variant
         let theme_name = if is_dark_theme {
-            "base16-mocha.dark"
+            "base16-eighties.dark"
         } else {
-            "base16-ocean.light"
+            "InspiredGitHub"
         };
         let theme = theme_set.themes[theme_name].clone();
         
