@@ -1,5 +1,5 @@
 //! Theme definitions for the file manager.
-//! 
+//!
 //! Provides color palettes for different themes.
 
 /// RGB color values
@@ -19,19 +19,19 @@ impl Rgb {
 /// Color palette for a theme
 #[derive(Clone, Copy)]
 pub struct ThemePalette {
-    pub base: Rgb,       // Background
-    pub mantle: Rgb,     // Darker background
-    pub surface0: Rgb,   // Surface
-    pub surface1: Rgb,   // Surface variant
-    pub surface2: Rgb,   // Highlight background
-    pub overlay0: Rgb,   // Muted/overlay
-    pub text: Rgb,       // Primary text
-    pub subtext: Rgb,    // Secondary text
-    pub blue: Rgb,       // Directories
-    pub green: Rgb,      // Executables
-    pub yellow: Rgb,     // Headers
-    pub red: Rgb,        // Errors
-    pub is_dark: bool,   // Dark theme flag
+    pub base: Rgb,     // Background
+    pub mantle: Rgb,   // Darker background
+    pub surface0: Rgb, // Surface
+    pub surface1: Rgb, // Surface variant
+    pub surface2: Rgb, // Highlight background
+    pub overlay0: Rgb, // Muted/overlay
+    pub text: Rgb,     // Primary text
+    pub subtext: Rgb,  // Secondary text
+    pub blue: Rgb,     // Directories
+    pub green: Rgb,    // Executables
+    pub yellow: Rgb,   // Headers
+    pub red: Rgb,      // Errors
+    pub is_dark: bool, // Dark theme flag
 }
 
 // ============================================================================
@@ -116,9 +116,9 @@ pub fn catppuccin_mocha() -> ThemePalette {
 
 pub fn dracula() -> ThemePalette {
     ThemePalette {
-        base: Rgb::new(40, 42, 54),       // Background
-        mantle: Rgb::new(33, 34, 44),     // Current Line (darker)
-        surface0: Rgb::new(68, 71, 90),   // Comment (surface)
+        base: Rgb::new(40, 42, 54),     // Background
+        mantle: Rgb::new(33, 34, 44),   // Current Line (darker)
+        surface0: Rgb::new(68, 71, 90), // Comment (surface)
         surface1: Rgb::new(68, 71, 90),
         surface2: Rgb::new(98, 114, 164), // Selection
         overlay0: Rgb::new(98, 114, 164), // Comment
@@ -138,18 +138,18 @@ pub fn dracula() -> ThemePalette {
 
 pub fn nord() -> ThemePalette {
     ThemePalette {
-        base: Rgb::new(46, 52, 64),       // nord0 - Polar Night
-        mantle: Rgb::new(59, 66, 82),     // nord1
-        surface0: Rgb::new(67, 76, 94),   // nord2
-        surface1: Rgb::new(76, 86, 106),  // nord3
-        surface2: Rgb::new(76, 86, 106),  // nord3
-        overlay0: Rgb::new(216, 222, 233),// nord4 - Snow Storm (muted)
-        text: Rgb::new(236, 239, 244),    // nord6 - Snow Storm
-        subtext: Rgb::new(229, 233, 240), // nord5
-        blue: Rgb::new(136, 192, 208),    // nord8 - Frost (directories)
-        green: Rgb::new(163, 190, 140),   // nord14 - Aurora (executables)
-        yellow: Rgb::new(235, 203, 139),  // nord13 - Aurora (headers)
-        red: Rgb::new(191, 97, 106),      // nord11 - Aurora (errors)
+        base: Rgb::new(46, 52, 64),        // nord0 - Polar Night
+        mantle: Rgb::new(59, 66, 82),      // nord1
+        surface0: Rgb::new(67, 76, 94),    // nord2
+        surface1: Rgb::new(76, 86, 106),   // nord3
+        surface2: Rgb::new(76, 86, 106),   // nord3
+        overlay0: Rgb::new(216, 222, 233), // nord4 - Snow Storm (muted)
+        text: Rgb::new(236, 239, 244),     // nord6 - Snow Storm
+        subtext: Rgb::new(229, 233, 240),  // nord5
+        blue: Rgb::new(136, 192, 208),     // nord8 - Frost (directories)
+        green: Rgb::new(163, 190, 140),    // nord14 - Aurora (executables)
+        yellow: Rgb::new(235, 203, 139),   // nord13 - Aurora (headers)
+        red: Rgb::new(191, 97, 106),       // nord11 - Aurora (errors)
         is_dark: true,
     }
 }
@@ -160,18 +160,18 @@ pub fn nord() -> ThemePalette {
 
 pub fn solarized_light() -> ThemePalette {
     ThemePalette {
-        base: Rgb::new(253, 246, 227),    // base3 - Background
-        mantle: Rgb::new(238, 232, 213),  // base2 - Background highlights
-        surface0: Rgb::new(238, 232, 213),// base2
-        surface1: Rgb::new(147, 161, 161),// base1 - Comments
-        surface2: Rgb::new(131, 148, 150),// base0 - Selection bg
-        overlay0: Rgb::new(88, 110, 117), // base01 - Emphasis
-        text: Rgb::new(101, 123, 131),    // base00 - Body text
-        subtext: Rgb::new(88, 110, 117),  // base01
-        blue: Rgb::new(38, 139, 210),     // blue (directories)
-        green: Rgb::new(133, 153, 0),     // green (executables)
-        yellow: Rgb::new(181, 137, 0),    // yellow (headers)
-        red: Rgb::new(220, 50, 47),       // red (errors)
+        base: Rgb::new(253, 246, 227),     // base3 - Background
+        mantle: Rgb::new(238, 232, 213),   // base2 - Background highlights
+        surface0: Rgb::new(238, 232, 213), // base2
+        surface1: Rgb::new(147, 161, 161), // base1 - Comments
+        surface2: Rgb::new(131, 148, 150), // base0 - Selection bg
+        overlay0: Rgb::new(88, 110, 117),  // base01 - Emphasis
+        text: Rgb::new(101, 123, 131),     // base00 - Body text
+        subtext: Rgb::new(88, 110, 117),   // base01
+        blue: Rgb::new(38, 139, 210),      // blue (directories)
+        green: Rgb::new(133, 153, 0),      // green (executables)
+        yellow: Rgb::new(181, 137, 0),     // yellow (headers)
+        red: Rgb::new(220, 50, 47),        // red (errors)
         is_dark: false,
     }
 }
@@ -253,4 +253,3 @@ pub const THEME_NAMES: &[&str] = &[
     "mariana",
     "breakers",
 ];
-

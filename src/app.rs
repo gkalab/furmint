@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use crate::fs_ops::FileEntry;
+use std::path::PathBuf;
 
 #[derive(Clone)]
 pub struct HistoryEntry {
@@ -83,9 +83,14 @@ impl PanelState {
         let entries = crate::fs_ops::list_dir(&path)?;
         self.current_dir = path.clone();
         self.entries = entries;
-        
+
         // Restore cursor if path is in history
-        if let Some((idx, hist)) = self.history.iter().enumerate().find(|(_, h)| h.path == path) {
+        if let Some((idx, hist)) = self
+            .history
+            .iter()
+            .enumerate()
+            .find(|(_, h)| h.path == path)
+        {
             self.cursor = hist.cursor.min(self.entries.len().saturating_sub(1));
             self.history_index = idx;
         } else {
@@ -93,7 +98,10 @@ impl PanelState {
             if self.history_index + 1 < self.history.len() {
                 self.history.truncate(self.history_index + 1);
             }
-            self.history.push(HistoryEntry { path: path.clone(), cursor: 0 });
+            self.history.push(HistoryEntry {
+                path: path.clone(),
+                cursor: 0,
+            });
             self.history_index += 1;
         }
         self.error = None;
@@ -189,7 +197,7 @@ impl FileViewerState {
             "InspiredGitHub"
         };
         let theme = theme_set.themes[theme_name].clone();
-        
+
         Self {
             path: PathBuf::new(),
             content: Vec::new(),
@@ -205,14 +213,17 @@ impl FileViewerState {
     pub fn load_content(&mut self, path: PathBuf) {
         self.path = path.clone();
         self.scroll_offset = 0;
-        
+
         // Determine syntax once
-        let syntax = self.syntax_set.find_syntax_for_file(&self.path)
+        let syntax = self
+            .syntax_set
+            .find_syntax_for_file(&self.path)
             .unwrap_or(None)
             .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text());
         self.syntax_name = Some(syntax.name.clone());
 
-        match crate::fs_ops::read_file_content(&self.path, 10 * 1024 * 1024) { // 10MB limit
+        match crate::fs_ops::read_file_content(&self.path, 10 * 1024 * 1024) {
+            // 10MB limit
             Ok(content) => {
                 self.content = content.lines().map(String::from).collect();
             }
@@ -267,12 +278,15 @@ mod tests {
                 selected: false,
             },
         ];
-        
+
         PanelState {
             current_dir: PathBuf::from("/tmp"),
             entries,
             cursor: 0,
-            history: vec![HistoryEntry { path: PathBuf::from("/tmp"), cursor: 0 }],
+            history: vec![HistoryEntry {
+                path: PathBuf::from("/tmp"),
+                cursor: 0,
+            }],
             history_index: 0,
             error: None,
             typed_buffer: String::new(),
@@ -292,7 +306,7 @@ mod tests {
         panel.cursor = 2;
         panel.move_cursor_up();
         assert_eq!(panel.cursor, 1);
-        
+
         panel.cursor = 0;
         panel.move_cursor_up();
         assert_eq!(panel.cursor, 0); // Should not go negative
@@ -303,7 +317,7 @@ mod tests {
         let mut panel = create_test_panel();
         panel.move_cursor_down();
         assert_eq!(panel.cursor, 1);
-        
+
         panel.cursor = 3;
         panel.move_cursor_down();
         assert_eq!(panel.cursor, 3); // Should not exceed entries
@@ -315,7 +329,7 @@ mod tests {
         panel.cursor = 3;
         panel.move_cursor_page_up(2);
         assert_eq!(panel.cursor, 1);
-        
+
         panel.move_cursor_page_up(5);
         assert_eq!(panel.cursor, 0);
     }
@@ -325,7 +339,7 @@ mod tests {
         let mut panel = create_test_panel();
         panel.move_cursor_page_down(2);
         assert_eq!(panel.cursor, 2);
-        
+
         panel.move_cursor_page_down(10);
         assert_eq!(panel.cursor, 3);
     }
@@ -360,7 +374,7 @@ mod tests {
     fn test_get_selected_entries() {
         let mut panel = create_test_panel();
         assert_eq!(panel.get_selected_entries().len(), 0);
-        
+
         panel.entries[1].selected = true;
         panel.entries[3].selected = true;
         let selected = panel.get_selected_entries();
@@ -369,4 +383,3 @@ mod tests {
         assert_eq!(selected[1].name, "file2.txt");
     }
 }
-

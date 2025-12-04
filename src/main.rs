@@ -1,20 +1,21 @@
-mod fs_ops;
-mod ui;
 mod app;
-mod event_loop;
 mod config;
+mod event_loop;
+mod fs_ops;
 mod theme;
+mod ui;
 
-use anyhow::Result;
-use std::env;
-use crossterm::terminal::{enable_raw_mode, disable_raw_mode};
-use crate::app::{AppState, PanelState, PanelSide};
-use crate::fs_ops::list_dir;
+use crate::app::{AppState, PanelSide, PanelState};
 use crate::config::load_config;
+use crate::fs_ops::list_dir;
+use anyhow::Result;
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
+use std::env;
 
 fn main() -> Result<()> {
     enable_raw_mode()?;
-    let mut terminal = ratatui::Terminal::new(ratatui::backend::CrosstermBackend::new(std::io::stdout()))?;
+    let mut terminal =
+        ratatui::Terminal::new(ratatui::backend::CrosstermBackend::new(std::io::stdout()))?;
 
     // Load config
     let (keyboard, theme_config) = match load_config() {
@@ -27,7 +28,10 @@ fn main() -> Result<()> {
     };
 
     // Select theme
-    let theme_name = theme_config.name.as_deref().unwrap_or("catppuccin macchiato");
+    let theme_name = theme_config
+        .name
+        .as_deref()
+        .unwrap_or("catppuccin macchiato");
     let palette = theme::get_theme(theme_name).unwrap_or_else(theme::default_theme);
     terminal.clear()?;
 
@@ -36,7 +40,10 @@ fn main() -> Result<()> {
         current_dir: cwd.clone(),
         entries: list_dir(&cwd).unwrap_or_default(),
         cursor: 0,
-        history: vec![app::HistoryEntry { path: cwd.clone(), cursor: 0 }],
+        history: vec![app::HistoryEntry {
+            path: cwd.clone(),
+            cursor: 0,
+        }],
         history_index: 0,
         error: None,
         typed_buffer: String::new(),
@@ -46,7 +53,10 @@ fn main() -> Result<()> {
         current_dir: cwd.clone(),
         entries: list_dir(&cwd).unwrap_or_default(),
         cursor: 0,
-        history: vec![app::HistoryEntry { path: cwd.clone(), cursor: 0 }],
+        history: vec![app::HistoryEntry {
+            path: cwd.clone(),
+            cursor: 0,
+        }],
         history_index: 0,
         error: None,
         typed_buffer: String::new(),

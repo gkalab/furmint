@@ -1,8 +1,8 @@
+use anyhow::Result;
+use chrono::{DateTime, Local};
 use std::fs::{self, Metadata};
 use std::path::PathBuf;
 use std::time::SystemTime;
-use chrono::{DateTime, Local};
-use anyhow::Result;
 
 #[derive(Clone)]
 pub struct FileEntry {
@@ -17,7 +17,11 @@ pub struct FileEntry {
 
 impl FileEntry {
     pub fn from_path(path: &PathBuf, meta: &Metadata) -> Self {
-        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
         let is_dir = meta.is_dir();
         let is_symlink = match fs::symlink_metadata(path) {
             Ok(m) => m.file_type().is_symlink(),
@@ -26,7 +30,15 @@ impl FileEntry {
         let size = if is_dir { None } else { Some(meta.len()) };
         let modified = meta.modified().ok();
         let attributes = get_attributes(meta, is_dir);
-        FileEntry { name, is_dir, is_symlink, size, modified, attributes, selected: false }
+        FileEntry {
+            name,
+            is_dir,
+            is_symlink,
+            size,
+            modified,
+            attributes,
+            selected: false,
+        }
     }
 }
 
@@ -40,9 +52,27 @@ pub fn get_attributes(meta: &Metadata, is_dir: bool) -> String {
         for i in (0..9).rev() {
             let bit = (mode >> i) & 1;
             attrs.push(match i % 3 {
-                2 => if bit == 1 { 'r' } else { '-' },
-                1 => if bit == 1 { 'w' } else { '-' },
-                0 => if bit == 1 { 'x' } else { '-' },
+                2 => {
+                    if bit == 1 {
+                        'r'
+                    } else {
+                        '-'
+                    }
+                }
+                1 => {
+                    if bit == 1 {
+                        'w'
+                    } else {
+                        '-'
+                    }
+                }
+                0 => {
+                    if bit == 1 {
+                        'x'
+                    } else {
+                        '-'
+                    }
+                }
                 _ => '-',
             });
         }
@@ -50,7 +80,11 @@ pub fn get_attributes(meta: &Metadata, is_dir: bool) -> String {
     }
     #[cfg(not(unix))]
     {
-        if is_dir { "<DIR>".to_string() } else { "<FILE>".to_string() }
+        if is_dir {
+            "<DIR>".to_string()
+        } else {
+            "<FILE>".to_string()
+        }
     }
 }
 
@@ -76,12 +110,10 @@ pub fn list_dir(path: &PathBuf) -> Result<Vec<FileEntry>> {
         entries.push(FileEntry::from_path(&file_path, &meta));
     }
     // Sort: dirs first, then files, both alphabetically
-    entries.sort_by(|a, b| {
-        match (a.is_dir, b.is_dir) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-        }
+    entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
     });
     Ok(entries)
 }
@@ -92,9 +124,11 @@ pub fn read_file_content(path: &std::path::Path, limit: usize) -> anyhow::Result
 
     let metadata = std::fs::metadata(path)?;
     if metadata.len() > limit as u64 {
-        return Ok(format!("File too large to display (size: {}, limit: {})", 
-            format_size(Some(metadata.len()), false, false), 
-            format_size(Some(limit as u64), false, false)));
+        return Ok(format!(
+            "File too large to display (size: {}, limit: {})",
+            format_size(Some(metadata.len()), false, false),
+            format_size(Some(limit as u64), false, false)
+        ));
     }
 
     let file = File::open(path)?;
@@ -208,11 +242,11 @@ mod tests {
         let test_file = temp_dir.join("fm_test_read.txt");
         let mut file = std::fs::File::create(&test_file).unwrap();
         file.write_all(b"Hello, World!").unwrap();
-        
+
         let result = read_file_content(&test_file, 1024);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "Hello, World!");
-        
+
         std::fs::remove_file(&test_file).ok();
     }
 
@@ -223,11 +257,11 @@ mod tests {
         let test_file = temp_dir.join("fm_test_large.txt");
         let mut file = std::fs::File::create(&test_file).unwrap();
         file.write_all(&vec![b'a'; 100]).unwrap();
-        
+
         let result = read_file_content(&test_file, 50);
         assert!(result.is_ok());
         assert!(result.unwrap().contains("too large"));
-        
+
         std::fs::remove_file(&test_file).ok();
     }
 
@@ -238,11 +272,11 @@ mod tests {
         let test_file = temp_dir.join("fm_test_binary.bin");
         let mut file = std::fs::File::create(&test_file).unwrap();
         file.write_all(&[0u8, 1, 2, 0, 3]).unwrap();
-        
+
         let result = read_file_content(&test_file, 1024);
         assert!(result.is_ok());
         assert!(result.unwrap().contains("Binary"));
-        
+
         std::fs::remove_file(&test_file).ok();
     }
 
@@ -257,4 +291,3 @@ mod tests {
         assert!(entries[0].is_dir);
     }
 }
-

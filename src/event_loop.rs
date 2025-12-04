@@ -1,9 +1,9 @@
-use ratatui::prelude::*;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use crate::app::{AppState, PanelSide};
+use crate::config::KeyboardConfig;
 use crate::theme::ThemePalette;
 use crate::ui::{draw_panel, draw_panel_status};
-use crate::config::KeyboardConfig;
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use ratatui::prelude::*;
 
 pub fn run_event_loop(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
@@ -26,39 +26,32 @@ pub fn run_event_loop(
     Ok(())
 }
 
-fn draw_ui(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &AppState, palette: &ThemePalette) -> anyhow::Result<()> {
+fn draw_ui(
+    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
+    app: &AppState,
+    palette: &ThemePalette,
+) -> anyhow::Result<()> {
     terminal.draw(|f| {
         let size = f.area();
         // Fill the entire terminal with the theme background color
-        let bg_color = Color::Rgb(
-            palette.base.r,
-            palette.base.g,
-            palette.base.b,
-        );
+        let bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
         let bg = ratatui::widgets::Paragraph::new("").style(Style::default().bg(bg_color));
         f.render_widget(bg, size);
-
 
         let vertical_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Min(1), // panels
+                Constraint::Min(1),    // panels
                 Constraint::Length(1), // status lines
             ])
             .split(size);
         let panel_chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(50),
-                Constraint::Percentage(50),
-            ])
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
             .split(vertical_chunks[0]);
         let status_chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(50),
-                Constraint::Percentage(50),
-            ])
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
             .split(vertical_chunks[1]);
         if app.file_viewer.is_visible && app.active == PanelSide::Right {
             crate::ui::draw_file_viewer(f, &app.file_viewer, panel_chunks[0], palette);
@@ -74,8 +67,20 @@ fn draw_ui(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &App
             draw_panel(f, &app.right, is_active, panel_chunks[1], palette);
         }
 
-        draw_panel_status(f, &app.left, status_chunks[0], palette, app.active == PanelSide::Left);
-        draw_panel_status(f, &app.right, status_chunks[1], palette, app.active == PanelSide::Right);
+        draw_panel_status(
+            f,
+            &app.left,
+            status_chunks[0],
+            palette,
+            app.active == PanelSide::Left,
+        );
+        draw_panel_status(
+            f,
+            &app.right,
+            status_chunks[1],
+            palette,
+            app.active == PanelSide::Right,
+        );
     })?;
     Ok(())
 }
@@ -91,8 +96,12 @@ fn poll_events() -> anyhow::Result<Vec<Event>> {
 /// Returns true if the event is a quit event (Ctrl-q or Esc)
 pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) -> bool {
     match ev {
-        Event::Key(KeyEvent { code, modifiers, .. }) => {
-            if (code == KeyCode::Char('q') && modifiers == KeyModifiers::CONTROL) || (code == KeyCode::Esc && !app.file_viewer.is_visible) {
+        Event::Key(KeyEvent {
+            code, modifiers, ..
+        }) => {
+            if (code == KeyCode::Char('q') && modifiers == KeyModifiers::CONTROL)
+                || (code == KeyCode::Esc && !app.file_viewer.is_visible)
+            {
                 return true;
             }
             if code == KeyCode::F(3) || code == KeyCode::Esc {
@@ -147,7 +156,8 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
                         app.file_viewer.scroll_offset = 0;
                     }
                     KeyCode::End => {
-                         app.file_viewer.scroll_offset = app.file_viewer.content.len().saturating_sub(1);
+                        app.file_viewer.scroll_offset =
+                            app.file_viewer.content.len().saturating_sub(1);
                     }
                     _ => {}
                 }
@@ -190,7 +200,8 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
                 }
             }
             match (code, modifiers) {
-                (KeyCode::Char(c), KeyModifiers::NONE) | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
+                (KeyCode::Char(c), KeyModifiers::NONE)
+                | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
                     handle_type_char(app, c);
                 }
                 _ => {
@@ -221,18 +232,17 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
     false
 }
 
-use crossterm::terminal::{enable_raw_mode, disable_raw_mode};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use std::process::Command;
 
 fn open_in_default_editor(file_path: &std::path::Path) -> anyhow::Result<()> {
     // Get the default editor
-    let editor = default_editor::get().map_err(|e| anyhow::anyhow!("No default editor found: {}", e))?;
+    let editor =
+        default_editor::get().map_err(|e| anyhow::anyhow!("No default editor found: {}", e))?;
     // Suspend TUI
     disable_raw_mode()?;
     // Launch editor as blocking subprocess
-    let status = Command::new(editor)
-        .arg(file_path)
-        .status();
+    let status = Command::new(editor).arg(file_path).status();
     // Resume TUI
     enable_raw_mode()?;
     match status {
@@ -285,7 +295,9 @@ fn handle_tab(app: &mut AppState) {
 }
 
 fn update_viewer_content(app: &mut AppState) {
-    if !app.file_viewer.is_visible { return; }
+    if !app.file_viewer.is_visible {
+        return;
+    }
     let panel = match app.active {
         PanelSide::Left => &app.left,
         PanelSide::Right => &app.right,
@@ -373,7 +385,7 @@ fn handle_edit(app: &mut AppState) {
                     } else {
                         // Launch editor
                         match open_in_default_editor(&file_path) {
-                            Ok(_) => {},
+                            Ok(_) => {}
                             Err(e) => panel.error = Some(format!("Editor error: {}", e)),
                         }
                     }
@@ -386,13 +398,12 @@ fn handle_edit(app: &mut AppState) {
     }
 }
 
-
 fn handle_enter_directory(app: &mut AppState) {
     let panel = match app.active {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
-    
+
     if let Some(entry) = panel.current_entry().cloned() {
         if entry.is_dir {
             let new_dir = if entry.name == ".." {
@@ -400,7 +411,7 @@ fn handle_enter_directory(app: &mut AppState) {
             } else {
                 Some(panel.current_dir.join(&entry.name))
             };
-            
+
             if let Some(path) = new_dir {
                 if let Err(e) = panel.navigate_to(path) {
                     panel.error = Some(format!("Error: {}", e));
@@ -417,7 +428,7 @@ fn handle_directory_up(app: &mut AppState) {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
-    
+
     if let Err(e) = panel.go_up() {
         panel.error = Some(format!("Error: {}", e));
     } else {
@@ -430,7 +441,7 @@ fn handle_history_previous(app: &mut AppState) {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
-    
+
     if let Err(e) = panel.go_back() {
         panel.error = Some(format!("Error: {}", e));
     } else {
@@ -443,7 +454,7 @@ fn handle_history_next(app: &mut AppState) {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
-    
+
     if let Err(e) = panel.go_forward() {
         panel.error = Some(format!("Error: {}", e));
     } else {
@@ -460,15 +471,22 @@ fn handle_type_char(app: &mut AppState, c: char) {
     let now = Instant::now();
     let reset_threshold = std::time::Duration::from_secs(1);
     // If last_type_time is None or too old, reset buffer
-    if panel.last_type_time.map_or(true, |t| now.duration_since(t) > reset_threshold) {
+    if panel
+        .last_type_time
+        .map_or(true, |t| now.duration_since(t) > reset_threshold)
+    {
         panel.typed_buffer.clear();
     }
     panel.typed_buffer.push(c);
     panel.last_type_time = Some(now);
     let typed = panel.typed_buffer.to_lowercase();
     // Find first entry whose name starts with typed
-    if let Some((idx, _)) = panel.entries.iter().enumerate()
-        .find(|(_, entry)| entry.name.to_lowercase().starts_with(&typed)) {
+    if let Some((idx, _)) = panel
+        .entries
+        .iter()
+        .enumerate()
+        .find(|(_, entry)| entry.name.to_lowercase().starts_with(&typed))
+    {
         panel.cursor = idx;
         update_viewer_content(app);
     }
