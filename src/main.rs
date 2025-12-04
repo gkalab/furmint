@@ -4,6 +4,7 @@ mod event_loop;
 mod fs_ops;
 mod theme;
 mod ui;
+mod ui_utils;
 
 use crate::app::{AppState, PanelSide, PanelState};
 use crate::config::load_config;

@@ -231,7 +231,7 @@ mod tests {
 
     #[test]
     fn test_format_modified_none() {
-        assert_eq!(format_modified(None), "");
+        assert_eq!(format_modified(None), "                   "); // 19 spaces for UI alignment
     }
 
     #[test]

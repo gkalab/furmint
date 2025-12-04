@@ -1,6 +1,7 @@
 use crate::app::PanelState;
 use crate::fs_ops::{format_modified, format_size};
 use crate::theme::ThemePalette;
+use crate::ui_utils::{truncate_middle_with_ellipsis, truncate_path_with_ellipsis};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Cell, Row, Table, TableState};
 
@@ -21,32 +22,6 @@ pub fn draw_panel(
     let size_header = format!("{:>width$}", "Size", width = size_width);
     let header = ["Name", &size_header, "Modified", "Attributes"];
 
-    // Helper: truncate filename with middle ellipsis if too long
-    fn truncate_middle_with_ellipsis(name: &str, max_width: usize) -> String {
-        let ellipsis = "…"; // Unicode ellipsis
-        let ellipsis_len = ellipsis.chars().count();
-        let name_len = name.chars().count();
-        if name_len <= max_width {
-            return name.to_string();
-        }
-        if max_width <= ellipsis_len {
-            return ellipsis.repeat(max_width);
-        }
-        let keep = max_width - ellipsis_len;
-        let left = keep / 2;
-        let right = keep - left;
-        let left_str: String = name.chars().take(left).collect();
-        let right_str: String = name.chars().skip(name_len - right).collect();
-        let mut result = format!("{}{}{}", left_str, ellipsis, right_str);
-        // Ensure result is exactly max_width chars
-        let result_len = result.chars().count();
-        if result_len > max_width {
-            result = result.chars().take(max_width).collect();
-        } else if result_len < max_width {
-            result = format!("{:<width$}", result, width = max_width);
-        }
-        result
-    }
     let text_fg = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
     // Calculate available width for name column
     let total_table_width = area.width as usize;
@@ -112,61 +87,6 @@ pub fn draw_panel(
     } else {
         Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b)
     };
-    // Truncate panel title path with ellipsis if too long
-    fn truncate_path_with_ellipsis(path: &std::path::Path, max_width: usize) -> String {
-        use std::path::MAIN_SEPARATOR;
-        let sep = MAIN_SEPARATOR;
-        let path_str = path.to_string_lossy();
-        let segments: Vec<&str> = path_str.split(sep).collect();
-        if path_str.chars().count() <= max_width {
-            return path_str.to_string();
-        }
-        let ellipsis = "…";
-        let sep_str = sep.to_string();
-        let seg_len = segments.len();
-        // Always show as many segments as possible, ellipsis in the middle
-        // Start with 1 left, 1 right, and increase until it doesn't fit
-        let mut left_count = 1;
-        let mut right_count = 1;
-        let mut result = String::new();
-        let mut last_result = String::new();
-        let mut last_left = left_count;
-        let mut last_right = right_count;
-        // Try all possible combinations, keep the best that fits
-        while left_count + right_count < seg_len {
-            let mut parts = Vec::new();
-            if left_count > 0 {
-                parts.extend_from_slice(&segments[..left_count.min(seg_len)]);
-            }
-            parts.push(ellipsis);
-            if right_count > 0 {
-                parts.extend_from_slice(&segments[seg_len.saturating_sub(right_count)..]);
-            }
-            result = parts.join(&sep_str);
-            if result.chars().count() > max_width {
-                break;
-            }
-            last_result = result.clone();
-            last_left = left_count;
-            last_right = right_count;
-            // Try to add more segments
-            if left_count <= right_count {
-                left_count += 1;
-            } else {
-                right_count += 1;
-            }
-        }
-        // If nothing fit, fallback to first/ellipsis/last
-        if last_result.is_empty() {
-            let first = segments.first().map_or("", |v| *v);
-            let last = segments.last().map_or("", |v| *v);
-            last_result = format!("{}{}{}{}{}", first, sep_str, ellipsis, sep_str, last);
-            if last_result.chars().count() > max_width {
-                last_result = last_result.chars().take(max_width).collect();
-            }
-        }
-        last_result
-    }
 
     let title_width = area.width.saturating_sub(2) as usize;
     let panel_title = truncate_path_with_ellipsis(&panel.current_dir, title_width);
