@@ -92,10 +92,10 @@ fn poll_events() -> anyhow::Result<Vec<Event>> {
 pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) -> bool {
     match ev {
         Event::Key(KeyEvent { code, modifiers, .. }) => {
-            if (code == KeyCode::Char('q') && modifiers == KeyModifiers::CONTROL) || code == KeyCode::Esc {
+            if (code == KeyCode::Char('q') && modifiers == KeyModifiers::CONTROL) || (code == KeyCode::Esc && !app.file_viewer.is_visible) {
                 return true;
             }
-            if code == KeyCode::F(3) {
+            if code == KeyCode::F(3) || code == KeyCode::Esc {
                 app.file_viewer.is_visible = !app.file_viewer.is_visible;
                 if app.file_viewer.is_visible {
                     update_viewer_content(app);
