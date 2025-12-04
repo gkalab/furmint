@@ -50,6 +50,33 @@ Performance Improvements: Step-by-Step
 
 ---
 
+## Keyboard and Theme Configuration
+
+The app supports user-configurable keyboard shortcuts and theme selection via a TOML config file.
+
+### Config File Location
+- **Linux:** `~/.config/fm/config.toml`
+- **macOS:** `~/Library/Application Support/fm/config.toml`
+- **Windows:** `%APPDATA%\fm\config.toml`
+
+### Example `config.toml`
+```toml
+[keyboard]
+previous_directory = ["Ctrl-Up", "Left"]
+next_directory = ["Ctrl-Down", "Right"]
+
+[theme]
+name = "catppuccin macchiato"
+```
+- You can assign multiple shortcuts to the same action.
+- Shortcut format: `Ctrl-Up`, `Left`, `Ctrl-Down`, etc.
+- Supported theme names: `catppuccin macchiato`, `catppuccin latte`, `catppuccin frappe`, `catppuccin mocha`.
+
+### Behavior
+- If the config file is missing, the app uses sensible defaults (as above).
+- If the config file is present but invalid, the app prints an error and exits.
+- Keyboard shortcuts and theme are loaded at startup and used throughout the app.
+
 For future work:
 - Continue to keep modules focused and maintainable.
 - Add more tests and documentation as features grow.

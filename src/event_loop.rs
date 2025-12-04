@@ -4,14 +4,20 @@ use crate::app::{AppState, PanelSide};
 use catppuccin::Flavor;
 use crate::fs_ops::list_dir;
 use crate::ui::{draw_panel, draw_panel_status};
+use crate::config::KeyboardConfig;
 
-pub fn run_event_loop(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>, app: &mut AppState, palette: &Flavor) -> anyhow::Result<()> {
+pub fn run_event_loop(
+    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
+    app: &mut AppState,
+    palette: &Flavor,
+    keyboard: KeyboardConfig,
+) -> anyhow::Result<()> {
     let mut should_exit = false;
     while !should_exit {
         draw_ui(terminal, app, palette)?;
         let events = poll_events()?;
         for event in events {
-            if handle_event(event, app) {
+            if handle_event(event, app, &keyboard) {
                 should_exit = true;
                 break;
             }
@@ -62,11 +68,26 @@ fn poll_events() -> anyhow::Result<Vec<Event>> {
 }
 
 /// Returns true if the event is a quit event (Ctrl-q or Esc)
-pub fn handle_event(ev: Event, app: &mut AppState) -> bool {
+pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) -> bool {
     match ev {
         Event::Key(KeyEvent { code, modifiers, .. }) => {
             if (code == KeyCode::Char('q') && modifiers == KeyModifiers::CONTROL) || code == KeyCode::Esc {
                 return true;
+            }
+            let shortcut = keyevent_to_string(code, modifiers);
+            // Previous directory
+            if let Some(keys) = &keyboard.previous_directory {
+                if keys.contains(&shortcut) {
+                    handle_ctrl_left(app);
+                    return false;
+                }
+            }
+            // Next directory
+            if let Some(keys) = &keyboard.next_directory {
+                if keys.contains(&shortcut) {
+                    handle_ctrl_right(app);
+                    return false;
+                }
             }
             match (code, modifiers) {
                 (KeyCode::Char(c), KeyModifiers::NONE) | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
@@ -90,8 +111,6 @@ pub fn handle_event(ev: Event, app: &mut AppState) -> bool {
                         (KeyCode::End, _) => handle_end(app),
                         (KeyCode::Enter, _) => handle_enter(app),
                         (KeyCode::Backspace, _) => handle_backspace(app),
-                        (KeyCode::Left, KeyModifiers::CONTROL) => handle_ctrl_left(app),
-                        (KeyCode::Right, KeyModifiers::CONTROL) => handle_ctrl_right(app),
                         _ => {}
                     }
                 }
@@ -101,6 +120,36 @@ pub fn handle_event(ev: Event, app: &mut AppState) -> bool {
         _ => {}
     }
     false
+}
+
+fn keyevent_to_string(code: KeyCode, modifiers: KeyModifiers) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if modifiers.contains(KeyModifiers::CONTROL) {
+        parts.push("Ctrl".to_string());
+    }
+    if modifiers.contains(KeyModifiers::ALT) {
+        parts.push("Alt".to_string());
+    }
+    if modifiers.contains(KeyModifiers::SHIFT) {
+        parts.push("Shift".to_string());
+    }
+    let key = match code {
+        KeyCode::Up => "Up".to_string(),
+        KeyCode::Down => "Down".to_string(),
+        KeyCode::Left => "Left".to_string(),
+        KeyCode::Right => "Right".to_string(),
+        KeyCode::PageUp => "PageUp".to_string(),
+        KeyCode::PageDown => "PageDown".to_string(),
+        KeyCode::Home => "Home".to_string(),
+        KeyCode::End => "End".to_string(),
+        KeyCode::Enter => "Enter".to_string(),
+        KeyCode::Backspace => "Backspace".to_string(),
+        KeyCode::Tab => "Tab".to_string(),
+        KeyCode::Char(c) => c.to_string(),
+        _ => String::new(),
+    };
+    parts.push(key);
+    parts.join("-")
 }
 
 fn handle_tab(app: &mut AppState) {
