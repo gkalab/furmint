@@ -20,9 +20,51 @@ pub fn draw_panel(
         .unwrap_or(4);
     let size_header = format!("{:>width$}", "Size", width = size_width);
     let header = ["Name", &size_header, "Modified", "Attributes"];
+
+    // Helper: truncate filename with middle ellipsis if too long
+    fn truncate_middle_with_ellipsis(name: &str, max_width: usize) -> String {
+        let ellipsis = "…"; // Unicode ellipsis
+        let ellipsis_len = ellipsis.chars().count();
+        let name_len = name.chars().count();
+        if name_len <= max_width {
+            return name.to_string();
+        }
+        if max_width <= ellipsis_len {
+            return ellipsis.repeat(max_width);
+        }
+        let keep = max_width - ellipsis_len;
+        let left = keep / 2;
+        let right = keep - left;
+        let left_str: String = name.chars().take(left).collect();
+        let right_str: String = name.chars().skip(name_len - right).collect();
+        let mut result = format!("{}{}{}", left_str, ellipsis, right_str);
+        // Ensure result is exactly max_width chars
+        let result_len = result.chars().count();
+        if result_len > max_width {
+            result = result.chars().take(max_width).collect();
+        } else if result_len < max_width {
+            result = format!("{:<width$}", result, width = max_width);
+        }
+        result
+    }
     let text_fg = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
+    // Calculate available width for name column
+    let total_table_width = area.width as usize;
+    let name_col_width = if total_table_width > (10 + 19 + 10) {
+        total_table_width - (10 + 19 + 10)
+    } else {
+        10 // minimum width for name
+    };
+
     let rows = panel.entries.iter().map(|e| {
-        let mut name_cell = Cell::from(e.name.clone());
+        // Account for ratatui border: subtract 2 from available width
+        let visible_name_width = if name_col_width > 2 {
+            name_col_width - 2
+        } else {
+            1
+        };
+        let truncated_name = truncate_middle_with_ellipsis(&e.name, visible_name_width);
+        let mut name_cell = Cell::from(truncated_name);
         let full_path = panel.current_dir.join(&e.name);
         let name_style = if e.is_dir {
             Style::default().fg(Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b))
@@ -75,10 +117,10 @@ pub fn draw_panel(
         .title(panel.current_dir.to_string_lossy())
         .border_style(Style::default().fg(border_color));
     let widths = [
-        Constraint::Percentage(40),
-        Constraint::Percentage(20),
-        Constraint::Percentage(20),
-        Constraint::Percentage(20),
+        Constraint::Min(10),    // Name: dynamic, at least 10
+        Constraint::Length(7),  // Size: always 7 (right-aligned)
+        Constraint::Length(19), // Modified: always 19
+        Constraint::Length(10), // Attributes: always 10
     ];
     let highlight_bg = if active {
         Color::Rgb(palette.surface2.r, palette.surface2.g, palette.surface2.b)

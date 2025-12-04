@@ -76,15 +76,13 @@ pub fn get_attributes(meta: &Metadata, is_dir: bool) -> String {
                 _ => '-',
             });
         }
-        attrs
+        let s: String = attrs.chars().take(10).collect();
+        format!("{:<10}", s) // pad/truncate to 10
     }
     #[cfg(not(unix))]
     {
-        if is_dir {
-            "<DIR>".to_string()
-        } else {
-            "<FILE>".to_string()
-        }
+        let s = if is_dir { "<DIR>" } else { "<FILE>" };
+        format!("{:<10}", s)
     }
 }
 
@@ -175,9 +173,10 @@ pub fn format_size(size: Option<u64>, is_dir: bool, is_symlink: bool) -> String 
 pub fn format_modified(modified: Option<SystemTime>) -> String {
     if let Some(m) = modified {
         let dt: DateTime<Local> = m.into();
-        dt.format("%Y-%m-%d %H:%M:%S").to_string()
+        let s = dt.format("%Y-%m-%d %H:%M:%S").to_string();
+        format!("{:<19}", s.chars().take(19).collect::<String>()) // pad/truncate to 19
     } else {
-        "".to_string()
+        "                   ".to_string() // 19 spaces
     }
 }
 

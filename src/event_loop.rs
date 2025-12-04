@@ -3,10 +3,10 @@ use crate::config::KeyboardConfig;
 use crate::theme::ThemePalette;
 use crate::ui::{draw_panel, draw_panel_status};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
-use ratatui::prelude::*;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-use std::process::Command;
+use ratatui::prelude::*;
 use std::env;
+use std::process::Command;
 
 pub fn run_event_loop(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
@@ -248,8 +248,8 @@ fn get_default_editor() -> String {
 
 #[cfg(target_os = "windows")]
 fn get_default_editor() -> String {
-    use winreg::enums::*;
     use winreg::RegKey;
+    use winreg::enums::*;
 
     let hkcr = RegKey::predef(HKEY_CLASSES_ROOT);
 
