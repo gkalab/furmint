@@ -101,6 +101,11 @@ impl Tab {
         let entries = crate::fs_ops::list_dir(&path)?;
         self.current_dir = path.clone();
         self.entries = entries;
+        
+        // Clear all selections when navigating to a new directory
+        for entry in &mut self.entries {
+            entry.selected = false;
+        }
 
         // Restore cursor if path is in history
         if let Some((idx, hist)) = self
@@ -165,11 +170,13 @@ impl Tab {
         Ok(())
     }
 
-    /// Toggle selection of current entry.
+    /// Toggle selection of current entry and move cursor down.
     pub fn toggle_selection(&mut self) {
         if let Some(entry) = self.entries.get_mut(self.cursor) {
             entry.selected = !entry.selected;
         }
+        // Move cursor down after toggling selection
+        self.move_cursor_down();
     }
 
     /// Get all selected entries.

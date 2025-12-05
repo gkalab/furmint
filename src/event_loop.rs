@@ -279,6 +279,8 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
                         (KeyCode::Home, _) => handle_home(app),
                         (KeyCode::End, _) => handle_end(app),
                         (KeyCode::Enter, _) => handle_enter_directory(app),
+                        (KeyCode::Char(' '), KeyModifiers::NONE) => handle_toggle_selection(app),
+                        (KeyCode::Insert, _) => handle_toggle_selection(app),
                         _ => {}
                     }
                 }
@@ -628,4 +630,13 @@ fn handle_type_char(app: &mut AppState, c: char) {
         panel.cursor = idx;
         update_viewer_content(app);
     }
+}
+
+fn handle_toggle_selection(app: &mut AppState) {
+    let tab_manager = match app.active {
+        PanelSide::Left => &mut app.left,
+        PanelSide::Right => &mut app.right,
+    };
+    tab_manager.active_tab_mut().toggle_selection();
+    update_viewer_content(app);
 }

@@ -197,6 +197,47 @@ pub fn draw_panel(
         &mut TableState::default().with_selected(Some(panel.cursor)),
     );
 
+    // Draw selection markers over the left border
+    let yellow_color = Color::Rgb(palette.yellow.r, palette.yellow.g, palette.yellow.b);
+    let border_color = if active {
+        Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b)
+    } else {
+        Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b)
+    };
+    
+    // Calculate which entries are visible in the current view
+    let visible_rows = area.height.saturating_sub(2) as usize; // -2 for top/bottom borders
+    let start_idx = if panel.cursor >= visible_rows {
+        panel.cursor - visible_rows + 1
+    } else {
+        0
+    };
+    
+    for (idx, entry) in panel.entries.iter().enumerate().skip(start_idx).take(visible_rows) {
+        let row_y = area.y + 2 + (idx - start_idx) as u16; // +2 for border and header
+        
+        if row_y >= area.y + area.height - 1 {
+            break; // Don't draw past the bottom border
+        }
+        
+        let marker = if entry.selected {
+            Span::styled("█", Style::default().fg(yellow_color))
+        } else {
+            // Restore the border character
+            Span::styled("│", Style::default().fg(border_color))
+        };
+        
+        f.render_widget(
+            Line::from(marker),
+            Rect {
+                x: area.x,
+                y: row_y,
+                width: 1,
+                height: 1,
+            },
+        );
+    }
+
     // Draw unobtrusive vertical scrollbar if needed
     let visible_rows = area.height.saturating_sub(1) as usize; // 1 for header
     let total_entries = panel.entries.len();
@@ -239,8 +280,12 @@ pub fn draw_panel_status(
         .iter()
         .filter(|e| e.is_dir && e.name != "..")
         .count();
+    let selected_count = panel.entries.iter().filter(|e| e.selected).count();
+    
     let status = if !error.is_empty() {
         format!("{}", error)
+    } else if selected_count > 0 {
+        format!("{} files, {} dirs | {} selected", file_count, dir_count, selected_count)
     } else {
         format!("{} files, {} dirs", file_count, dir_count)
     };
