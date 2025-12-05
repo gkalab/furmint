@@ -274,6 +274,8 @@ pub struct AppState {
     pub right: TabManager,
     pub active: PanelSide,
     pub file_viewer: FileViewerState,
+    pub fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState,
+    pub dir_history: crate::dir_history::DirectoryHistory,
 }
 
 pub struct FileViewerState {

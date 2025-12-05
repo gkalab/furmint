@@ -14,6 +14,7 @@ pub struct KeyboardConfig {
     pub next_tab: Option<Vec<String>>,
     pub prev_tab: Option<Vec<String>>,
     pub close_tab: Option<Vec<String>>,
+    pub fuzzy_search: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -40,6 +41,7 @@ pub fn default_keyboard_config() -> KeyboardConfig {
         next_tab: Some(vec!["Ctrl-Right".to_string()]),
         prev_tab: Some(vec!["Ctrl-Left".to_string()]),
         close_tab: Some(vec!["Ctrl-w".to_string()]),
+        fuzzy_search: Some(vec!["Ctrl-p".to_string()]),
     }
 }
 
@@ -91,6 +93,10 @@ pub fn merge_keyboard_config(
             .as_ref()
             .and_then(|k| k.close_tab.clone())
             .or_else(|| default.close_tab.clone()),
+        fuzzy_search: user
+            .as_ref()
+            .and_then(|k| k.fuzzy_search.clone())
+            .or_else(|| default.fuzzy_search.clone()),
     }
 }
 

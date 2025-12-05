@@ -31,7 +31,7 @@ pub fn run_event_loop(
 
 fn draw_ui(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
-    app: &AppState,
+    app: &mut AppState,
     palette: &ThemePalette,
 ) -> anyhow::Result<()> {
     terminal.draw(|f| {
@@ -104,6 +104,9 @@ fn draw_ui(
             palette,
             app.active == PanelSide::Right,
         );
+        
+        // Draw fuzzy search popup on top of everything
+        crate::fuzzy_search_ui::draw_fuzzy_search_popup(f, &mut app.fuzzy_search, palette);
     })?;
     Ok(())
 }
@@ -126,10 +129,66 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
             ..
         }) => {
             if (code == KeyCode::Char('q') && modifiers == KeyModifiers::CONTROL)
-                || (code == KeyCode::Esc && !app.file_viewer.is_visible)
+                || (code == KeyCode::Esc && !app.file_viewer.is_visible && !app.fuzzy_search.is_visible)
             {
                 return true;
             }
+            
+            // Handle fuzzy search popup
+            if app.fuzzy_search.is_visible {
+                match code {
+                    KeyCode::Esc => {
+                        app.fuzzy_search.is_visible = false;
+                        app.fuzzy_search.reset();
+                    }
+                    KeyCode::Enter => {
+                        if let Some(selected_dir) = app.fuzzy_search.get_selected_dir() {
+                            let tab_manager = match app.active {
+                                PanelSide::Left => &mut app.left,
+                                PanelSide::Right => &mut app.right,
+                            };
+                            if let Err(e) = tab_manager.active_tab_mut().navigate_to(selected_dir.clone()) {
+                                tab_manager.active_tab_mut().error = Some(format!("Error: {}", e));
+                            } else {
+                                app.dir_history.record_visit(&selected_dir);
+                            }
+                        }
+                        app.fuzzy_search.is_visible = false;
+                        app.fuzzy_search.reset();
+                    }
+                    KeyCode::Up => {
+                        app.fuzzy_search.move_selection_up();
+                    }
+                    KeyCode::Down => {
+                        app.fuzzy_search.move_selection_down();
+                    }
+                    KeyCode::PageUp => {
+                        app.fuzzy_search.move_selection_page_up(10);
+                    }
+                    KeyCode::PageDown => {
+                        app.fuzzy_search.move_selection_page_down(10);
+                    }
+                    KeyCode::Backspace => {
+                        app.fuzzy_search.input.pop();
+                        // Re-filter results
+                        let results = app.dir_history.fuzzy_search(&app.fuzzy_search.input);
+                        app.fuzzy_search.filtered_dirs = results.into_iter().map(|(p, _)| p).collect();
+                        app.fuzzy_search.selected_index = 0;
+                        app.fuzzy_search.scroll_offset = 0;
+                    }
+                    KeyCode::Char(c) => {
+                        app.fuzzy_search.input.push(c);
+                        // Re-filter results
+                        let results = app.dir_history.fuzzy_search(&app.fuzzy_search.input);
+                        app.fuzzy_search.filtered_dirs = results.into_iter().map(|(p, _)| p).collect();
+                        app.fuzzy_search.selected_index = 0;
+                        app.fuzzy_search.scroll_offset = 0;
+                    }
+                    _ => {}
+                }
+                return false;
+            }
+            
             if code == KeyCode::F(3) || code == KeyCode::Esc {
                 app.file_viewer.is_visible = !app.file_viewer.is_visible;
                 if app.file_viewer.is_visible {
@@ -253,6 +312,18 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
             if let Some(keys) = &keyboard.edit {
                 if keys.contains(&shortcut) {
                     handle_edit(app);
+                    return false;
+                }
+            }
+            // Fuzzy search
+            if let Some(keys) = &keyboard.fuzzy_search {
+                if keys.contains(&shortcut) {
+                    app.fuzzy_search.is_visible = true;
+                    app.fuzzy_search.reset();
+                    // Initialize with all directories sorted by score
+                    let results = app.dir_history.fuzzy_search("");
+                    app.fuzzy_search.filtered_dirs = results.into_iter().map(|(p, _)| p).collect();
+                    app.fuzzy_search.selected_index = 0;
                     return false;
                 }
             }
@@ -549,9 +620,10 @@ fn handle_enter_directory(app: &mut AppState) {
             };
 
             if let Some(path) = new_dir {
-                if let Err(e) = panel.navigate_to(path) {
+                if let Err(e) = panel.navigate_to(path.clone()) {
                     panel.error = Some(format!("Error: {}", e));
                 } else {
+                    app.dir_history.record_visit(&path);
                     update_viewer_content(app);
                 }
             }
@@ -566,10 +638,14 @@ fn handle_directory_up(app: &mut AppState) {
     };
     let panel = tab_manager.active_tab_mut();
 
-    if let Err(e) = panel.go_up() {
-        panel.error = Some(format!("Error: {}", e));
-    } else {
-        update_viewer_content(app);
+    if let Some(parent) = panel.current_dir.parent() {
+        let parent_path = parent.to_path_buf();
+        if let Err(e) = panel.go_up() {
+            panel.error = Some(format!("Error: {}", e));
+        } else {
+            app.dir_history.record_visit(&parent_path);
+            update_viewer_content(app);
+        }
     }
 }
 
@@ -583,6 +659,7 @@ fn handle_history_previous(app: &mut AppState) {
     if let Err(e) = panel.go_back() {
         panel.error = Some(format!("Error: {}", e));
     } else {
+        app.dir_history.record_visit(&panel.current_dir);
         update_viewer_content(app);
     }
 }
@@ -597,6 +674,7 @@ fn handle_history_next(app: &mut AppState) {
     if let Err(e) = panel.go_forward() {
         panel.error = Some(format!("Error: {}", e));
     } else {
+        app.dir_history.record_visit(&panel.current_dir);
         update_viewer_content(app);
     }
 }
