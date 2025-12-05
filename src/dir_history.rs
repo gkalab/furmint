@@ -1,7 +1,7 @@
 use anyhow::Result;
 use directories::ProjectDirs;
-use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
+use fuzzy_matcher::skim::SkimMatcherV2;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -67,7 +67,7 @@ impl DirectoryHistory {
     /// Get all directories sorted by score (frequency + recency)
     pub fn get_sorted_dirs(&self) -> Vec<PathBuf> {
         let mut entries: Vec<_> = self.entries.values().collect();
-        
+
         // Sort by score: combination of visit count and recency
         entries.sort_by(|a, b| {
             let score_a = self.calculate_score(a);
@@ -84,15 +84,15 @@ impl DirectoryHistory {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        
+
         // Age in days
         let age_seconds = now.saturating_sub(entry.last_visited);
         let age_days = age_seconds as f64 / 86400.0;
-        
+
         // Decay factor: recent visits are worth more
         // After 30 days, recency contributes very little
         let recency_score = (-age_days / 30.0).exp();
-        
+
         // Combine visit count and recency
         // Visit count has more weight
         (entry.visit_count as f64 * 2.0) + (recency_score * 10.0)
@@ -102,11 +102,7 @@ impl DirectoryHistory {
     pub fn fuzzy_search(&self, query: &str) -> Vec<(PathBuf, i64)> {
         if query.is_empty() {
             // Return all directories sorted by score
-            return self
-                .get_sorted_dirs()
-                .into_iter()
-                .map(|p| (p, 0))
-                .collect();
+            return self.get_sorted_dirs().into_iter().map(|p| (p, 0)).collect();
         }
 
         let matcher = SkimMatcherV2::default();
@@ -182,6 +178,10 @@ mod tests {
 
         let results = history.fuzzy_search("hm");
         assert!(!results.is_empty());
-        assert!(results.iter().any(|(p, _)| p.to_string_lossy().contains("home")));
+        assert!(
+            results
+                .iter()
+                .any(|(p, _)| p.to_string_lossy().contains("home"))
+        );
     }
 }

@@ -56,7 +56,7 @@ fn draw_ui(
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
             .split(vertical_chunks[1]);
-        
+
         // Split each panel area into tab bar and content
         let left_panel_layout = Layout::default()
             .direction(Direction::Vertical)
@@ -65,7 +65,7 @@ fn draw_ui(
                 Constraint::Min(1),    // panel content
             ])
             .split(panel_chunks[0]);
-        
+
         let right_panel_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -73,13 +73,19 @@ fn draw_ui(
                 Constraint::Min(1),    // panel content
             ])
             .split(panel_chunks[1]);
-        
+
         if app.file_viewer.is_visible && app.active == PanelSide::Right {
             crate::ui::draw_file_viewer(f, &app.file_viewer, panel_chunks[0], palette);
         } else {
             let is_active = app.active == PanelSide::Left && !app.file_viewer.focused;
             crate::ui::draw_tab_bar(f, &app.left, left_panel_layout[0], palette, is_active);
-            draw_panel(f, app.left.active_tab(), is_active, left_panel_layout[1], palette);
+            draw_panel(
+                f,
+                app.left.active_tab(),
+                is_active,
+                left_panel_layout[1],
+                palette,
+            );
         }
 
         if app.file_viewer.is_visible && app.active == PanelSide::Left {
@@ -87,7 +93,13 @@ fn draw_ui(
         } else {
             let is_active = app.active == PanelSide::Right && !app.file_viewer.focused;
             crate::ui::draw_tab_bar(f, &app.right, right_panel_layout[0], palette, is_active);
-            draw_panel(f, app.right.active_tab(), is_active, right_panel_layout[1], palette);
+            draw_panel(
+                f,
+                app.right.active_tab(),
+                is_active,
+                right_panel_layout[1],
+                palette,
+            );
         }
 
         draw_panel_status(
@@ -104,7 +116,7 @@ fn draw_ui(
             palette,
             app.active == PanelSide::Right,
         );
-        
+
         // Draw fuzzy search popup on top of everything
         crate::fuzzy_search_ui::draw_fuzzy_search_popup(f, &mut app.fuzzy_search, palette);
     })?;
@@ -129,11 +141,13 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
             ..
         }) => {
             if (code == KeyCode::Char('q') && modifiers == KeyModifiers::CONTROL)
-                || (code == KeyCode::Esc && !app.file_viewer.is_visible && !app.fuzzy_search.is_visible)
+                || (code == KeyCode::Esc
+                    && !app.file_viewer.is_visible
+                    && !app.fuzzy_search.is_visible)
             {
                 return true;
             }
-            
+
             // Handle fuzzy search popup
             if app.fuzzy_search.is_visible {
                 match code {
@@ -147,7 +161,10 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
                                 PanelSide::Left => &mut app.left,
                                 PanelSide::Right => &mut app.right,
                             };
-                            if let Err(e) = tab_manager.active_tab_mut().navigate_to(selected_dir.clone()) {
+                            if let Err(e) = tab_manager
+                                .active_tab_mut()
+                                .navigate_to(selected_dir.clone())
+                            {
                                 tab_manager.active_tab_mut().error = Some(format!("Error: {}", e));
                             } else {
                                 app.dir_history.record_visit(&selected_dir);
@@ -172,7 +189,8 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
                         app.fuzzy_search.input.pop();
                         // Re-filter results
                         let results = app.dir_history.fuzzy_search(&app.fuzzy_search.input);
-                        app.fuzzy_search.filtered_dirs = results.into_iter().map(|(p, _)| p).collect();
+                        app.fuzzy_search.filtered_dirs =
+                            results.into_iter().map(|(p, _)| p).collect();
                         app.fuzzy_search.selected_index = 0;
                         app.fuzzy_search.scroll_offset = 0;
                     }
@@ -180,7 +198,8 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
                         app.fuzzy_search.input.push(c);
                         // Re-filter results
                         let results = app.dir_history.fuzzy_search(&app.fuzzy_search.input);
-                        app.fuzzy_search.filtered_dirs = results.into_iter().map(|(p, _)| p).collect();
+                        app.fuzzy_search.filtered_dirs =
+                            results.into_iter().map(|(p, _)| p).collect();
                         app.fuzzy_search.selected_index = 0;
                         app.fuzzy_search.scroll_offset = 0;
                     }
@@ -188,7 +207,7 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
                 }
                 return false;
             }
-            
+
             if code == KeyCode::F(3) || code == KeyCode::Esc {
                 app.file_viewer.is_visible = !app.file_viewer.is_visible;
                 if app.file_viewer.is_visible {
@@ -249,7 +268,7 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
                 return false;
             }
             let shortcut = keyevent_to_string(code, modifiers);
-            
+
             // Tab management shortcuts
             // New tab
             if let Some(keys) = &keyboard.new_tab {
@@ -279,7 +298,7 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
                     return false;
                 }
             }
-            
+
             // Previous directory from history
             if let Some(keys) = &keyboard.history_previous {
                 if keys.contains(&shortcut) {
@@ -457,7 +476,7 @@ fn handle_new_tab(app: &mut AppState) {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
-    
+
     // Create new tab at the same directory as the current tab, preserving cursor position
     let current_dir = tab_manager.active_tab().current_dir.clone();
     let cursor_pos = tab_manager.active_tab().cursor;
@@ -489,7 +508,7 @@ fn handle_close_tab(app: &mut AppState) {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
-    
+
     let current_index = tab_manager.active_tab_index;
     if !tab_manager.close_tab(current_index) {
         // Could not close (last tab), optionally show a message

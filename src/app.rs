@@ -101,7 +101,7 @@ impl Tab {
         let entries = crate::fs_ops::list_dir(&path)?;
         self.current_dir = path.clone();
         self.entries = entries;
-        
+
         // Clear all selections when navigating to a new directory
         for entry in &mut self.entries {
             entry.selected = false;
@@ -229,7 +229,7 @@ impl TabManager {
         if self.tabs.len() <= 1 {
             return false; // Cannot close the last tab
         }
-        
+
         if index < self.tabs.len() {
             self.tabs.remove(index);
             // Adjust active tab index if needed

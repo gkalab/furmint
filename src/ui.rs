@@ -19,7 +19,7 @@ pub fn draw_tab_bar(
 
     let mut spans = Vec::new();
     let tab_count = tab_manager.tabs.len();
-    
+
     for (idx, tab) in tab_manager.tabs.iter().enumerate() {
         // Get the last component of the path
         let tab_title = tab
@@ -27,14 +27,14 @@ pub fn draw_tab_bar(
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("/");
-        
+
         // Truncate if too long (max 15 chars)
         let truncated_title = if tab_title.len() > 15 {
             format!("{}…", &tab_title[..12])
         } else {
             tab_title.to_string()
         };
-        
+
         // Style based on whether this tab is active
         let is_active_tab = idx == tab_manager.active_tab_index;
         let (fg, bg) = if is_active_tab && active {
@@ -56,23 +56,22 @@ pub fn draw_tab_bar(
                 Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b),
             )
         };
-        
+
         // Add tab with padding
         spans.push(Span::styled(
             format!(" {} ", truncated_title),
             Style::default().fg(fg).bg(bg),
         ));
-        
+
         // Add separator between tabs
         if idx < tab_count - 1 {
             spans.push(Span::raw(" "));
         }
     }
-    
+
     let line = Line::from(spans);
     let bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
-    let paragraph = ratatui::widgets::Paragraph::new(line)
-        .style(Style::default().bg(bg_color));
+    let paragraph = ratatui::widgets::Paragraph::new(line).style(Style::default().bg(bg_color));
     f.render_widget(paragraph, area);
 }
 
@@ -204,7 +203,7 @@ pub fn draw_panel(
     } else {
         Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b)
     };
-    
+
     // Calculate which entries are visible in the current view
     let visible_rows = area.height.saturating_sub(2) as usize; // -2 for top/bottom borders
     let start_idx = if panel.cursor >= visible_rows {
@@ -212,21 +211,27 @@ pub fn draw_panel(
     } else {
         0
     };
-    
-    for (idx, entry) in panel.entries.iter().enumerate().skip(start_idx).take(visible_rows) {
+
+    for (idx, entry) in panel
+        .entries
+        .iter()
+        .enumerate()
+        .skip(start_idx)
+        .take(visible_rows)
+    {
         let row_y = area.y + 2 + (idx - start_idx) as u16; // +2 for border and header
-        
+
         if row_y >= area.y + area.height - 1 {
             break; // Don't draw past the bottom border
         }
-        
+
         let marker = if entry.selected {
             Span::styled("█", Style::default().fg(yellow_color))
         } else {
             // Restore the border character
             Span::styled("│", Style::default().fg(border_color))
         };
-        
+
         f.render_widget(
             Line::from(marker),
             Rect {
@@ -254,14 +259,13 @@ pub fn draw_panel(
             width: 1,
             height: visible_rows as u16,
         };
-        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
-            .thumb_symbol("▐")
-            .track_symbol(Some(" "))
-            .style(Style::default().fg(scrollbar_color))
-            .thumb_style(Style::default().fg(scrollbar_color))
-            .track_style(Style::default().fg(scrollbar_color))
+        let scrollbar = Scrollbar::default()
+            .orientation(ScrollbarOrientation::VerticalRight)
             .begin_symbol(None)
-            .end_symbol(None);
+            .end_symbol(None)
+            .track_symbol(Some("│"))
+            .thumb_symbol("█")
+            .style(Style::default().fg(scrollbar_color));
         f.render_stateful_widget(scrollbar, scroll_area, &mut scrollbar_state);
     }
 }
@@ -281,11 +285,14 @@ pub fn draw_panel_status(
         .filter(|e| e.is_dir && e.name != "..")
         .count();
     let selected_count = panel.entries.iter().filter(|e| e.selected).count();
-    
+
     let status = if !error.is_empty() {
         format!("{}", error)
     } else if selected_count > 0 {
-        format!("{} files, {} dirs | {} selected", file_count, dir_count, selected_count)
+        format!(
+            "{} files, {} dirs | {} selected",
+            file_count, dir_count, selected_count
+        )
     } else {
         format!("{} files, {} dirs", file_count, dir_count)
     };
@@ -377,14 +384,13 @@ pub fn draw_file_viewer(
             width: 1,
             height: area.height.saturating_sub(2),
         };
-        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
-            .thumb_symbol("▐")
-            .track_symbol(Some(" "))
-            .style(Style::default().fg(scrollbar_color))
-            .thumb_style(Style::default().fg(scrollbar_color))
-            .track_style(Style::default().fg(scrollbar_color))
+        let scrollbar = Scrollbar::default()
+            .orientation(ScrollbarOrientation::VerticalRight)
             .begin_symbol(None)
-            .end_symbol(None);
+            .end_symbol(None)
+            .track_symbol(Some("│"))
+            .thumb_symbol("█")
+            .style(Style::default().fg(scrollbar_color));
         f.render_stateful_widget(scrollbar, scroll_area, &mut scrollbar_state);
     }
 }

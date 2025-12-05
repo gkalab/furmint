@@ -1,6 +1,8 @@
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
-use ratatui::widgets::{Block, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState};
+use ratatui::widgets::{
+    Block, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
+};
 use std::path::PathBuf;
 
 pub struct FuzzySearchState {
@@ -100,8 +102,7 @@ pub fn draw_fuzzy_search_popup(
 
     // Now render the background
     let bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
-    let clear_rect = ratatui::widgets::Block::default()
-        .style(Style::default().bg(bg_color));
+    let clear_rect = ratatui::widgets::Block::default().style(Style::default().bg(bg_color));
     f.render_widget(clear_rect, popup_area);
 
     // Split popup into input area and list area (removed status line)
@@ -175,11 +176,12 @@ pub fn draw_fuzzy_search_popup(
     for (row_idx, dir_idx) in (start_idx..end_idx).enumerate() {
         let path = &state.filtered_dirs[dir_idx];
         let path_str = path.to_string_lossy();
-        
+
         let is_selected = dir_idx == state.selected_index;
         let (fg, bg) = if is_selected {
             // Use the same highlight style as the main panel
-            let highlight_bg = Color::Rgb(palette.surface2.r, palette.surface2.g, palette.surface2.b);
+            let highlight_bg =
+                Color::Rgb(palette.surface2.r, palette.surface2.g, palette.surface2.b);
             let highlight_fg = if !palette.is_dark {
                 Color::Rgb(palette.base.r, palette.base.g, palette.base.b)
             } else {
@@ -210,22 +212,21 @@ pub fn draw_fuzzy_search_popup(
         let mut scrollbar_state = ScrollbarState::new(state.filtered_dirs.len())
             .viewport_content_length(visible_rows)
             .position(state.selected_index);
-        let scrollbar_color = Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b);
+        let scrollbar_color =
+            Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b);
         let scroll_area = Rect {
             x: chunks[1].x + chunks[1].width - 1,
             y: chunks[1].y + 1,
             width: 1,
             height: chunks[1].height.saturating_sub(2),
         };
-        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
-            .thumb_symbol("▐")
-            .track_symbol(Some(" "))
-            .style(Style::default().fg(scrollbar_color))
-            .thumb_style(Style::default().fg(scrollbar_color))
-            .track_style(Style::default().fg(scrollbar_color))
+        let scrollbar = Scrollbar::default()
+            .orientation(ScrollbarOrientation::VerticalRight)
             .begin_symbol(None)
-            .end_symbol(None);
+            .end_symbol(None)
+            .track_symbol(Some("│"))
+            .thumb_symbol("█")
+            .style(Style::default().fg(scrollbar_color));
         f.render_stateful_widget(scrollbar, scroll_area, &mut scrollbar_state);
     }
-
 }

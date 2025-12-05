@@ -38,7 +38,7 @@ fn main() -> Result<()> {
     terminal.clear()?;
 
     let cwd = env::current_dir()?;
-    
+
     // Initialize directory history
     let dir_history = match dir_history::DirectoryHistory::new() {
         Ok(h) => h,
@@ -48,7 +48,7 @@ fn main() -> Result<()> {
             std::process::exit(1);
         }
     };
-    
+
     let mut app = AppState {
         left: app::TabManager::new(cwd.clone())?,
         right: app::TabManager::new(cwd.clone())?,
@@ -57,17 +57,17 @@ fn main() -> Result<()> {
         fuzzy_search: fuzzy_search_ui::FuzzySearchState::new(),
         dir_history,
     };
-    
+
     // Record initial directory visit
     app.dir_history.record_visit(&cwd);
 
     event_loop::run_event_loop(&mut terminal, &mut app, &palette, keyboard)?;
-    
+
     // Save directory history on exit
     if let Err(e) = app.dir_history.save() {
         eprintln!("Error saving directory history: {e}");
     }
-    
+
     disable_raw_mode()?;
     Ok(())
 }
