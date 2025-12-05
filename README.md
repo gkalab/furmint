@@ -105,6 +105,7 @@ new_tab = ["Ctrl-t"]
 next_tab = ["Ctrl-Right"]
 prev_tab = ["Ctrl-Left"]
 close_tab = ["Ctrl-w"]
+fuzzy_search = ["Ctrl-p"]
 
 [theme]
 name = "catppuccin macchiato"
