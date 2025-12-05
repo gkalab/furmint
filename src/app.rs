@@ -7,7 +7,7 @@ pub struct HistoryEntry {
     pub cursor: usize,
 }
 
-pub struct PanelState {
+pub struct Tab {
     pub current_dir: PathBuf,
     pub entries: Vec<FileEntry>,
     pub cursor: usize,
@@ -19,7 +19,25 @@ pub struct PanelState {
     pub last_type_time: Option<std::time::Instant>,
 }
 
-impl PanelState {
+impl Tab {
+    /// Create a new tab at the specified directory
+    pub fn new(path: PathBuf) -> anyhow::Result<Self> {
+        let entries = crate::fs_ops::list_dir(&path)?;
+        Ok(Self {
+            current_dir: path.clone(),
+            entries,
+            cursor: 0,
+            history: vec![HistoryEntry {
+                path: path.clone(),
+                cursor: 0,
+            }],
+            history_index: 0,
+            error: None,
+            typed_buffer: String::new(),
+            last_type_time: None,
+        })
+    }
+
     /// Returns the currently selected entry, if any.
     pub fn current_entry(&self) -> Option<&FileEntry> {
         self.entries.get(self.cursor)
@@ -160,6 +178,84 @@ impl PanelState {
     }
 }
 
+pub struct TabManager {
+    pub tabs: Vec<Tab>,
+    pub active_tab_index: usize,
+}
+
+impl TabManager {
+    /// Create a new TabManager with a single tab
+    pub fn new(initial_path: PathBuf) -> anyhow::Result<Self> {
+        Ok(Self {
+            tabs: vec![Tab::new(initial_path)?],
+            active_tab_index: 0,
+        })
+    }
+
+    /// Get reference to the active tab
+    pub fn active_tab(&self) -> &Tab {
+        &self.tabs[self.active_tab_index]
+    }
+
+    /// Get mutable reference to the active tab
+    pub fn active_tab_mut(&mut self) -> &mut Tab {
+        &mut self.tabs[self.active_tab_index]
+    }
+
+    /// Create a new tab at the specified directory with optional cursor position
+    pub fn new_tab(&mut self, path: PathBuf, cursor: Option<usize>) -> anyhow::Result<()> {
+        let mut new_tab = Tab::new(path)?;
+        // Set cursor position if provided and valid
+        if let Some(pos) = cursor {
+            if pos < new_tab.entries.len() {
+                new_tab.cursor = pos;
+            }
+        }
+        self.tabs.push(new_tab);
+        self.active_tab_index = self.tabs.len() - 1;
+        Ok(())
+    }
+
+    /// Close the tab at the specified index
+    /// Returns false if this is the last tab (cannot close)
+    pub fn close_tab(&mut self, index: usize) -> bool {
+        if self.tabs.len() <= 1 {
+            return false; // Cannot close the last tab
+        }
+        
+        if index < self.tabs.len() {
+            self.tabs.remove(index);
+            // Adjust active tab index if needed
+            if self.active_tab_index >= self.tabs.len() {
+                self.active_tab_index = self.tabs.len() - 1;
+            } else if self.active_tab_index > index {
+                self.active_tab_index -= 1;
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Switch to the next tab (with wraparound)
+    pub fn next_tab(&mut self) {
+        if self.tabs.len() > 1 {
+            self.active_tab_index = (self.active_tab_index + 1) % self.tabs.len();
+        }
+    }
+
+    /// Switch to the previous tab (with wraparound)
+    pub fn prev_tab(&mut self) {
+        if self.tabs.len() > 1 {
+            if self.active_tab_index == 0 {
+                self.active_tab_index = self.tabs.len() - 1;
+            } else {
+                self.active_tab_index -= 1;
+            }
+        }
+    }
+}
+
 #[derive(PartialEq)]
 pub enum PanelSide {
     Left,
@@ -167,8 +263,8 @@ pub enum PanelSide {
 }
 
 pub struct AppState {
-    pub left: PanelState,
-    pub right: PanelState,
+    pub left: TabManager,
+    pub right: TabManager,
     pub active: PanelSide,
     pub file_viewer: FileViewerState,
 }
@@ -239,7 +335,7 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    fn create_test_panel() -> PanelState {
+    fn create_test_tab() -> Tab {
         let entries = vec![
             FileEntry {
                 name: "..".to_string(),
@@ -279,7 +375,7 @@ mod tests {
             },
         ];
 
-        PanelState {
+        Tab {
             current_dir: PathBuf::from("/tmp"),
             entries,
             cursor: 0,
@@ -296,13 +392,13 @@ mod tests {
 
     #[test]
     fn test_current_entry() {
-        let panel = create_test_panel();
+        let panel = create_test_tab();
         assert_eq!(panel.current_entry().map(|e| e.name.as_str()), Some(".."));
     }
 
     #[test]
     fn test_move_cursor_up() {
-        let mut panel = create_test_panel();
+        let mut panel = create_test_tab();
         panel.cursor = 2;
         panel.move_cursor_up();
         assert_eq!(panel.cursor, 1);
@@ -314,7 +410,7 @@ mod tests {
 
     #[test]
     fn test_move_cursor_down() {
-        let mut panel = create_test_panel();
+        let mut panel = create_test_tab();
         panel.move_cursor_down();
         assert_eq!(panel.cursor, 1);
 
@@ -325,7 +421,7 @@ mod tests {
 
     #[test]
     fn test_move_cursor_page_up() {
-        let mut panel = create_test_panel();
+        let mut panel = create_test_tab();
         panel.cursor = 3;
         panel.move_cursor_page_up(2);
         assert_eq!(panel.cursor, 1);
@@ -336,7 +432,7 @@ mod tests {
 
     #[test]
     fn test_move_cursor_page_down() {
-        let mut panel = create_test_panel();
+        let mut panel = create_test_tab();
         panel.move_cursor_page_down(2);
         assert_eq!(panel.cursor, 2);
 
@@ -346,7 +442,7 @@ mod tests {
 
     #[test]
     fn test_move_cursor_home() {
-        let mut panel = create_test_panel();
+        let mut panel = create_test_tab();
         panel.cursor = 3;
         panel.move_cursor_home();
         assert_eq!(panel.cursor, 0);
@@ -354,14 +450,14 @@ mod tests {
 
     #[test]
     fn test_move_cursor_end() {
-        let mut panel = create_test_panel();
+        let mut panel = create_test_tab();
         panel.move_cursor_end();
         assert_eq!(panel.cursor, 3);
     }
 
     #[test]
     fn test_toggle_selection() {
-        let mut panel = create_test_panel();
+        let mut panel = create_test_tab();
         panel.cursor = 2;
         assert!(!panel.entries[2].selected);
         panel.toggle_selection();
@@ -372,7 +468,7 @@ mod tests {
 
     #[test]
     fn test_get_selected_entries() {
-        let mut panel = create_test_panel();
+        let mut panel = create_test_tab();
         assert_eq!(panel.get_selected_entries().len(), 0);
 
         panel.entries[1].selected = true;

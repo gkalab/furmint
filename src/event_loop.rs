@@ -56,30 +56,50 @@ fn draw_ui(
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
             .split(vertical_chunks[1]);
+        
+        // Split each panel area into tab bar and content
+        let left_panel_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1), // tab bar
+                Constraint::Min(1),    // panel content
+            ])
+            .split(panel_chunks[0]);
+        
+        let right_panel_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1), // tab bar
+                Constraint::Min(1),    // panel content
+            ])
+            .split(panel_chunks[1]);
+        
         if app.file_viewer.is_visible && app.active == PanelSide::Right {
             crate::ui::draw_file_viewer(f, &app.file_viewer, panel_chunks[0], palette);
         } else {
             let is_active = app.active == PanelSide::Left && !app.file_viewer.focused;
-            draw_panel(f, &app.left, is_active, panel_chunks[0], palette);
+            crate::ui::draw_tab_bar(f, &app.left, left_panel_layout[0], palette, is_active);
+            draw_panel(f, app.left.active_tab(), is_active, left_panel_layout[1], palette);
         }
 
         if app.file_viewer.is_visible && app.active == PanelSide::Left {
             crate::ui::draw_file_viewer(f, &app.file_viewer, panel_chunks[1], palette);
         } else {
             let is_active = app.active == PanelSide::Right && !app.file_viewer.focused;
-            draw_panel(f, &app.right, is_active, panel_chunks[1], palette);
+            crate::ui::draw_tab_bar(f, &app.right, right_panel_layout[0], palette, is_active);
+            draw_panel(f, app.right.active_tab(), is_active, right_panel_layout[1], palette);
         }
 
         draw_panel_status(
             f,
-            &app.left,
+            app.left.active_tab(),
             status_chunks[0],
             palette,
             app.active == PanelSide::Left,
         );
         draw_panel_status(
             f,
-            &app.right,
+            app.right.active_tab(),
             status_chunks[1],
             palette,
             app.active == PanelSide::Right,
@@ -170,6 +190,37 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
                 return false;
             }
             let shortcut = keyevent_to_string(code, modifiers);
+            
+            // Tab management shortcuts
+            // New tab
+            if let Some(keys) = &keyboard.new_tab {
+                if keys.contains(&shortcut) {
+                    handle_new_tab(app);
+                    return false;
+                }
+            }
+            // Next tab
+            if let Some(keys) = &keyboard.next_tab {
+                if keys.contains(&shortcut) {
+                    handle_next_tab(app);
+                    return false;
+                }
+            }
+            // Previous tab
+            if let Some(keys) = &keyboard.prev_tab {
+                if keys.contains(&shortcut) {
+                    handle_prev_tab(app);
+                    return false;
+                }
+            }
+            // Close tab
+            if let Some(keys) = &keyboard.close_tab {
+                if keys.contains(&shortcut) {
+                    handle_close_tab(app);
+                    return false;
+                }
+            }
+            
             // Previous directory from history
             if let Some(keys) = &keyboard.history_previous {
                 if keys.contains(&shortcut) {
@@ -212,14 +263,15 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
                 }
                 _ => {
                     // Clear buffer for any non-letter key
-                    let panel = match app.active {
+                    let tab_manager = match app.active {
                         PanelSide::Left => &mut app.left,
                         PanelSide::Right => &mut app.right,
                     };
+                    let panel = tab_manager.active_tab_mut();
                     panel.typed_buffer.clear();
                     panel.last_type_time = None;
                     match (code, modifiers) {
-                        (KeyCode::Tab, _) => handle_tab(app),
+                        (KeyCode::Tab, KeyModifiers::NONE) => handle_tab(app),
                         (KeyCode::Up, _) => handle_up(app),
                         (KeyCode::Down, _) => handle_down(app),
                         (KeyCode::PageUp, _) => handle_page_up(app),
@@ -327,14 +379,61 @@ fn handle_tab(app: &mut AppState) {
     }
 }
 
+fn handle_new_tab(app: &mut AppState) {
+    let tab_manager = match app.active {
+        PanelSide::Left => &mut app.left,
+        PanelSide::Right => &mut app.right,
+    };
+    
+    // Create new tab at the same directory as the current tab, preserving cursor position
+    let current_dir = tab_manager.active_tab().current_dir.clone();
+    let cursor_pos = tab_manager.active_tab().cursor;
+    if let Err(e) = tab_manager.new_tab(current_dir, Some(cursor_pos)) {
+        tab_manager.active_tab_mut().error = Some(format!("Error creating tab: {}", e));
+    }
+}
+
+fn handle_next_tab(app: &mut AppState) {
+    let tab_manager = match app.active {
+        PanelSide::Left => &mut app.left,
+        PanelSide::Right => &mut app.right,
+    };
+    tab_manager.next_tab();
+    update_viewer_content(app);
+}
+
+fn handle_prev_tab(app: &mut AppState) {
+    let tab_manager = match app.active {
+        PanelSide::Left => &mut app.left,
+        PanelSide::Right => &mut app.right,
+    };
+    tab_manager.prev_tab();
+    update_viewer_content(app);
+}
+
+fn handle_close_tab(app: &mut AppState) {
+    let tab_manager = match app.active {
+        PanelSide::Left => &mut app.left,
+        PanelSide::Right => &mut app.right,
+    };
+    
+    let current_index = tab_manager.active_tab_index;
+    if !tab_manager.close_tab(current_index) {
+        // Could not close (last tab), optionally show a message
+        // For now, just silently ignore
+    }
+    update_viewer_content(app);
+}
+
 fn update_viewer_content(app: &mut AppState) {
     if !app.file_viewer.is_visible {
         return;
     }
-    let panel = match app.active {
+    let tab_manager = match app.active {
         PanelSide::Left => &app.left,
         PanelSide::Right => &app.right,
     };
+    let panel = tab_manager.active_tab();
     if panel.entries.is_empty() {
         app.file_viewer.content = vec![];
         return;
@@ -349,64 +448,65 @@ fn update_viewer_content(app: &mut AppState) {
 }
 
 fn handle_up(app: &mut AppState) {
-    let panel = match app.active {
+    let tab_manager = match app.active {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
-    panel.move_cursor_up();
+    tab_manager.active_tab_mut().move_cursor_up();
     update_viewer_content(app);
 }
 
 fn handle_down(app: &mut AppState) {
-    let panel = match app.active {
+    let tab_manager = match app.active {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
-    panel.move_cursor_down();
+    tab_manager.active_tab_mut().move_cursor_down();
     update_viewer_content(app);
 }
 
 fn handle_page_up(app: &mut AppState) {
-    let panel = match app.active {
+    let tab_manager = match app.active {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
-    panel.move_cursor_page_up(20);
+    tab_manager.active_tab_mut().move_cursor_page_up(20);
     update_viewer_content(app);
 }
 
 fn handle_page_down(app: &mut AppState) {
-    let panel = match app.active {
+    let tab_manager = match app.active {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
-    panel.move_cursor_page_down(20);
+    tab_manager.active_tab_mut().move_cursor_page_down(20);
     update_viewer_content(app);
 }
 
 fn handle_home(app: &mut AppState) {
-    let panel = match app.active {
+    let tab_manager = match app.active {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
-    panel.move_cursor_home();
+    tab_manager.active_tab_mut().move_cursor_home();
     update_viewer_content(app);
 }
 
 fn handle_end(app: &mut AppState) {
-    let panel = match app.active {
+    let tab_manager = match app.active {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
-    panel.move_cursor_end();
+    tab_manager.active_tab_mut().move_cursor_end();
     update_viewer_content(app);
 }
 
 fn handle_edit(app: &mut AppState) {
-    let panel = match app.active {
+    let tab_manager = match app.active {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
+    let panel = tab_manager.active_tab_mut();
     if let Some(entry) = panel.current_entry().cloned() {
         if !entry.is_dir {
             let file_path = panel.current_dir.join(&entry.name);
@@ -432,10 +532,11 @@ fn handle_edit(app: &mut AppState) {
 }
 
 fn handle_enter_directory(app: &mut AppState) {
-    let panel = match app.active {
+    let tab_manager = match app.active {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
+    let panel = tab_manager.active_tab_mut();
 
     if let Some(entry) = panel.current_entry().cloned() {
         if entry.is_dir {
@@ -457,10 +558,11 @@ fn handle_enter_directory(app: &mut AppState) {
 }
 
 fn handle_directory_up(app: &mut AppState) {
-    let panel = match app.active {
+    let tab_manager = match app.active {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
+    let panel = tab_manager.active_tab_mut();
 
     if let Err(e) = panel.go_up() {
         panel.error = Some(format!("Error: {}", e));
@@ -470,10 +572,11 @@ fn handle_directory_up(app: &mut AppState) {
 }
 
 fn handle_history_previous(app: &mut AppState) {
-    let panel = match app.active {
+    let tab_manager = match app.active {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
+    let panel = tab_manager.active_tab_mut();
 
     if let Err(e) = panel.go_back() {
         panel.error = Some(format!("Error: {}", e));
@@ -483,10 +586,11 @@ fn handle_history_previous(app: &mut AppState) {
 }
 
 fn handle_history_next(app: &mut AppState) {
-    let panel = match app.active {
+    let tab_manager = match app.active {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
+    let panel = tab_manager.active_tab_mut();
 
     if let Err(e) = panel.go_forward() {
         panel.error = Some(format!("Error: {}", e));
@@ -497,10 +601,11 @@ fn handle_history_next(app: &mut AppState) {
 
 fn handle_type_char(app: &mut AppState, c: char) {
     use std::time::Instant;
-    let panel = match app.active {
+    let tab_manager = match app.active {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
+    let panel = tab_manager.active_tab_mut();
     let now = Instant::now();
     let reset_threshold = std::time::Duration::from_secs(1);
     // If last_type_time is None or too old, reset buffer

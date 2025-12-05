@@ -63,6 +63,27 @@ Performance Improvements: Step-by-Step
 
 ---
 
+## Tab Management
+
+The file manager supports multiple tabs per panel, allowing you to work with multiple directories simultaneously.
+
+### Tab Features
+- **Multiple tabs per panel**: Each panel (left and right) can have multiple tabs
+- **Independent state**: Each tab maintains its own directory, cursor position, and navigation history
+- **Tab bar display**: Tab titles show the last component of the directory path (truncated if needed)
+- **Visual indicators**: Active tab is highlighted based on panel focus
+
+### Tab Keyboard Shortcuts
+- **Ctrl+T**: Open new tab in active panel (same directory and cursor position as current tab)
+- **Alt+Right**: Switch to next tab (cycles: Tab1→Tab2→Tab3→Tab1)
+- **Alt+Left**: Switch to previous tab (cycles: Tab3→Tab2→Tab1→Tab3)
+- **Ctrl+W**: Close current tab (minimum 1 tab per panel)
+- **Tab**: Switch between panels (existing functionality)
+
+> **Note**: Ctrl+Tab is not used because many terminal emulators don't reliably capture it. Alt+Arrow keys are universally supported and provide intuitive bidirectional navigation.
+
+---
+
 ## Keyboard and Theme Configuration
 
 The app supports user-configurable keyboard shortcuts and theme selection via a TOML config file.
@@ -80,12 +101,16 @@ directory_up = ["Backspace", "Left"]
 history_previous = ["Alt-Left"]
 history_next = ["Alt-Right"]
 edit = ["F4"]
+new_tab = ["Ctrl-t"]
+next_tab = ["Alt-Right"]
+prev_tab = ["Alt-Left"]
+close_tab = ["Ctrl-w"]
 
 [theme]
 name = "catppuccin macchiato"
 ```
 - You can assign multiple shortcuts to the same action.
-- Shortcut format: `Ctrl-Up`, `Left`, `Ctrl-Down`, etc.
+- Shortcut format: `Ctrl-Up`, `Left`, `Ctrl-Down`, `Alt-Right`, etc.
 - Supported themes:
   - **Catppuccin** (dark): `catppuccin macchiato`, `catppuccin frappe`, `catppuccin mocha`
   - **Catppuccin** (light): `catppuccin latte`

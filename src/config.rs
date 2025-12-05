@@ -10,7 +10,10 @@ pub struct KeyboardConfig {
     pub enter_directory: Option<Vec<String>>,
     pub directory_up: Option<Vec<String>>,
     pub edit: Option<Vec<String>>,
-    // Add more actions as needed
+    pub new_tab: Option<Vec<String>>,
+    pub next_tab: Option<Vec<String>>,
+    pub prev_tab: Option<Vec<String>>,
+    pub close_tab: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -33,7 +36,10 @@ pub fn default_keyboard_config() -> KeyboardConfig {
         enter_directory: Some(vec!["Right".to_string()]),
         directory_up: Some(vec!["Backspace".to_string(), "Left".to_string()]),
         edit: Some(vec!["F4".to_string()]),
-        // Add more actions and their default shortcuts here
+        new_tab: Some(vec!["Ctrl-t".to_string()]),
+        next_tab: Some(vec!["Alt-Right".to_string()]),
+        prev_tab: Some(vec!["Alt-Left".to_string()]),
+        close_tab: Some(vec!["Ctrl-w".to_string()]),
     }
 }
 
@@ -69,7 +75,22 @@ pub fn merge_keyboard_config(
             .as_ref()
             .and_then(|k| k.edit.clone())
             .or_else(|| default.edit.clone()),
-        // Add more actions as needed
+        new_tab: user
+            .as_ref()
+            .and_then(|k| k.new_tab.clone())
+            .or_else(|| default.new_tab.clone()),
+        next_tab: user
+            .as_ref()
+            .and_then(|k| k.next_tab.clone())
+            .or_else(|| default.next_tab.clone()),
+        prev_tab: user
+            .as_ref()
+            .and_then(|k| k.prev_tab.clone())
+            .or_else(|| default.prev_tab.clone()),
+        close_tab: user
+            .as_ref()
+            .and_then(|k| k.close_tab.clone())
+            .or_else(|| default.close_tab.clone()),
     }
 }
 
