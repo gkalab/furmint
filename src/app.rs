@@ -134,10 +134,23 @@ impl Tab {
     /// Go to parent directory.
     pub fn go_up(&mut self) -> anyhow::Result<()> {
         if let Some(parent) = self.current_dir.parent() {
-            self.navigate_to(parent.to_path_buf())
-        } else {
-            Ok(())
+            // Remember the current directory name to select it after going up
+            let current_dir_name = self
+                .current_dir
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|s| s.to_string());
+
+            self.navigate_to(parent.to_path_buf())?;
+
+            // Find and select the directory we just came from
+            if let Some(dir_name) = current_dir_name {
+                if let Some(idx) = self.entries.iter().position(|e| e.name == dir_name) {
+                    self.cursor = idx;
+                }
+            }
         }
+        Ok(())
     }
 
     /// Go back in history.
