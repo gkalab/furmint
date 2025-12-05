@@ -114,10 +114,10 @@ pub fn draw_fuzzy_search_popup(
         ])
         .split(popup_area);
 
-    // Draw input box
+    // Draw input box (top section with top, left, right borders)
     let input_block = Block::default()
-        .borders(Borders::ALL)
-        .title("Fuzzy Directory Search")
+        .borders(Borders::TOP | Borders::LEFT | Borders::RIGHT)
+        .title("Select Directory")
         .border_style(Style::default().fg(Color::Rgb(
             palette.blue.r,
             palette.blue.g,
@@ -144,7 +144,7 @@ pub fn draw_fuzzy_search_popup(
         .style(Style::default().bg(bg_color));
     f.render_widget(input_paragraph, chunks[0]);
 
-    // Draw directory list with scrolling
+    // Draw directory list with scrolling (bottom section with left, right, bottom borders)
     let list_inner_area = Block::default()
         .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
         .border_style(Style::default().fg(Color::Rgb(
