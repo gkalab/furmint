@@ -37,8 +37,8 @@ pub fn default_keyboard_config() -> KeyboardConfig {
         directory_up: Some(vec!["Backspace".to_string(), "Left".to_string()]),
         edit: Some(vec!["F4".to_string()]),
         new_tab: Some(vec!["Ctrl-t".to_string()]),
-        next_tab: Some(vec!["Alt-Right".to_string()]),
-        prev_tab: Some(vec!["Alt-Left".to_string()]),
+        next_tab: Some(vec!["Ctrl-Right".to_string()]),
+        prev_tab: Some(vec!["Ctrl-Left".to_string()]),
         close_tab: Some(vec!["Ctrl-w".to_string()]),
     }
 }
