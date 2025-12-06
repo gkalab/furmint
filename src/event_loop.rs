@@ -125,9 +125,18 @@ fn draw_ui(
 
 fn poll_events() -> anyhow::Result<Vec<Event>> {
     let mut events = Vec::new();
-    if event::poll(std::time::Duration::from_millis(10))? {
-        events.push(event::read()?); // Only process one event per frame
+    
+    // Drain all available events to prevent buffering
+    // This is especially important for rapid key presses (like scrolling)
+    while event::poll(std::time::Duration::from_millis(0))? {
+        events.push(event::read()?);
     }
+    
+    // If no events are immediately available, wait a short time for one
+    if events.is_empty() && event::poll(std::time::Duration::from_millis(10))? {
+        events.push(event::read()?);
+    }
+    
     Ok(events)
 }
 
