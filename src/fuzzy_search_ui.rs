@@ -175,7 +175,9 @@ pub fn draw_fuzzy_search_popup(
 
     for (row_idx, dir_idx) in (start_idx..end_idx).enumerate() {
         let path = &state.filtered_dirs[dir_idx];
-        let path_str = path.to_string_lossy();
+        // Truncate path if it's too long
+        let max_width = list_inner_area.width as usize;
+        let path_str = crate::ui_utils::truncate_path_with_ellipsis(path, max_width);
 
         let is_selected = dir_idx == state.selected_index;
         let (fg, bg) = if is_selected {
@@ -195,7 +197,7 @@ pub fn draw_fuzzy_search_popup(
             )
         };
 
-        let line = Line::from(path_str.to_string()).style(Style::default().fg(fg).bg(bg));
+        let line = Line::from(path_str).style(Style::default().fg(fg).bg(bg));
         f.render_widget(
             line,
             Rect {
@@ -228,5 +230,22 @@ pub fn draw_fuzzy_search_popup(
             .thumb_symbol("█")
             .style(Style::default().fg(scrollbar_color));
         f.render_stateful_widget(scrollbar, scroll_area, &mut scrollbar_state);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    #[test]
+    fn test_fuzzy_search_truncation_integration() {
+        // This test verifies that we can access and use the truncation logic
+        // which is critical for the rendering code we just modified.
+        let path = Path::new("/a/very/long/path/that/needs/truncation");
+        let max_width = 20;
+        let truncated = crate::ui_utils::truncate_path_with_ellipsis(path, max_width);
+        
+        assert!(truncated.len() <= max_width + 10); // Allow some buffer for unicode chars count vs len
+        assert!(truncated.contains("…"));
     }
 }
