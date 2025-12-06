@@ -4,20 +4,17 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.100"
-bytesize = "2.3.1"
-catppuccin = "2.6.0"
-chrono = "0.4.42"
-crossterm = "0.29.0"
-ratatui = "0.29.0"
-tokio = "1.48.0"
-walkdir = "2.5.0"
-syntect = "5.2.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-toml = "0.8"
+anyhow = "1.0"
+bytesize = "2.3"
+chrono = "0.4"
+crossterm = "0.29"
 directories = "6.0"
 fuzzy-matcher = "0.3"
+ratatui = "0.29"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+syntect = "5.3"
+toml = "0.9"
 
 [target.'cfg(windows)'.dependencies]
-winreg = "0.10"
+winreg = "0.55"
