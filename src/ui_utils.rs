@@ -131,8 +131,8 @@ pub fn draw_scrollbar(
     offset: usize,
     palette: &crate::theme::ThemePalette,
 ) {
-    use ratatui::widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState};
     use ratatui::style::{Color, Style};
+    use ratatui::widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState};
 
     if content_length > visible_length {
         let mut scrollbar_state = ScrollbarState::new(content_length)

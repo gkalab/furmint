@@ -1,8 +1,6 @@
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
-use ratatui::widgets::{
-    Block, Borders, Clear, Paragraph,
-};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use std::path::PathBuf;
 
 pub struct FuzzySearchState {
@@ -238,7 +236,7 @@ mod tests {
         let path = Path::new("/a/very/long/path/that/needs/truncation");
         let max_width = 20;
         let truncated = crate::ui_utils::truncate_path_with_ellipsis(path, max_width);
-        
+
         assert!(truncated.len() <= max_width + 10); // Allow some buffer for unicode chars count vs len
         assert!(truncated.contains("…"));
     }

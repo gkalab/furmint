@@ -112,7 +112,11 @@ pub fn merge_theme_config(
     // Validate theme name
     if let Some(ref n) = name {
         if !crate::theme::THEME_NAMES.contains(&n.as_str()) {
-            return Err(format!("Invalid theme '{}'. Available themes: {:?}", n, crate::theme::THEME_NAMES));
+            return Err(format!(
+                "Invalid theme '{}'. Available themes: {:?}",
+                n,
+                crate::theme::THEME_NAMES
+            ));
         }
     }
 

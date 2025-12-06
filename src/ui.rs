@@ -246,14 +246,14 @@ pub fn draw_panel(
     // Draw unobtrusive vertical scrollbar if needed
     let visible_rows = area.height.saturating_sub(1) as usize; // 1 for header
     let total_entries = panel.entries.len();
-    
+
     let scroll_area = Rect {
         x: area.x + area.width - 1,
         y: area.y + 2, // +2 for border and header
         width: 1,
         height: (visible_rows as u16).saturating_sub(2),
     };
-    
+
     crate::ui_utils::draw_scrollbar(
         f,
         scroll_area,
@@ -346,9 +346,13 @@ pub fn draw_file_viewer(
         let ranges: Vec<(syntect::highlighting::Style, &str)> = h
             .highlight_line(line, &viewer.syntax_set)
             .unwrap_or_default();
-        
-        let spans = generate_line_spans(ranges, viewer.horizontal_scroll_offset, inner_area.width as usize);
-        
+
+        let spans = generate_line_spans(
+            ranges,
+            viewer.horizontal_scroll_offset,
+            inner_area.width as usize,
+        );
+
         f.render_widget(
             Line::from(spans),
             Rect {
@@ -385,17 +389,16 @@ pub fn generate_line_spans(
     h_offset: usize,
     max_width: usize,
 ) -> Vec<Span<'static>> {
-    
-    let mut display_pos = 0;  // Current display column position
-    let mut visible_width = 0;  // Display width used so far
+    let mut display_pos = 0; // Current display column position
+    let mut visible_width = 0; // Display width used so far
     let mut spans: Vec<Span> = Vec::new();
-    
+
     for (style, text) in ranges {
         // Stop if we've already filled the available width
         if visible_width >= max_width {
             break;
         }
-        
+
         // Calculate the TRUE display width of this segment, accounting for tabs
         let mut text_display_width = 0;
         let mut temp_pos = display_pos;
@@ -408,15 +411,15 @@ pub fn generate_line_spans(
             text_display_width += w;
             temp_pos += w;
         }
-        
+
         let end_display_pos = display_pos + text_display_width;
-        
+
         if end_display_pos > h_offset {
             // This segment is at least partially visible
             // We need to handle this character by character for tabs
             let mut result_text = String::new();
             let mut current_display_pos = display_pos;
-            
+
             for ch in text.chars() {
                 let ch_width = if ch == '\t' {
                     // Tab width: advance to next multiple of 4
@@ -424,9 +427,9 @@ pub fn generate_line_spans(
                 } else {
                     unicode_width::UnicodeWidthChar::width(ch).unwrap_or(1)
                 };
-                
+
                 let ch_end_pos = current_display_pos + ch_width;
-                
+
                 // Check if this character is visible
                 if ch_end_pos > h_offset && current_display_pos < h_offset + max_width {
                     // Character is at least partially visible
@@ -465,15 +468,15 @@ pub fn generate_line_spans(
                         }
                     }
                 }
-                
+
                 current_display_pos = ch_end_pos;
-                
+
                 // Stop if we've filled the width
                 if visible_width >= max_width {
                     break;
                 }
             }
-            
+
             if !result_text.is_empty() {
                 let fg = style.foreground;
                 spans.push(Span::styled(
@@ -482,17 +485,17 @@ pub fn generate_line_spans(
                 ));
             }
         }
-        
+
         display_pos = end_display_pos;
     }
-    
+
     spans
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use syntect::highlighting::{Style, Color, FontStyle};
+    use syntect::highlighting::{Color, FontStyle, Style};
     use unicode_width::UnicodeWidthStr;
 
     #[test]
@@ -503,23 +506,31 @@ mod tests {
 
         // Dummy style for testing
         let dummy_style = Style {
-            foreground: Color { r: 255, g: 255, b: 255, a: 255 },
-            background: Color { r: 0, g: 0, b: 0, a: 255 },
+            foreground: Color {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 255,
+            },
+            background: Color {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
             font_style: FontStyle::empty(),
         };
 
         // Test cases that would overflow if tabs were counted as 1 char but rendered as 4 spaces
         // or if unicode width wasn't handled correctly.
         let test_cases = vec![
-            // Case 1: Tabs expanding. 
+            // Case 1: Tabs expanding.
             // '\t' (4 spaces) + '\t' (4 spaces) + "ABC" (3 chars) = 11 width.
             // Char count = 5. If we only checked char count (5 < 10), this would overflow.
             ("\t\tABC", "Two tabs and text"),
-            
             // Case 2: Mixed content just over the limit
             // "1234567890" (10 chars) + "1" = 11 width.
             ("12345678901", "Simple overflow"),
-
             // Case 3: Tab crossing the boundary
             // "12345678" (8 chars) + "\t" (4 chars -> pos 12).
             ("12345678\t", "Tab crossing boundary"),

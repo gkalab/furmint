@@ -125,18 +125,18 @@ fn draw_ui(
 
 fn poll_events() -> anyhow::Result<Vec<Event>> {
     let mut events = Vec::new();
-    
+
     // Drain all available events to prevent buffering
     // This is especially important for rapid key presses (like scrolling)
     while event::poll(std::time::Duration::from_millis(0))? {
         events.push(event::read()?);
     }
-    
+
     // If no events are immediately available, wait a short time for one
     if events.is_empty() && event::poll(std::time::Duration::from_millis(10))? {
         events.push(event::read()?);
     }
-    
+
     Ok(events)
 }
 
@@ -182,7 +182,7 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
                 handle_file_viewer_event(code, app);
                 return false;
             }
-            
+
             handle_main_panel_event(code, modifiers, app, keyboard);
         }
         Event::Resize(_, _) => {}
@@ -231,8 +231,7 @@ fn handle_fuzzy_search_event(code: KeyCode, app: &mut AppState) -> bool {
             app.fuzzy_search.input.pop();
             // Re-filter results
             let results = app.dir_history.fuzzy_search(&app.fuzzy_search.input);
-            app.fuzzy_search.filtered_dirs =
-                results.into_iter().map(|(p, _)| p).collect();
+            app.fuzzy_search.filtered_dirs = results.into_iter().map(|(p, _)| p).collect();
             app.fuzzy_search.selected_index = 0;
             app.fuzzy_search.scroll_offset = 0;
         }
@@ -240,8 +239,7 @@ fn handle_fuzzy_search_event(code: KeyCode, app: &mut AppState) -> bool {
             app.fuzzy_search.input.push(c);
             // Re-filter results
             let results = app.dir_history.fuzzy_search(&app.fuzzy_search.input);
-            app.fuzzy_search.filtered_dirs =
-                results.into_iter().map(|(p, _)| p).collect();
+            app.fuzzy_search.filtered_dirs = results.into_iter().map(|(p, _)| p).collect();
             app.fuzzy_search.selected_index = 0;
             app.fuzzy_search.scroll_offset = 0;
         }
@@ -297,14 +295,18 @@ fn handle_file_viewer_event(code: KeyCode, app: &mut AppState) {
             app.file_viewer.scroll_offset = 0;
         }
         KeyCode::End => {
-            app.file_viewer.scroll_offset =
-                app.file_viewer.content.len().saturating_sub(1);
+            app.file_viewer.scroll_offset = app.file_viewer.content.len().saturating_sub(1);
         }
         _ => {}
     }
 }
 
-fn handle_main_panel_event(code: KeyCode, modifiers: KeyModifiers, app: &mut AppState, keyboard: &KeyboardConfig) -> bool {
+fn handle_main_panel_event(
+    code: KeyCode,
+    modifiers: KeyModifiers,
+    app: &mut AppState,
+    keyboard: &KeyboardConfig,
+) -> bool {
     let shortcut = keyevent_to_string(code, modifiers);
 
     // Tab management shortcuts
@@ -385,8 +387,7 @@ fn handle_main_panel_event(code: KeyCode, modifiers: KeyModifiers, app: &mut App
         }
     }
     match (code, modifiers) {
-        (KeyCode::Char(c), KeyModifiers::NONE)
-        | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
+        (KeyCode::Char(c), KeyModifiers::NONE) | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
             handle_type_char(app, c);
         }
         _ => {
