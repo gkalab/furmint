@@ -248,6 +248,15 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
                             app.file_viewer.scroll_offset += 1;
                         }
                     }
+                    KeyCode::Left => {
+                        if app.file_viewer.horizontal_scroll_offset > 0 {
+                            app.file_viewer.horizontal_scroll_offset -= 1;
+                        }
+                    }
+                    KeyCode::Right => {
+                        // Allow scrolling right (we'll handle max in rendering)
+                        app.file_viewer.horizontal_scroll_offset += 1;
+                    }
                     KeyCode::PageUp => {
                         let visible_rows = 20; // Approximation
                         if app.file_viewer.scroll_offset >= visible_rows {

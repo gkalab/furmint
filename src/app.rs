@@ -295,6 +295,7 @@ pub struct FileViewerState {
     pub path: PathBuf,
     pub content: Vec<String>,
     pub scroll_offset: usize,
+    pub horizontal_scroll_offset: usize,
     pub is_visible: bool,
     pub syntax_set: syntect::parsing::SyntaxSet,
     pub theme: syntect::highlighting::Theme,
@@ -320,6 +321,7 @@ impl FileViewerState {
             path: PathBuf::new(),
             content: Vec::new(),
             scroll_offset: 0,
+            horizontal_scroll_offset: 0,
             is_visible: false,
             syntax_set,
             theme,
@@ -331,6 +333,7 @@ impl FileViewerState {
     pub fn load_content(&mut self, path: PathBuf) {
         self.path = path.clone();
         self.scroll_offset = 0;
+        self.horizontal_scroll_offset = 0;
 
         // Determine syntax once
         let syntax = self
