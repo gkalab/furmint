@@ -1,7 +1,7 @@
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
 use ratatui::widgets::{
-    Block, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
+    Block, Borders, Clear, Paragraph,
 };
 use std::path::PathBuf;
 
@@ -210,27 +210,21 @@ pub fn draw_fuzzy_search_popup(
     }
 
     // Draw scrollbar if needed
-    if state.filtered_dirs.len() > visible_rows {
-        let mut scrollbar_state = ScrollbarState::new(state.filtered_dirs.len())
-            .viewport_content_length(visible_rows)
-            .position(state.selected_index);
-        let scrollbar_color =
-            Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b);
-        let scroll_area = Rect {
-            x: chunks[1].x + chunks[1].width - 1,
-            y: chunks[1].y,
-            width: 1,
-            height: chunks[1].height.saturating_sub(1),
-        };
-        let scrollbar = Scrollbar::default()
-            .orientation(ScrollbarOrientation::VerticalRight)
-            .begin_symbol(None)
-            .end_symbol(None)
-            .track_symbol(Some("│"))
-            .thumb_symbol("█")
-            .style(Style::default().fg(scrollbar_color));
-        f.render_stateful_widget(scrollbar, scroll_area, &mut scrollbar_state);
-    }
+    let scroll_area = Rect {
+        x: chunks[1].x + chunks[1].width - 1,
+        y: chunks[1].y,
+        width: 1,
+        height: chunks[1].height.saturating_sub(1),
+    };
+
+    crate::ui_utils::draw_scrollbar(
+        f,
+        scroll_area,
+        state.filtered_dirs.len(),
+        visible_rows,
+        state.selected_index,
+        palette,
+    );
 }
 
 #[cfg(test)]

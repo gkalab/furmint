@@ -159,62 +159,7 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
 
             // Handle fuzzy search popup
             if app.fuzzy_search.is_visible {
-                match code {
-                    KeyCode::Esc => {
-                        app.fuzzy_search.is_visible = false;
-                        app.fuzzy_search.reset();
-                    }
-                    KeyCode::Enter => {
-                        if let Some(selected_dir) = app.fuzzy_search.get_selected_dir() {
-                            let tab_manager = match app.active {
-                                PanelSide::Left => &mut app.left,
-                                PanelSide::Right => &mut app.right,
-                            };
-                            if let Err(e) = tab_manager
-                                .active_tab_mut()
-                                .navigate_to(selected_dir.clone())
-                            {
-                                tab_manager.active_tab_mut().error = Some(format!("Error: {}", e));
-                            } else {
-                                app.dir_history.record_visit(&selected_dir);
-                            }
-                        }
-                        app.fuzzy_search.is_visible = false;
-                        app.fuzzy_search.reset();
-                    }
-                    KeyCode::Up => {
-                        app.fuzzy_search.move_selection_up();
-                    }
-                    KeyCode::Down => {
-                        app.fuzzy_search.move_selection_down();
-                    }
-                    KeyCode::PageUp => {
-                        app.fuzzy_search.move_selection_page_up(10);
-                    }
-                    KeyCode::PageDown => {
-                        app.fuzzy_search.move_selection_page_down(10);
-                    }
-                    KeyCode::Backspace => {
-                        app.fuzzy_search.input.pop();
-                        // Re-filter results
-                        let results = app.dir_history.fuzzy_search(&app.fuzzy_search.input);
-                        app.fuzzy_search.filtered_dirs =
-                            results.into_iter().map(|(p, _)| p).collect();
-                        app.fuzzy_search.selected_index = 0;
-                        app.fuzzy_search.scroll_offset = 0;
-                    }
-                    KeyCode::Char(c) => {
-                        app.fuzzy_search.input.push(c);
-                        // Re-filter results
-                        let results = app.dir_history.fuzzy_search(&app.fuzzy_search.input);
-                        app.fuzzy_search.filtered_dirs =
-                            results.into_iter().map(|(p, _)| p).collect();
-                        app.fuzzy_search.selected_index = 0;
-                        app.fuzzy_search.scroll_offset = 0;
-                    }
-                    _ => {}
-                }
-                return false;
+                return handle_fuzzy_search_event(code, app);
             }
 
             if code == KeyCode::F(3) || code == KeyCode::Esc {
@@ -234,170 +179,239 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
                 return false;
             }
             if app.file_viewer.focused {
-                match code {
-                    KeyCode::Tab => {
-                        app.file_viewer.focused = false;
-                    }
-                    KeyCode::Up => {
-                        if app.file_viewer.scroll_offset > 0 {
-                            app.file_viewer.scroll_offset -= 1;
-                        }
-                    }
-                    KeyCode::Down => {
-                        if app.file_viewer.scroll_offset + 1 < app.file_viewer.content.len() {
-                            app.file_viewer.scroll_offset += 1;
-                        }
-                    }
-                    KeyCode::Left => {
-                        if app.file_viewer.horizontal_scroll_offset >= 10 {
-                            app.file_viewer.horizontal_scroll_offset -= 10;
-                        } else {
-                            app.file_viewer.horizontal_scroll_offset = 0;
-                        }
-                    }
-                    KeyCode::Right => {
-                        // Allow scrolling right (we'll handle max in rendering)
-                        app.file_viewer.horizontal_scroll_offset += 10;
-                    }
-                    KeyCode::PageUp => {
-                        let visible_rows = 20; // Approximation
-                        if app.file_viewer.scroll_offset >= visible_rows {
-                            app.file_viewer.scroll_offset -= visible_rows;
-                        } else {
-                            app.file_viewer.scroll_offset = 0;
-                        }
-                    }
-                    KeyCode::PageDown => {
-                        let visible_rows = 20; // Approximation
-                        let max_scroll = app.file_viewer.content.len().saturating_sub(1);
-                        if app.file_viewer.scroll_offset + visible_rows <= max_scroll {
-                            app.file_viewer.scroll_offset += visible_rows;
-                        } else {
-                            app.file_viewer.scroll_offset = max_scroll;
-                        }
-                    }
-                    KeyCode::Home => {
-                        app.file_viewer.scroll_offset = 0;
-                    }
-                    KeyCode::End => {
-                        app.file_viewer.scroll_offset =
-                            app.file_viewer.content.len().saturating_sub(1);
-                    }
-                    _ => {}
-                }
+                handle_file_viewer_event(code, app);
                 return false;
             }
-            let shortcut = keyevent_to_string(code, modifiers);
-
-            // Tab management shortcuts
-            // New tab
-            if let Some(keys) = &keyboard.new_tab {
-                if keys.contains(&shortcut) {
-                    handle_new_tab(app);
-                    return false;
-                }
-            }
-            // Next tab
-            if let Some(keys) = &keyboard.next_tab {
-                if keys.contains(&shortcut) {
-                    handle_next_tab(app);
-                    return false;
-                }
-            }
-            // Previous tab
-            if let Some(keys) = &keyboard.prev_tab {
-                if keys.contains(&shortcut) {
-                    handle_prev_tab(app);
-                    return false;
-                }
-            }
-            // Close tab
-            if let Some(keys) = &keyboard.close_tab {
-                if keys.contains(&shortcut) {
-                    handle_close_tab(app);
-                    return false;
-                }
-            }
-
-            // Previous directory from history
-            if let Some(keys) = &keyboard.history_previous {
-                if keys.contains(&shortcut) {
-                    handle_history_previous(app);
-                    return false;
-                }
-            }
-            // Next directory from history
-            if let Some(keys) = &keyboard.history_next {
-                if keys.contains(&shortcut) {
-                    handle_history_next(app);
-                    return false;
-                }
-            }
-            // Enter directory
-            if let Some(keys) = &keyboard.enter_directory {
-                if keys.contains(&shortcut) {
-                    handle_enter_directory(app);
-                    return false;
-                }
-            }
-            // Directory up
-            if let Some(keys) = &keyboard.directory_up {
-                if keys.contains(&shortcut) {
-                    handle_directory_up(app);
-                    return false;
-                }
-            }
-            // Edit
-            if let Some(keys) = &keyboard.edit {
-                if keys.contains(&shortcut) {
-                    handle_edit(app);
-                    return false;
-                }
-            }
-            // Fuzzy search
-            if let Some(keys) = &keyboard.fuzzy_search {
-                if keys.contains(&shortcut) {
-                    app.fuzzy_search.is_visible = true;
-                    app.fuzzy_search.reset();
-                    // Initialize with all directories sorted by score
-                    let results = app.dir_history.fuzzy_search("");
-                    app.fuzzy_search.filtered_dirs = results.into_iter().map(|(p, _)| p).collect();
-                    app.fuzzy_search.selected_index = 0;
-                    return false;
-                }
-            }
-            match (code, modifiers) {
-                (KeyCode::Char(c), KeyModifiers::NONE)
-                | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
-                    handle_type_char(app, c);
-                }
-                _ => {
-                    // Clear buffer for any non-letter key
-                    let tab_manager = match app.active {
-                        PanelSide::Left => &mut app.left,
-                        PanelSide::Right => &mut app.right,
-                    };
-                    let panel = tab_manager.active_tab_mut();
-                    panel.typed_buffer.clear();
-                    panel.last_type_time = None;
-                    match (code, modifiers) {
-                        (KeyCode::Tab, KeyModifiers::NONE) => handle_tab(app),
-                        (KeyCode::Up, _) => handle_up(app),
-                        (KeyCode::Down, _) => handle_down(app),
-                        (KeyCode::PageUp, _) => handle_page_up(app),
-                        (KeyCode::PageDown, _) => handle_page_down(app),
-                        (KeyCode::Home, _) => handle_home(app),
-                        (KeyCode::End, _) => handle_end(app),
-                        (KeyCode::Enter, _) => handle_enter_directory(app),
-                        (KeyCode::Char(' '), KeyModifiers::NONE) => handle_toggle_selection(app),
-                        (KeyCode::Insert, _) => handle_toggle_selection(app),
-                        _ => {}
-                    }
-                }
-            }
+            
+            handle_main_panel_event(code, modifiers, app, keyboard);
         }
         Event::Resize(_, _) => {}
         _ => {}
+    }
+    false
+}
+
+fn handle_fuzzy_search_event(code: KeyCode, app: &mut AppState) -> bool {
+    match code {
+        KeyCode::Esc => {
+            app.fuzzy_search.is_visible = false;
+            app.fuzzy_search.reset();
+        }
+        KeyCode::Enter => {
+            if let Some(selected_dir) = app.fuzzy_search.get_selected_dir() {
+                let tab_manager = match app.active {
+                    PanelSide::Left => &mut app.left,
+                    PanelSide::Right => &mut app.right,
+                };
+                if let Err(e) = tab_manager
+                    .active_tab_mut()
+                    .navigate_to(selected_dir.clone())
+                {
+                    tab_manager.active_tab_mut().error = Some(format!("Error: {}", e));
+                } else {
+                    app.dir_history.record_visit(&selected_dir);
+                }
+            }
+            app.fuzzy_search.is_visible = false;
+            app.fuzzy_search.reset();
+        }
+        KeyCode::Up => {
+            app.fuzzy_search.move_selection_up();
+        }
+        KeyCode::Down => {
+            app.fuzzy_search.move_selection_down();
+        }
+        KeyCode::PageUp => {
+            app.fuzzy_search.move_selection_page_up(10);
+        }
+        KeyCode::PageDown => {
+            app.fuzzy_search.move_selection_page_down(10);
+        }
+        KeyCode::Backspace => {
+            app.fuzzy_search.input.pop();
+            // Re-filter results
+            let results = app.dir_history.fuzzy_search(&app.fuzzy_search.input);
+            app.fuzzy_search.filtered_dirs =
+                results.into_iter().map(|(p, _)| p).collect();
+            app.fuzzy_search.selected_index = 0;
+            app.fuzzy_search.scroll_offset = 0;
+        }
+        KeyCode::Char(c) => {
+            app.fuzzy_search.input.push(c);
+            // Re-filter results
+            let results = app.dir_history.fuzzy_search(&app.fuzzy_search.input);
+            app.fuzzy_search.filtered_dirs =
+                results.into_iter().map(|(p, _)| p).collect();
+            app.fuzzy_search.selected_index = 0;
+            app.fuzzy_search.scroll_offset = 0;
+        }
+        _ => {}
+    }
+    false
+}
+
+fn handle_file_viewer_event(code: KeyCode, app: &mut AppState) {
+    match code {
+        KeyCode::Tab => {
+            app.file_viewer.focused = false;
+        }
+        KeyCode::Up => {
+            if app.file_viewer.scroll_offset > 0 {
+                app.file_viewer.scroll_offset -= 1;
+            }
+        }
+        KeyCode::Down => {
+            if app.file_viewer.scroll_offset + 1 < app.file_viewer.content.len() {
+                app.file_viewer.scroll_offset += 1;
+            }
+        }
+        KeyCode::Left => {
+            if app.file_viewer.horizontal_scroll_offset >= 10 {
+                app.file_viewer.horizontal_scroll_offset -= 10;
+            } else {
+                app.file_viewer.horizontal_scroll_offset = 0;
+            }
+        }
+        KeyCode::Right => {
+            // Allow scrolling right (we'll handle max in rendering)
+            app.file_viewer.horizontal_scroll_offset += 10;
+        }
+        KeyCode::PageUp => {
+            let visible_rows = 20; // Approximation
+            if app.file_viewer.scroll_offset >= visible_rows {
+                app.file_viewer.scroll_offset -= visible_rows;
+            } else {
+                app.file_viewer.scroll_offset = 0;
+            }
+        }
+        KeyCode::PageDown => {
+            let visible_rows = 20; // Approximation
+            let max_scroll = app.file_viewer.content.len().saturating_sub(1);
+            if app.file_viewer.scroll_offset + visible_rows <= max_scroll {
+                app.file_viewer.scroll_offset += visible_rows;
+            } else {
+                app.file_viewer.scroll_offset = max_scroll;
+            }
+        }
+        KeyCode::Home => {
+            app.file_viewer.scroll_offset = 0;
+        }
+        KeyCode::End => {
+            app.file_viewer.scroll_offset =
+                app.file_viewer.content.len().saturating_sub(1);
+        }
+        _ => {}
+    }
+}
+
+fn handle_main_panel_event(code: KeyCode, modifiers: KeyModifiers, app: &mut AppState, keyboard: &KeyboardConfig) -> bool {
+    let shortcut = keyevent_to_string(code, modifiers);
+
+    // Tab management shortcuts
+    // New tab
+    if let Some(keys) = &keyboard.new_tab {
+        if keys.contains(&shortcut) {
+            handle_new_tab(app);
+            return false;
+        }
+    }
+    // Next tab
+    if let Some(keys) = &keyboard.next_tab {
+        if keys.contains(&shortcut) {
+            handle_next_tab(app);
+            return false;
+        }
+    }
+    // Previous tab
+    if let Some(keys) = &keyboard.prev_tab {
+        if keys.contains(&shortcut) {
+            handle_prev_tab(app);
+            return false;
+        }
+    }
+    // Close tab
+    if let Some(keys) = &keyboard.close_tab {
+        if keys.contains(&shortcut) {
+            handle_close_tab(app);
+            return false;
+        }
+    }
+
+    // Previous directory from history
+    if let Some(keys) = &keyboard.history_previous {
+        if keys.contains(&shortcut) {
+            handle_history_previous(app);
+            return false;
+        }
+    }
+    // Next directory from history
+    if let Some(keys) = &keyboard.history_next {
+        if keys.contains(&shortcut) {
+            handle_history_next(app);
+            return false;
+        }
+    }
+    // Enter directory
+    if let Some(keys) = &keyboard.enter_directory {
+        if keys.contains(&shortcut) {
+            handle_enter_directory(app);
+            return false;
+        }
+    }
+    // Directory up
+    if let Some(keys) = &keyboard.directory_up {
+        if keys.contains(&shortcut) {
+            handle_directory_up(app);
+            return false;
+        }
+    }
+    // Edit
+    if let Some(keys) = &keyboard.edit {
+        if keys.contains(&shortcut) {
+            handle_edit(app);
+            return false;
+        }
+    }
+    // Fuzzy search
+    if let Some(keys) = &keyboard.fuzzy_search {
+        if keys.contains(&shortcut) {
+            app.fuzzy_search.is_visible = true;
+            app.fuzzy_search.reset();
+            // Initialize with all directories sorted by score
+            let results = app.dir_history.fuzzy_search("");
+            app.fuzzy_search.filtered_dirs = results.into_iter().map(|(p, _)| p).collect();
+            app.fuzzy_search.selected_index = 0;
+            return false;
+        }
+    }
+    match (code, modifiers) {
+        (KeyCode::Char(c), KeyModifiers::NONE)
+        | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
+            handle_type_char(app, c);
+        }
+        _ => {
+            // Clear buffer for any non-letter key
+            let tab_manager = match app.active {
+                PanelSide::Left => &mut app.left,
+                PanelSide::Right => &mut app.right,
+            };
+            let panel = tab_manager.active_tab_mut();
+            panel.typed_buffer.clear();
+            panel.last_type_time = None;
+            match (code, modifiers) {
+                (KeyCode::Tab, KeyModifiers::NONE) => handle_tab(app),
+                (KeyCode::Up, _) => handle_up(app),
+                (KeyCode::Down, _) => handle_down(app),
+                (KeyCode::PageUp, _) => handle_page_up(app),
+                (KeyCode::PageDown, _) => handle_page_down(app),
+                (KeyCode::Home, _) => handle_home(app),
+                (KeyCode::End, _) => handle_end(app),
+                (KeyCode::Enter, _) => handle_enter_directory(app),
+                (KeyCode::Char(' '), KeyModifiers::NONE) => handle_toggle_selection(app),
+                (KeyCode::Insert, _) => handle_toggle_selection(app),
+                _ => {}
+            }
+        }
     }
     false
 }

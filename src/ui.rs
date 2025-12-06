@@ -246,28 +246,22 @@ pub fn draw_panel(
     // Draw unobtrusive vertical scrollbar if needed
     let visible_rows = area.height.saturating_sub(1) as usize; // 1 for header
     let total_entries = panel.entries.len();
-    if total_entries > visible_rows {
-        use ratatui::widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState};
-        let mut scrollbar_state = ScrollbarState::new(total_entries)
-            .viewport_content_length(visible_rows)
-            .position(panel.cursor);
-        let scrollbar_color =
-            Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b);
-        let scroll_area = Rect {
-            x: area.x + area.width - 1,
-            y: area.y + 2, // +2 for border and header
-            width: 1,
-            height: (visible_rows as u16).saturating_sub(2),
-        };
-        let scrollbar = Scrollbar::default()
-            .orientation(ScrollbarOrientation::VerticalRight)
-            .begin_symbol(None)
-            .end_symbol(None)
-            .track_symbol(Some("│"))
-            .thumb_symbol("█")
-            .style(Style::default().fg(scrollbar_color));
-        f.render_stateful_widget(scrollbar, scroll_area, &mut scrollbar_state);
-    }
+    
+    let scroll_area = Rect {
+        x: area.x + area.width - 1,
+        y: area.y + 2, // +2 for border and header
+        width: 1,
+        height: (visible_rows as u16).saturating_sub(2),
+    };
+    
+    crate::ui_utils::draw_scrollbar(
+        f,
+        scroll_area,
+        total_entries,
+        visible_rows,
+        panel.cursor,
+        palette,
+    );
 }
 
 pub fn draw_panel_status(
@@ -367,28 +361,21 @@ pub fn draw_file_viewer(
     }
 
     // Scrollbar
-    if max_lines > visible_lines {
-        use ratatui::widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState};
-        let mut scrollbar_state = ScrollbarState::new(max_lines)
-            .viewport_content_length(visible_lines)
-            .position(viewer.scroll_offset);
-        let scrollbar_color =
-            Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b);
-        let scroll_area = Rect {
-            x: area.x + area.width - 1,
-            y: area.y + 1,
-            width: 1,
-            height: area.height.saturating_sub(2),
-        };
-        let scrollbar = Scrollbar::default()
-            .orientation(ScrollbarOrientation::VerticalRight)
-            .begin_symbol(None)
-            .end_symbol(None)
-            .track_symbol(Some("│"))
-            .thumb_symbol("█")
-            .style(Style::default().fg(scrollbar_color));
-        f.render_stateful_widget(scrollbar, scroll_area, &mut scrollbar_state);
-    }
+    let scroll_area = Rect {
+        x: area.x + area.width - 1,
+        y: area.y + 1,
+        width: 1,
+        height: area.height.saturating_sub(2),
+    };
+
+    crate::ui_utils::draw_scrollbar(
+        f,
+        scroll_area,
+        max_lines,
+        visible_lines,
+        viewer.scroll_offset,
+        palette,
+    );
 }
 
 /// Generates spans for a single line, handling horizontal scrolling and width constraints

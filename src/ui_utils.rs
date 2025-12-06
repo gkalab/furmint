@@ -122,3 +122,31 @@ mod tests {
         assert_eq!(s, "/");
     }
 }
+
+pub fn draw_scrollbar(
+    f: &mut ratatui::Frame,
+    area: ratatui::layout::Rect,
+    content_length: usize,
+    visible_length: usize,
+    offset: usize,
+    palette: &crate::theme::ThemePalette,
+) {
+    use ratatui::widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState};
+    use ratatui::style::{Color, Style};
+
+    if content_length > visible_length {
+        let mut scrollbar_state = ScrollbarState::new(content_length)
+            .viewport_content_length(visible_length)
+            .position(offset);
+        let scrollbar_color =
+            Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b);
+        let scrollbar = Scrollbar::default()
+            .orientation(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(None)
+            .end_symbol(None)
+            .track_symbol(Some("│"))
+            .thumb_symbol("█")
+            .style(Style::default().fg(scrollbar_color));
+        f.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
+    }
+}

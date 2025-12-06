@@ -193,6 +193,7 @@ impl Tab {
     }
 
     /// Get all selected entries.
+    #[allow(dead_code)]
     pub fn get_selected_entries(&self) -> Vec<&FileEntry> {
         self.entries.iter().filter(|e| e.selected).collect()
     }
