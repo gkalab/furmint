@@ -139,4 +139,5 @@ For future work:
 ### TODO
 - Refactoring
 - Fix warnings
-- File operations (investigate tasks used in yazi): rename, copy, move, delete (trash/no trash)
+- File operations (investigate tasks used in yazi): copy, move, delete (trash/no trash?)
+- See also https://yazi-rs.github.io/blog/why-is-yazi-fast/
