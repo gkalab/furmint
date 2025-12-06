@@ -344,7 +344,8 @@ pub fn draw_file_viewer(
 
     let visible_lines = inner_area.height as usize;
     let max_lines = viewer.content.len();
-    let start_line = viewer.scroll_offset;
+    // Clamp scroll offset to valid range
+    let start_line = viewer.scroll_offset.min(max_lines.saturating_sub(1));
     let end_line = (start_line + visible_lines).min(max_lines);
 
     for (i, line) in viewer.content[start_line..end_line].iter().enumerate() {
