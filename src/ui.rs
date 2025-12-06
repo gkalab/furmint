@@ -255,9 +255,9 @@ pub fn draw_panel(
             Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b);
         let scroll_area = Rect {
             x: area.x + area.width - 1,
-            y: area.y + 1, // +1 for header
+            y: area.y + 2, // +2 for border and header
             width: 1,
-            height: visible_rows as u16,
+            height: (visible_rows as u16).saturating_sub(2),
         };
         let scrollbar = Scrollbar::default()
             .orientation(ScrollbarOrientation::VerticalRight)

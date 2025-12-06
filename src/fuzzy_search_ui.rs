@@ -216,9 +216,9 @@ pub fn draw_fuzzy_search_popup(
             Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b);
         let scroll_area = Rect {
             x: chunks[1].x + chunks[1].width - 1,
-            y: chunks[1].y + 1,
+            y: chunks[1].y,
             width: 1,
-            height: chunks[1].height.saturating_sub(2),
+            height: chunks[1].height.saturating_sub(1),
         };
         let scrollbar = Scrollbar::default()
             .orientation(ScrollbarOrientation::VerticalRight)
