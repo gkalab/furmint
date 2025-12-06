@@ -18,6 +18,7 @@ impl Rgb {
 
 /// Color palette for a theme
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 pub struct ThemePalette {
     pub base: Rgb,     // Background
     pub mantle: Rgb,   // Darker background

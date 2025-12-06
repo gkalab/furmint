@@ -487,6 +487,8 @@ mod tests {
         assert!(!panel.entries[2].selected);
         panel.toggle_selection();
         assert!(panel.entries[2].selected);
+        // Reset cursor to 2 because toggle_selection moves it down
+        panel.cursor = 2;
         panel.toggle_selection();
         assert!(!panel.entries[2].selected);
     }

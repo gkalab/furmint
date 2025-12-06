@@ -100,14 +100,26 @@ pub fn merge_keyboard_config(
     }
 }
 
-pub fn merge_theme_config(user: &Option<ThemeConfig>, default: &ThemeConfig) -> ThemeConfig {
-    ThemeConfig {
-        name: user
-            .as_ref()
-            .and_then(|t| t.name.clone())
-            .or_else(|| default.name.clone()),
-        // Add more theme fields as needed
+pub fn merge_theme_config(
+    user: &Option<ThemeConfig>,
+    default: &ThemeConfig,
+) -> Result<ThemeConfig, String> {
+    let name = user
+        .as_ref()
+        .and_then(|t| t.name.clone())
+        .or_else(|| default.name.clone());
+
+    // Validate theme name
+    if let Some(ref n) = name {
+        if !crate::theme::THEME_NAMES.contains(&n.as_str()) {
+            return Err(format!("Invalid theme '{}'. Available themes: {:?}", n, crate::theme::THEME_NAMES));
+        }
     }
+
+    Ok(ThemeConfig {
+        name,
+        // Add more theme fields as needed
+    })
 }
 
 pub fn load_config() -> Result<(KeyboardConfig, ThemeConfig), String> {
@@ -120,7 +132,7 @@ pub fn load_config() -> Result<(KeyboardConfig, ThemeConfig), String> {
         let user_config: AppConfig =
             toml::from_str(&content).map_err(|e| format!("Config file is invalid: {}", e))?;
         let keyboard = merge_keyboard_config(&user_config.keyboard, &default_keyboard);
-        let theme = merge_theme_config(&user_config.theme, &default_theme);
+        let theme = merge_theme_config(&user_config.theme, &default_theme)?;
         Ok((keyboard, theme))
     } else {
         Ok((default_keyboard, default_theme))
@@ -129,4 +141,21 @@ pub fn load_config() -> Result<(KeyboardConfig, ThemeConfig), String> {
 
 pub fn config_path() -> Option<PathBuf> {
     ProjectDirs::from("org", "fm", "fm").map(|proj_dirs| proj_dirs.config_dir().join("config.toml"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_merge_theme_config_invalid() {
+        let default = default_theme_config();
+        let user = Some(ThemeConfig {
+            name: Some("invalid_theme_name".to_string()),
+        });
+
+        let result = merge_theme_config(&user, &default);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid theme"));
+    }
 }

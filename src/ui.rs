@@ -398,7 +398,6 @@ pub fn generate_line_spans(
     h_offset: usize,
     max_width: usize,
 ) -> Vec<Span<'static>> {
-    use unicode_width::UnicodeWidthStr;
     
     let mut display_pos = 0;  // Current display column position
     let mut visible_width = 0;  // Display width used so far

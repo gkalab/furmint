@@ -38,7 +38,6 @@ pub fn truncate_path_with_ellipsis(path: &std::path::Path, max_width: usize) -> 
     let seg_len = segments.len();
     let mut left_count = 1;
     let mut right_count = 1;
-    let mut result = String::new();
     let mut last_result = String::new();
     // Try all possible combinations, keep the best that fits
     while left_count + right_count < seg_len {
@@ -50,7 +49,7 @@ pub fn truncate_path_with_ellipsis(path: &std::path::Path, max_width: usize) -> 
         if right_count > 0 {
             parts.extend_from_slice(&segments[seg_len.saturating_sub(right_count)..]);
         }
-        result = parts.join(&sep_str);
+        let result = parts.join(&sep_str);
         if result.chars().count() > max_width {
             break;
         }
