@@ -130,3 +130,9 @@ For future work:
 - Continue to keep modules focused and maintainable.
 - Add more tests and documentation as features grow.
 - Consider further UI/UX improvements and performance profiling as needed.
+
+### TODO
+- Refactoring
+- Fix warnings
+- Add horizontal scrolling to file viewer, if necessary (scroll with left/right when focused)
+- File operations (investigate tasks used in yazi): rename, copy, move, delete (trash/no trash)
