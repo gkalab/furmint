@@ -7,6 +7,7 @@ mod fuzzy_search_ui;
 mod theme;
 mod ui;
 mod ui_utils;
+mod rename_ui;
 
 use crate::app::{AppState, PanelSide};
 use crate::config::load_config;
@@ -55,6 +56,7 @@ fn main() -> Result<()> {
         active: PanelSide::Left,
         file_viewer: crate::app::FileViewerState::new(palette.is_dark, theme_name),
         fuzzy_search: fuzzy_search_ui::FuzzySearchState::new(),
+        rename_popup: crate::app::RenameState::new(),
         dir_history,
     };
 

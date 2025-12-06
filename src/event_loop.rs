@@ -119,6 +119,9 @@ fn draw_ui(
 
         // Draw fuzzy search popup on top of everything
         crate::fuzzy_search_ui::draw_fuzzy_search_popup(f, &mut app.fuzzy_search, palette);
+        
+        // Draw rename popup on top of fuzzy search (though they shouldn't be open at same time)
+        crate::rename_ui::draw_rename_popup(f, &app.rename_popup, palette);
     })?;
     Ok(())
 }
@@ -152,7 +155,8 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
             if (code == KeyCode::Char('q') && modifiers == KeyModifiers::CONTROL)
                 || (code == KeyCode::Esc
                     && !app.file_viewer.is_visible
-                    && !app.fuzzy_search.is_visible)
+                    && !app.fuzzy_search.is_visible
+                    && !app.rename_popup.is_visible)
             {
                 return true;
             }
@@ -160,6 +164,11 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
             // Handle fuzzy search popup
             if app.fuzzy_search.is_visible {
                 return handle_fuzzy_search_event(code, app);
+            }
+
+            // Handle rename popup
+            if app.rename_popup.is_visible {
+                return handle_rename_popup_event(code, app);
             }
 
             if (code == KeyCode::F(3) && modifiers == KeyModifiers::NONE) || code == KeyCode::Esc {
@@ -383,6 +392,14 @@ fn handle_main_panel_event(
             let results = app.dir_history.fuzzy_search("");
             app.fuzzy_search.filtered_dirs = results.into_iter().map(|(p, _)| p).collect();
             app.fuzzy_search.selected_index = 0;
+            return false;
+        }
+    }
+
+    // Rename
+    if let Some(keys) = &keyboard.rename {
+        if keys.contains(&shortcut) {
+            handle_init_rename(app);
             return false;
         }
     }
@@ -827,5 +844,160 @@ mod tests {
             keyevent_to_string(KeyCode::Left, KeyModifiers::ALT),
             "Alt-Left"
         );
+    }
+}
+
+fn handle_init_rename(app: &mut AppState) {
+    let tab_manager = match app.active {
+        PanelSide::Left => &app.left,
+        PanelSide::Right => &app.right,
+    };
+    let panel = tab_manager.active_tab();
+    if let Some(entry) = panel.current_entry() {
+        if entry.name == ".." {
+            return;
+        }
+        app.rename_popup.is_visible = true;
+        app.rename_popup.original_name = entry.name.clone();
+        app.rename_popup.new_name = entry.name.clone();
+        app.rename_popup.parent_dir = panel.current_dir.clone();
+        app.rename_popup.show_overwrite_confirm = false;
+        app.rename_popup.is_dir = entry.is_dir;
+        app.rename_popup.error = None;
+
+        // Position cursor before extension
+        let path = std::path::Path::new(&entry.name);
+        if let Some(stem) = path.file_stem() {
+            app.rename_popup.cursor_position = stem.len();
+        } else {
+            app.rename_popup.cursor_position = entry.name.len();
+        }
+    }
+}
+
+fn handle_rename_popup_event(code: KeyCode, app: &mut AppState) -> bool {
+    if app.rename_popup.show_overwrite_confirm {
+        match code {
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                perform_rename(app, true);
+                app.rename_popup.reset();
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                app.rename_popup.show_overwrite_confirm = false;
+                // Pressing 'n' (not overwriting) exits the popup
+                app.rename_popup.reset();
+            }
+            _ => {}
+        }
+        return false;
+    }
+
+    match code {
+        KeyCode::Esc => {
+            app.rename_popup.reset();
+        }
+        KeyCode::Enter => {
+            if app.rename_popup.new_name == app.rename_popup.original_name {
+                app.rename_popup.reset();
+            } else {
+                let new_path = app.rename_popup.parent_dir.join(&app.rename_popup.new_name);
+                if new_path.exists() {
+                    if app.rename_popup.is_dir {
+                        app.rename_popup.error = Some("Error: Target directory exists".to_string());
+                    } else {
+                        app.rename_popup.show_overwrite_confirm = true;
+                    }
+                } else {
+                    perform_rename(app, false);
+                    app.rename_popup.reset();
+                }
+            }
+        }
+        KeyCode::Char(c) => {
+            app.rename_popup.error = None; // Clear error on typing
+            app.rename_popup.new_name.insert(app.rename_popup.cursor_position, c);
+            app.rename_popup.cursor_position += 1;
+        }
+        KeyCode::Backspace => {
+            app.rename_popup.error = None; // Clear error on typing
+            if app.rename_popup.cursor_position > 0 {
+                app.rename_popup.new_name.remove(app.rename_popup.cursor_position - 1);
+                app.rename_popup.cursor_position -= 1;
+            }
+        }
+        KeyCode::Delete => {
+            if app.rename_popup.cursor_position < app.rename_popup.new_name.len() {
+                app.rename_popup.new_name.remove(app.rename_popup.cursor_position);
+            }
+        }
+        KeyCode::Left => {
+            if app.rename_popup.cursor_position > 0 {
+                app.rename_popup.cursor_position -= 1;
+            }
+        }
+        KeyCode::Right => {
+            if app.rename_popup.cursor_position < app.rename_popup.new_name.len() {
+                app.rename_popup.cursor_position += 1;
+            }
+        }
+        KeyCode::Home => {
+            app.rename_popup.cursor_position = 0;
+        }
+        KeyCode::End => {
+            app.rename_popup.cursor_position = app.rename_popup.new_name.len();
+        }
+        _ => {}
+    }
+    false
+}
+
+fn perform_rename(app: &mut AppState, overwrite: bool) {
+    let old_path = app.rename_popup.parent_dir.join(&app.rename_popup.original_name);
+    let new_path = app.rename_popup.parent_dir.join(&app.rename_popup.new_name);
+
+    // If overwrite is true and target exists, we might need to remove it first or just rename over it.
+    // std::fs::rename overwrites on Unix, but on Windows it might fail if target exists.
+    // For safety and cross-platform consistency, if we confirmed overwrite, we can try rename directly.
+    // If it fails because it exists (Windows), we might need to remove target first.
+    // But std::fs::rename documentation says: "This function will replace the destination if it already exists." on Unix.
+    // On Windows: "This function will return an error if to already exists."
+    
+    let result = if overwrite && cfg!(target_os = "windows") && new_path.exists() {
+        std::fs::remove_file(&new_path).and_then(|_| std::fs::rename(&old_path, &new_path))
+    } else {
+        std::fs::rename(&old_path, &new_path)
+    };
+
+    match result {
+        Ok(_) => {
+            // Refresh the active panel
+            let tab_manager = match app.active {
+                PanelSide::Left => &mut app.left,
+                PanelSide::Right => &mut app.right,
+            };
+            let panel = tab_manager.active_tab_mut();
+            
+            // Refresh entries
+            match crate::fs_ops::list_dir(&panel.current_dir) {
+                Ok(entries) => {
+                    panel.entries = entries;
+                    panel.sort_entries();
+                    // Try to select the renamed file
+                    if let Some(idx) = panel.entries.iter().position(|e| e.name == app.rename_popup.new_name) {
+                        panel.cursor = idx;
+                    }
+                }
+                Err(e) => {
+                    panel.error = Some(format!("Error refreshing directory: {}", e));
+                }
+            }
+        }
+        Err(e) => {
+            let tab_manager = match app.active {
+                PanelSide::Left => &mut app.left,
+                PanelSide::Right => &mut app.right,
+            };
+            tab_manager.active_tab_mut().error = Some(format!("Error renaming: {}", e));
+        }
     }
 }

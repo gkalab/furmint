@@ -19,6 +19,7 @@ pub struct KeyboardConfig {
     pub sort_by_extension: Option<Vec<String>>,
     pub sort_by_date: Option<Vec<String>>,
     pub sort_by_size: Option<Vec<String>>,
+    pub rename: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -50,6 +51,7 @@ pub fn default_keyboard_config() -> KeyboardConfig {
         sort_by_extension: Some(vec!["Ctrl-F4".to_string()]),
         sort_by_date: Some(vec!["Ctrl-F5".to_string()]),
         sort_by_size: Some(vec!["Ctrl-F6".to_string()]),
+        rename: Some(vec!["F2".to_string()]),
     }
 }
 
@@ -121,6 +123,10 @@ pub fn merge_keyboard_config(
             .as_ref()
             .and_then(|k| k.sort_by_size.clone())
             .or_else(|| default.sort_by_size.clone()),
+        rename: user
+            .as_ref()
+            .and_then(|k| k.rename.clone())
+            .or_else(|| default.rename.clone()),
     }
 }
 
