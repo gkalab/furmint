@@ -162,7 +162,7 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
                 return handle_fuzzy_search_event(code, app);
             }
 
-            if code == KeyCode::F(3) || code == KeyCode::Esc {
+            if (code == KeyCode::F(3) && modifiers == KeyModifiers::NONE) || code == KeyCode::Esc {
                 app.file_viewer.is_visible = !app.file_viewer.is_visible;
                 if app.file_viewer.is_visible {
                     update_viewer_content(app);
@@ -386,6 +386,33 @@ fn handle_main_panel_event(
             return false;
         }
     }
+
+    // Sorting shortcuts
+    if let Some(keys) = &keyboard.sort_by_name {
+        if keys.contains(&shortcut) {
+            handle_sort(app, crate::app::SortColumn::Name);
+            return false;
+        }
+    }
+    if let Some(keys) = &keyboard.sort_by_extension {
+        if keys.contains(&shortcut) {
+            handle_sort(app, crate::app::SortColumn::Extension);
+            return false;
+        }
+    }
+    if let Some(keys) = &keyboard.sort_by_date {
+        if keys.contains(&shortcut) {
+            handle_sort(app, crate::app::SortColumn::Date);
+            return false;
+        }
+    }
+    if let Some(keys) = &keyboard.sort_by_size {
+        if keys.contains(&shortcut) {
+            handle_sort(app, crate::app::SortColumn::Size);
+            return false;
+        }
+    }
+
     match (code, modifiers) {
         (KeyCode::Char(c), KeyModifiers::NONE) | (KeyCode::Char(c), KeyModifiers::SHIFT) => {
             handle_type_char(app, c);
@@ -771,4 +798,34 @@ fn handle_toggle_selection(app: &mut AppState) {
     };
     tab_manager.active_tab_mut().toggle_selection();
     update_viewer_content(app);
+}
+
+fn handle_sort(app: &mut AppState, column: crate::app::SortColumn) {
+    let tab_manager = match app.active {
+        PanelSide::Left => &mut app.left,
+        PanelSide::Right => &mut app.right,
+    };
+    tab_manager.active_tab_mut().handle_sort(column);
+    update_viewer_content(app);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_keyevent_to_string() {
+        assert_eq!(
+            keyevent_to_string(KeyCode::F(3), KeyModifiers::CONTROL),
+            "Ctrl-F3"
+        );
+        assert_eq!(
+            keyevent_to_string(KeyCode::Char('p'), KeyModifiers::CONTROL),
+            "Ctrl-p"
+        );
+        assert_eq!(
+            keyevent_to_string(KeyCode::Left, KeyModifiers::ALT),
+            "Alt-Left"
+        );
+    }
 }

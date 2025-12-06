@@ -106,6 +106,11 @@ next_tab = ["Ctrl-Right"]
 prev_tab = ["Ctrl-Left"]
 close_tab = ["Ctrl-w"]
 fuzzy_search = ["Ctrl-p"]
+sort_by_name = ["Ctrl-F2"]
+sort_by_extension = ["Ctrl-F4"]
+sort_by_date = ["Ctrl-F5"]
+sort_by_size = ["Ctrl-F6"]
+
 
 [theme]
 name = "catppuccin macchiato"

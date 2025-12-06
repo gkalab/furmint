@@ -15,6 +15,10 @@ pub struct KeyboardConfig {
     pub prev_tab: Option<Vec<String>>,
     pub close_tab: Option<Vec<String>>,
     pub fuzzy_search: Option<Vec<String>>,
+    pub sort_by_name: Option<Vec<String>>,
+    pub sort_by_extension: Option<Vec<String>>,
+    pub sort_by_date: Option<Vec<String>>,
+    pub sort_by_size: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -42,6 +46,10 @@ pub fn default_keyboard_config() -> KeyboardConfig {
         prev_tab: Some(vec!["Ctrl-Left".to_string()]),
         close_tab: Some(vec!["Ctrl-w".to_string()]),
         fuzzy_search: Some(vec!["Ctrl-p".to_string()]),
+        sort_by_name: Some(vec!["Ctrl-F2".to_string()]),
+        sort_by_extension: Some(vec!["Ctrl-F4".to_string()]),
+        sort_by_date: Some(vec!["Ctrl-F5".to_string()]),
+        sort_by_size: Some(vec!["Ctrl-F6".to_string()]),
     }
 }
 
@@ -97,6 +105,22 @@ pub fn merge_keyboard_config(
             .as_ref()
             .and_then(|k| k.fuzzy_search.clone())
             .or_else(|| default.fuzzy_search.clone()),
+        sort_by_name: user
+            .as_ref()
+            .and_then(|k| k.sort_by_name.clone())
+            .or_else(|| default.sort_by_name.clone()),
+        sort_by_extension: user
+            .as_ref()
+            .and_then(|k| k.sort_by_extension.clone())
+            .or_else(|| default.sort_by_extension.clone()),
+        sort_by_date: user
+            .as_ref()
+            .and_then(|k| k.sort_by_date.clone())
+            .or_else(|| default.sort_by_date.clone()),
+        sort_by_size: user
+            .as_ref()
+            .and_then(|k| k.sort_by_size.clone())
+            .or_else(|| default.sort_by_size.clone()),
     }
 }
 
