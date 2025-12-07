@@ -21,13 +21,22 @@ pub async fn run_event_loop(
     // Spawn task to read terminal events
     tokio::task::spawn_blocking(move || {
         loop {
-             // Block until an event is available
-             match event::read() {
-                 Ok(ev) => {
-                     if input_tx.send(ev).is_err() {
-                         break; // Receiver dropped
+             // Poll for events with a timeout to check for exit condition
+             if input_tx.is_closed() {
+                 break;
+             }
+             match event::poll(std::time::Duration::from_millis(100)) {
+                 Ok(true) => {
+                     match event::read() {
+                         Ok(ev) => {
+                             if input_tx.send(ev).is_err() {
+                                 break; // Receiver dropped
+                             }
+                         }
+                         Err(_) => break,
                      }
                  }
+                 Ok(false) => continue,
                  Err(_) => break,
              }
         }
