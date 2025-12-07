@@ -291,7 +291,11 @@ pub fn draw_panel_status(
         format!("{} files, {} dirs", file_count, dir_count)
     };
     // Use the same background as file/directory rows (surface1)
-    let fg = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
+    let fg = if !error.is_empty() {
+        Color::Rgb(palette.red.r, palette.red.g, palette.red.b)
+    } else {
+        Color::Rgb(palette.text.r, palette.text.g, palette.text.b)
+    };
     // Move status line one character to the right and remove background color
     let status_area = Rect {
         x: area.x + 1,

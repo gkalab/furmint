@@ -417,6 +417,15 @@ fn handle_main_panel_event(
 ) -> bool {
     let shortcut = keyevent_to_string(code, modifiers);
 
+    // Clear error on any interaction in the main panel
+    {
+        let tab_manager = match app.active {
+            PanelSide::Left => &mut app.left,
+            PanelSide::Right => &mut app.right,
+        };
+        tab_manager.active_tab_mut().error = None;
+    }
+
     // Tab management shortcuts
     // New tab
     if let Some(keys) = &keyboard.new_tab {
