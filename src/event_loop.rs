@@ -119,7 +119,7 @@ fn draw_ui(
 
         // Draw fuzzy search popup on top of everything
         crate::fuzzy_search_ui::draw_fuzzy_search_popup(f, &mut app.fuzzy_search, palette);
-        
+
         // Draw rename popup on top of fuzzy search (though they shouldn't be open at same time)
         crate::rename_ui::draw_rename_popup(f, &app.rename_popup, palette);
     })?;
@@ -915,19 +915,25 @@ fn handle_rename_popup_event(code: KeyCode, app: &mut AppState) -> bool {
         }
         KeyCode::Char(c) => {
             app.rename_popup.error = None; // Clear error on typing
-            app.rename_popup.new_name.insert(app.rename_popup.cursor_position, c);
+            app.rename_popup
+                .new_name
+                .insert(app.rename_popup.cursor_position, c);
             app.rename_popup.cursor_position += 1;
         }
         KeyCode::Backspace => {
             app.rename_popup.error = None; // Clear error on typing
             if app.rename_popup.cursor_position > 0 {
-                app.rename_popup.new_name.remove(app.rename_popup.cursor_position - 1);
+                app.rename_popup
+                    .new_name
+                    .remove(app.rename_popup.cursor_position - 1);
                 app.rename_popup.cursor_position -= 1;
             }
         }
         KeyCode::Delete => {
             if app.rename_popup.cursor_position < app.rename_popup.new_name.len() {
-                app.rename_popup.new_name.remove(app.rename_popup.cursor_position);
+                app.rename_popup
+                    .new_name
+                    .remove(app.rename_popup.cursor_position);
             }
         }
         KeyCode::Left => {
@@ -952,7 +958,10 @@ fn handle_rename_popup_event(code: KeyCode, app: &mut AppState) -> bool {
 }
 
 fn perform_rename(app: &mut AppState, overwrite: bool) {
-    let old_path = app.rename_popup.parent_dir.join(&app.rename_popup.original_name);
+    let old_path = app
+        .rename_popup
+        .parent_dir
+        .join(&app.rename_popup.original_name);
     let new_path = app.rename_popup.parent_dir.join(&app.rename_popup.new_name);
 
     // If overwrite is true and target exists, we might need to remove it first or just rename over it.
@@ -961,7 +970,7 @@ fn perform_rename(app: &mut AppState, overwrite: bool) {
     // If it fails because it exists (Windows), we might need to remove target first.
     // But std::fs::rename documentation says: "This function will replace the destination if it already exists." on Unix.
     // On Windows: "This function will return an error if to already exists."
-    
+
     let result = if overwrite && cfg!(target_os = "windows") && new_path.exists() {
         std::fs::remove_file(&new_path).and_then(|_| std::fs::rename(&old_path, &new_path))
     } else {
@@ -976,14 +985,18 @@ fn perform_rename(app: &mut AppState, overwrite: bool) {
                 PanelSide::Right => &mut app.right,
             };
             let panel = tab_manager.active_tab_mut();
-            
+
             // Refresh entries
             match crate::fs_ops::list_dir(&panel.current_dir) {
                 Ok(entries) => {
                     panel.entries = entries;
                     panel.sort_entries();
                     // Try to select the renamed file
-                    if let Some(idx) = panel.entries.iter().position(|e| e.name == app.rename_popup.new_name) {
+                    if let Some(idx) = panel
+                        .entries
+                        .iter()
+                        .position(|e| e.name == app.rename_popup.new_name)
+                    {
                         panel.cursor = idx;
                     }
                 }

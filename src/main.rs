@@ -4,10 +4,10 @@ mod dir_history;
 mod event_loop;
 mod fs_ops;
 mod fuzzy_search_ui;
+mod rename_ui;
 mod theme;
 mod ui;
 mod ui_utils;
-mod rename_ui;
 
 use crate::app::{AppState, PanelSide};
 use crate::config::load_config;
