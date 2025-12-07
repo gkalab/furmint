@@ -8,6 +8,7 @@ mod rename_ui;
 mod theme;
 mod ui;
 mod ui_utils;
+mod watcher;
 
 use crate::app::{AppState, PanelSide};
 use crate::config::load_config;
@@ -15,7 +16,8 @@ use anyhow::Result;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use std::env;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     enable_raw_mode()?;
     let mut terminal =
         ratatui::Terminal::new(ratatui::backend::CrosstermBackend::new(std::io::stdout()))?;
@@ -50,6 +52,17 @@ fn main() -> Result<()> {
         }
     };
 
+    // Initialize watcher
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let watcher = match watcher::AppWatcher::new(tx) {
+        Ok(w) => Some(w),
+        Err(e) => {
+            eprintln!("Error initializing watcher: {e}");
+             // Continue without watcher
+            None
+        }
+    };
+
     let mut app = AppState {
         left: app::TabManager::new(cwd.clone())?,
         right: app::TabManager::new(cwd.clone())?,
@@ -58,12 +71,16 @@ fn main() -> Result<()> {
         fuzzy_search: fuzzy_search_ui::FuzzySearchState::new(),
         rename_popup: crate::app::RenameState::new(),
         dir_history,
+        watcher,
     };
 
     // Record initial directory visit
     app.dir_history.record_visit(&cwd);
+    
+    // Initial sync of watcher
+    app.sync_watcher();
 
-    event_loop::run_event_loop(&mut terminal, &mut app, &palette, keyboard)?;
+    event_loop::run_event_loop(&mut terminal, &mut app, &palette, keyboard, &mut rx).await?;
 
     // Save directory history on exit
     if let Err(e) = app.dir_history.save() {

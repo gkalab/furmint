@@ -434,6 +434,33 @@ pub struct AppState {
     pub fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState,
     pub rename_popup: RenameState,
     pub dir_history: crate::dir_history::DirectoryHistory,
+    // Watcher is optional so we can initialize it later or run without it if needed
+    pub watcher: Option<crate::watcher::AppWatcher>,
+}
+
+impl AppState {
+    pub fn sync_watcher(&mut self) {
+        if let Some(watcher) = &mut self.watcher {
+            let mut paths = std::collections::HashSet::new();
+            
+            // Collect paths from all tabs in both panels
+            for tab in &self.left.tabs {
+                paths.insert(tab.current_dir.clone());
+            }
+            for tab in &self.right.tabs {
+                paths.insert(tab.current_dir.clone());
+            }
+            
+            // Convert to vector
+            let paths_vec: Vec<std::path::PathBuf> = paths.into_iter().collect();
+            
+            if let Err(e) = watcher.update_watched_paths(&paths_vec) {
+                // Log error or set it in active tab?
+                // For now just ignore or print to stderr
+                eprintln!("Watcher update error: {e}");
+            }
+        }
+    }
 }
 
 pub struct RenameState {

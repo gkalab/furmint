@@ -8,25 +8,141 @@ use ratatui::prelude::*;
 use std::env;
 use std::process::Command;
 
-pub fn run_event_loop(
+pub async fn run_event_loop(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
     app: &mut AppState,
     palette: &ThemePalette,
     keyboard: KeyboardConfig,
+    watcher_rx: &mut tokio::sync::mpsc::UnboundedReceiver<crate::watcher::WatcherEvent>,
 ) -> anyhow::Result<()> {
+    // Create channel for terminal events
+    let (input_tx, mut input_rx) = tokio::sync::mpsc::unbounded_channel();
+    
+    // Spawn task to read terminal events
+    tokio::task::spawn_blocking(move || {
+        loop {
+             // Block until an event is available
+             match event::read() {
+                 Ok(ev) => {
+                     if input_tx.send(ev).is_err() {
+                         break; // Receiver dropped
+                     }
+                 }
+                 Err(_) => break,
+             }
+        }
+    });
+
     let mut should_exit = false;
+    
+    // Initial draw
+    draw_ui(terminal, app, palette)?;
+
     while !should_exit {
-        draw_ui(terminal, app, palette)?;
-        let events = poll_events()?;
-        for event in events {
-            if handle_event(event, app, &keyboard) {
-                should_exit = true;
-                break;
+        tokio::select! {
+            // Handle watcher events
+            Some(event) = watcher_rx.recv() => {
+                handle_watcher_event(event, app);
+                app.sync_watcher();
+                draw_ui(terminal, app, palette)?;
             }
+            // Handle input events
+            Some(event) = input_rx.recv() => {
+                let mut exit = handle_event(event, app, &keyboard);
+                // Drain any other immediately available events to prevent buffering
+                // This allows skipping frames if input is faster than rendering
+                while !exit {
+                    match input_rx.try_recv() {
+                        Ok(ev) => {
+                            if handle_event(ev, app, &keyboard) {
+                                exit = true;
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+
+                if exit {
+                    should_exit = true;
+                } else {
+                    draw_ui(terminal, app, palette)?;
+                }
+                
+                // Sync watcher if navigation happened
+                app.sync_watcher(); 
+            }
+            else => break,
         }
     }
     terminal.clear()?;
     Ok(())
+}
+
+fn handle_watcher_event(event: crate::watcher::WatcherEvent, app: &mut AppState) {
+    match event {
+        crate::watcher::WatcherEvent::FileSystemChange(paths) => {
+            let handle_tab = |tab: &mut crate::app::Tab| {
+                // Check info about current directory
+                let current_exists = tab.current_dir.exists();
+                
+                if !current_exists {
+                    // Directory removed, try to go up
+                    // We don't check for errors here, just try
+                    let _ = tab.go_up();
+                }
+
+                // Check if we need to reload
+                // 1. If we just went up, we likely loaded new content, but check logic below
+                // 2. If current dir is in paths (it changed itself)
+                // 3. If any path's parent is current dir (content of dir changed)
+                let needs_reload = paths.iter().any(|p| {
+                    p == &tab.current_dir || p.parent() == Some(&tab.current_dir)
+                });
+
+                if needs_reload {
+                    // Refresh entries
+                    // Note: if we just went up, entries are fresh, but reloading again is safe
+                    // We try to preserve cursor if possible by matching name? 
+                    // But standard behavior is reload. 
+                    // If we want to preserve cursor position on simple content change (like file size update):
+                    // Tab::navigate_to calls list_dir which resets cursor unless in history.
+                    // But here we are staying in same dir usually.
+                    
+                    let old_cursor_name = tab.current_entry().map(|e| e.name.clone());
+                    
+                    if let Ok(entries) = crate::fs_ops::list_dir(&tab.current_dir) {
+                        tab.entries = entries;
+                        tab.sort_entries();
+                        
+                        // Try to restore cursor to same file
+                        if let Some(name) = old_cursor_name {
+                             if let Some(idx) = tab.entries.iter().position(|e| e.name == name) {
+                                 tab.cursor = idx;
+                             } else {
+                                 // File gone, keep cursor within bounds
+                                 if tab.cursor >= tab.entries.len() {
+                                     tab.cursor = tab.entries.len().saturating_sub(1);
+                                 }
+                             }
+                        }
+                    }
+                }
+            };
+
+            for tab in &mut app.left.tabs {
+                handle_tab(tab);
+            }
+            for tab in &mut app.right.tabs {
+                handle_tab(tab);
+            }
+        }
+        crate::watcher::WatcherEvent::Error(err) => {
+             // Log error to active tab error field?
+             // app.left.active_tab_mut().error = Some(format!("Watcher: {}", err));
+             // Don't disturb user too much
+             eprintln!("Watcher error: {err}");
+        }
+    }
 }
 
 fn draw_ui(
@@ -124,23 +240,6 @@ fn draw_ui(
         crate::rename_ui::draw_rename_popup(f, &app.rename_popup, palette);
     })?;
     Ok(())
-}
-
-fn poll_events() -> anyhow::Result<Vec<Event>> {
-    let mut events = Vec::new();
-
-    // Drain all available events to prevent buffering
-    // This is especially important for rapid key presses (like scrolling)
-    while event::poll(std::time::Duration::from_millis(0))? {
-        events.push(event::read()?);
-    }
-
-    // If no events are immediately available, wait a short time for one
-    if events.is_empty() && event::poll(std::time::Duration::from_millis(10))? {
-        events.push(event::read()?);
-    }
-
-    Ok(events)
 }
 
 /// Returns true if the event is a quit event (Ctrl-q or Esc)
