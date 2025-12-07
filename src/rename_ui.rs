@@ -32,6 +32,7 @@ pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &RenameState, palette: &
     if state.show_overwrite_confirm {
         let block = Block::default()
             .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
             .title("Confirm Overwrite")
             .border_style(Style::default().fg(Color::Rgb(
                 palette.red.r,
@@ -63,6 +64,7 @@ pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &RenameState, palette: &
 
         let block = Block::default()
             .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
             .title(title)
             .border_style(title_style)
             .style(Style::default().bg(bg_color));

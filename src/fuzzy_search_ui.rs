@@ -100,7 +100,9 @@ pub fn draw_fuzzy_search_popup(
 
     // Now render the background
     let bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
-    let clear_rect = ratatui::widgets::Block::default().style(Style::default().bg(bg_color));
+    let clear_rect = ratatui::widgets::Block::default()
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .style(Style::default().bg(bg_color));
     f.render_widget(clear_rect, popup_area);
 
     // Split popup into input area and list area (removed status line)
@@ -117,6 +119,7 @@ pub fn draw_fuzzy_search_popup(
     // Draw input box (top section with top, left, right borders)
     let input_block = Block::default()
         .borders(Borders::TOP | Borders::LEFT | Borders::RIGHT)
+        .border_type(ratatui::widgets::BorderType::Rounded)
         .title("Select Directory")
         .border_style(Style::default().fg(Color::Rgb(
             palette.blue.r,
@@ -147,6 +150,7 @@ pub fn draw_fuzzy_search_popup(
     // Draw separator line row with left and right borders
     let sep_block = Block::default()
         .borders(Borders::LEFT | Borders::RIGHT)
+        .border_type(ratatui::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(Color::Rgb(
             palette.blue.r,
             palette.blue.g,
@@ -176,6 +180,7 @@ pub fn draw_fuzzy_search_popup(
     // Draw directory list with scrolling (bottom section with left, right, bottom borders)
     let list_inner_area = Block::default()
         .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
+        .border_type(ratatui::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(Color::Rgb(
             palette.blue.r,
             palette.blue.g,
@@ -186,6 +191,7 @@ pub fn draw_fuzzy_search_popup(
 
     let list_block = Block::default()
         .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
+        .border_type(ratatui::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(Color::Rgb(
             palette.blue.r,
             palette.blue.g,
