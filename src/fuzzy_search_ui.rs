@@ -104,10 +104,12 @@ pub fn draw_fuzzy_search_popup(
     f.render_widget(clear_rect, popup_area);
 
     // Split popup into input area and list area (removed status line)
+    // Split popup into input, separator, and list areas
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // Input box
+            Constraint::Length(2), // Input box (single line)
+            Constraint::Length(1), // Separator line
             Constraint::Min(1),    // Directory list
         ])
         .split(popup_area);
@@ -142,6 +144,35 @@ pub fn draw_fuzzy_search_popup(
         .style(Style::default().bg(bg_color));
     f.render_widget(input_paragraph, chunks[0]);
 
+    // Draw separator line row with left and right borders
+    let sep_block = Block::default()
+        .borders(Borders::LEFT | Borders::RIGHT)
+        .border_style(Style::default().fg(Color::Rgb(
+            palette.blue.r,
+            palette.blue.g,
+            palette.blue.b,
+        )))
+        .style(Style::default().bg(bg_color));
+    f.render_widget(sep_block, chunks[1]);
+
+    // Draw the horizontal line inside the separator row, not touching borders
+    if chunks[1].width > 2 {
+        let line_width = chunks[1].width - 2;
+        let line_str = "─".repeat(line_width as usize);
+        let line_span = Span::styled(
+            line_str,
+            Style::default().fg(Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b)),
+        );
+        let line = Paragraph::new(Line::from(line_span)).style(Style::default().bg(bg_color));
+        let line_area = Rect {
+            x: chunks[1].x + 1,
+            y: chunks[1].y,
+            width: line_width,
+            height: 1,
+        };
+        f.render_widget(line, line_area);
+    }
+
     // Draw directory list with scrolling (bottom section with left, right, bottom borders)
     let list_inner_area = Block::default()
         .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
@@ -151,7 +182,7 @@ pub fn draw_fuzzy_search_popup(
             palette.blue.b,
         )))
         .style(Style::default().bg(bg_color))
-        .inner(chunks[1]);
+        .inner(chunks[2]);
 
     let list_block = Block::default()
         .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
@@ -161,7 +192,7 @@ pub fn draw_fuzzy_search_popup(
             palette.blue.b,
         )))
         .style(Style::default().bg(bg_color));
-    f.render_widget(list_block, chunks[1]);
+    f.render_widget(list_block, chunks[2]);
 
     // Calculate visible rows and update scroll offset
     let visible_rows = list_inner_area.height as usize;
@@ -209,10 +240,10 @@ pub fn draw_fuzzy_search_popup(
 
     // Draw scrollbar if needed
     let scroll_area = Rect {
-        x: chunks[1].x + chunks[1].width - 1,
-        y: chunks[1].y,
+        x: chunks[2].x + chunks[2].width - 1,
+        y: chunks[2].y,
         width: 1,
-        height: chunks[1].height.saturating_sub(1),
+        height: chunks[2].height.saturating_sub(1),
     };
 
     crate::ui_utils::draw_scrollbar(
