@@ -934,6 +934,8 @@ pub async fn handle_edit(app: &mut AppState, input_tx: UnboundedSender<Crossterm
     }
     // Restart input polling after editing
     app.input_polling_handle = Some(spawn_input_polling(input_tx.clone()));
+    // Force a redraw by sending a synthetic resize event
+    let _ = input_tx.send(CrosstermEvent::Resize(0, 0));
     // Redraw UI will be handled by event loop after edit
 }
 
