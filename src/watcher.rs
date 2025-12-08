@@ -12,7 +12,7 @@ pub enum WatcherEvent {
 
 pub struct AppWatcher {
     debouncer: Debouncer<RecommendedWatcher, FileIdMap>,
-    watched_paths: Vec<PathBuf>,
+    pub watched_paths: Vec<PathBuf>,
 }
 
 impl AppWatcher {

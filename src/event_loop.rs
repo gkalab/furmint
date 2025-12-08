@@ -8,6 +8,32 @@ use ratatui::prelude::*;
 use std::env;
 use std::process::Command;
 
+pub(crate) fn spawn_input_polling(
+    input_tx: tokio::sync::mpsc::UnboundedSender<crossterm::event::Event>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            if input_tx.is_closed() {
+                break;
+            }
+            match tokio::task::spawn_blocking(|| event::poll(std::time::Duration::from_millis(100)))
+                .await
+            {
+                Ok(Ok(true)) => match event::read() {
+                    Ok(ev) => {
+                        if input_tx.send(ev).is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                },
+                Ok(Ok(false)) => continue,
+                Ok(Err(_)) | Err(_) => break,
+            }
+        }
+    })
+}
+
 pub async fn run_event_loop(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
     app: &mut AppState,
@@ -19,29 +45,8 @@ pub async fn run_event_loop(
     // Create channel for terminal events
     let (input_tx, mut input_rx) = tokio::sync::mpsc::unbounded_channel();
 
-    // Spawn task to read terminal events
-    tokio::task::spawn_blocking(move || {
-        loop {
-            // Poll for events with a timeout to check for exit condition
-            if input_tx.is_closed() {
-                break;
-            }
-            match event::poll(std::time::Duration::from_millis(100)) {
-                Ok(true) => {
-                    match event::read() {
-                        Ok(ev) => {
-                            if input_tx.send(ev).is_err() {
-                                break; // Receiver dropped
-                            }
-                        }
-                        Err(_) => break,
-                    }
-                }
-                Ok(false) => continue,
-                Err(_) => break,
-            }
-        }
-    });
+    // Start input polling and store handle
+    app.input_polling_handle = Some(spawn_input_polling(input_tx.clone()));
 
     let mut should_exit = false;
 
@@ -50,44 +55,44 @@ pub async fn run_event_loop(
 
     while !should_exit {
         tokio::select! {
-            // Handle watcher events
-            Some(event) = watcher_rx.recv() => {
-                handle_watcher_event(event, app);
-                app.sync_watcher();
-                draw_ui(terminal, app, palette)?;
-            }
-            // Handle input events
-            Some(event) = input_rx.recv() => {
-                let mut exit = handle_event(event, app, &keyboard);
+                            // Handle watcher events
+                            Some(event) = watcher_rx.recv() => {
+                                handle_watcher_event(event, app);
+                                app.sync_watcher();
+                                draw_ui(terminal, app, palette)?;
+                            }
+                            // Handle input events
+                            Some(event) = input_rx.recv() => {
+                let mut exit = handle_event(event, app, &keyboard, input_tx.clone()).await;
                 // Drain any other immediately available events to prevent buffering
                 // This allows skipping frames if input is faster than rendering
-                while !exit {
-                    match input_rx.try_recv() {
-                        Ok(ev) => {
-                            if handle_event(ev, app, &keyboard) {
-                                exit = true;
-                            }
-                        }
-                        Err(_) => break,
+        while !exit {
+            match input_rx.try_recv() {
+                Ok(ev) => {
+                    if handle_event(ev, app, &keyboard, input_tx.clone()).await {
+                        exit = true;
                     }
                 }
-
-                if exit {
-                    should_exit = true;
-                } else {
-                    draw_ui(terminal, app, palette)?;
-                }
-
-                // Sync watcher if navigation happened
-                app.sync_watcher();
+                Err(_) => break,
             }
-            // Handle task events
-            Some(event) = task_rx.recv() => {
-                handle_task_event(event, app);
-                draw_ui(terminal, app, palette)?;
-            }
-            else => break,
         }
+
+                                if exit {
+                                    should_exit = true;
+                                } else {
+                                    draw_ui(terminal, app, palette)?;
+                                }
+
+                                // Sync watcher if navigation happened
+                                app.sync_watcher();
+                            }
+                            // Handle task events
+                            Some(event) = task_rx.recv() => {
+                                handle_task_event(event, app);
+                                draw_ui(terminal, app, palette)?;
+                            }
+                            else => break,
+                        }
     }
     terminal.clear()?;
     Ok(())
@@ -273,7 +278,12 @@ fn draw_ui(
 }
 
 /// Returns true if the event is a quit event (Ctrl-q or Esc)
-pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) -> bool {
+pub async fn handle_event(
+    ev: Event,
+    app: &mut AppState,
+    keyboard: &KeyboardConfig,
+    input_tx: tokio::sync::mpsc::UnboundedSender<crossterm::event::Event>,
+) -> bool {
     match ev {
         Event::Key(KeyEvent {
             kind: crossterm::event::KeyEventKind::Press,
@@ -333,7 +343,7 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
                 return false;
             }
 
-            handle_main_panel_event(code, modifiers, app, keyboard);
+            handle_main_panel_event(code, modifiers, app, keyboard, input_tx.clone()).await;
         }
         Event::Resize(_, _) => {}
         _ => {}
@@ -451,11 +461,12 @@ fn handle_file_viewer_event(code: KeyCode, app: &mut AppState) {
     }
 }
 
-fn handle_main_panel_event(
+async fn handle_main_panel_event(
     code: KeyCode,
     modifiers: KeyModifiers,
     app: &mut AppState,
     keyboard: &KeyboardConfig,
+    input_tx: tokio::sync::mpsc::UnboundedSender<crossterm::event::Event>,
 ) -> bool {
     let shortcut = keyevent_to_string(code, modifiers);
 
@@ -530,7 +541,8 @@ fn handle_main_panel_event(
     if let Some(keys) = &keyboard.edit
         && keys.contains(&shortcut)
     {
-        handle_edit(app);
+        // Await edit action, pass input_tx
+        handle_edit(app, input_tx.clone()).await;
         return false;
     }
     // Fuzzy search
@@ -859,21 +871,70 @@ fn handle_end(app: &mut AppState) {
     update_viewer_content(app);
 }
 
-fn handle_edit(app: &mut AppState) {
+use crossterm::event::Event as CrosstermEvent;
+use tokio::sync::mpsc::UnboundedSender;
+
+pub async fn handle_edit(app: &mut AppState, input_tx: UnboundedSender<CrosstermEvent>) {
+    // Stop input polling
+    if let Some(handle) = app.input_polling_handle.take() {
+        handle.abort();
+    }
+    // Pause watcher
+    if let Some(watcher) = &mut app.watcher {
+        let paths = watcher.watched_paths.clone();
+        for path in &paths {
+            let _ = watcher.unwatch(path);
+        }
+    }
     let tab_manager = match app.active {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
-    let panel = tab_manager.active_tab_mut();
-    if let Some(entry) = panel.current_entry().cloned()
-        && !entry.is_dir
-    {
-        let file_path = panel.current_dir.join(&entry.name);
-        if let Err(e) = open_in_default_editor(&file_path) {
-            // Show error
-            panel.error = Some(format!("Error opening editor: {}", e));
+    // Collect current_dir and edited_file_name before any watcher or sync_watcher calls
+    let (panel_current_dir, edited_file_name) = {
+        let panel = tab_manager.active_tab_mut();
+        let dir = panel.current_dir.clone();
+        let mut name = None;
+        if let Some(entry) = panel.current_entry().cloned()
+            && !entry.is_dir
+        {
+            name = Some(entry.name.clone());
+            let file_path = panel.current_dir.join(&entry.name);
+            let result =
+                tokio::task::spawn_blocking(move || open_in_default_editor(&file_path)).await;
+            if let Err(e) = result {
+                panel.error = Some(format!("Error opening editor: {}", e));
+            } else if let Err(e) = result.unwrap() {
+                panel.error = Some(format!("Error opening editor: {}", e));
+            }
+        }
+        (dir, name)
+    };
+    // Resume watcher
+    if let Some(watcher) = &mut app.watcher {
+        let _ = watcher.watch(&panel_current_dir);
+    }
+    app.sync_watcher();
+    // Refresh file list and restore cursor
+    let panel = match app.active {
+        PanelSide::Left => &mut app.left,
+        PanelSide::Right => &mut app.right,
+    }
+    .active_tab_mut();
+    if let Ok(entries) = crate::fs_ops::list_dir(&panel_current_dir) {
+        panel.entries = entries;
+        panel.sort_entries();
+        if let Some(name) = edited_file_name {
+            if let Some(idx) = panel.entries.iter().position(|e| e.name == name) {
+                panel.cursor = idx;
+            } else if panel.cursor >= panel.entries.len() {
+                panel.cursor = panel.entries.len().saturating_sub(1);
+            }
         }
     }
+    // Restart input polling after editing
+    app.input_polling_handle = Some(spawn_input_polling(input_tx.clone()));
+    // Redraw UI will be handled by event loop after edit
 }
 
 fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut AppState) {

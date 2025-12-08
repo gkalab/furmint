@@ -448,6 +448,8 @@ pub struct AppState {
     pub dir_history: crate::dir_history::DirectoryHistory,
     // Watcher is optional so we can initialize it later or run without it if needed
     pub watcher: Option<crate::watcher::AppWatcher>,
+    // Input polling task handle
+    pub input_polling_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl AppState {

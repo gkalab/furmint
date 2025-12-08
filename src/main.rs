@@ -84,6 +84,7 @@ async fn main() -> Result<()> {
         show_task_manager: false,
         dir_history,
         watcher,
+        input_polling_handle: None,
     };
 
     // Record initial directory visit
