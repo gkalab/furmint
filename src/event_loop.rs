@@ -14,36 +14,37 @@ pub async fn run_event_loop(
     palette: &ThemePalette,
     keyboard: KeyboardConfig,
     watcher_rx: &mut tokio::sync::mpsc::UnboundedReceiver<crate::watcher::WatcherEvent>,
+    task_rx: &mut tokio::sync::mpsc::UnboundedReceiver<crate::tasks::TaskEvent>,
 ) -> anyhow::Result<()> {
     // Create channel for terminal events
     let (input_tx, mut input_rx) = tokio::sync::mpsc::unbounded_channel();
-    
+
     // Spawn task to read terminal events
     tokio::task::spawn_blocking(move || {
         loop {
-             // Poll for events with a timeout to check for exit condition
-             if input_tx.is_closed() {
-                 break;
-             }
-             match event::poll(std::time::Duration::from_millis(100)) {
-                 Ok(true) => {
-                     match event::read() {
-                         Ok(ev) => {
-                             if input_tx.send(ev).is_err() {
-                                 break; // Receiver dropped
-                             }
-                         }
-                         Err(_) => break,
-                     }
-                 }
-                 Ok(false) => continue,
-                 Err(_) => break,
-             }
+            // Poll for events with a timeout to check for exit condition
+            if input_tx.is_closed() {
+                break;
+            }
+            match event::poll(std::time::Duration::from_millis(100)) {
+                Ok(true) => {
+                    match event::read() {
+                        Ok(ev) => {
+                            if input_tx.send(ev).is_err() {
+                                break; // Receiver dropped
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+                Ok(false) => continue,
+                Err(_) => break,
+            }
         }
     });
 
     let mut should_exit = false;
-    
+
     // Initial draw
     draw_ui(terminal, app, palette)?;
 
@@ -76,9 +77,14 @@ pub async fn run_event_loop(
                 } else {
                     draw_ui(terminal, app, palette)?;
                 }
-                
+
                 // Sync watcher if navigation happened
-                app.sync_watcher(); 
+                app.sync_watcher();
+            }
+            // Handle task events
+            Some(event) = task_rx.recv() => {
+                handle_task_event(event, app);
+                draw_ui(terminal, app, palette)?;
             }
             else => break,
         }
@@ -93,7 +99,7 @@ fn handle_watcher_event(event: crate::watcher::WatcherEvent, app: &mut AppState)
             let handle_tab = |tab: &mut crate::app::Tab| {
                 // Check info about current directory
                 let current_exists = tab.current_dir.exists();
-                
+
                 if !current_exists {
                     // Directory removed, try to go up
                     // We don't check for errors here, just try
@@ -104,35 +110,35 @@ fn handle_watcher_event(event: crate::watcher::WatcherEvent, app: &mut AppState)
                 // 1. If we just went up, we likely loaded new content, but check logic below
                 // 2. If current dir is in paths (it changed itself)
                 // 3. If any path's parent is current dir (content of dir changed)
-                let needs_reload = paths.iter().any(|p| {
-                    p == &tab.current_dir || p.parent() == Some(&tab.current_dir)
-                });
+                let needs_reload = paths
+                    .iter()
+                    .any(|p| p == &tab.current_dir || p.parent() == Some(&tab.current_dir));
 
                 if needs_reload {
                     // Refresh entries
                     // Note: if we just went up, entries are fresh, but reloading again is safe
-                    // We try to preserve cursor if possible by matching name? 
-                    // But standard behavior is reload. 
+                    // We try to preserve cursor if possible by matching name?
+                    // But standard behavior is reload.
                     // If we want to preserve cursor position on simple content change (like file size update):
                     // Tab::navigate_to calls list_dir which resets cursor unless in history.
                     // But here we are staying in same dir usually.
-                    
+
                     let old_cursor_name = tab.current_entry().map(|e| e.name.clone());
-                    
+
                     if let Ok(entries) = crate::fs_ops::list_dir(&tab.current_dir) {
                         tab.entries = entries;
                         tab.sort_entries();
-                        
+
                         // Try to restore cursor to same file
                         if let Some(name) = old_cursor_name {
-                             if let Some(idx) = tab.entries.iter().position(|e| e.name == name) {
-                                 tab.cursor = idx;
-                             } else {
-                                 // File gone, keep cursor within bounds
-                                 if tab.cursor >= tab.entries.len() {
-                                     tab.cursor = tab.entries.len().saturating_sub(1);
-                                 }
-                             }
+                            if let Some(idx) = tab.entries.iter().position(|e| e.name == name) {
+                                tab.cursor = idx;
+                            } else {
+                                // File gone, keep cursor within bounds
+                                if tab.cursor >= tab.entries.len() {
+                                    tab.cursor = tab.entries.len().saturating_sub(1);
+                                }
+                            }
                         }
                     }
                 }
@@ -146,10 +152,10 @@ fn handle_watcher_event(event: crate::watcher::WatcherEvent, app: &mut AppState)
             }
         }
         crate::watcher::WatcherEvent::Error(err) => {
-             // Log error to active tab error field?
-             // app.left.active_tab_mut().error = Some(format!("Watcher: {}", err));
-             // Don't disturb user too much
-             eprintln!("Watcher error: {err}");
+            // Log error to active tab error field?
+            // app.left.active_tab_mut().error = Some(format!("Watcher: {}", err));
+            // Don't disturb user too much
+            eprintln!("Watcher error: {err}");
         }
     }
 }
@@ -247,6 +253,21 @@ fn draw_ui(
 
         // Draw rename popup on top of fuzzy search (though they shouldn't be open at same time)
         crate::rename_ui::draw_rename_popup(f, &app.rename_popup, palette);
+
+        // Draw delete popup
+        crate::delete_ui::draw_delete_popup(f, &app.delete_popup, palette);
+
+        // Draw task manager
+        crate::task_ui::draw_task_manager(f, &app.task_manager, app.show_task_manager, palette);
+
+        // Draw task status in status bar area (overlay or append)
+        // We can draw it over the right status panel if tasks are running
+        if !app.show_task_manager {
+            let status_area = status_chunks[1];
+            // Align to right side of status area?
+            // For now just draw it
+            crate::task_ui::draw_task_status_bar(f, &app.task_manager, status_area, palette);
+        }
     })?;
     Ok(())
 }
@@ -264,7 +285,9 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
                 || (code == KeyCode::Esc
                     && !app.file_viewer.is_visible
                     && !app.fuzzy_search.is_visible
-                    && !app.rename_popup.is_visible)
+                    && !app.rename_popup.is_visible
+                    && !app.delete_popup.is_visible
+                    && !app.show_task_manager)
             {
                 return true;
             }
@@ -277,6 +300,16 @@ pub fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) ->
             // Handle rename popup
             if app.rename_popup.is_visible {
                 return handle_rename_popup_event(code, app);
+            }
+
+            // Handle delete popup
+            if app.delete_popup.is_visible {
+                return handle_delete_popup_event(code, app);
+            }
+
+            // Handle task manager
+            if app.show_task_manager {
+                return handle_task_manager_event(code, app);
             }
 
             if (code == KeyCode::F(3) && modifiers == KeyModifiers::NONE) || code == KeyCode::Esc {
@@ -437,114 +470,147 @@ fn handle_main_panel_event(
 
     // Tab management shortcuts
     // New tab
-    if let Some(keys) = &keyboard.new_tab {
-        if keys.contains(&shortcut) {
-            handle_new_tab(app);
-            return false;
-        }
+    if let Some(keys) = &keyboard.new_tab
+        && keys.contains(&shortcut)
+    {
+        handle_new_tab(app);
+        return false;
     }
     // Next tab
-    if let Some(keys) = &keyboard.next_tab {
-        if keys.contains(&shortcut) {
-            handle_next_tab(app);
-            return false;
-        }
+    if let Some(keys) = &keyboard.next_tab
+        && keys.contains(&shortcut)
+    {
+        handle_next_tab(app);
+        return false;
     }
     // Previous tab
-    if let Some(keys) = &keyboard.prev_tab {
-        if keys.contains(&shortcut) {
-            handle_prev_tab(app);
-            return false;
-        }
+    if let Some(keys) = &keyboard.prev_tab
+        && keys.contains(&shortcut)
+    {
+        handle_prev_tab(app);
+        return false;
     }
     // Close tab
-    if let Some(keys) = &keyboard.close_tab {
-        if keys.contains(&shortcut) {
-            handle_close_tab(app);
-            return false;
-        }
+    if let Some(keys) = &keyboard.close_tab
+        && keys.contains(&shortcut)
+    {
+        handle_close_tab(app);
+        return false;
     }
 
     // Previous directory from history
-    if let Some(keys) = &keyboard.history_previous {
-        if keys.contains(&shortcut) {
-            handle_history_previous(app);
-            return false;
-        }
+    if let Some(keys) = &keyboard.history_previous
+        && keys.contains(&shortcut)
+    {
+        handle_history_previous(app);
+        return false;
     }
     // Next directory from history
-    if let Some(keys) = &keyboard.history_next {
-        if keys.contains(&shortcut) {
-            handle_history_next(app);
-            return false;
-        }
+    if let Some(keys) = &keyboard.history_next
+        && keys.contains(&shortcut)
+    {
+        handle_history_next(app);
+        return false;
     }
     // Enter directory
-    if let Some(keys) = &keyboard.enter_directory {
-        if keys.contains(&shortcut) {
-            handle_enter_directory(app);
-            return false;
-        }
+    if let Some(keys) = &keyboard.enter_directory
+        && keys.contains(&shortcut)
+    {
+        handle_enter_directory(app);
+        return false;
     }
     // Directory up
-    if let Some(keys) = &keyboard.directory_up {
-        if keys.contains(&shortcut) {
-            handle_directory_up(app);
-            return false;
-        }
+    if let Some(keys) = &keyboard.directory_up
+        && keys.contains(&shortcut)
+    {
+        handle_directory_up(app);
+        return false;
     }
     // Edit
-    if let Some(keys) = &keyboard.edit {
-        if keys.contains(&shortcut) {
-            handle_edit(app);
-            return false;
-        }
+    if let Some(keys) = &keyboard.edit
+        && keys.contains(&shortcut)
+    {
+        handle_edit(app);
+        return false;
     }
     // Fuzzy search
-    if let Some(keys) = &keyboard.fuzzy_search {
-        if keys.contains(&shortcut) {
-            app.fuzzy_search.is_visible = true;
-            app.fuzzy_search.reset();
-            // Initialize with all directories sorted by score
-            let results = app.dir_history.fuzzy_search("");
-            app.fuzzy_search.filtered_dirs = results.into_iter().map(|(p, _)| p).collect();
-            app.fuzzy_search.selected_index = 0;
-            return false;
-        }
+    if let Some(keys) = &keyboard.fuzzy_search
+        && keys.contains(&shortcut)
+    {
+        app.fuzzy_search.is_visible = true;
+        app.fuzzy_search.reset();
+        // Initialize with all directories sorted by score
+        let results = app.dir_history.fuzzy_search("");
+        app.fuzzy_search.filtered_dirs = results.into_iter().map(|(p, _)| p).collect();
+        app.fuzzy_search.selected_index = 0;
+        return false;
     }
 
     // Rename
-    if let Some(keys) = &keyboard.rename {
-        if keys.contains(&shortcut) {
-            handle_init_rename(app);
-            return false;
-        }
+    if let Some(keys) = &keyboard.rename
+        && keys.contains(&shortcut)
+    {
+        handle_init_rename(app);
+        return false;
+    }
+
+    // Delete
+    if let Some(keys) = &keyboard.delete
+        && keys.contains(&shortcut)
+    {
+        handle_init_delete(app, false);
+        return false;
+    }
+    // Delete Permanently
+    if let Some(keys) = &keyboard.delete_permanently
+        && keys.contains(&shortcut)
+    {
+        handle_init_delete(app, true);
+        return false;
+    }
+    // Task Manager
+    if let Some(keys) = &keyboard.task_manager
+        && keys.contains(&shortcut)
+    {
+        app.show_task_manager = !app.show_task_manager;
+        return false;
     }
 
     // Sorting shortcuts
-    if let Some(keys) = &keyboard.sort_by_name {
-        if keys.contains(&shortcut) {
-            handle_sort(app, crate::app::SortColumn::Name);
-            return false;
-        }
+    if let Some(keys) = &keyboard.sort_by_name
+        && keys.contains(&shortcut)
+    {
+        handle_sort(app, crate::app::SortColumn::Name);
+        return false;
     }
-    if let Some(keys) = &keyboard.sort_by_extension {
-        if keys.contains(&shortcut) {
-            handle_sort(app, crate::app::SortColumn::Extension);
-            return false;
-        }
+    if let Some(keys) = &keyboard.sort_by_extension
+        && keys.contains(&shortcut)
+    {
+        handle_sort(app, crate::app::SortColumn::Extension);
+        return false;
     }
-    if let Some(keys) = &keyboard.sort_by_date {
-        if keys.contains(&shortcut) {
-            handle_sort(app, crate::app::SortColumn::Date);
-            return false;
-        }
+    if let Some(keys) = &keyboard.sort_by_date
+        && keys.contains(&shortcut)
+    {
+        handle_sort(app, crate::app::SortColumn::Date);
+        return false;
     }
-    if let Some(keys) = &keyboard.sort_by_size {
-        if keys.contains(&shortcut) {
-            handle_sort(app, crate::app::SortColumn::Size);
-            return false;
-        }
+    if let Some(keys) = &keyboard.sort_by_size
+        && keys.contains(&shortcut)
+    {
+        handle_sort(app, crate::app::SortColumn::Size);
+        return false;
+    }
+    // Select All shortcut
+    if let Some(keys) = &keyboard.select_all
+        && keys.contains(&shortcut)
+    {
+        let tab_manager = match app.active {
+            crate::app::PanelSide::Left => &mut app.left,
+            crate::app::PanelSide::Right => &mut app.right,
+        };
+        tab_manager.active_tab_mut().select_all();
+        return false;
     }
 
     match (code, modifiers) {
@@ -648,6 +714,10 @@ fn keyevent_to_string(code: KeyCode, modifiers: KeyModifiers) -> String {
         KeyCode::Enter => "Enter".to_string(),
         KeyCode::Backspace => "Backspace".to_string(),
         KeyCode::Tab => "Tab".to_string(),
+        KeyCode::BackTab => "BackTab".to_string(),
+        KeyCode::Delete => "Delete".to_string(),
+        KeyCode::Esc => "Esc".to_string(),
+        KeyCode::Insert => "Insert".to_string(),
         KeyCode::Char(c) => c.to_string(),
         KeyCode::F(n) => format!("F{}", n),
         _ => String::new(),
@@ -795,28 +865,179 @@ fn handle_edit(app: &mut AppState) {
         PanelSide::Right => &mut app.right,
     };
     let panel = tab_manager.active_tab_mut();
-    if let Some(entry) = panel.current_entry().cloned() {
-        if !entry.is_dir {
-            let file_path = panel.current_dir.join(&entry.name);
-            // Check if file is text (not binary)
-            match crate::fs_ops::read_file_content(&file_path, 8192) {
-                Ok(content) => {
-                    if content.contains("Binary file detected") {
-                        panel.error = Some("Cannot open binary file in editor".to_string());
-                    } else {
-                        // Launch editor
-                        match open_in_default_editor(&file_path) {
-                            Ok(_) => {}
-                            Err(e) => panel.error = Some(format!("Editor error: {}", e)),
-                        }
-                    }
-                }
-                Err(e) => {
-                    panel.error = Some(format!("Error reading file: {}", e));
-                }
-            }
+    if let Some(entry) = panel.current_entry().cloned()
+        && !entry.is_dir
+    {
+        let file_path = panel.current_dir.join(&entry.name);
+        if let Err(e) = open_in_default_editor(&file_path) {
+            // Show error
+            panel.error = Some(format!("Error opening editor: {}", e));
         }
     }
+}
+
+fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut AppState) {
+    match event {
+        crate::tasks::TaskEvent::Added(_id, _name) => {
+            // Optional: notify or log
+        }
+        crate::tasks::TaskEvent::UpdateStatus(id, status) => {
+            app.task_manager.update_task_status(id, status.clone());
+            // If failed, maybe show global error?
+            if let crate::tasks::TaskStatus::Failed(_e) = status {
+                // Log?
+            }
+        }
+        crate::tasks::TaskEvent::UpdateProgress(id, p) => {
+            app.task_manager.update_task_progress(id, p);
+        }
+    }
+}
+
+fn handle_delete_popup_event(code: KeyCode, app: &mut AppState) -> bool {
+    match code {
+        KeyCode::Esc | KeyCode::Char('n') => {
+            app.delete_popup.reset();
+        }
+        KeyCode::Char('y') | KeyCode::Enter => {
+            handle_confirm_delete(app);
+            app.delete_popup.reset();
+        }
+        _ => {}
+    }
+    false
+}
+
+fn handle_confirm_delete(app: &mut AppState) {
+    let paths = app.delete_popup.selected_paths.clone();
+    let is_permanent = app.delete_popup.is_permanent;
+
+    // Spawn task
+    let name = if is_permanent {
+        format!("Deleting {} items permanently", paths.len())
+    } else {
+        format!("Trashing {} items", paths.len())
+    };
+
+    app.task_manager
+        .spawn_task(name, move |cancel, tx, id| async move {
+            // Perform deletion
+            let total = paths.len();
+            let mut success = 0;
+            let mut failures = Vec::new();
+
+            for (i, path) in paths.iter().enumerate() {
+                if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                    let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
+                        id,
+                        crate::tasks::TaskStatus::Cancelled,
+                    ));
+                    return;
+                }
+
+                let result = if is_permanent {
+                    if path.is_dir() {
+                        std::fs::remove_dir_all(path)
+                    } else {
+                        std::fs::remove_file(path)
+                    }
+                    .map_err(|e| e.to_string())
+                } else {
+                    trash::delete(path).map_err(|e| e.to_string())
+                };
+
+                match result {
+                    Ok(_) => success += 1,
+                    Err(e) => failures.push(format!("{}: {}", path.display(), e)),
+                }
+
+                let progress = (i + 1) as f32 / total as f32;
+                let _ = tx.send(crate::tasks::TaskEvent::UpdateProgress(id, progress));
+            }
+
+            if failures.is_empty() {
+                let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
+                    id,
+                    crate::tasks::TaskStatus::Completed,
+                ));
+            } else {
+                let error_msg = if success > 0 {
+                    format!("Completed with errors: {} failed", failures.len())
+                } else {
+                    format!("Failed: {}", failures[0]) // Show first error
+                };
+                let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
+                    id,
+                    crate::tasks::TaskStatus::Failed(error_msg),
+                ));
+            }
+        });
+
+    // Clear selection in active tab if deletion started
+    // (Actual file removal will trigger watcher -> reload list)
+    let tab_manager = match app.active {
+        PanelSide::Left => &mut app.left,
+        PanelSide::Right => &mut app.right,
+    };
+    for entry in &mut tab_manager.active_tab_mut().entries {
+        entry.selected = false;
+    }
+}
+
+fn handle_task_manager_event(code: KeyCode, app: &mut AppState) -> bool {
+    match code {
+        KeyCode::Esc => {
+            app.show_task_manager = false;
+        }
+        KeyCode::Char('c') => {
+            // Clear finished tasks
+            app.task_manager.remove_finished_tasks();
+        }
+        KeyCode::Up => {
+            app.task_manager.move_selection_up();
+        }
+        KeyCode::Down => {
+            app.task_manager.move_selection_down();
+        }
+        KeyCode::Char('x') => {
+            if let Some(id) = app.task_manager.get_selected_task_id() {
+                app.task_manager.cancel_task(id);
+                // Optionally, update status to Cancelled immediately
+                app.task_manager
+                    .update_task_status(id, crate::tasks::TaskStatus::Cancelled);
+            }
+        }
+        _ => {}
+    }
+    false
+}
+
+fn handle_init_delete(app: &mut AppState, permanent: bool) {
+    let tab_manager = match app.active {
+        PanelSide::Left => &mut app.left,
+        PanelSide::Right => &mut app.right,
+    };
+    let tab = tab_manager.active_tab();
+    let mut selected: Vec<_> = tab
+        .get_selected_entries()
+        .iter()
+        .map(|e| tab.current_dir.join(&e.name))
+        .collect();
+
+    if selected.is_empty()
+        && let Some(entry) = tab.current_entry()
+        && entry.name != ".."
+    {
+        selected.push(tab.current_dir.join(&entry.name));
+    }
+
+    if selected.is_empty() {
+        return;
+    }
+
+    app.delete_popup.selected_paths = selected;
+    app.delete_popup.is_permanent = permanent;
+    app.delete_popup.is_visible = true;
 }
 
 fn handle_enter_directory(app: &mut AppState) {
@@ -826,21 +1047,21 @@ fn handle_enter_directory(app: &mut AppState) {
     };
     let panel = tab_manager.active_tab_mut();
 
-    if let Some(entry) = panel.current_entry().cloned() {
-        if entry.is_dir {
-            let new_dir = if entry.name == ".." {
-                panel.current_dir.parent().map(|p| p.to_path_buf())
-            } else {
-                Some(panel.current_dir.join(&entry.name))
-            };
+    if let Some(entry) = panel.current_entry().cloned()
+        && entry.is_dir
+    {
+        let new_dir = if entry.name == ".." {
+            panel.current_dir.parent().map(|p| p.to_path_buf())
+        } else {
+            Some(panel.current_dir.join(&entry.name))
+        };
 
-            if let Some(path) = new_dir {
-                if let Err(e) = panel.navigate_to(path.clone()) {
-                    panel.error = Some(format!("Error: {}", e));
-                } else {
-                    app.dir_history.record_visit(&path);
-                    update_viewer_content(app);
-                }
+        if let Some(path) = new_dir {
+            if let Err(e) = panel.navigate_to(path.clone()) {
+                panel.error = Some(format!("Error: {}", e));
+            } else {
+                app.dir_history.record_visit(&path);
+                update_viewer_content(app);
             }
         }
     }
@@ -906,7 +1127,7 @@ fn handle_type_char(app: &mut AppState, c: char) {
     // If last_type_time is None or too old, reset buffer
     if panel
         .last_type_time
-        .map_or(true, |t| now.duration_since(t) > reset_threshold)
+        .is_none_or(|t| now.duration_since(t) > reset_threshold)
     {
         panel.typed_buffer.clear();
     }

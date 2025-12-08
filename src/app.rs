@@ -152,10 +152,10 @@ impl Tab {
             self.navigate_to(parent.to_path_buf())?;
 
             // Find and select the directory we just came from
-            if let Some(dir_name) = current_dir_name {
-                if let Some(idx) = self.entries.iter().position(|e| e.name == dir_name) {
-                    self.cursor = idx;
-                }
+            if let Some(dir_name) = current_dir_name
+                && let Some(idx) = self.entries.iter().position(|e| e.name == dir_name)
+            {
+                self.cursor = idx;
             }
         }
         Ok(())
@@ -204,6 +204,15 @@ impl Tab {
     #[allow(dead_code)]
     pub fn get_selected_entries(&self) -> Vec<&FileEntry> {
         self.entries.iter().filter(|e| e.selected).collect()
+    }
+
+    /// Select all entries (except "..")
+    pub fn select_all(&mut self) {
+        for entry in &mut self.entries {
+            if entry.name != ".." {
+                entry.selected = true;
+            }
+        }
     }
 
     /// Sort entries based on current sort settings
@@ -370,10 +379,10 @@ impl TabManager {
         new_tab.sort_entries();
 
         // Set cursor position if provided and valid
-        if let Some(pos) = cursor {
-            if pos < new_tab.entries.len() {
-                new_tab.cursor = pos;
-            }
+        if let Some(pos) = cursor
+            && pos < new_tab.entries.len()
+        {
+            new_tab.cursor = pos;
         }
         self.tabs.push(new_tab);
         self.active_tab_index = self.tabs.len() - 1;
@@ -433,6 +442,9 @@ pub struct AppState {
     pub file_viewer: FileViewerState,
     pub fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState,
     pub rename_popup: RenameState,
+    pub delete_popup: DeleteState,
+    pub task_manager: crate::tasks::TaskManager,
+    pub show_task_manager: bool,
     pub dir_history: crate::dir_history::DirectoryHistory,
     // Watcher is optional so we can initialize it later or run without it if needed
     pub watcher: Option<crate::watcher::AppWatcher>,
@@ -442,7 +454,7 @@ impl AppState {
     pub fn sync_watcher(&mut self) {
         if let Some(watcher) = &mut self.watcher {
             let mut paths = std::collections::HashSet::new();
-            
+
             // Collect paths from all tabs in both panels
             for tab in &self.left.tabs {
                 paths.insert(tab.current_dir.clone());
@@ -450,10 +462,10 @@ impl AppState {
             for tab in &self.right.tabs {
                 paths.insert(tab.current_dir.clone());
             }
-            
+
             // Convert to vector
             let paths_vec: Vec<std::path::PathBuf> = paths.into_iter().collect();
-            
+
             if let Err(e) = watcher.update_watched_paths(&paths_vec) {
                 // Log error or set it in active tab?
                 // For now just ignore or print to stderr
@@ -496,6 +508,31 @@ impl RenameState {
         self.parent_dir = PathBuf::new();
         self.show_overwrite_confirm = false;
         self.is_dir = false;
+        self.error = None;
+    }
+}
+
+pub struct DeleteState {
+    pub is_visible: bool,
+    pub selected_paths: Vec<PathBuf>,
+    pub is_permanent: bool,
+    pub error: Option<String>,
+}
+
+impl DeleteState {
+    pub fn new() -> Self {
+        Self {
+            is_visible: false,
+            selected_paths: Vec::new(),
+            is_permanent: false,
+            error: None,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.is_visible = false;
+        self.selected_paths.clear();
+        self.is_permanent = false;
         self.error = None;
     }
 }

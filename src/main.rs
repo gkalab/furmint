@@ -1,16 +1,18 @@
 mod app;
 mod config;
+mod delete_ui;
 mod dir_history;
 mod event_loop;
 mod fs_ops;
 mod fuzzy_search_ui;
 mod rename_ui;
+mod task_ui;
+mod tasks;
 mod theme;
 mod ui;
 mod ui_utils;
 mod watcher;
 
-use crate::app::{AppState, PanelSide};
 use crate::config::load_config;
 use anyhow::Result;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
@@ -53,34 +55,52 @@ async fn main() -> Result<()> {
     };
 
     // Initialize watcher
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let watcher = match watcher::AppWatcher::new(tx) {
-        Ok(w) => Some(w),
-        Err(e) => {
-            eprintln!("Error initializing watcher: {e}");
-             // Continue without watcher
-            None
-        }
-    };
+    let (watcher_tx, mut watcher_rx) = tokio::sync::mpsc::unbounded_channel();
+    let watcher = crate::watcher::AppWatcher::new(watcher_tx)
+        .ok()
+        .map(|mut w| {
+            if let Err(e) = w.watch(&cwd) {
+                eprintln!("Failed to start watcher: {}", e);
+            }
+            w
+        });
 
-    let mut app = AppState {
-        left: app::TabManager::new(cwd.clone())?,
-        right: app::TabManager::new(cwd.clone())?,
-        active: PanelSide::Left,
-        file_viewer: crate::app::FileViewerState::new(palette.is_dark, theme_name),
-        fuzzy_search: fuzzy_search_ui::FuzzySearchState::new(),
+    // Initialize task manager channel
+    let (task_tx, mut task_rx) = tokio::sync::mpsc::unbounded_channel();
+    let task_manager = crate::tasks::TaskManager::new(task_tx);
+
+    let mut app = app::AppState {
+        left: crate::app::TabManager::new(cwd.clone())?,
+        right: crate::app::TabManager::new(cwd.clone())?,
+        active: crate::app::PanelSide::Left,
+        file_viewer: crate::app::FileViewerState::new(
+            palette.is_dark,
+            theme_config.name.as_deref().unwrap_or("default"),
+        ),
+        fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
         rename_popup: crate::app::RenameState::new(),
+        delete_popup: crate::app::DeleteState::new(),
+        task_manager,
+        show_task_manager: false,
         dir_history,
         watcher,
     };
 
     // Record initial directory visit
     app.dir_history.record_visit(&cwd);
-    
+
     // Initial sync of watcher
     app.sync_watcher();
 
-    event_loop::run_event_loop(&mut terminal, &mut app, &palette, keyboard, &mut rx).await?;
+    event_loop::run_event_loop(
+        &mut terminal,
+        &mut app,
+        &palette,
+        keyboard,
+        &mut watcher_rx,
+        &mut task_rx,
+    )
+    .await?;
 
     // Save directory history on exit
     if let Err(e) = app.dir_history.save() {

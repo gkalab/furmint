@@ -19,6 +19,8 @@ syntect = "5.3"
 tokio = { version = "1", features = ["full"] }
 toml = "0.9"
 unicode-width = "0.1"
+trash = "5.1"
+
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"

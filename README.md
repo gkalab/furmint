@@ -63,6 +63,26 @@ Performance Improvements: Step-by-Step
 
 ---
 
+---
+
+## File Deletion and Tasks
+
+### File Deletion
+- **Delete**: Move selected files (or file under cursor) to Trash.
+  - A confirmation popup appears.
+- **Shift+Delete**: Permanently delete selected files.
+  - A red warning/confirmation popup appears.
+- Deletions are processed in the background.
+
+### Task Manager
+- **F10**: Open/Close Task Manager.
+- Shows list of running, completed, and failed tasks.
+- Shows status of background deletions.
+- Press `Esc` to close the popup.
+- Press `c` to clear completed tasks.
+
+---
+
 ## Tab Management
 
 The file manager supports multiple tabs per panel, allowing you to work with multiple directories simultaneously.
@@ -110,6 +130,10 @@ sort_by_name = ["Ctrl-F2"]
 sort_by_extension = ["Ctrl-F4"]
 sort_by_date = ["Ctrl-F5"]
 sort_by_size = ["Ctrl-F6"]
+rename = ["F2"]
+delete = ["Delete"]
+delete_permanently = ["Shift-Delete"]
+task_manager = ["F10"]
 
 
 [theme]

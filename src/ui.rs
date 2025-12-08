@@ -271,7 +271,7 @@ pub fn draw_panel_status(
     palette: &ThemePalette,
     _active: bool,
 ) {
-    let error = panel.error.as_ref().map(|s| s.as_str()).unwrap_or("");
+    let error = panel.error.as_deref().unwrap_or("");
     let file_count = panel.entries.iter().filter(|e| !e.is_dir).count();
     let dir_count = panel
         .entries
@@ -281,7 +281,7 @@ pub fn draw_panel_status(
     let selected_count = panel.entries.iter().filter(|e| e.selected).count();
 
     let status = if !error.is_empty() {
-        format!("{}", error)
+        error.to_string()
     } else if selected_count > 0 {
         format!(
             "{} files, {} dirs | {} selected",

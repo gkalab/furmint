@@ -20,6 +20,10 @@ pub struct KeyboardConfig {
     pub sort_by_date: Option<Vec<String>>,
     pub sort_by_size: Option<Vec<String>>,
     pub rename: Option<Vec<String>>,
+    pub delete: Option<Vec<String>>,
+    pub delete_permanently: Option<Vec<String>>,
+    pub task_manager: Option<Vec<String>>,
+    pub select_all: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -52,6 +56,10 @@ pub fn default_keyboard_config() -> KeyboardConfig {
         sort_by_date: Some(vec!["Ctrl-F5".to_string()]),
         sort_by_size: Some(vec!["Ctrl-F6".to_string()]),
         rename: Some(vec!["F2".to_string()]),
+        delete: Some(vec!["Delete".to_string()]),
+        delete_permanently: Some(vec!["Shift-Delete".to_string()]),
+        task_manager: Some(vec!["F10".to_string()]),
+        select_all: Some(vec!["Ctrl-a".to_string()]),
     }
 }
 
@@ -127,6 +135,22 @@ pub fn merge_keyboard_config(
             .as_ref()
             .and_then(|k| k.rename.clone())
             .or_else(|| default.rename.clone()),
+        delete: user
+            .as_ref()
+            .and_then(|k| k.delete.clone())
+            .or_else(|| default.delete.clone()),
+        delete_permanently: user
+            .as_ref()
+            .and_then(|k| k.delete_permanently.clone())
+            .or_else(|| default.delete_permanently.clone()),
+        task_manager: user
+            .as_ref()
+            .and_then(|k| k.task_manager.clone())
+            .or_else(|| default.task_manager.clone()),
+        select_all: user
+            .as_ref()
+            .and_then(|k| k.select_all.clone())
+            .or_else(|| default.select_all.clone()),
     }
 }
 
@@ -140,14 +164,14 @@ pub fn merge_theme_config(
         .or_else(|| default.name.clone());
 
     // Validate theme name
-    if let Some(ref n) = name {
-        if !crate::theme::THEME_NAMES.contains(&n.as_str()) {
-            return Err(format!(
-                "Invalid theme '{}'. Available themes: {:?}",
-                n,
-                crate::theme::THEME_NAMES
-            ));
-        }
+    if let Some(ref n) = name
+        && !crate::theme::THEME_NAMES.contains(&n.as_str())
+    {
+        return Err(format!(
+            "Invalid theme '{}'. Available themes: {:?}",
+            n,
+            crate::theme::THEME_NAMES
+        ));
     }
 
     Ok(ThemeConfig {

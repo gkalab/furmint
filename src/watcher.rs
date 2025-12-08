@@ -1,5 +1,5 @@
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
-use notify_debouncer_full::{new_debouncer, DebounceEventResult, Debouncer, FileIdMap};
+use notify_debouncer_full::{DebounceEventResult, Debouncer, FileIdMap, new_debouncer};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
@@ -20,25 +20,23 @@ impl AppWatcher {
         // Create a debouncer that sends events to the channel
         // We need to clone tx because the closure can differ
         let tx = tx.clone();
-        
+
         let debouncer = new_debouncer(
             Duration::from_millis(250),
             None,
-            move |result: DebounceEventResult| {
-                match result {
-                    Ok(events) => {
-                        let mut paths = Vec::new();
-                        for e in events {
-                            paths.extend(e.paths.clone());
-                        }
-                        if !paths.is_empty() {
-                            let _ = tx.send(WatcherEvent::FileSystemChange(paths));
-                        }
+            move |result: DebounceEventResult| match result {
+                Ok(events) => {
+                    let mut paths = Vec::new();
+                    for e in events {
+                        paths.extend(e.paths.clone());
                     }
-                    Err(errors) => {
-                        for err in errors {
-                             let _ = tx.send(WatcherEvent::Error(err.to_string()));
-                        }
+                    if !paths.is_empty() {
+                        let _ = tx.send(WatcherEvent::FileSystemChange(paths));
+                    }
+                }
+                Err(errors) => {
+                    for err in errors {
+                        let _ = tx.send(WatcherEvent::Error(err.to_string()));
                     }
                 }
             },
@@ -53,8 +51,12 @@ impl AppWatcher {
     pub fn watch(&mut self, path: &Path) -> anyhow::Result<()> {
         if !self.watched_paths.contains(&path.to_path_buf()) {
             // Watch non-recursive for current directory content
-            self.debouncer.watcher().watch(path, RecursiveMode::NonRecursive)?;
-            self.debouncer.cache().add_root(path, RecursiveMode::NonRecursive);
+            self.debouncer
+                .watcher()
+                .watch(path, RecursiveMode::NonRecursive)?;
+            self.debouncer
+                .cache()
+                .add_root(path, RecursiveMode::NonRecursive);
             self.watched_paths.push(path.to_path_buf());
         }
         Ok(())
@@ -73,7 +75,7 @@ impl AppWatcher {
         }
         Ok(())
     }
-    
+
     pub fn update_watched_paths(&mut self, desired_paths: &[PathBuf]) -> anyhow::Result<()> {
         // Remove paths no longer needed
         let current_paths = self.watched_paths.clone();
@@ -82,7 +84,7 @@ impl AppWatcher {
                 self.unwatch(path)?;
             }
         }
-        
+
         // Add new paths
         for path in desired_paths {
             if !self.watched_paths.contains(path) {
