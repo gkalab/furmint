@@ -450,6 +450,7 @@ pub struct AppState {
     pub watcher: Option<crate::watcher::AppWatcher>,
     // Input polling task handle
     pub input_polling_handle: Option<tokio::task::JoinHandle<()>>,
+    pub needs_redraw: bool, // <--- Added for explicit redraw after editor
 }
 
 impl AppState {

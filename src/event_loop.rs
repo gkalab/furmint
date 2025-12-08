@@ -54,6 +54,12 @@ pub async fn run_event_loop(
     draw_ui(terminal, app, palette)?;
 
     while !should_exit {
+        // Explicit redraw if requested (e.g. after editor)
+        if app.needs_redraw {
+            terminal.clear()?;
+            draw_ui(terminal, app, palette)?;
+            app.needs_redraw = false;
+        }
         tokio::select! {
                             // Handle watcher events
                             Some(event) = watcher_rx.recv() => {
@@ -934,8 +940,8 @@ pub async fn handle_edit(app: &mut AppState, input_tx: UnboundedSender<Crossterm
     }
     // Restart input polling after editing
     app.input_polling_handle = Some(spawn_input_polling(input_tx.clone()));
-    // Force a redraw by sending a synthetic resize event
-    let _ = input_tx.send(CrosstermEvent::Resize(0, 0));
+    // Request explicit redraw after editing
+    app.needs_redraw = true;
     // Redraw UI will be handled by event loop after edit
 }
 

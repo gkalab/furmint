@@ -85,6 +85,7 @@ async fn main() -> Result<()> {
         dir_history,
         watcher,
         input_polling_handle: None,
+        needs_redraw: false,
     };
 
     // Record initial directory visit
