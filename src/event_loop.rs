@@ -1614,13 +1614,16 @@ fn handle_copy_move_popup_event(code: KeyCode, app: &mut AppState) -> bool {
                     dest_path
                 } else {
                     // This case might happen if user types relative path "foo/bar"
-                    // Relative to what? Active panel directory?
+                    // Relative to Active Panel directory (Source directory)
                      match app.active {
                         PanelSide::Left => app.left.active_tab().current_dir.join(&dest_path),
                         PanelSide::Right => app.right.active_tab().current_dir.join(&dest_path),
                     }
                 }
             };
+            
+            // Update input to absolute path so spawn_task uses the correct path
+            app.copy_move_popup.destination_input = dest_abs.to_string_lossy().to_string();
 
             for src in &app.copy_move_popup.source_paths {
                 // Canonicalize src
