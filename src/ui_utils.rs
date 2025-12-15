@@ -26,34 +26,47 @@ pub fn truncate_middle_with_ellipsis(name: &str, max_width: usize) -> String {
 }
 
 pub fn truncate_path_with_ellipsis(path: &std::path::Path, max_width: usize) -> String {
-    use std::path::MAIN_SEPARATOR;
-    let sep = MAIN_SEPARATOR;
     let path_str = path.to_string_lossy();
-    let segments: Vec<&str> = path_str.split(sep).collect();
     if path_str.chars().count() <= max_width {
         return path_str.to_string();
     }
+
+    let components: Vec<_> = path.components().collect();
+    let total_components = components.len();
+    
+    if total_components == 0 {
+        return "".to_string();
+    }
+
     let ellipsis = "…";
-    let sep_str = sep.to_string();
-    let seg_len = segments.len();
     let mut left_count = 1;
     let mut right_count = 1;
     let mut last_result = String::new();
-    // Try all possible combinations, keep the best that fits
-    while left_count + right_count < seg_len {
-        let mut parts = Vec::new();
-        if left_count > 0 {
-            parts.extend_from_slice(&segments[..left_count.min(seg_len)]);
+
+    // Iterate to find the best fit
+    while left_count + right_count < total_components {
+        let mut new_path = std::path::PathBuf::new();
+        
+        // Add left components
+        for c in &components[..left_count] {
+            new_path.push(c);
         }
-        parts.push(ellipsis);
-        if right_count > 0 {
-            parts.extend_from_slice(&segments[seg_len.saturating_sub(right_count)..]);
+        
+        // Add ellipsis (as a component)
+        new_path.push(ellipsis);
+
+        // Add right components
+        for c in &components[total_components.saturating_sub(right_count)..] {
+            new_path.push(c);
         }
-        let result = parts.join(&sep_str);
+
+        let result = new_path.to_string_lossy().to_string();
         if result.chars().count() > max_width {
             break;
         }
-        last_result = result.clone();
+
+        last_result = result;
+
         // Try to add more segments
         if left_count <= right_count {
             left_count += 1;
@@ -61,15 +74,16 @@ pub fn truncate_path_with_ellipsis(path: &std::path::Path, max_width: usize) -> 
             right_count += 1;
         }
     }
-    // If nothing fit, fallback to first/ellipsis/last
+
+    // Fallback if nothing fits or initial split failed:
+    // Truncate the whole string with ellipsis in the middle (using existing function)
     if last_result.is_empty() {
-        let first = segments.first().map_or("", |v| *v);
-        let last = segments.last().map_or("", |v| *v);
-        last_result = format!("{}{}{}{}{}", first, sep_str, ellipsis, sep_str, last);
-        if last_result.chars().count() > max_width {
-            last_result = last_result.chars().take(max_width).collect();
-        }
+         // If we have components but couldn't fit even 1+1+ellipsis, 
+         // or if it was just 1 component that is too long.
+         // fallback to string truncation
+         return truncate_middle_with_ellipsis(&path_str, max_width);
     }
+
     last_result
 }
 
