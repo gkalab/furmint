@@ -1,7 +1,7 @@
 use crate::app::ConflictState;
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 pub fn draw_conflict_popup(f: &mut ratatui::Frame, state: &ConflictState, palette: &ThemePalette) {
     if !state.is_visible {
@@ -37,14 +37,47 @@ pub fn draw_conflict_popup(f: &mut ratatui::Frame, state: &ConflictState, palett
         .style(Style::default().bg(bg_color));
 
     let content = format!(
-        "File already exists:\n\n{}\n\n[O]verwrite  [S]kip  [C]ancel\n[Y]Overwrite All  [N]Skip All",
+        "File already exists:\n\n{}\n",
         state.conflict_path.display()
     );
 
-    let paragraph = Paragraph::new(content)
-        .block(block)
-        .style(Style::default().fg(text_color))
-        .alignment(Alignment::Center);
+    let inner_area = block.inner(popup_area);
+    f.render_widget(block, popup_area);
 
-    f.render_widget(paragraph, popup_area);
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(3),    // Message + Path
+            Constraint::Length(1), // Spacer
+            Constraint::Length(1), // Row 1 buttons
+            Constraint::Length(1), // Row 2 buttons
+        ])
+        .split(inner_area);
+
+    let _block_inner = Block::default(); 
+
+    // We render the explanation text
+    let p_text = Paragraph::new(content)
+        .alignment(Alignment::Center)
+        .wrap(Wrap { trim: true })
+        .style(Style::default().fg(text_color));
+    f.render_widget(p_text, layout[0]);
+
+    // Row 1
+    let row1 = "[O]verwrite  [S]kip  [C]ancel";
+    f.render_widget(
+        Paragraph::new(row1)
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(text_color).add_modifier(Modifier::BOLD)),
+        layout[2]
+    );
+
+    // Row 2
+    let row2 = "Overwrite [Y]All  Skip [A]ll";
+    f.render_widget(
+        Paragraph::new(row2)
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(text_color).add_modifier(Modifier::BOLD)),
+        layout[3]
+    );
 }

@@ -25,6 +25,7 @@ pub enum TaskEvent {
     UpdateStatus(usize, TaskStatus),
     UpdateProgress(usize, usize, usize), // id, processed, total
     Conflict(usize, std::path::PathBuf, ConflictType),
+    Error(usize, String, String), // id, path, error_message
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -42,6 +43,8 @@ pub enum TaskDecision {
     OverwriteAll,
     Skip,
     SkipAll,
+    Retry,
+    RetryAll, // Unused for now but good to have
     Cancel,
 }
 

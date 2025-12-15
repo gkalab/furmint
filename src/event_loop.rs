@@ -283,6 +283,10 @@ fn draw_ui(
         // Draw quit confirmation popup
         crate::quit_ui::draw_quit_popup(f, &app.quit_confirmation, palette);
 
+        // Draw error popup
+        crate::error_ui::draw_error_popup(f, &app.error_popup, palette);
+
+
 
 
     })?;
@@ -315,6 +319,7 @@ pub async fn handle_event(
                     && !app.copy_move_popup.is_visible
                     && !app.conflict_popup.is_visible
                     && !app.quit_confirmation.is_visible  // Wait if confirmation is open, let it handle Esc
+                    && !app.error_popup.is_visible // Wait if error popup is open
                     && !app.show_task_manager)
             {
                 if app.task_manager.has_running_tasks() {
@@ -322,6 +327,14 @@ pub async fn handle_event(
                     return false;
                 }
                 return true;
+            }
+
+            // Handle error popup
+            if app.error_popup.is_visible {
+                if handle_error_popup_event(code, app).await {
+                    return true;
+                }
+                return false;
             }
 
             // Handle quit confirmation popup
@@ -1012,27 +1025,47 @@ pub async fn handle_edit(app: &mut AppState, input_tx: UnboundedSender<Crossterm
 
 fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut AppState) {
     match event {
-        crate::tasks::TaskEvent::Added(_id, _name) => {
-            // Optional: notify or log
-        }
+        crate::tasks::TaskEvent::Added(_, _) => {}
         crate::tasks::TaskEvent::UpdateStatus(id, status) => {
-            app.task_manager.update_task_status(id, status.clone());
-            // If failed, maybe show global error?
-            if let crate::tasks::TaskStatus::Failed(_e) = status {
-                // Log?
-            }
+             app.task_manager.update_task_status(id, status);
         }
-        crate::tasks::TaskEvent::UpdateProgress(id, processed, total) => {
-            app.task_manager.update_task_progress(id, processed, total);
-            app.needs_redraw = true; // Force redraw on progress
+        crate::tasks::TaskEvent::UpdateProgress(id, p, t) => {
+             app.task_manager.update_task_progress(id, p, t);
         }
         crate::tasks::TaskEvent::Conflict(id, path, conflict_type) => {
-            app.conflict_popup.is_visible = true;
-            app.conflict_popup.task_id = id;
-            app.conflict_popup.conflict_path = path;
-            app.conflict_popup.conflict_type = conflict_type;
+             // Show conflict popup
+             app.conflict_popup.task_id = id;
+             app.conflict_popup.conflict_path = path;
+             app.conflict_popup.conflict_type = conflict_type;
+             app.conflict_popup.is_visible = true;
+        }
+        crate::tasks::TaskEvent::Error(id, path, msg) => {
+            // Show error popup
+            app.error_popup.task_id = id;
+            app.error_popup.error_path = path;
+            app.error_popup.error_message = msg;
+            app.error_popup.is_visible = true;
         }
     }
+}
+
+async fn handle_error_popup_event(code: KeyCode, app: &mut AppState) -> bool {
+    let task_id = app.error_popup.task_id;
+    let decision = match code {
+        KeyCode::Char('r') | KeyCode::Char('R') => Some(crate::tasks::TaskDecision::Retry),
+        KeyCode::Char('s') | KeyCode::Char('S') => Some(crate::tasks::TaskDecision::Skip),
+        KeyCode::Char('a') | KeyCode::Char('A') => Some(crate::tasks::TaskDecision::SkipAll),
+        KeyCode::Char('c') | KeyCode::Char('C') | KeyCode::Esc => Some(crate::tasks::TaskDecision::Cancel),
+        _ => None,
+    };
+
+    if let Some(d) = decision {
+        if let Some(tx) = app.task_decision_txs.get(&task_id) {
+            let _ = tx.send(d).await; 
+        }
+        app.error_popup.reset();
+    }
+    false
 }
 
 fn handle_delete_popup_event(code: KeyCode, app: &mut AppState) -> bool {
@@ -1662,7 +1695,7 @@ async fn handle_conflict_popup_event(code: KeyCode, app: &mut AppState) -> bool 
         KeyCode::Char('s') | KeyCode::Char('S') => Some(crate::tasks::TaskDecision::Skip),
         KeyCode::Char('c') | KeyCode::Char('C') | KeyCode::Esc => Some(crate::tasks::TaskDecision::Cancel),
         KeyCode::Char('y') | KeyCode::Char('Y') => Some(crate::tasks::TaskDecision::OverwriteAll),
-        KeyCode::Char('n') | KeyCode::Char('N') => Some(crate::tasks::TaskDecision::SkipAll),
+        KeyCode::Char('a') | KeyCode::Char('A') | KeyCode::Char('n') | KeyCode::Char('N') => Some(crate::tasks::TaskDecision::SkipAll),
         KeyCode::Char('m') | KeyCode::Char('M') => Some(crate::tasks::TaskDecision::Merge),
         _ => None,
     };
@@ -1945,12 +1978,54 @@ fn recursive_op<'a>(
                         }
 
                         if perform {
-                            if dest_exists {
-                                let _ = tokio::fs::remove_file(&dest).await;
-                            }
-                            if let Err(e) = tokio::fs::copy(&src, &dest).await {
-                                return Err(format!("Failed to copy {} to {}: {}", src.display(), dest.display(), e));
-                            }
+                             loop {
+                                if dest_exists {
+                                    // Try to remove destination if it exists (overwrite)
+                                    let _ = tokio::fs::remove_file(&dest).await;
+                                }
+                                
+                                match tokio::fs::copy(&src, &dest).await {
+                                    Ok(_) => break, // Success
+                                    Err(e) => {
+                                        // Check SkipAll flag
+                                        if decision_state.skip_all {
+                                            perform = false;
+                                            break;
+                                        }
+
+                                        // Ask user
+                                        let _ = tx.send(crate::tasks::TaskEvent::Error(
+                                            id,
+                                            src.display().to_string(),
+                                            format!("Failed to copy to {}: {}", dest.display(), e)
+                                        ));
+
+                                        // Wait for decision
+                                        let mut decision = None;
+                                        if let Some(rx) = decision_rx.try_lock().ok().as_mut() {
+                                            decision = rx.recv().await;
+                                        }
+
+                                        match decision {
+                                            Some(crate::tasks::TaskDecision::Retry) => continue, // Retry loop
+                                            Some(crate::tasks::TaskDecision::Skip) => {
+                                                perform = false;
+                                                break;
+                                            }
+                                            Some(crate::tasks::TaskDecision::SkipAll) => {
+                                                decision_state.skip_all = true;
+                                                perform = false;
+                                                break;
+                                            }
+                                            Some(crate::tasks::TaskDecision::Cancel) => return Ok(()),
+                                            _ => {
+                                                perform = false;
+                                                break; 
+                                            }
+                                        }
+                                    }
+                                }
+                             }
                         }
                         
                         // If Move AND perform was success (or if we skipped, we usually DON'T delete source? 

@@ -445,6 +445,7 @@ pub struct AppState {
     pub delete_popup: DeleteState,
     pub copy_move_popup: CopyMoveState,
     pub conflict_popup: ConflictState,
+    pub error_popup: ErrorState,
     pub quit_confirmation: QuitConfirmationState,
     pub task_manager: crate::tasks::TaskManager,
     
@@ -608,6 +609,31 @@ impl ConflictState {
         self.is_visible = false;
         self.task_id = 0;
         self.conflict_path = PathBuf::new();
+    }
+}
+
+pub struct ErrorState {
+    pub is_visible: bool,
+    pub task_id: usize,
+    pub error_path: String,
+    pub error_message: String,
+}
+
+impl ErrorState {
+    pub fn new() -> Self {
+        Self {
+            is_visible: false,
+            task_id: 0,
+            error_path: String::new(),
+            error_message: String::new(),
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.is_visible = false;
+        self.task_id = 0;
+        self.error_path.clear();
+        self.error_message.clear();
     }
 }
 
