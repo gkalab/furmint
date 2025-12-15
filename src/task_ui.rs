@@ -95,7 +95,7 @@ pub fn draw_task_manager(
 
                 let bar: String = std::iter::repeat('=').take(filled).collect::<String>()
                     + &std::iter::repeat(' ').take(empty).collect::<String>();
-                
+
                 format!("[{}] {}% ({} left)", bar, percentage, left)
             } else {
                 "Calculating...".to_string()
@@ -105,26 +105,27 @@ pub fn draw_task_manager(
         };
 
         // If failed, append error to title or a separate line?
-        // Let's just keep title simple for now. 
-        // We create a Multi-line item? List items are usually single line? 
-        // Ratatui List items can be multi-line if they contain newlines? 
+        // Let's just keep title simple for now.
+        // We create a Multi-line item? List items are usually single line?
+        // Ratatui List items can be multi-line if they contain newlines?
         // No, ListItem takes a generic Text which can be lines.
-        
-        let mut spans = vec![
-            Line::from(Span::styled(item_title, style)),
-        ];
+
+        let mut spans = vec![Line::from(Span::styled(item_title, style))];
 
         if !progress_line.is_empty() {
-             spans.push(Line::from(Span::styled(progress_line, style)));
+            spans.push(Line::from(Span::styled(progress_line, style)));
         }
-        
+
         if let TaskStatus::Failed(e) = status {
-             spans.push(Line::from(Span::styled(format!("Error: {}", e), style.fg(Color::Rgb(palette.red.r, palette.red.g, palette.red.b)))));
+            spans.push(Line::from(Span::styled(
+                format!("Error: {}", e),
+                style.fg(Color::Rgb(palette.red.r, palette.red.g, palette.red.b)),
+            )));
         }
 
         // Add a separator or just spacing?
         // Usually list items are compact.
-        
+
         list_items.push(ListItem::new(spans));
     }
 
@@ -135,6 +136,3 @@ pub fn draw_task_manager(
 
     f.render_stateful_widget(list, inner_area, &mut state);
 }
-
-
-

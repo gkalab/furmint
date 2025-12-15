@@ -54,7 +54,7 @@ pub fn draw_copy_move_popup(f: &mut ratatui::Frame, state: &CopyMoveState, palet
 
     // Input display logic
     let input_width = (popup_area.width as usize).saturating_sub(2);
-    
+
     // If input_selected, we show the whole text (truncated if needed) with a highlight background
     // If not selected, we show scrolling window around cursor.
 
@@ -65,8 +65,8 @@ pub fn draw_copy_move_popup(f: &mut ratatui::Frame, state: &CopyMoveState, palet
         // Use surface2 or overlay1 for selection background?
         // Let's use blue background for selection to be classic
         (
-            text, 
-            Style::default().fg(bg_color).bg(border_color) // White on Blue-ish
+            text,
+            Style::default().fg(bg_color).bg(border_color), // White on Blue-ish
         )
     } else {
         // Normal editing mode
@@ -77,21 +77,17 @@ pub fn draw_copy_move_popup(f: &mut ratatui::Frame, state: &CopyMoveState, palet
             cursor_pos - input_width + 1
         };
 
-        let text: String = state.destination_input
+        let text: String = state
+            .destination_input
             .chars()
             .skip(scroll_offset)
             .take(input_width)
             .collect();
-        
-        (
-            text,
-            Style::default().fg(text_color).bg(bg_color)
-        )
+
+        (text, Style::default().fg(text_color).bg(bg_color))
     };
 
-    let paragraph = Paragraph::new(display_text)
-        .block(block)
-        .style(style);
+    let paragraph = Paragraph::new(display_text).block(block).style(style);
 
     f.render_widget(paragraph, popup_area);
 

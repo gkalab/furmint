@@ -448,10 +448,10 @@ pub struct AppState {
     pub error_popup: ErrorState,
     pub quit_confirmation: QuitConfirmationState,
     pub task_manager: crate::tasks::TaskManager,
-    
-    // Channels to communicate decisions back to tasks
 
-    pub task_decision_txs: std::collections::HashMap<usize, tokio::sync::mpsc::Sender<crate::tasks::TaskDecision>>,
+    // Channels to communicate decisions back to tasks
+    pub task_decision_txs:
+        std::collections::HashMap<usize, tokio::sync::mpsc::Sender<crate::tasks::TaskDecision>>,
 
     pub show_task_manager: bool,
     pub dir_history: crate::dir_history::DirectoryHistory,
@@ -643,9 +643,7 @@ pub struct QuitConfirmationState {
 
 impl QuitConfirmationState {
     pub fn new() -> Self {
-        Self {
-            is_visible: false,
-        }
+        Self { is_visible: false }
     }
 
     pub fn reset(&mut self) {

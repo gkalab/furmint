@@ -12,7 +12,6 @@ pub enum TaskStatus {
 }
 
 pub struct Task {
-
     pub name: String,
     pub status: TaskStatus,
     pub progress: Option<(usize, usize)>, // (processed, total)
@@ -21,7 +20,6 @@ pub struct Task {
 
 #[derive(Debug)]
 pub enum TaskEvent {
-
     UpdateStatus(usize, TaskStatus),
     UpdateProgress(usize, usize, usize), // id, processed, total
     Conflict(usize, std::path::PathBuf, ConflictType),
@@ -31,12 +29,10 @@ pub enum TaskEvent {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConflictType {
     FileExists,
-
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TaskDecision {
-
     Merge,
 
     Overwrite,
@@ -74,7 +70,6 @@ impl TaskManager {
         let cancel_flag = Arc::new(AtomicBool::new(false));
 
         let task = Task {
-
             name: name.clone(),
             status: TaskStatus::Running,
             progress: None,
@@ -85,7 +80,6 @@ impl TaskManager {
             let mut tasks = self.tasks.lock().unwrap();
             tasks.insert(id, task);
         }
-
 
         let tx = self.event_tx.clone();
 
@@ -157,7 +151,9 @@ impl TaskManager {
 
     pub fn has_running_tasks(&self) -> bool {
         let tasks = self.tasks.lock().unwrap();
-        tasks.values().any(|t| matches!(t.status, TaskStatus::Running))
+        tasks
+            .values()
+            .any(|t| matches!(t.status, TaskStatus::Running))
     }
 
     pub fn update_task_status(&self, id: usize, status: TaskStatus) {

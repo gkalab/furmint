@@ -274,7 +274,7 @@ fn draw_ui(
 
         // Draw copy/move popup
         crate::copy_move_ui::draw_copy_move_popup(f, &app.copy_move_popup, palette);
-        
+
         // Draw conflict popup
         crate::conflict_ui::draw_conflict_popup(f, &app.conflict_popup, palette);
 
@@ -286,10 +286,6 @@ fn draw_ui(
 
         // Draw error popup
         crate::error_ui::draw_error_popup(f, &app.error_popup, palette);
-
-
-
-
     })?;
     Ok(())
 }
@@ -1026,19 +1022,18 @@ pub async fn handle_edit(app: &mut AppState, input_tx: UnboundedSender<Crossterm
 
 fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut AppState) {
     match event {
-
         crate::tasks::TaskEvent::UpdateStatus(id, status) => {
-             app.task_manager.update_task_status(id, status);
+            app.task_manager.update_task_status(id, status);
         }
         crate::tasks::TaskEvent::UpdateProgress(id, p, t) => {
-             app.task_manager.update_task_progress(id, p, t);
+            app.task_manager.update_task_progress(id, p, t);
         }
         crate::tasks::TaskEvent::Conflict(id, path, conflict_type) => {
-             // Show conflict popup
-             app.conflict_popup.task_id = id;
-             app.conflict_popup.conflict_path = path;
-             app.conflict_popup.conflict_type = conflict_type;
-             app.conflict_popup.is_visible = true;
+            // Show conflict popup
+            app.conflict_popup.task_id = id;
+            app.conflict_popup.conflict_path = path;
+            app.conflict_popup.conflict_type = conflict_type;
+            app.conflict_popup.is_visible = true;
         }
         crate::tasks::TaskEvent::Error(id, path, msg) => {
             // Show error popup
@@ -1056,13 +1051,15 @@ async fn handle_error_popup_event(code: KeyCode, app: &mut AppState) -> bool {
         KeyCode::Char('r') | KeyCode::Char('R') => Some(crate::tasks::TaskDecision::Retry),
         KeyCode::Char('s') | KeyCode::Char('S') => Some(crate::tasks::TaskDecision::Skip),
         KeyCode::Char('a') | KeyCode::Char('A') => Some(crate::tasks::TaskDecision::SkipAll),
-        KeyCode::Char('c') | KeyCode::Char('C') | KeyCode::Esc => Some(crate::tasks::TaskDecision::Cancel),
+        KeyCode::Char('c') | KeyCode::Char('C') | KeyCode::Esc => {
+            Some(crate::tasks::TaskDecision::Cancel)
+        }
         _ => None,
     };
 
     if let Some(d) = decision {
         if let Some(tx) = app.task_decision_txs.get(&task_id) {
-            let _ = tx.send(d).await; 
+            let _ = tx.send(d).await;
         }
         app.error_popup.reset();
     }
@@ -1546,7 +1543,7 @@ fn init_copy_move(app: &mut AppState, action: crate::app::CopyMoveAction) {
         .iter()
         .map(|e| tab.current_dir.join(&e.name))
         .collect();
-    
+
     let paths = if selected.is_empty() {
         if let Some(entry) = tab.current_entry() {
             if entry.name != ".." {
@@ -1576,7 +1573,7 @@ fn init_copy_move(app: &mut AppState, action: crate::app::CopyMoveAction) {
     app.copy_move_popup.action = action;
     app.copy_move_popup.destination_input = dest;
     app.copy_move_popup.cursor_position = app.copy_move_popup.destination_input.len();
-    app.copy_move_popup.input_selected = false; 
+    app.copy_move_popup.input_selected = false;
     app.copy_move_popup.is_visible = true;
 }
 
@@ -1609,20 +1606,20 @@ fn handle_copy_move_popup_event(code: KeyCode, app: &mut AppState) -> bool {
             let dest_abs = if let Ok(p) = dest_path.canonicalize() {
                 p
             } else {
-                // Try determining absolute path relative to current dir? 
+                // Try determining absolute path relative to current dir?
                 // dest_input is usually absolute path from UI default.
                 if dest_path.is_absolute() {
                     dest_path
                 } else {
                     // This case might happen if user types relative path "foo/bar"
                     // Relative to Active Panel directory (Source directory)
-                     match app.active {
+                    match app.active {
                         PanelSide::Left => app.left.active_tab().current_dir.join(&dest_path),
                         PanelSide::Right => app.right.active_tab().current_dir.join(&dest_path),
                     }
                 }
             };
-            
+
             // Update input to absolute path so spawn_task uses the correct path
             app.copy_move_popup.destination_input = dest_abs.to_string_lossy().to_string();
 
@@ -1631,44 +1628,53 @@ fn handle_copy_move_popup_event(code: KeyCode, app: &mut AppState) -> bool {
                 if let Ok(src_abs) = src.canonicalize() {
                     // Check 1: Destination IS Source (e.g. cp /a/b to /a/b)
                     if src_abs == dest_abs {
-                        app.copy_move_popup.error = Some("Cannot copy/move source into itself".to_string());
+                        app.copy_move_popup.error =
+                            Some("Cannot copy/move source into itself".to_string());
                         return false;
                     }
                     // Check 2: Destination is INSIDE Source (e.g. cp /a to /a/b)
                     if dest_abs.starts_with(&src_abs) {
-                         app.copy_move_popup.error = Some("Cannot copy/move into subdirectory of itself".to_string());
-                         return false;
+                        app.copy_move_popup.error =
+                            Some("Cannot copy/move into subdirectory of itself".to_string());
+                        return false;
                     }
-                    
+
                     // Check 3: Effective Destination IS Source (e.g. cp /a/b to /a)
                     // If we copy /a/b to /a, the result is /a/b, which IS /a/b.
                     if let Some(file_name) = src_abs.file_name() {
                         let effective_dest = dest_abs.join(file_name);
                         if effective_dest == src_abs {
-                             app.copy_move_popup.error = Some("Source and destination are the same".to_string());
-                             return false; 
+                            app.copy_move_popup.error =
+                                Some("Source and destination are the same".to_string());
+                            return false;
                         }
                     }
                 }
             }
-            
+
             spawn_copy_move_task(app);
             app.copy_move_popup.reset();
         }
         KeyCode::Char(c) => {
-             app.copy_move_popup.error = None; // Clear error on type
-             app.copy_move_popup.destination_input.insert(app.copy_move_popup.cursor_position, c);
-             app.copy_move_popup.cursor_position += 1;
+            app.copy_move_popup.error = None; // Clear error on type
+            app.copy_move_popup
+                .destination_input
+                .insert(app.copy_move_popup.cursor_position, c);
+            app.copy_move_popup.cursor_position += 1;
         }
         KeyCode::Backspace => {
             if app.copy_move_popup.cursor_position > 0 {
-                app.copy_move_popup.destination_input.remove(app.copy_move_popup.cursor_position - 1);
+                app.copy_move_popup
+                    .destination_input
+                    .remove(app.copy_move_popup.cursor_position - 1);
                 app.copy_move_popup.cursor_position -= 1;
             }
         }
         KeyCode::Delete => {
             if app.copy_move_popup.cursor_position < app.copy_move_popup.destination_input.len() {
-                app.copy_move_popup.destination_input.remove(app.copy_move_popup.cursor_position);
+                app.copy_move_popup
+                    .destination_input
+                    .remove(app.copy_move_popup.cursor_position);
             }
         }
         KeyCode::Left => {
@@ -1697,16 +1703,20 @@ async fn handle_conflict_popup_event(code: KeyCode, app: &mut AppState) -> bool 
     let decision = match code {
         KeyCode::Char('o') | KeyCode::Char('O') => Some(crate::tasks::TaskDecision::Overwrite),
         KeyCode::Char('s') | KeyCode::Char('S') => Some(crate::tasks::TaskDecision::Skip),
-        KeyCode::Char('c') | KeyCode::Char('C') | KeyCode::Esc => Some(crate::tasks::TaskDecision::Cancel),
+        KeyCode::Char('c') | KeyCode::Char('C') | KeyCode::Esc => {
+            Some(crate::tasks::TaskDecision::Cancel)
+        }
         KeyCode::Char('y') | KeyCode::Char('Y') => Some(crate::tasks::TaskDecision::OverwriteAll),
-        KeyCode::Char('a') | KeyCode::Char('A') | KeyCode::Char('n') | KeyCode::Char('N') => Some(crate::tasks::TaskDecision::SkipAll),
+        KeyCode::Char('a') | KeyCode::Char('A') | KeyCode::Char('n') | KeyCode::Char('N') => {
+            Some(crate::tasks::TaskDecision::SkipAll)
+        }
         KeyCode::Char('m') | KeyCode::Char('M') => Some(crate::tasks::TaskDecision::Merge),
         _ => None,
     };
 
     if let Some(d) = decision {
         if let Some(tx) = app.task_decision_txs.get(&task_id) {
-            let _ = tx.send(d).await; 
+            let _ = tx.send(d).await;
         }
         // Reset popup immediately, task will continue
         app.conflict_popup.reset();
@@ -1718,10 +1728,10 @@ fn spawn_copy_move_task(app: &mut AppState) {
     let paths = app.copy_move_popup.source_paths.clone();
     let dest_str = app.copy_move_popup.destination_input.clone();
     let action = app.copy_move_popup.action;
-    
+
     // Validate destination
     let dest_path = std::path::PathBuf::from(&dest_str);
-    
+
     let task_name = match action {
         crate::app::CopyMoveAction::Copy => format!("Copying {} items", paths.len()),
         crate::app::CopyMoveAction::Move => format!("Moving {} items", paths.len()),
@@ -1743,83 +1753,100 @@ fn spawn_copy_move_task(app: &mut AppState) {
     // Create channel for decisions
     let (decision_tx, decision_rx) = tokio::sync::mpsc::channel(1);
 
-    let id = app.task_manager.spawn_task(task_name, move |cancel, tx, id| async move {
-        // Pre-calculation of total items (approximate)
-        let total_items = count_items(&paths);
-        let processed_items = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let id = app
+        .task_manager
+        .spawn_task(task_name, move |cancel, tx, id| async move {
+            // Pre-calculation of total items (approximate)
+            let total_items = count_items(&paths);
+            let processed_items = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
-        // State for "Apply to all" decisions
-        // We use a struct to hold this state across recursions
-        let mut decision_state = DecisionState {
-            overwrite_all: false,
-            skip_all: false,
+            // State for "Apply to all" decisions
+            // We use a struct to hold this state across recursions
+            let mut decision_state = DecisionState {
+                overwrite_all: false,
+                skip_all: false,
 
-            last_update: std::time::Instant::now(),
-        };
-
-        // We need `decision_rx` to be mutual, so we wrap it
-        let decision_rx = std::sync::Arc::new(tokio::sync::Mutex::new(decision_rx));
-
-        // Ensure dest dir exists if multiple items or if treated as dir
-        let treat_as_dir = paths.len() > 1 || dest_path.is_dir() || dest_str.ends_with(std::path::MAIN_SEPARATOR);
-        
-        if treat_as_dir {
-            if let Err(e) = tokio::fs::create_dir_all(&dest_path).await {
-                let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(id, crate::tasks::TaskStatus::Failed(e.to_string())));
-                return;
-            }
-        } else {
-             if let Some(parent) = dest_path.parent() {
-                 let _ = tokio::fs::create_dir_all(parent).await;
-             }
-        }
-
-        let mut failures = Vec::new();
-
-        for src in &paths {
-             if cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(id, crate::tasks::TaskStatus::Cancelled));
-                return;
-            }
-
-            let file_name = match src.file_name() {
-                Some(n) => n,
-                None => continue,
+                last_update: std::time::Instant::now(),
             };
-            
-            let target = if treat_as_dir {
-                dest_path.join(file_name)
+
+            // We need `decision_rx` to be mutual, so we wrap it
+            let decision_rx = std::sync::Arc::new(tokio::sync::Mutex::new(decision_rx));
+
+            // Ensure dest dir exists if multiple items or if treated as dir
+            let treat_as_dir = paths.len() > 1
+                || dest_path.is_dir()
+                || dest_str.ends_with(std::path::MAIN_SEPARATOR);
+
+            if treat_as_dir {
+                if let Err(e) = tokio::fs::create_dir_all(&dest_path).await {
+                    let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
+                        id,
+                        crate::tasks::TaskStatus::Failed(e.to_string()),
+                    ));
+                    return;
+                }
             } else {
-                dest_path.clone()
-            };
-
-            // Recursive copy/move
-            let res = recursive_op(
-                src, 
-                &target, 
-                action, 
-                &cancel, 
-                &tx, 
-                id,
-                total_items,
-                &processed_items,
-                &decision_rx,
-                &mut decision_state
-            ).await;
-
-            if let Err(e) = res {
-                failures.push(e);
+                if let Some(parent) = dest_path.parent() {
+                    let _ = tokio::fs::create_dir_all(parent).await;
+                }
             }
-        }
 
-        if failures.is_empty() {
-             let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(id, crate::tasks::TaskStatus::Completed));
-        } else {
-             // ... error handling
-             let msg = format!("Failed with {} errors", failures.len());
-             let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(id, crate::tasks::TaskStatus::Failed(msg)));
-        }
-    });
+            let mut failures = Vec::new();
+
+            for src in &paths {
+                if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                    let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
+                        id,
+                        crate::tasks::TaskStatus::Cancelled,
+                    ));
+                    return;
+                }
+
+                let file_name = match src.file_name() {
+                    Some(n) => n,
+                    None => continue,
+                };
+
+                let target = if treat_as_dir {
+                    dest_path.join(file_name)
+                } else {
+                    dest_path.clone()
+                };
+
+                // Recursive copy/move
+                let res = recursive_op(
+                    src,
+                    &target,
+                    action,
+                    &cancel,
+                    &tx,
+                    id,
+                    total_items,
+                    &processed_items,
+                    &decision_rx,
+                    &mut decision_state,
+                )
+                .await;
+
+                if let Err(e) = res {
+                    failures.push(e);
+                }
+            }
+
+            if failures.is_empty() {
+                let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
+                    id,
+                    crate::tasks::TaskStatus::Completed,
+                ));
+            } else {
+                // ... error handling
+                let msg = format!("Failed with {} errors", failures.len());
+                let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
+                    id,
+                    crate::tasks::TaskStatus::Failed(msg),
+                ));
+            }
+        });
 
     // Store decision tx
     app.task_decision_txs.insert(id, decision_tx);
@@ -1867,19 +1894,26 @@ fn recursive_op<'a>(
     id: usize,
     total: usize,
     processed: &'a std::sync::Arc<std::sync::atomic::AtomicUsize>,
-    decision_rx: &'a std::sync::Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<crate::tasks::TaskDecision>>>,
+    decision_rx: &'a std::sync::Arc<
+        tokio::sync::Mutex<tokio::sync::mpsc::Receiver<crate::tasks::TaskDecision>>,
+    >,
     decision_state: &'a mut DecisionState,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>> {
     Box::pin(async move {
         // Internal enum for stack
         enum WorkItem {
-            Process { src: std::path::PathBuf, dest: std::path::PathBuf },
-            PostProcessDir { src: std::path::PathBuf },
+            Process {
+                src: std::path::PathBuf,
+                dest: std::path::PathBuf,
+            },
+            PostProcessDir {
+                src: std::path::PathBuf,
+            },
         }
 
-        let mut stack = vec![WorkItem::Process { 
-            src: src.to_path_buf(), 
-            dest: dest.to_path_buf() 
+        let mut stack = vec![WorkItem::Process {
+            src: src.to_path_buf(),
+            dest: dest.to_path_buf(),
         }];
 
         while let Some(item) = stack.pop() {
@@ -1897,23 +1931,30 @@ fn recursive_op<'a>(
                     if action == crate::app::CopyMoveAction::Move {
                         // Only try rename if dest doesn't exist to avoid implicit overwrite
                         if let Ok(false) = tokio::fs::try_exists(&dest).await {
-                             if tokio::fs::rename(&src, &dest).await.is_ok() {
-                                 // Success, no need to process children or post-process
-                                 continue;
-                             }
+                            if tokio::fs::rename(&src, &dest).await.is_ok() {
+                                // Success, no need to process children or post-process
+                                continue;
+                            }
                         }
                     }
 
                     if src.is_dir() {
                         // Directory handling
                         let dest_exists = tokio::fs::try_exists(&dest).await.unwrap_or(false);
-                        
+
                         if !dest_exists {
                             if let Err(e) = tokio::fs::create_dir_all(&dest).await {
-                                return Err(format!("Failed to create directory {}: {}", dest.display(), e));
+                                return Err(format!(
+                                    "Failed to create directory {}: {}",
+                                    dest.display(),
+                                    e
+                                ));
                             }
                         } else if !dest.is_dir() {
-                             return Err(format!("Destination {} exists and is not a directory", dest.display()));
+                            return Err(format!(
+                                "Destination {} exists and is not a directory",
+                                dest.display()
+                            ));
                         }
 
                         // If Move, we need to remove this dir AFTER processing children
@@ -1924,7 +1965,13 @@ fn recursive_op<'a>(
                         // Read children
                         let mut entries = match tokio::fs::read_dir(&src).await {
                             Ok(e) => e,
-                            Err(e) => return Err(format!("Failed to read directory {}: {}", src.display(), e)),
+                            Err(e) => {
+                                return Err(format!(
+                                    "Failed to read directory {}: {}",
+                                    src.display(),
+                                    e
+                                ));
+                            }
                         };
 
                         while let Ok(Some(entry)) = entries.next_entry().await {
@@ -1934,7 +1981,10 @@ fn recursive_op<'a>(
                                 None => continue,
                             };
                             let child_dest = dest.join(name);
-                            stack.push(WorkItem::Process { src: path, dest: child_dest });
+                            stack.push(WorkItem::Process {
+                                src: path,
+                                dest: child_dest,
+                            });
                         }
                     } else {
                         // File handling
@@ -1950,18 +2000,18 @@ fn recursive_op<'a>(
                             } else {
                                 // Ask user
                                 let _ = tx.send(crate::tasks::TaskEvent::Conflict(
-                                    id, 
-                                    dest.clone(), 
-                                    crate::tasks::ConflictType::FileExists
+                                    id,
+                                    dest.clone(),
+                                    crate::tasks::ConflictType::FileExists,
                                 ));
-                                
+
                                 // Wait for decision
                                 let mut decision = None;
                                 if let Some(rx) = decision_rx.try_lock().ok().as_mut() {
-                                     // We need to wait for a decision. 
-                                     // NOTE: This blocks the async task, but that's what we want.
-                                     // The UI runs in a separate thread/event loop.
-                                     decision = rx.recv().await;
+                                    // We need to wait for a decision.
+                                    // NOTE: This blocks the async task, but that's what we want.
+                                    // The UI runs in a separate thread/event loop.
+                                    decision = rx.recv().await;
                                 }
 
                                 match decision {
@@ -1982,12 +2032,12 @@ fn recursive_op<'a>(
                         }
 
                         if perform {
-                             loop {
+                            loop {
                                 if dest_exists {
                                     // Try to remove destination if it exists (overwrite)
                                     let _ = tokio::fs::remove_file(&dest).await;
                                 }
-                                
+
                                 match tokio::fs::copy(&src, &dest).await {
                                     Ok(_) => break, // Success
                                     Err(e) => {
@@ -2001,7 +2051,7 @@ fn recursive_op<'a>(
                                         let _ = tx.send(crate::tasks::TaskEvent::Error(
                                             id,
                                             src.display().to_string(),
-                                            format!("Failed to copy to {}: {}", dest.display(), e)
+                                            format!("Failed to copy to {}: {}", dest.display(), e),
                                         ));
 
                                         // Wait for decision
@@ -2021,20 +2071,22 @@ fn recursive_op<'a>(
                                                 perform = false;
                                                 break;
                                             }
-                                            Some(crate::tasks::TaskDecision::Cancel) => return Ok(()),
+                                            Some(crate::tasks::TaskDecision::Cancel) => {
+                                                return Ok(());
+                                            }
                                             _ => {
                                                 perform = false;
-                                                break; 
+                                                break;
                                             }
                                         }
                                     }
                                 }
-                             }
+                            }
                         }
-                        
-                        // If Move AND perform was success (or if we skipped, we usually DON'T delete source? 
+
+                        // If Move AND perform was success (or if we skipped, we usually DON'T delete source?
                         // Wait, if we 'Skip', we shouldn't delete source in a Move.
-                        // Standard Move behavior: if we copy successfully, we delete source. 
+                        // Standard Move behavior: if we copy successfully, we delete source.
                         // If we skip copying, the source remains.
                         // So only delete source if perform was true AND success.
                         if action == crate::app::CopyMoveAction::Move && perform {
@@ -2044,7 +2096,10 @@ fn recursive_op<'a>(
                         // Update progress
                         let p = processed.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
                         let now = std::time::Instant::now();
-                        if now.duration_since(decision_state.last_update) > std::time::Duration::from_millis(100) || p == total {
+                        if now.duration_since(decision_state.last_update)
+                            > std::time::Duration::from_millis(100)
+                            || p == total
+                        {
                             let _ = tx.send(crate::tasks::TaskEvent::UpdateProgress(id, p, total));
                             decision_state.last_update = now;
                         }

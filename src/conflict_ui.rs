@@ -54,7 +54,7 @@ pub fn draw_conflict_popup(f: &mut ratatui::Frame, state: &ConflictState, palett
         ])
         .split(inner_area);
 
-    let _block_inner = Block::default(); 
+    let _block_inner = Block::default();
 
     // We render the explanation text
     let p_text = Paragraph::new(content)
@@ -69,7 +69,7 @@ pub fn draw_conflict_popup(f: &mut ratatui::Frame, state: &ConflictState, palett
         Paragraph::new(row1)
             .alignment(Alignment::Center)
             .style(Style::default().fg(text_color).add_modifier(Modifier::BOLD)),
-        layout[2]
+        layout[2],
     );
 
     // Row 2
@@ -78,6 +78,6 @@ pub fn draw_conflict_popup(f: &mut ratatui::Frame, state: &ConflictState, palett
         Paragraph::new(row2)
             .alignment(Alignment::Center)
             .style(Style::default().fg(text_color).add_modifier(Modifier::BOLD)),
-        layout[3]
+        layout[3],
     );
 }

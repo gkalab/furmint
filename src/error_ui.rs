@@ -51,14 +51,20 @@ pub fn draw_error_popup(f: &mut ratatui::Frame, state: &ErrorState, palette: &Th
         ])
         .split(inner_area);
 
-    f.render_widget(Paragraph::new("Path:").style(Style::default().fg(text_color).add_modifier(Modifier::BOLD)), layout[0]);
-    f.render_widget(Paragraph::new(state.error_path.as_str()).style(Style::default().fg(text_color)), layout[1]);
+    f.render_widget(
+        Paragraph::new("Path:").style(Style::default().fg(text_color).add_modifier(Modifier::BOLD)),
+        layout[0],
+    );
+    f.render_widget(
+        Paragraph::new(state.error_path.as_str()).style(Style::default().fg(text_color)),
+        layout[1],
+    );
 
     f.render_widget(
         Paragraph::new(state.error_message.as_str())
             .wrap(Wrap { trim: true })
-            .style(Style::default().fg(Color::Red)), 
-        layout[3]
+            .style(Style::default().fg(Color::Red)),
+        layout[3],
     );
 
     let buttons = "[R]etry  [S]kip  Skip [A]ll  [C]ancel";

@@ -310,12 +310,16 @@ pub fn draw_panel_status(
     let bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
 
     // Clear the status area first to prevent artifacts
-    f.render_widget(Block::default().style(Style::default().bg(bg_color)), status_area);
+    f.render_widget(
+        Block::default().style(Style::default().bg(bg_color)),
+        status_area,
+    );
 
     match side {
         crate::app::PanelSide::Left => {
             // Left Panel: Files/Dirs on Left, Running Tasks on Right
-            let running_count = task_manager.get_tasks()
+            let running_count = task_manager
+                .get_tasks()
                 .iter()
                 .filter(|(_, _, s, _)| matches!(s, crate::tasks::TaskStatus::Running))
                 .count();
@@ -327,66 +331,76 @@ pub fn draw_panel_status(
                     format!("{} tasks running", running_count)
                 };
                 let text_width = text.len() as u16;
-                
+
                 let chunks = Layout::default()
                     .direction(Direction::Horizontal)
-                    .constraints([
-                        Constraint::Min(0),
-                        Constraint::Length(text_width),
-                    ])
+                    .constraints([Constraint::Min(0), Constraint::Length(text_width)])
                     .split(status_area);
 
                 // File Info (Left)
-                let paragraph = ratatui::widgets::Paragraph::new(status).style(Style::default().fg(fg));
+                let paragraph =
+                    ratatui::widgets::Paragraph::new(status).style(Style::default().fg(fg));
                 f.render_widget(paragraph, chunks[0]);
 
                 // Task Info (Right)
                 let p = ratatui::widgets::Paragraph::new(text)
                     .alignment(Alignment::Right)
-                    .style(Style::default().fg(Color::Rgb(palette.yellow.r, palette.yellow.g, palette.yellow.b)));
+                    .style(Style::default().fg(Color::Rgb(
+                        palette.yellow.r,
+                        palette.yellow.g,
+                        palette.yellow.b,
+                    )));
                 f.render_widget(p, chunks[1]);
             } else {
                 // No tasks, just file info
-                let paragraph = ratatui::widgets::Paragraph::new(status).style(Style::default().fg(fg));
+                let paragraph =
+                    ratatui::widgets::Paragraph::new(status).style(Style::default().fg(fg));
                 f.render_widget(paragraph, status_area);
             }
         }
         crate::app::PanelSide::Right => {
             // Right Panel: Progress on Left, Files/Dirs on Right
-            
+
             // Check for active task progress
             let tasks = task_manager.get_tasks();
-            let active_task = tasks.iter().filter(|t| matches!(t.2, crate::tasks::TaskStatus::Running)).last();
+            let active_task = tasks
+                .iter()
+                .filter(|t| matches!(t.2, crate::tasks::TaskStatus::Running))
+                .last();
 
-            if let Some((_, _, crate::tasks::TaskStatus::Running, Some((processed, total)))) = active_task {
+            if let Some((_, _, crate::tasks::TaskStatus::Running, Some((processed, total)))) =
+                active_task
+            {
                 if *total > 0 {
-                     let percent = (*processed as f32 / *total as f32 * 100.0) as usize;
-                     let progress_text = format!("{}% ({} left)", percent, total.saturating_sub(*processed));
-                     let text_width = progress_text.len() as u16 + 2; // Add some spacing
-                     
-                     let chunks = Layout::default()
+                    let percent = (*processed as f32 / *total as f32 * 100.0) as usize;
+                    let progress_text =
+                        format!("{}% ({} left)", percent, total.saturating_sub(*processed));
+                    let text_width = progress_text.len() as u16 + 2; // Add some spacing
+
+                    let chunks = Layout::default()
                         .direction(Direction::Horizontal)
-                        .constraints([
-                            Constraint::Length(text_width),
-                            Constraint::Min(0),
-                        ])
+                        .constraints([Constraint::Length(text_width), Constraint::Min(0)])
                         .split(status_area);
 
-                     // Task Info (Left)
-                     let progress_paragraph = ratatui::widgets::Paragraph::new(progress_text)
-                         .alignment(Alignment::Left)
-                         .style(Style::default().fg(Color::Rgb(palette.yellow.r, palette.yellow.g, palette.yellow.b)));
-                     f.render_widget(progress_paragraph, chunks[0]);
+                    // Task Info (Left)
+                    let progress_paragraph = ratatui::widgets::Paragraph::new(progress_text)
+                        .alignment(Alignment::Left)
+                        .style(Style::default().fg(Color::Rgb(
+                            palette.yellow.r,
+                            palette.yellow.g,
+                            palette.yellow.b,
+                        )));
+                    f.render_widget(progress_paragraph, chunks[0]);
 
-                     // File Info (Right)
-                     let paragraph = ratatui::widgets::Paragraph::new(status)
+                    // File Info (Right)
+                    let paragraph = ratatui::widgets::Paragraph::new(status)
                         .alignment(Alignment::Right)
                         .style(Style::default().fg(fg));
-                     f.render_widget(paragraph, chunks[1]);
-                     return;
+                    f.render_widget(paragraph, chunks[1]);
+                    return;
                 }
             }
-            
+
             // Default: just file info (Right aligned)
             let paragraph = ratatui::widgets::Paragraph::new(status)
                 .alignment(Alignment::Right)
@@ -630,8 +644,6 @@ mod tests {
         ];
 
         for (input, description) in test_cases {
-
-
             // Treat the whole line as one range for baseline testing
             let ranges = vec![(dummy_style, input)];
 

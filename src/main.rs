@@ -1,12 +1,13 @@
 mod app;
 mod config;
+mod conflict_ui;
 mod copy_move_ui;
 mod delete_ui;
 mod dir_history;
+mod error_ui;
 mod event_loop;
 mod fs_ops;
 mod fuzzy_search_ui;
-mod error_ui;
 mod quit_ui;
 mod rename_ui;
 mod task_ui;
@@ -15,7 +16,6 @@ mod theme;
 mod ui;
 mod ui_utils;
 mod watcher;
-mod conflict_ui;
 
 use crate::config::load_config;
 use anyhow::Result;

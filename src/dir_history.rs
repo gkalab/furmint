@@ -118,15 +118,15 @@ impl DirectoryHistory {
             .collect();
 
         // Sort by fuzzy match score (higher is better), then by history score
-        results.sort_by(|a, b| {
-            match b.1.cmp(&a.1) {
-                std::cmp::Ordering::Equal => {
-                    let score_a = self.calculate_score(&a.0);
-                    let score_b = self.calculate_score(&b.0);
-                    score_b.partial_cmp(&score_a).unwrap_or(std::cmp::Ordering::Equal)
-                }
-                other => other,
+        results.sort_by(|a, b| match b.1.cmp(&a.1) {
+            std::cmp::Ordering::Equal => {
+                let score_a = self.calculate_score(&a.0);
+                let score_b = self.calculate_score(&b.0);
+                score_b
+                    .partial_cmp(&score_a)
+                    .unwrap_or(std::cmp::Ordering::Equal)
             }
+            other => other,
         });
 
         results
@@ -214,15 +214,18 @@ mod tests {
         // expected: path_a comes first because 10 visits > 1 visit
         // even if fuzzy match score is similar or identical for "do"
         let results = history.fuzzy_search("do");
-        
+
         // Find positions of both paths
         let pos_a = results.iter().position(|(p, _)| p == &path_a);
         let pos_b = results.iter().position(|(p, _)| p == &path_b);
 
         assert!(pos_a.is_some(), "path_a should be in results");
         assert!(pos_b.is_some(), "path_b should be in results");
-        
+
         // Assert path_a comes before path_b
-        assert!(pos_a.unwrap() < pos_b.unwrap(), "Highly visited path should come before less visited path");
+        assert!(
+            pos_a.unwrap() < pos_b.unwrap(),
+            "Highly visited path should come before less visited path"
+        );
     }
 }
