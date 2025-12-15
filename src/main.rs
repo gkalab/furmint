@@ -6,6 +6,7 @@ mod dir_history;
 mod event_loop;
 mod fs_ops;
 mod fuzzy_search_ui;
+mod quit_ui;
 mod rename_ui;
 mod task_ui;
 mod tasks;
@@ -84,6 +85,7 @@ async fn main() -> Result<()> {
         delete_popup: crate::app::DeleteState::new(),
         copy_move_popup: crate::app::CopyMoveState::new(),
         conflict_popup: crate::app::ConflictState::new(),
+        quit_confirmation: crate::app::QuitConfirmationState::new(),
         task_manager,
         task_decision_txs: std::collections::HashMap::new(),
         show_task_manager: false,

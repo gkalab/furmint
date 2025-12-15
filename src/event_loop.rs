@@ -1,4 +1,4 @@
-use crate::app::{AppState, PanelSide};
+use crate::app::{AppState, CopyMoveAction, FileViewerState, PanelSide, SortColumn, Tab};
 use crate::config::KeyboardConfig;
 use crate::theme::ThemePalette;
 use crate::ui::{draw_panel, draw_panel_status};
@@ -280,6 +280,10 @@ fn draw_ui(
         // Draw task manager
         crate::task_ui::draw_task_manager(f, &app.task_manager, app.show_task_manager, palette);
 
+        // Draw quit confirmation popup
+        crate::quit_ui::draw_quit_popup(f, &app.quit_confirmation, palette);
+
+
 
     })?;
     Ok(())
@@ -310,9 +314,22 @@ pub async fn handle_event(
                     && !app.delete_popup.is_visible
                     && !app.copy_move_popup.is_visible
                     && !app.conflict_popup.is_visible
+                    && !app.quit_confirmation.is_visible  // Wait if confirmation is open, let it handle Esc
                     && !app.show_task_manager)
             {
+                if app.task_manager.has_running_tasks() {
+                    app.quit_confirmation.is_visible = true;
+                    return false;
+                }
                 return true;
+            }
+
+            // Handle quit confirmation popup
+            if app.quit_confirmation.is_visible {
+                if handle_quit_popup_event(code, app) {
+                    return true; // Quit confirmed
+                }
+                return false;
             }
 
             // Handle fuzzy search popup
@@ -372,6 +389,21 @@ pub async fn handle_event(
         _ => {}
     }
     false
+}
+
+fn handle_quit_popup_event(code: KeyCode, app: &mut AppState) -> bool {
+    match code {
+        KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
+            // Confirm quit
+            return true;
+        }
+        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+            // Cancel quit
+            app.quit_confirmation.reset();
+            return false;
+        }
+        _ => false,
+    }
 }
 
 fn handle_fuzzy_search_event(code: KeyCode, app: &mut AppState) -> bool {

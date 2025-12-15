@@ -144,12 +144,17 @@ impl TaskManager {
     // For UI
     pub fn get_tasks(&self) -> Vec<(usize, String, TaskStatus, Option<(usize, usize)>)> {
         let tasks = self.tasks.lock().unwrap();
-        let mut list: Vec<_> = tasks
-            .values()
-            .map(|t| (t.id, t.name.clone(), t.status.clone(), t.progress))
+        let mut result: Vec<_> = tasks
+            .iter()
+            .map(|(id, t)| (*id, t.name.clone(), t.status.clone(), t.progress))
             .collect();
-        list.sort_by_key(|(id, _, _, _)| *id);
-        list
+        result.sort_by_key(|k| k.0);
+        result
+    }
+
+    pub fn has_running_tasks(&self) -> bool {
+        let tasks = self.tasks.lock().unwrap();
+        tasks.values().any(|t| matches!(t.status, TaskStatus::Running))
     }
 
     pub fn update_task_status(&self, id: usize, status: TaskStatus) {

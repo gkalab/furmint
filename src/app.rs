@@ -445,6 +445,7 @@ pub struct AppState {
     pub delete_popup: DeleteState,
     pub copy_move_popup: CopyMoveState,
     pub conflict_popup: ConflictState,
+    pub quit_confirmation: QuitConfirmationState,
     pub task_manager: crate::tasks::TaskManager,
     
     // Channels to communicate decisions back to tasks
@@ -604,6 +605,22 @@ impl ConflictState {
         self.is_visible = false;
         self.task_id = 0;
         self.conflict_path = PathBuf::new();
+    }
+}
+
+pub struct QuitConfirmationState {
+    pub is_visible: bool,
+}
+
+impl QuitConfirmationState {
+    pub fn new() -> Self {
+        Self {
+            is_visible: false,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.is_visible = false;
     }
 }
 
