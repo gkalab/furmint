@@ -134,6 +134,8 @@ rename = ["F2"]
 delete = ["Delete"]
 delete_permanently = ["Shift-Delete"]
 task_manager = ["F10"]
+copy_files = ["F5"]
+move_files = ["F6"]
 
 
 [theme]

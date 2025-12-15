@@ -1,5 +1,6 @@
 mod app;
 mod config;
+mod copy_move_ui;
 mod delete_ui;
 mod dir_history;
 mod event_loop;
@@ -12,6 +13,7 @@ mod theme;
 mod ui;
 mod ui_utils;
 mod watcher;
+mod conflict_ui;
 
 use crate::config::load_config;
 use anyhow::Result;
@@ -80,7 +82,10 @@ async fn main() -> Result<()> {
         fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
         rename_popup: crate::app::RenameState::new(),
         delete_popup: crate::app::DeleteState::new(),
+        copy_move_popup: crate::app::CopyMoveState::new(),
+        conflict_popup: crate::app::ConflictState::new(),
         task_manager,
+        task_decision_txs: std::collections::HashMap::new(),
         show_task_manager: false,
         dir_history,
         watcher,

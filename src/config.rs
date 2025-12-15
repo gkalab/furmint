@@ -19,6 +19,8 @@ pub struct KeyboardConfig {
     pub sort_by_extension: Option<Vec<String>>,
     pub sort_by_date: Option<Vec<String>>,
     pub sort_by_size: Option<Vec<String>>,
+    pub copy_files: Option<Vec<String>>,
+    pub move_files: Option<Vec<String>>,
     pub rename: Option<Vec<String>>,
     pub delete: Option<Vec<String>>,
     pub delete_permanently: Option<Vec<String>>,
@@ -55,6 +57,8 @@ pub fn default_keyboard_config() -> KeyboardConfig {
         sort_by_extension: Some(vec!["Ctrl-F4".to_string()]),
         sort_by_date: Some(vec!["Ctrl-F5".to_string()]),
         sort_by_size: Some(vec!["Ctrl-F6".to_string()]),
+        copy_files: Some(vec!["F5".to_string()]),
+        move_files: Some(vec!["F6".to_string()]),
         rename: Some(vec!["F2".to_string()]),
         delete: Some(vec!["Delete".to_string()]),
         delete_permanently: Some(vec!["Shift-Delete".to_string()]),
@@ -131,6 +135,14 @@ pub fn merge_keyboard_config(
             .as_ref()
             .and_then(|k| k.sort_by_size.clone())
             .or_else(|| default.sort_by_size.clone()),
+        copy_files: user
+            .as_ref()
+            .and_then(|k| k.copy_files.clone())
+            .or_else(|| default.copy_files.clone()),
+        move_files: user
+            .as_ref()
+            .and_then(|k| k.move_files.clone())
+            .or_else(|| default.move_files.clone()),
         rename: user
             .as_ref()
             .and_then(|k| k.rename.clone())

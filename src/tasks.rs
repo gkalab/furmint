@@ -24,6 +24,25 @@ pub enum TaskEvent {
     Added(usize, String),
     UpdateStatus(usize, TaskStatus),
     UpdateProgress(usize, f32),
+    Conflict(usize, std::path::PathBuf, ConflictType),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConflictType {
+    FileExists,
+    DirExists,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TaskDecision {
+    Release, // Just unpause the task without specific action (internal use)
+    Merge,
+    MergeAll,
+    Overwrite,
+    OverwriteAll,
+    Skip,
+    SkipAll,
+    Cancel,
 }
 
 pub struct TaskManager {

@@ -443,7 +443,14 @@ pub struct AppState {
     pub fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState,
     pub rename_popup: RenameState,
     pub delete_popup: DeleteState,
+    pub copy_move_popup: CopyMoveState,
+    pub conflict_popup: ConflictState,
     pub task_manager: crate::tasks::TaskManager,
+    
+    // Channels to communicate decisions back to tasks
+    #[allow(dead_code)] // populated when task starts
+    pub task_decision_txs: std::collections::HashMap<usize, tokio::sync::mpsc::Sender<crate::tasks::TaskDecision>>,
+
     pub show_task_manager: bool,
     pub dir_history: crate::dir_history::DirectoryHistory,
     // Watcher is optional so we can initialize it later or run without it if needed
@@ -537,6 +544,66 @@ impl DeleteState {
         self.selected_paths.clear();
         self.is_permanent = false;
         self.error = None;
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum CopyMoveAction {
+    Copy,
+    Move,
+}
+
+pub struct CopyMoveState {
+    pub is_visible: bool,
+    pub action: CopyMoveAction,
+    pub source_paths: Vec<PathBuf>,
+    pub destination_input: String,
+    pub cursor_position: usize,
+    pub input_selected: bool,
+}
+
+impl CopyMoveState {
+    pub fn new() -> Self {
+        Self {
+            is_visible: false,
+            action: CopyMoveAction::Copy,
+            source_paths: Vec::new(),
+            destination_input: String::new(),
+            cursor_position: 0,
+            input_selected: false,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.is_visible = false;
+        self.source_paths.clear();
+        self.destination_input.clear();
+        self.cursor_position = 0;
+        self.input_selected = false;
+    }
+}
+
+pub struct ConflictState {
+    pub is_visible: bool,
+    pub task_id: usize,
+    pub conflict_path: PathBuf,
+    pub conflict_type: crate::tasks::ConflictType,
+}
+
+impl ConflictState {
+    pub fn new() -> Self {
+        Self {
+            is_visible: false,
+            task_id: 0,
+            conflict_path: PathBuf::new(),
+            conflict_type: crate::tasks::ConflictType::FileExists,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.is_visible = false;
+        self.task_id = 0;
+        self.conflict_path = PathBuf::new();
     }
 }
 
