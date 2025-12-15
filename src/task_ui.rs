@@ -54,38 +54,6 @@ pub fn draw_task_manager(
         state.select(Some(selected_index));
     }
 
-    let items: Vec<ListItem> = tasks
-        .iter()
-        .map(|(id, name, status, progress)| {
-            let status_str = match status {
-                TaskStatus::Running => "Running",
-                TaskStatus::Completed => "Completed",
-                TaskStatus::Failed(e) => {
-                    return ListItem::new(format!("[{}] {} - Failed: {}", id, name, e)).style(
-                        Style::default().fg(Color::Rgb(
-                            palette.red.r,
-                            palette.red.g,
-                            palette.red.b,
-                        )),
-                    );
-                }
-                TaskStatus::Cancelled => "Cancelled",
-            };
-
-            let progress_str = if let Some(p) = progress {
-                format!(" {:.1}%", p * 100.0)
-            } else {
-                "".to_string()
-            };
-
-            ListItem::new(format!(
-                "[{}] {} - {}{}",
-                id, name, status_str, progress_str
-            ))
-            .style(Style::default().fg(text_color))
-        })
-        .collect();
-
     let highlight_style = Style::default()
         .bg(Color::Rgb(
             palette.surface2.r,
@@ -95,13 +63,79 @@ pub fn draw_task_manager(
         .fg(Color::Rgb(palette.base.r, palette.base.g, palette.base.b))
         .add_modifier(Modifier::BOLD);
 
-    let list = List::new(items)
+    let mut list_items = Vec::new();
+    for (idx, (id, name, status, progress)) in tasks.into_iter().enumerate() {
+        let status_str = match status {
+            TaskStatus::Running => "Running",
+            TaskStatus::Completed => "Completed",
+            TaskStatus::Failed(_) => "Failed",
+            TaskStatus::Cancelled => "Cancelled",
+        };
+
+        let style = if idx == selected_index {
+            highlight_style
+        } else {
+            Style::default().fg(text_color)
+        };
+
+        // Task Name Line
+        let item_title = format!("[{}] {} - {}", id, name, status_str);
+
+        // Progress Bar Line
+        let progress_line = if let Some((processed, total)) = progress {
+            if total > 0 {
+                let ratio = processed as f64 / total as f64;
+                let percentage = (ratio * 100.0) as usize;
+                let left = total.saturating_sub(processed);
+
+                // Bar width: 20 chars
+                let bar_width: usize = 20;
+                let filled = (ratio * bar_width as f64).round() as usize;
+                let empty = bar_width.saturating_sub(filled);
+
+                let bar: String = std::iter::repeat('=').take(filled).collect::<String>()
+                    + &std::iter::repeat(' ').take(empty).collect::<String>();
+                
+                format!("[{}] {}% ({} left)", bar, percentage, left)
+            } else {
+                "Calculating...".to_string()
+            }
+        } else {
+            String::new()
+        };
+
+        // If failed, append error to title or a separate line?
+        // Let's just keep title simple for now. 
+        // We create a Multi-line item? List items are usually single line? 
+        // Ratatui List items can be multi-line if they contain newlines? 
+        // No, ListItem takes a generic Text which can be lines.
+        
+        let mut spans = vec![
+            Line::from(Span::styled(item_title, style)),
+        ];
+
+        if !progress_line.is_empty() {
+             spans.push(Line::from(Span::styled(progress_line, style)));
+        }
+        
+        if let TaskStatus::Failed(e) = status {
+             spans.push(Line::from(Span::styled(format!("Error: {}", e), style.fg(Color::Rgb(palette.red.r, palette.red.g, palette.red.b)))));
+        }
+
+        // Add a separator or just spacing?
+        // Usually list items are compact.
+        
+        list_items.push(ListItem::new(spans));
+    }
+
+    let list = List::new(list_items)
         .block(Block::default())
         .style(Style::default().bg(bg_color))
         .highlight_style(highlight_style);
 
     f.render_stateful_widget(list, inner_area, &mut state);
 }
+
 
 pub fn draw_task_status_bar(
     f: &mut ratatui::Frame,

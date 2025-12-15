@@ -56,7 +56,6 @@ pub async fn run_event_loop(
     while !should_exit {
         // Explicit redraw if requested (e.g. after editor)
         if app.needs_redraw {
-            terminal.clear()?;
             draw_ui(terminal, app, palette)?;
             app.needs_redraw = false;
         }
@@ -250,6 +249,8 @@ fn draw_ui(
             status_chunks[0],
             palette,
             app.active == PanelSide::Left,
+            &app.task_manager,
+            PanelSide::Left,
         );
         draw_panel_status(
             f,
@@ -257,6 +258,8 @@ fn draw_ui(
             status_chunks[1],
             palette,
             app.active == PanelSide::Right,
+            &app.task_manager,
+            PanelSide::Right,
         );
 
         // Draw fuzzy search popup on top of everything
@@ -277,14 +280,7 @@ fn draw_ui(
         // Draw task manager
         crate::task_ui::draw_task_manager(f, &app.task_manager, app.show_task_manager, palette);
 
-        // Draw task status in status bar area (overlay or append)
-        // We can draw it over the right status panel if tasks are running
-        if !app.show_task_manager {
-            let status_area = status_chunks[1];
-            // Align to right side of status area?
-            // For now just draw it
-            crate::task_ui::draw_task_status_bar(f, &app.task_manager, status_area, palette);
-        }
+
     })?;
     Ok(())
 }
@@ -994,8 +990,9 @@ fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut AppState) {
                 // Log?
             }
         }
-        crate::tasks::TaskEvent::UpdateProgress(id, p) => {
-            app.task_manager.update_task_progress(id, p);
+        crate::tasks::TaskEvent::UpdateProgress(id, processed, total) => {
+            app.task_manager.update_task_progress(id, processed, total);
+            app.needs_redraw = true; // Force redraw on progress
         }
         crate::tasks::TaskEvent::Conflict(id, path, conflict_type) => {
             app.conflict_popup.is_visible = true;
@@ -1063,8 +1060,7 @@ fn handle_confirm_delete(app: &mut AppState) {
                     Err(e) => failures.push(format!("{}: {}", path.display(), e)),
                 }
 
-                let progress = (i + 1) as f32 / total as f32;
-                let _ = tx.send(crate::tasks::TaskEvent::UpdateProgress(id, progress));
+                let _ = tx.send(crate::tasks::TaskEvent::UpdateProgress(id, i + 1, total));
             }
 
             if failures.is_empty() {
@@ -1727,6 +1723,8 @@ struct DecisionState {
 // Returns Result<(), String>
 // Recursive operation
 // Returns Result<(), String>
+// Iterative operation to avoid stack overflow
+// Returns Result<(), String>
 fn recursive_op<'a>(
     src: &'a std::path::Path,
     dest: &'a std::path::Path,
@@ -1740,167 +1738,145 @@ fn recursive_op<'a>(
     decision_state: &'a mut DecisionState,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>> {
     Box::pin(async move {
-        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
-            return Ok(()); // Cancelled, just return
+        // Internal enum for stack
+        enum WorkItem {
+            Process { src: std::path::PathBuf, dest: std::path::PathBuf },
+            PostProcessDir { src: std::path::PathBuf },
         }
 
-        // Move optimization: Try rename first if it's a move operation
-        // This avoids recursion if we are on the same filesystem
-        if action == crate::app::CopyMoveAction::Move {
-            // If dest doesn't exist, we can try to rename source to dest directly.
-            // If dest exists, we can't easily rename "over" it consistently without handling conflict logic first.
-            // But if we are in conflict resolution "overwrite all", maybe?
-            // Let's safe bet: only if dest doesn't exist.
-            if let Ok(false) = tokio::fs::try_exists(dest).await {
-                // Doesn't exist (or err), try rename
-                if tokio::fs::rename(src, dest).await.is_ok() {
-                    // Success! Update progress for this item and potentially all its children?
-                    // If we moved a directory with 1000 items, we just processed 1000 items effectively
-                    // But our `total` count included them. We should probably update progress to reflect
-                    // the subtree. But `processed` is atomic usize. 
-                    // For now, let's just mark *this* item as done. The progress bar might lag if we count items strictly.
-                    // Actually, if we rename a dir, we skip traversing children. So `processed` won't increment for children.
-                    // This might result in progress bar not reaching 100% locally if we count strict items.
-                    // But since we are "skipping" recursion, maybe we don't care? 
-                    // Or user sees "Moving..." then finished.
-                    // Let's just return Ok.
-                    return Ok(());
+        let mut stack = vec![WorkItem::Process { 
+            src: src.to_path_buf(), 
+            dest: dest.to_path_buf() 
+        }];
+
+        while let Some(item) = stack.pop() {
+            if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                return Ok(()); // Cancelled
+            }
+
+            match item {
+                WorkItem::PostProcessDir { src } => {
+                    // Remove empty directory after move
+                    let _ = tokio::fs::remove_dir(src).await;
                 }
-                // If rename fails (e.g. cross-device), fall through to copy-delete
-            }
-        }
+                WorkItem::Process { src, dest } => {
+                    // Move optimization: Try rename first if it's a move operation
+                    if action == crate::app::CopyMoveAction::Move {
+                        // Only try rename if dest doesn't exist to avoid implicit overwrite
+                        if let Ok(false) = tokio::fs::try_exists(&dest).await {
+                             if tokio::fs::rename(&src, &dest).await.is_ok() {
+                                 // Success, no need to process children or post-process
+                                 continue;
+                             }
+                        }
+                    }
 
-        if src.is_dir() {
-            // Directory handling
-            // Use try_exists for async check
-            let dest_exists = tokio::fs::try_exists(dest).await.unwrap_or(false);
-            
-            if !dest_exists {
-                if let Err(e) = tokio::fs::create_dir_all(dest).await {
-                    return Err(format!("Failed to create directory {}: {}", dest.display(), e));
-                }
-            } else if !dest.is_dir() {
-                // Destination exists and is not a dir
-                return Err(format!("Destination {} exists and is not a directory", dest.display()));
-            }
+                    if src.is_dir() {
+                        // Directory handling
+                        let dest_exists = tokio::fs::try_exists(&dest).await.unwrap_or(false);
+                        
+                        if !dest_exists {
+                            if let Err(e) = tokio::fs::create_dir_all(&dest).await {
+                                return Err(format!("Failed to create directory {}: {}", dest.display(), e));
+                            }
+                        } else if !dest.is_dir() {
+                             return Err(format!("Destination {} exists and is not a directory", dest.display()));
+                        }
 
-            // Iterate children using tokio::fs::read_dir
-            let mut entries = match tokio::fs::read_dir(src).await {
-                Ok(e) => e,
-                Err(e) => return Err(format!("Failed to read directory {}: {}", src.display(), e)),
-            };
+                        // If Move, we need to remove this dir AFTER processing children
+                        if action == crate::app::CopyMoveAction::Move {
+                            stack.push(WorkItem::PostProcessDir { src: src.clone() });
+                        }
 
-            while let Ok(Some(entry)) = entries.next_entry().await {
-                let path = entry.path();
-                let name = match path.file_name() {
-                    Some(n) => n,
-                    None => continue,
-                };
-                let child_dest = dest.join(name);
-                recursive_op(
-                    &path, 
-                    &child_dest, 
-                    action, 
-                    cancel, 
-                    tx, 
-                    id, 
-                    total, 
-                    processed, 
-                    decision_rx, 
-                    decision_state
-                ).await?;
-            }
+                        // Read children
+                        let mut entries = match tokio::fs::read_dir(&src).await {
+                            Ok(e) => e,
+                            Err(e) => return Err(format!("Failed to read directory {}: {}", src.display(), e)),
+                        };
 
-            // If Move action, remove source directory after empty
-            if action == crate::app::CopyMoveAction::Move {
-                let _ = tokio::fs::remove_dir(src).await;
-            }
-
-        } else {
-            // File handling
-            let mut perform = true;
-            let dest_exists = tokio::fs::try_exists(dest).await.unwrap_or(false);
-
-            if dest_exists {
-                // Conflict
-                if decision_state.overwrite_all {
-                    perform = true;
-                } else if decision_state.skip_all {
-                    perform = false;
-                } else {
-                    // Ask user
-                    let _ = tx.send(crate::tasks::TaskEvent::Conflict(
-                        id, 
-                        dest.to_path_buf(), 
-                        crate::tasks::ConflictType::FileExists
-                    ));
-                    
-                    // Wait for decision
-                    let mut rx = decision_rx.lock().await;
-
-                    if let Some(decision) = rx.recv().await {
-                        match decision {
-                            crate::tasks::TaskDecision::Overwrite => perform = true,
-                            crate::tasks::TaskDecision::OverwriteAll => {
-                                perform = true;
-                                decision_state.overwrite_all = true;
-                            },
-                            crate::tasks::TaskDecision::Skip => perform = false,
-                            crate::tasks::TaskDecision::SkipAll => {
-                                perform = false;
-                                decision_state.skip_all = true;
-                            },
-                            crate::tasks::TaskDecision::Cancel => {
-                                cancel.store(true, std::sync::atomic::Ordering::Relaxed);
-                                return Ok(());
-                            },
-                            _ => perform = true,
+                        while let Ok(Some(entry)) = entries.next_entry().await {
+                            let path = entry.path();
+                            let name = match path.file_name() {
+                                Some(n) => n,
+                                None => continue,
+                            };
+                            let child_dest = dest.join(name);
+                            stack.push(WorkItem::Process { src: path, dest: child_dest });
                         }
                     } else {
-                        cancel.store(true, std::sync::atomic::Ordering::Relaxed);
-                        return Ok(());
-                    }
-                }
-            }
+                        // File handling
+                        let mut perform = true;
+                        let dest_exists = tokio::fs::try_exists(&dest).await.unwrap_or(false);
 
-            if perform {
-                match action {
-                    crate::app::CopyMoveAction::Copy => {
-                        if let Err(e) = tokio::fs::copy(src, dest).await {
-                            return Err(format!("Failed to copy {} to {}: {}", src.display(), dest.display(), e));
+                        if dest_exists {
+                            // Conflict resolution
+                            if decision_state.overwrite_all {
+                                perform = true;
+                            } else if decision_state.skip_all {
+                                perform = false;
+                            } else {
+                                // Ask user
+                                let _ = tx.send(crate::tasks::TaskEvent::Conflict(
+                                    id, 
+                                    dest.clone(), 
+                                    crate::tasks::ConflictType::FileExists
+                                ));
+                                
+                                // Wait for decision
+                                let mut decision = None;
+                                if let Some(rx) = decision_rx.try_lock().ok().as_mut() {
+                                     // We need to wait for a decision. 
+                                     // NOTE: This blocks the async task, but that's what we want.
+                                     // The UI runs in a separate thread/event loop.
+                                     decision = rx.recv().await;
+                                }
+
+                                match decision {
+                                    Some(crate::tasks::TaskDecision::Overwrite) => perform = true,
+                                    Some(crate::tasks::TaskDecision::OverwriteAll) => {
+                                        decision_state.overwrite_all = true;
+                                        perform = true;
+                                    }
+                                    Some(crate::tasks::TaskDecision::Skip) => perform = false,
+                                    Some(crate::tasks::TaskDecision::SkipAll) => {
+                                        decision_state.skip_all = true;
+                                        perform = false;
+                                    }
+                                    Some(crate::tasks::TaskDecision::Cancel) => return Ok(()),
+                                    _ => perform = false, // Default skip or error
+                                }
+                            }
                         }
-                    },
-                    crate::app::CopyMoveAction::Move => {
-                        // Try rename first
-                        if tokio::fs::rename(src, dest).await.is_err() {
-                            // Cross-device logic
+
+                        if perform {
                             if dest_exists {
-                                 let _ = tokio::fs::remove_file(dest).await;
+                                let _ = tokio::fs::remove_file(&dest).await;
                             }
-                            if let Err(e) = tokio::fs::rename(src, dest).await {
-                                 // Fallback copy-delete
-                                 if let Err(copy_err) = tokio::fs::copy(src, dest).await {
-                                     return Err(format!("Failed to move (copy) {} to {}: {}", src.display(), dest.display(), copy_err));
-                                 }
-                                 if let Err(del_err) = tokio::fs::remove_file(src).await {
-                                      return Err(format!("Moved but failed to delete source {}: {}", src.display(), del_err));
-                                 }
+                            if let Err(e) = tokio::fs::copy(&src, &dest).await {
+                                return Err(format!("Failed to copy {} to {}: {}", src.display(), dest.display(), e));
                             }
+                        }
+                        
+                        // If Move AND perform was success (or if we skipped, we usually DON'T delete source? 
+                        // Wait, if we 'Skip', we shouldn't delete source in a Move.
+                        // Standard Move behavior: if we copy successfully, we delete source. 
+                        // If we skip copying, the source remains.
+                        // So only delete source if perform was true AND success.
+                        if action == crate::app::CopyMoveAction::Move && perform {
+                            let _ = tokio::fs::remove_file(&src).await;
+                        }
+
+                        // Update progress
+                        let p = processed.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                        let now = std::time::Instant::now();
+                        if now.duration_since(decision_state.last_update) > std::time::Duration::from_millis(100) || p == total {
+                            let _ = tx.send(crate::tasks::TaskEvent::UpdateProgress(id, p, total));
+                            decision_state.last_update = now;
                         }
                     }
                 }
-            }
-            
-            // Update progress (throttled)
-            let p = processed.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-            let now = std::time::Instant::now();
-            if now.duration_since(decision_state.last_update) > std::time::Duration::from_millis(100) || p == total {
-                let progress = p as f32 / total as f32;
-                let _ = tx.send(crate::tasks::TaskEvent::UpdateProgress(id, progress));
-                decision_state.last_update = now;
             }
         }
-
         Ok(())
     })
 }

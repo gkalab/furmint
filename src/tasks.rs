@@ -15,7 +15,7 @@ pub struct Task {
     pub id: usize,
     pub name: String,
     pub status: TaskStatus,
-    pub progress: Option<f32>, // 0.0 to 1.0
+    pub progress: Option<(usize, usize)>, // (processed, total)
     pub cancel_flag: Arc<AtomicBool>,
 }
 
@@ -23,7 +23,7 @@ pub struct Task {
 pub enum TaskEvent {
     Added(usize, String),
     UpdateStatus(usize, TaskStatus),
-    UpdateProgress(usize, f32),
+    UpdateProgress(usize, usize, usize), // id, processed, total
     Conflict(usize, std::path::PathBuf, ConflictType),
 }
 
@@ -142,7 +142,7 @@ impl TaskManager {
     }
 
     // For UI
-    pub fn get_tasks(&self) -> Vec<(usize, String, TaskStatus, Option<f32>)> {
+    pub fn get_tasks(&self) -> Vec<(usize, String, TaskStatus, Option<(usize, usize)>)> {
         let tasks = self.tasks.lock().unwrap();
         let mut list: Vec<_> = tasks
             .values()
@@ -174,10 +174,10 @@ impl TaskManager {
         }
     }
 
-    pub fn update_task_progress(&self, id: usize, progress: f32) {
+    pub fn update_task_progress(&self, id: usize, processed: usize, total: usize) {
         let mut tasks = self.tasks.lock().unwrap();
         if let Some(task) = tasks.get_mut(&id) {
-            task.progress = Some(progress);
+            task.progress = Some((processed, total));
         }
     }
 }
