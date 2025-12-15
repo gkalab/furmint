@@ -133,11 +133,11 @@ pub fn draw_panel(
     });
 
     // Helper to detect executables
-    fn is_executable(full_path: &std::path::Path, e: &crate::fs_ops::FileEntry) -> bool {
+    fn is_executable(_full_path: &std::path::Path, e: &crate::fs_ops::FileEntry) -> bool {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            if let Ok(meta) = std::fs::symlink_metadata(full_path) {
+            if let Ok(meta) = std::fs::symlink_metadata(_full_path) {
                 let mode = meta.permissions().mode();
                 mode & 0o111 != 0 && !e.is_dir
             } else {

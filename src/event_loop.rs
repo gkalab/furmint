@@ -5,6 +5,7 @@ use crate::ui::{draw_panel, draw_panel_status};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use ratatui::prelude::*;
+#[cfg(not(target_os = "windows"))]
 use std::env;
 use std::process::Command;
 

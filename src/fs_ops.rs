@@ -42,11 +42,11 @@ impl FileEntry {
     }
 }
 
-pub fn get_attributes(meta: &Metadata, is_dir: bool) -> String {
+pub fn get_attributes(_meta: &Metadata, is_dir: bool) -> String {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mode = meta.permissions().mode();
+        let mode = _meta.permissions().mode();
         let mut attrs = String::new();
         attrs.push(if is_dir { 'd' } else { '-' });
         for i in (0..9).rev() {
