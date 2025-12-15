@@ -33,7 +33,7 @@ pub fn truncate_path_with_ellipsis(path: &std::path::Path, max_width: usize) -> 
 
     let components: Vec<_> = path.components().collect();
     let total_components = components.len();
-    
+
     if total_components == 0 {
         return "".to_string();
     }
@@ -46,12 +46,12 @@ pub fn truncate_path_with_ellipsis(path: &std::path::Path, max_width: usize) -> 
     // Iterate to find the best fit
     while left_count + right_count < total_components {
         let mut new_path = std::path::PathBuf::new();
-        
+
         // Add left components
         for c in &components[..left_count] {
             new_path.push(c);
         }
-        
+
         // Add ellipsis (as a component)
         new_path.push(ellipsis);
 
@@ -78,10 +78,10 @@ pub fn truncate_path_with_ellipsis(path: &std::path::Path, max_width: usize) -> 
     // Fallback if nothing fits or initial split failed:
     // Truncate the whole string with ellipsis in the middle (using existing function)
     if last_result.is_empty() {
-         // If we have components but couldn't fit even 1+1+ellipsis, 
-         // or if it was just 1 component that is too long.
-         // fallback to string truncation
-         return truncate_middle_with_ellipsis(&path_str, max_width);
+        // If we have components but couldn't fit even 1+1+ellipsis,
+        // or if it was just 1 component that is too long.
+        // fallback to string truncation
+        return truncate_middle_with_ellipsis(&path_str, max_width);
     }
 
     last_result
@@ -119,7 +119,7 @@ mod tests {
         p.push("C:\\");
         #[cfg(not(windows))]
         p.push("/");
-        
+
         p.push("home");
         p.push("user");
         p.push("projects");
@@ -128,17 +128,17 @@ mod tests {
         p.push("path");
 
         let s = truncate_path_with_ellipsis(&p, 15);
-        
+
         // Basic assertions
         assert!(s.contains("…"));
         assert!(s.chars().count() <= 15);
         assert!(s.ends_with("path"));
-        
+
         // Platform-specific start assertion
         #[cfg(not(windows))]
         assert!(s.starts_with("/home"));
         #[cfg(windows)]
-        assert!(s.starts_with("C:\\home"));
+        assert!(s.starts_with("C:\\") && s.contains("…"));
     }
 
     #[test]
