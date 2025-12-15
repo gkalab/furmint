@@ -630,17 +630,7 @@ mod tests {
         ];
 
         for (input, description) in test_cases {
-            // Draw rename popup
-    crate::rename_ui::draw_rename_popup(f, &app.rename_popup, palette);
 
-    // Draw delete popup
-    crate::delete_ui::draw_delete_popup(f, &app.delete_popup, palette);
-    
-    // Draw copy/move popup
-    crate::copy_move_ui::draw_copy_move_popup(f, &app.copy_move_popup, palette);
-
-    // Draw fuzzy search
-    crate::fuzzy_search_ui::draw_fuzzy_search(f, &app.fuzzy_search, palette);
 
             // Treat the whole line as one range for baseline testing
             let ranges = vec![(dummy_style, input)];
