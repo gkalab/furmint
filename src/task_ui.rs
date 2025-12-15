@@ -1,7 +1,7 @@
 use crate::tasks::TaskStatus;
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState};
 
 pub fn draw_task_manager(
     f: &mut ratatui::Frame,
@@ -137,29 +137,4 @@ pub fn draw_task_manager(
 }
 
 
-pub fn draw_task_status_bar(
-    f: &mut ratatui::Frame,
-    task_manager: &crate::tasks::TaskManager,
-    area: Rect,
-    palette: &ThemePalette,
-) {
-    let tasks = task_manager.get_tasks();
-    let running_count = tasks
-        .iter()
-        .filter(|(_, _, s, _)| matches!(s, TaskStatus::Running))
-        .count();
 
-    if running_count > 0 {
-        let text = format!("{} tasks running", running_count);
-        let p = Paragraph::new(text).style(
-            Style::default()
-                .fg(Color::Rgb(
-                    palette.yellow.r,
-                    palette.yellow.g,
-                    palette.yellow.b,
-                ))
-                .bg(Color::Rgb(palette.base.r, palette.base.g, palette.base.b)),
-        ); // Use base bg to match status line
-        f.render_widget(p, area);
-    }
-}

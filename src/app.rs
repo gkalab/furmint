@@ -201,7 +201,7 @@ impl Tab {
     }
 
     /// Get all selected entries.
-    #[allow(dead_code)]
+
     pub fn get_selected_entries(&self) -> Vec<&FileEntry> {
         self.entries.iter().filter(|e| e.selected).collect()
     }
@@ -450,7 +450,7 @@ pub struct AppState {
     pub task_manager: crate::tasks::TaskManager,
     
     // Channels to communicate decisions back to tasks
-    #[allow(dead_code)] // populated when task starts
+
     pub task_decision_txs: std::collections::HashMap<usize, tokio::sync::mpsc::Sender<crate::tasks::TaskDecision>>,
 
     pub show_task_manager: bool,

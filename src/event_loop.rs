@@ -1,4 +1,4 @@
-use crate::app::{AppState, CopyMoveAction, FileViewerState, PanelSide, SortColumn, Tab};
+use crate::app::{AppState, PanelSide};
 use crate::config::KeyboardConfig;
 use crate::theme::ThemePalette;
 use crate::ui::{draw_panel, draw_panel_status};
@@ -1025,7 +1025,7 @@ pub async fn handle_edit(app: &mut AppState, input_tx: UnboundedSender<Crossterm
 
 fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut AppState) {
     match event {
-        crate::tasks::TaskEvent::Added(_, _) => {}
+
         crate::tasks::TaskEvent::UpdateStatus(id, status) => {
              app.task_manager.update_task_status(id, status);
         }
@@ -1752,7 +1752,7 @@ fn spawn_copy_move_task(app: &mut AppState) {
         let mut decision_state = DecisionState {
             overwrite_all: false,
             skip_all: false,
-            merge_all: false,
+
             last_update: std::time::Instant::now(),
         };
 
@@ -1845,7 +1845,7 @@ fn count_items(paths: &[std::path::PathBuf]) -> usize {
 struct DecisionState {
     overwrite_all: bool,
     skip_all: bool,
-    merge_all: bool,
+
     last_update: std::time::Instant,
 }
 

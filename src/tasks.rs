@@ -12,7 +12,7 @@ pub enum TaskStatus {
 }
 
 pub struct Task {
-    pub id: usize,
+
     pub name: String,
     pub status: TaskStatus,
     pub progress: Option<(usize, usize)>, // (processed, total)
@@ -21,7 +21,7 @@ pub struct Task {
 
 #[derive(Debug)]
 pub enum TaskEvent {
-    Added(usize, String),
+
     UpdateStatus(usize, TaskStatus),
     UpdateProgress(usize, usize, usize), // id, processed, total
     Conflict(usize, std::path::PathBuf, ConflictType),
@@ -31,20 +31,20 @@ pub enum TaskEvent {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConflictType {
     FileExists,
-    DirExists,
+
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TaskDecision {
-    Release, // Just unpause the task without specific action (internal use)
+
     Merge,
-    MergeAll,
+
     Overwrite,
     OverwriteAll,
     Skip,
     SkipAll,
     Retry,
-    RetryAll, // Unused for now but good to have
+
     Cancel,
 }
 
@@ -74,7 +74,7 @@ impl TaskManager {
         let cancel_flag = Arc::new(AtomicBool::new(false));
 
         let task = Task {
-            id,
+
             name: name.clone(),
             status: TaskStatus::Running,
             progress: None,
@@ -86,7 +86,7 @@ impl TaskManager {
             tasks.insert(id, task);
         }
 
-        let _ = self.event_tx.send(TaskEvent::Added(id, name));
+
         let tx = self.event_tx.clone();
 
         tokio::spawn(async move {
