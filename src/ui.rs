@@ -321,7 +321,11 @@ pub fn draw_panel_status(
                 .count();
 
             if running_count > 0 {
-                let text = format!("{} tasks running", running_count);
+                let text = if running_count == 1 {
+                    "1 task running".to_string()
+                } else {
+                    format!("{} tasks running", running_count)
+                };
                 let text_width = text.len() as u16;
                 
                 let chunks = Layout::default()
