@@ -561,6 +561,7 @@ pub struct CopyMoveState {
     pub destination_input: String,
     pub cursor_position: usize,
     pub input_selected: bool,
+    pub error: Option<String>,
 }
 
 impl CopyMoveState {
@@ -572,6 +573,7 @@ impl CopyMoveState {
             destination_input: String::new(),
             cursor_position: 0,
             input_selected: false,
+            error: None,
         }
     }
 
@@ -581,6 +583,7 @@ impl CopyMoveState {
         self.destination_input.clear();
         self.cursor_position = 0;
         self.input_selected = false;
+        self.error = None;
     }
 }
 

@@ -37,12 +37,20 @@ pub fn draw_copy_move_popup(f: &mut ratatui::Frame, state: &CopyMoveState, palet
     let count = state.source_paths.len();
     let title = format!("{} {} item(s) to:", title_prefix, count);
 
-    let block = Block::default()
+    let mut block = Block::default()
         .borders(Borders::ALL)
         .border_type(ratatui::widgets::BorderType::Rounded)
         .title(title)
         .border_style(Style::default().fg(border_color))
         .style(Style::default().bg(bg_color));
+
+    if let Some(error) = &state.error {
+        block = block.title_bottom(
+            Line::from(format!(" Error: {} ", error))
+                .style(Style::default().fg(Color::Rgb(palette.red.r, palette.red.g, palette.red.b)))
+                .alignment(Alignment::Center),
+        );
+    }
 
     // Input display logic
     let input_width = (popup_area.width as usize).saturating_sub(2);

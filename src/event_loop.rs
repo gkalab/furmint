@@ -1552,10 +1552,74 @@ fn handle_copy_move_popup_event(code: KeyCode, app: &mut AppState) -> bool {
             app.copy_move_popup.reset();
         }
         KeyCode::Enter => {
+            // Validation
+            let dest_input = app.copy_move_popup.destination_input.clone();
+            // Handle tilde expansion if needed
+            let dest_path = if dest_input.starts_with("~") {
+                if let Some(base_dirs) = directories::BaseDirs::new() {
+                    let home = base_dirs.home_dir();
+                    if dest_input == "~" {
+                        home.to_path_buf()
+                    } else {
+                        home.join(dest_input.trim_start_matches("~/"))
+                    }
+                } else {
+                    std::path::PathBuf::from(dest_input)
+                }
+            } else {
+                std::path::PathBuf::from(dest_input)
+            };
+
+            // Canonicalize dest if possible to resolving symlinks/relativity for accurate check
+            // If it doesn't exist yet, we check parent
+            let dest_abs = if let Ok(p) = dest_path.canonicalize() {
+                p
+            } else {
+                // Try determining absolute path relative to current dir? 
+                // dest_input is usually absolute path from UI default.
+                if dest_path.is_absolute() {
+                    dest_path
+                } else {
+                    // This case might happen if user types relative path "foo/bar"
+                    // Relative to what? Active panel directory?
+                     match app.active {
+                        PanelSide::Left => app.left.active_tab().current_dir.join(&dest_path),
+                        PanelSide::Right => app.right.active_tab().current_dir.join(&dest_path),
+                    }
+                }
+            };
+
+            for src in &app.copy_move_popup.source_paths {
+                // Canonicalize src
+                if let Ok(src_abs) = src.canonicalize() {
+                    // Check 1: Destination IS Source (e.g. cp /a/b to /a/b)
+                    if src_abs == dest_abs {
+                        app.copy_move_popup.error = Some("Cannot copy/move source into itself".to_string());
+                        return false;
+                    }
+                    // Check 2: Destination is INSIDE Source (e.g. cp /a to /a/b)
+                    if dest_abs.starts_with(&src_abs) {
+                         app.copy_move_popup.error = Some("Cannot copy/move into subdirectory of itself".to_string());
+                         return false;
+                    }
+                    
+                    // Check 3: Effective Destination IS Source (e.g. cp /a/b to /a)
+                    // If we copy /a/b to /a, the result is /a/b, which IS /a/b.
+                    if let Some(file_name) = src_abs.file_name() {
+                        let effective_dest = dest_abs.join(file_name);
+                        if effective_dest == src_abs {
+                             app.copy_move_popup.error = Some("Source and destination are the same".to_string());
+                             return false; 
+                        }
+                    }
+                }
+            }
+            
             spawn_copy_move_task(app);
             app.copy_move_popup.reset();
         }
         KeyCode::Char(c) => {
+             app.copy_move_popup.error = None; // Clear error on type
              app.copy_move_popup.destination_input.insert(app.copy_move_popup.cursor_position, c);
              app.copy_move_popup.cursor_position += 1;
         }
