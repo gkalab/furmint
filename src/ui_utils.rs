@@ -112,13 +112,33 @@ mod tests {
     }
 
     #[test]
-    fn test_truncate_path_with_ellipsis_linux() {
-        let p = Path::new("/home/user/projects/very/deep/path");
-        let s = truncate_path_with_ellipsis(p, 15);
+    fn test_truncate_path_with_ellipsis_long_path() {
+        use std::path::PathBuf;
+        let mut p = PathBuf::new();
+        #[cfg(windows)]
+        p.push("C:\\");
+        #[cfg(not(windows))]
+        p.push("/");
+        
+        p.push("home");
+        p.push("user");
+        p.push("projects");
+        p.push("very");
+        p.push("deep");
+        p.push("path");
+
+        let s = truncate_path_with_ellipsis(&p, 15);
+        
+        // Basic assertions
         assert!(s.contains("…"));
-        assert!(s.starts_with("/home"));
-        assert!(s.ends_with("path"));
         assert!(s.chars().count() <= 15);
+        assert!(s.ends_with("path"));
+        
+        // Platform-specific start assertion
+        #[cfg(not(windows))]
+        assert!(s.starts_with("/home"));
+        #[cfg(windows)]
+        assert!(s.starts_with("C:\\home"));
     }
 
     #[test]
