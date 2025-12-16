@@ -442,6 +442,7 @@ pub struct AppState {
     pub file_viewer: FileViewerState,
     pub fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState,
     pub rename_popup: RenameState,
+    pub create_directory_popup: CreateDirectoryState,
     pub delete_popup: DeleteState,
     pub copy_move_popup: CopyMoveState,
     pub conflict_popup: ConflictState,
@@ -520,6 +521,31 @@ impl RenameState {
         self.parent_dir = PathBuf::new();
         self.show_overwrite_confirm = false;
         self.is_dir = false;
+        self.error = None;
+    }
+}
+
+pub struct CreateDirectoryState {
+    pub is_visible: bool,
+    pub new_name: String,
+    pub cursor_position: usize,
+    pub error: Option<String>,
+}
+
+impl CreateDirectoryState {
+    pub fn new() -> Self {
+        Self {
+            is_visible: false,
+            new_name: String::new(),
+            cursor_position: 0,
+            error: None,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.is_visible = false;
+        self.new_name.clear();
+        self.cursor_position = 0;
         self.error = None;
     }
 }

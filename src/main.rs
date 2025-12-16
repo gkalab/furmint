@@ -10,6 +10,7 @@ mod fs_ops;
 mod fuzzy_search_ui;
 mod quit_ui;
 mod rename_ui;
+mod create_dir_ui;
 mod task_ui;
 mod tasks;
 mod theme;
@@ -83,6 +84,7 @@ async fn main() -> Result<()> {
         ),
         fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
         rename_popup: crate::app::RenameState::new(),
+        create_directory_popup: crate::app::CreateDirectoryState::new(),
         delete_popup: crate::app::DeleteState::new(),
         copy_move_popup: crate::app::CopyMoveState::new(),
         conflict_popup: crate::app::ConflictState::new(),

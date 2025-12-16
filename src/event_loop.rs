@@ -269,6 +269,9 @@ fn draw_ui(
         // Draw rename popup on top of fuzzy search (though they shouldn't be open at same time)
         crate::rename_ui::draw_rename_popup(f, &app.rename_popup, palette);
 
+        // Draw create directory popup
+        crate::create_dir_ui::draw_create_dir_popup(f, &app.create_directory_popup, palette);
+
         // Draw delete popup
         crate::delete_ui::draw_delete_popup(f, &app.delete_popup, palette);
 
@@ -309,7 +312,7 @@ pub async fn handle_event(
                     && !app.file_viewer.is_visible
                     && !app.fuzzy_search.is_visible
                     && !app.rename_popup.is_visible
-                    && !app.rename_popup.is_visible
+                    && !app.create_directory_popup.is_visible
                     && !app.delete_popup.is_visible
                     && !app.rename_popup.is_visible
                     && !app.delete_popup.is_visible
@@ -350,6 +353,11 @@ pub async fn handle_event(
             // Handle rename popup
             if app.rename_popup.is_visible {
                 return handle_rename_popup_event(code, app);
+            }
+
+            // Handle create directory popup
+            if app.create_directory_popup.is_visible {
+                return handle_create_directory_popup_event(code, app);
             }
 
             // Handle delete popup
@@ -628,6 +636,14 @@ async fn handle_main_panel_event(
         && keys.contains(&shortcut)
     {
         handle_init_rename(app);
+        return false;
+    }
+
+    // Create Directory
+    if let Some(keys) = &keyboard.create_directory
+        && keys.contains(&shortcut)
+    {
+        handle_init_create_directory(app);
         return false;
     }
 
@@ -2109,4 +2125,129 @@ fn recursive_op<'a>(
         }
         Ok(())
     })
+}
+
+fn handle_init_create_directory(app: &mut AppState) {
+    app.create_directory_popup.reset();
+    app.create_directory_popup.is_visible = true;
+}
+
+fn handle_create_directory_popup_event(code: KeyCode, app: &mut AppState) -> bool {
+    match code {
+        KeyCode::Esc => {
+            app.create_directory_popup.is_visible = false;
+            app.create_directory_popup.reset();
+        }
+        KeyCode::Enter => {
+            let new_name = app.create_directory_popup.new_name.trim().to_string();
+            if new_name.is_empty() {
+                return false;
+            }
+
+            let tab_manager = match app.active {
+                PanelSide::Left => &mut app.left,
+                PanelSide::Right => &mut app.right,
+            };
+            let current_dir = &tab_manager.active_tab().current_dir;
+            let new_path = current_dir.join(&new_name);
+
+            match crate::fs_ops::create_directory(&new_path) {
+                Ok(_) => {
+                    app.create_directory_popup.is_visible = false;
+                    app.create_directory_popup.reset();
+                    // Reload active tab
+                    if let Ok(entries) = crate::fs_ops::list_dir(current_dir) {
+                        tab_manager.active_tab_mut().entries = entries;
+                        tab_manager.active_tab_mut().sort_entries();
+
+                        // Try to select the new directory
+                        if let Some(name) = new_path.file_name().and_then(|n| n.to_str()) {
+                            if let Some(idx) = tab_manager
+                                .active_tab()
+                                .entries
+                                .iter()
+                                .position(|e| e.name == name)
+                            {
+                                tab_manager.active_tab_mut().cursor = idx;
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    app.create_directory_popup.error = Some(e.to_string());
+                }
+            }
+        }
+        KeyCode::Backspace => {
+            if app.create_directory_popup.cursor_position > 0 {
+                let current_len = app.create_directory_popup.new_name.chars().count();
+                if app.create_directory_popup.cursor_position <= current_len {
+                    // Remove char at cursor_position - 1
+                    let byte_idx = app
+                        .create_directory_popup
+                        .new_name
+                        .char_indices()
+                        .nth(app.create_directory_popup.cursor_position - 1)
+                        .map(|(i, _)| i)
+                        .unwrap();
+                    app.create_directory_popup.new_name.remove(byte_idx);
+                    app.create_directory_popup.cursor_position -= 1;
+                }
+            }
+        }
+        KeyCode::Delete => {
+            let current_len = app.create_directory_popup.new_name.chars().count();
+            if app.create_directory_popup.cursor_position < current_len {
+                let byte_idx = app
+                    .create_directory_popup
+                    .new_name
+                    .char_indices()
+                    .nth(app.create_directory_popup.cursor_position)
+                    .map(|(i, _)| i)
+                    .unwrap();
+                app.create_directory_popup.new_name.remove(byte_idx);
+            }
+        }
+        KeyCode::Left => {
+            if app.create_directory_popup.cursor_position > 0 {
+                app.create_directory_popup.cursor_position -= 1;
+            }
+        }
+        KeyCode::Right => {
+            let len = app.create_directory_popup.new_name.chars().count();
+            if app.create_directory_popup.cursor_position < len {
+                app.create_directory_popup.cursor_position += 1;
+            }
+        }
+        KeyCode::Home => {
+            app.create_directory_popup.cursor_position = 0;
+        }
+        KeyCode::End => {
+            app.create_directory_popup.cursor_position =
+                app.create_directory_popup.new_name.chars().count();
+        }
+        KeyCode::Char(c) => {
+            let idx = app.create_directory_popup.cursor_position;
+            // Insert at cursor position
+            if idx >= app.create_directory_popup.new_name.chars().count() {
+                app.create_directory_popup.new_name.push(c);
+            } else {
+                let byte_idx = app
+                    .create_directory_popup
+                    .new_name
+                    .char_indices()
+                    .nth(idx)
+                    .map(|(i, _)| i)
+                    .unwrap();
+                app.create_directory_popup.new_name.insert(byte_idx, c);
+            }
+            app.create_directory_popup.cursor_position += 1;
+        }
+        _ => {}
+    }
+    // Clear error on any input in the popup
+    if code != KeyCode::Enter && app.create_directory_popup.error.is_some() {
+        app.create_directory_popup.error = None;
+    }
+    false
 }

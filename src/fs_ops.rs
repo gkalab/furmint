@@ -116,6 +116,14 @@ pub fn list_dir(path: &PathBuf) -> Result<Vec<FileEntry>> {
     Ok(entries)
 }
 
+pub fn create_directory(path: &PathBuf) -> Result<()> {
+    if path.exists() {
+        return Err(anyhow::anyhow!("Directory already exists"));
+    }
+    fs::create_dir_all(path)?;
+    Ok(())
+}
+
 pub fn read_file_content(path: &std::path::Path, limit: usize) -> anyhow::Result<String> {
     use std::fs::File;
     use std::io::Read;

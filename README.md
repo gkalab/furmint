@@ -136,6 +136,7 @@ delete_permanently = ["Shift-Delete"]
 task_manager = ["F10"]
 copy_files = ["F5"]
 move_files = ["F6"]
+create_directory = ["F7"]
 
 
 [theme]
