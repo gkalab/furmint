@@ -4,27 +4,24 @@ use std::fs::{self, Metadata};
 use std::path::PathBuf;
 use std::time::SystemTime;
 
-#[cfg(target_os = "windows")]
-use std::ptr;
-
-#[cfg(target_os = "windows")]
-use std::ffi::OsStr;
-#[cfg(target_os = "windows")]
-use std::os::windows::ffi::OsStrExt;
-
 // Cross-platform: empties user trash. Returns number of deleted items, or error.
 pub async fn empty_trash() -> std::result::Result<usize, String> {
     #[cfg(target_os = "windows")]
     {
-        // Use SHEmptyRecycleBinW from shell32
         unsafe {
-            use winapi::shared::winerror::S_OK;
-            use winapi::um::shellapi::SHEmptyRecycleBinW;
             use winapi::shared::windef::HWND;
+            use winapi::shared::winerror::SUCCEEDED;
+            use winapi::um::shellapi::{
+                SHERB_NOCONFIRMATION, SHERB_NOPROGRESSUI, SHERB_NOSOUND, SHEmptyRecycleBinW,
+            };
+
             let hwnd: HWND = std::ptr::null_mut();
-            let pszRoot: *const u16 = ptr::null();
-            let res = SHEmptyRecycleBinW(hwnd, pszRoot, 0);
-            if res == S_OK {
+            let psz_root: *const u16 = std::ptr::null(); // all drives
+
+            let flags = SHERB_NOCONFIRMATION | SHERB_NOPROGRESSUI | SHERB_NOSOUND;
+            let res = SHEmptyRecycleBinW(hwnd, psz_root, flags);
+
+            if SUCCEEDED(res) {
                 Ok(0)
             } else {
                 Err(format!("Failed: SHEmptyRecycleBinW error code {:#x}", res))

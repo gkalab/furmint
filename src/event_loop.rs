@@ -2277,7 +2277,6 @@ pub async fn handle_create_file_popup_event(
     app: &mut AppState,
     input_tx: &tokio::sync::mpsc::UnboundedSender<crossterm::event::Event>,
 ) -> bool {
-    
     use std::io::Write;
     use std::path::Path;
     match code {
