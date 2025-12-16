@@ -789,6 +789,7 @@ fn open_in_default_editor(file_path: &std::path::Path) -> anyhow::Result<()> {
     let editor = get_default_editor();
     // Suspend TUI
     disable_raw_mode()?;
+    std::thread::sleep(std::time::Duration::from_millis(100)); // workaround for possible terminal handoff delay
     // Launch editor as blocking subprocess
     let status = Command::new(editor).arg(file_path).status();
     // Resume TUI
