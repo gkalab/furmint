@@ -17,6 +17,7 @@ mod theme;
 mod ui;
 mod ui_utils;
 mod watcher;
+mod empty_trash_ui;
 
 use crate::config::load_config;
 use anyhow::Result;
@@ -86,6 +87,7 @@ async fn main() -> Result<()> {
         rename_popup: crate::app::RenameState::new(),
         create_directory_popup: crate::app::CreateDirectoryState::new(),
         delete_popup: crate::app::DeleteState::new(),
+        empty_trash_popup: crate::app::EmptyTrashState::new(),
         copy_move_popup: crate::app::CopyMoveState::new(),
         conflict_popup: crate::app::ConflictState::new(),
         error_popup: crate::app::ErrorState::new(),

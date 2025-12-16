@@ -444,6 +444,7 @@ pub struct AppState {
     pub rename_popup: RenameState,
     pub create_directory_popup: CreateDirectoryState,
     pub delete_popup: DeleteState,
+    pub empty_trash_popup: EmptyTrashState,
     pub copy_move_popup: CopyMoveState,
     pub conflict_popup: ConflictState,
     pub error_popup: ErrorState,
@@ -486,6 +487,28 @@ impl AppState {
             }
         }
     }
+
+    pub fn spawn_empty_trash_task(&mut self) {
+        let name = "Emptying trash".to_string();
+        self.task_manager.spawn_task(name, |_cancel, tx, id| async move {
+            let result = crate::fs_ops::empty_trash().await;
+            match result {
+                Ok(num) => {
+                    let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
+                        id,
+                        crate::tasks::TaskStatus::Completed,
+                    ));
+                }
+                Err(e) => {
+                    let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
+                        id,
+                        crate::tasks::TaskStatus::Failed(e),
+                    ));
+                }
+            }
+        });
+    }
+
 }
 
 pub struct RenameState {
@@ -672,6 +695,20 @@ impl QuitConfirmationState {
         Self { is_visible: false }
     }
 
+    pub fn reset(&mut self) {
+        self.is_visible = false;
+    }
+}
+
+
+pub struct EmptyTrashState {
+    pub is_visible: bool,
+}
+
+impl EmptyTrashState {
+    pub fn new() -> Self {
+        Self { is_visible: false }
+    }
     pub fn reset(&mut self) {
         self.is_visible = false;
     }

@@ -25,6 +25,7 @@ pub struct KeyboardConfig {
     pub rename: Option<Vec<String>>,
     pub delete: Option<Vec<String>>,
     pub delete_permanently: Option<Vec<String>>,
+    pub empty_trash: Option<Vec<String>>,
     pub task_manager: Option<Vec<String>>,
     pub select_all: Option<Vec<String>>,
     pub create_directory: Option<Vec<String>>,
@@ -65,6 +66,7 @@ pub fn default_keyboard_config() -> KeyboardConfig {
         rename: Some(vec!["F2".to_string()]),
         delete: Some(vec!["Delete".to_string()]),
         delete_permanently: Some(vec!["Shift-Delete".to_string()]),
+        empty_trash: Some(vec!["Ctrl-F8".to_string()]),
         task_manager: Some(vec!["F10".to_string()]),
         create_directory: Some(vec!["F7".to_string()]),
         select_all: Some(vec!["Ctrl-a".to_string()]),
@@ -159,6 +161,10 @@ pub fn merge_keyboard_config(
             .as_ref()
             .and_then(|k| k.delete_permanently.clone())
             .or_else(|| default.delete_permanently.clone()),
+        empty_trash: user
+            .as_ref()
+            .and_then(|k| k.empty_trash.clone())
+            .or_else(|| default.empty_trash.clone()),
         task_manager: user
             .as_ref()
             .and_then(|k| k.task_manager.clone())

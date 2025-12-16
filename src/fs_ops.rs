@@ -4,6 +4,89 @@ use std::fs::{self, Metadata};
 use std::path::PathBuf;
 use std::time::SystemTime;
 
+#[cfg(target_os = "windows")]
+use std::ptr;
+
+#[cfg(target_os = "windows")]
+use std::ffi::OsStr;
+#[cfg(target_os = "windows")]
+use std::os::windows::ffi::OsStrExt;
+
+// Cross-platform: empties user trash. Returns number of deleted items, or error.
+pub async fn empty_trash() -> std::result::Result<usize, String> {
+    #[cfg(target_os = "windows")]
+    {
+        // Use SHEmptyRecycleBinW from shell32
+        unsafe {
+            use winapi::um::shellapi::SHEmptyRecycleBinW;
+            use winapi::um::winnt::HANDLE;
+            use winapi::shared::winerror::S_OK;
+            let hwnd: HANDLE = ptr::null_mut();
+            let pszRoot: *const u16 = ptr::null();
+            let res = SHEmptyRecycleBinW(hwnd, pszRoot, 0);
+            if res == S_OK {
+                Ok(0)
+            } else {
+                Err(format!("Failed: SHEmptyRecycleBinW error code {:#x}", res))
+            }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use std::fs;
+        use std::path::PathBuf;
+        use std::env;
+        let home = env::var("HOME").map_err(|e| format!("No HOME: {e}"))?;
+        let trash_dir = PathBuf::from(format!("{}/.Trash", home));
+        if !trash_dir.exists() {
+            return Ok(0);
+        }
+        let mut removed = 0;
+        for entry in fs::read_dir(&trash_dir).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let path = entry.path();
+            if path.is_dir() {
+                fs::remove_dir_all(&path).map_err(|e| e.to_string())?;
+            } else {
+                fs::remove_file(&path).map_err(|e| e.to_string())?;
+            }
+            removed += 1;
+        }
+        Ok(removed)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use std::fs;
+        use std::path::PathBuf;
+        use std::env;
+        let home = env::var("HOME").map_err(|e| format!("No HOME: {e}"))?;
+        let base = PathBuf::from(format!("{}/.local/share/Trash", home));
+        let files = base.join("files");
+        let info = base.join("info");
+        let mut removed = 0;
+        for dir in &[&files, &info] {
+            if dir.exists() {
+                for entry in fs::read_dir(dir).map_err(|e| e.to_string())? {
+                    let entry = entry.map_err(|e| e.to_string())?;
+                    let path = entry.path();
+                    if path.is_dir() {
+                        fs::remove_dir_all(&path).map_err(|e| e.to_string())?;
+                    } else {
+                        fs::remove_file(&path).map_err(|e| e.to_string())?;
+                    }
+                    removed += 1;
+                }
+            }
+        }
+        Ok(removed)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        Err("Not supported on this OS".to_string())
+    }
+}
+
+
 #[derive(Clone)]
 pub struct FileEntry {
     pub name: String,

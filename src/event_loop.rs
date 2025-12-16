@@ -281,8 +281,11 @@ fn draw_ui(
         // Draw conflict popup
         crate::conflict_ui::draw_conflict_popup(f, &app.conflict_popup, palette);
 
-        // Draw task manager
+         // Draw task manager
         crate::task_ui::draw_task_manager(f, &app.task_manager, app.show_task_manager, palette);
+
+        // Draw empty trash popup
+        crate::empty_trash_ui::draw_empty_trash_popup(f, &app.empty_trash_popup, palette);
 
         // Draw quit confirmation popup
         crate::quit_ui::draw_quit_popup(f, &app.quit_confirmation, palette);
@@ -337,6 +340,14 @@ pub async fn handle_event(
             if app.error_popup.is_visible {
                 if handle_error_popup_event(code, app).await {
                     return true;
+                }
+                return false;
+            }
+
+            // Handle empty trash popup
+            if app.empty_trash_popup.is_visible {
+                if crate::empty_trash_ui::handle_empty_trash_popup_event(code, app) {
+                    return false;
                 }
                 return false;
             }
@@ -552,6 +563,14 @@ async fn handle_main_panel_event(
     input_tx: tokio::sync::mpsc::UnboundedSender<crossterm::event::Event>,
 ) -> bool {
     let shortcut = keyevent_to_string(code, modifiers);
+
+    // Empty Trash
+    if let Some(keys) = &keyboard.empty_trash
+        && keys.contains(&shortcut)
+    {
+        app.empty_trash_popup.is_visible = true;
+        return false;
+    }
 
     // Clear error on any interaction in the main panel
     {

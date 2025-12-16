@@ -138,6 +138,7 @@ task_manager = ["F10"]
 copy_files = ["F5"]
 move_files = ["F6"]
 create_directory = ["F7"]
+empty_trash = ["Ctrl-F8"]
 
 
 [theme]
@@ -167,5 +168,3 @@ For future work:
 
 ### TODO
 - Refactoring
-- File operations: copy, move
-
