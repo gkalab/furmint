@@ -35,17 +35,6 @@ pub fn draw_error_popup(f: &mut ratatui::Frame, state: &ErrorState, palette: &Th
         .border_style(Style::default().fg(border_color))
         .style(Style::default().bg(bg_color));
 
-    let inner_area = block.inner(popup_area);
-
-    // Compute layout in inner_area (border box)
-    let layout = Layout::vertical([
-        Constraint::Length(1), // Path label
-        Constraint::Length(1), // Path
-        Constraint::Min(2),    // Error message
-        Constraint::Length(1), // Button row
-    ])
-    .split(inner_area);
-
     // Draw block/borders first
     f.render_widget(&block, popup_area);
     let mut inner_area = block.inner(popup_area);

@@ -63,11 +63,6 @@ pub fn draw_delete_popup(f: &mut ratatui::Frame, state: &DeleteState, palette: &
 
     // Divide popup_area for message and button row
     // Robust: message uses Min, button row is Length(1)
-    let layout = Layout::vertical([
-        Constraint::Min(2),    // Message
-        Constraint::Length(1), // Button row
-    ])
-    .split(popup_area);
 
     // Draw block/borders first
     f.render_widget(&block, popup_area);

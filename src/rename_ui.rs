@@ -47,13 +47,6 @@ pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &RenameState, palette: &
         let truncated_name = crate::ui_utils::truncate_middle_with_ellipsis(&state.new_name, 35);
         let text = format!("Overwrite {}?", truncated_name);
 
-        // More robust: message gets Min, button gets Length(1)
-        let layout = Layout::vertical([
-            Constraint::Min(2),    // Message row
-            Constraint::Length(1), // Button row
-        ])
-        .split(popup_area);
-
         // Draw block/borders first
         f.render_widget(&block, popup_area);
         let mut inner_area = block.inner(popup_area);
