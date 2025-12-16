@@ -43,7 +43,8 @@ pub fn draw_error_popup(f: &mut ratatui::Frame, state: &ErrorState, palette: &Th
         Constraint::Length(1), // Path
         Constraint::Min(2),    // Error message
         Constraint::Length(1), // Button row
-    ]).split(inner_area);
+    ])
+    .split(inner_area);
 
     // Draw block/borders first
     f.render_widget(&block, popup_area);
@@ -55,7 +56,8 @@ pub fn draw_error_popup(f: &mut ratatui::Frame, state: &ErrorState, palette: &Th
         Constraint::Length(1), // Path
         Constraint::Min(2),    // Error message
         Constraint::Length(1), // Button row
-    ]).split(inner_area);
+    ])
+    .split(inner_area);
 
     f.render_widget(
         Paragraph::new("Path:").style(Style::default().fg(text_color).add_modifier(Modifier::BOLD)),

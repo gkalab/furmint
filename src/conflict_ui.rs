@@ -47,8 +47,8 @@ pub fn draw_conflict_popup(f: &mut ratatui::Frame, state: &ConflictState, palett
         Constraint::Min(3),    // Message + Path
         Constraint::Length(1), // Row 1 buttons
         Constraint::Length(1), // Row 2 buttons
-    ]).split(inner_area);
-
+    ])
+    .split(inner_area);
 
     let _block_inner = Block::default();
 
@@ -68,7 +68,8 @@ pub fn draw_conflict_popup(f: &mut ratatui::Frame, state: &ConflictState, palett
         Constraint::Min(3),    // Message + Path
         Constraint::Length(1), // Row 1 buttons
         Constraint::Length(1), // Row 2 buttons
-    ]).split(inner_area);
+    ])
+    .split(inner_area);
 
     crate::ui_utils::draw_button_row(
         f,

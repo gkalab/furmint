@@ -25,7 +25,6 @@ pub fn draw_button_row<'a>(
     }
 }
 
-
 pub fn truncate_middle_with_ellipsis(name: &str, max_width: usize) -> String {
     let ellipsis = "…"; // Unicode ellipsis
     let ellipsis_len = ellipsis.chars().count();

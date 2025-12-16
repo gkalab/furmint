@@ -64,30 +64,27 @@ pub fn draw_delete_popup(f: &mut ratatui::Frame, state: &DeleteState, palette: &
     // Divide popup_area for message and button row
     // Robust: message uses Min, button row is Length(1)
     let layout = Layout::vertical([
-        Constraint::Min(2), // Message
+        Constraint::Min(2),    // Message
         Constraint::Length(1), // Button row
-    ]).split(popup_area);
+    ])
+    .split(popup_area);
 
     // Draw block/borders first
     f.render_widget(&block, popup_area);
     let mut inner_area = block.inner(popup_area);
     inner_area.x += 1;
     inner_area.width = inner_area.width.saturating_sub(2);
-    
+
     let layout = Layout::vertical([
-        Constraint::Min(2), // Message
+        Constraint::Min(2),    // Message
         Constraint::Length(1), // Button row
-    ]).split(inner_area);
+    ])
+    .split(inner_area);
 
     let p_message = Paragraph::new(message)
         .style(Style::default().fg(text_color).bg(bg_color))
         .alignment(Alignment::Center);
     f.render_widget(p_message, layout[0]);
 
-    crate::ui_utils::draw_button_row(
-        f,
-        &["(Y)es", "(N)o"],
-        layout[1],
-        text_color,
-    );
+    crate::ui_utils::draw_button_row(f, &["(Y)es", "(N)o"], layout[1], text_color);
 }
