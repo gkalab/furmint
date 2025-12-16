@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct KeyboardConfig {
+    pub quit: Option<Vec<String>>,
     pub history_previous: Option<Vec<String>>,
     pub history_next: Option<Vec<String>>,
     pub enter_directory: Option<Vec<String>>,
@@ -44,6 +45,7 @@ pub struct AppConfig {
 // Default key bindings (update as needed)
 pub fn default_keyboard_config() -> KeyboardConfig {
     KeyboardConfig {
+        quit: Some(vec!["Ctrl-q".to_string()]),
         history_previous: Some(vec!["Alt-Left".to_string()]),
         history_next: Some(vec!["Alt-Right".to_string()]),
         enter_directory: Some(vec!["Right".to_string()]),
@@ -169,6 +171,10 @@ pub fn merge_keyboard_config(
             .as_ref()
             .and_then(|k| k.create_directory.clone())
             .or_else(|| default.create_directory.clone()),
+        quit: user
+            .as_ref()
+            .and_then(|k| k.quit.clone())
+            .or_else(|| default.quit.clone()),
     }
 }
 

@@ -307,9 +307,13 @@ pub async fn handle_event(
             modifiers,
             ..
         }) => {
-            if (code == KeyCode::Char('q') && modifiers == KeyModifiers::CONTROL)
-                || (code == KeyCode::Esc
-                    && !app.file_viewer.is_visible
+            // Check configurable quit/exit key(s)
+            let shortcut = keyevent_to_string(code, modifiers);
+            let quit_match = keyboard
+                .quit
+                .as_ref()
+                .map_or(false, |keys| keys.contains(&shortcut));
+            if quit_match && !app.file_viewer.is_visible
                     && !app.fuzzy_search.is_visible
                     && !app.rename_popup.is_visible
                     && !app.create_directory_popup.is_visible
@@ -320,7 +324,7 @@ pub async fn handle_event(
                     && !app.conflict_popup.is_visible
                     && !app.quit_confirmation.is_visible  // Wait if confirmation is open, let it handle Esc
                     && !app.error_popup.is_visible // Wait if error popup is open
-                    && !app.show_task_manager)
+                    && !app.show_task_manager
             {
                 if app.task_manager.has_running_tasks() {
                     app.quit_confirmation.is_visible = true;
@@ -380,7 +384,7 @@ pub async fn handle_event(
                 return handle_task_manager_event(code, app);
             }
 
-            if (code == KeyCode::F(3) && modifiers == KeyModifiers::NONE) || code == KeyCode::Esc {
+            if code == KeyCode::F(3) && modifiers == KeyModifiers::NONE {
                 app.file_viewer.is_visible = !app.file_viewer.is_visible;
                 if app.file_viewer.is_visible {
                     update_viewer_content(app);
@@ -394,6 +398,12 @@ pub async fn handle_event(
                     }
                     app.file_viewer.focused = false;
                 }
+                return false;
+            }
+            // Esc must always close the file viewer if it's open (even if Esc is not mapped globally)
+            if app.file_viewer.is_visible && code == KeyCode::Esc {
+                app.file_viewer.is_visible = false;
+                app.file_viewer.focused = false;
                 return false;
             }
             if app.file_viewer.focused {

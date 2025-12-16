@@ -116,6 +116,7 @@ The app supports user-configurable keyboard shortcuts and theme selection via a 
 ### Example `config.toml`
 ```toml
 [keyboard]
+quit = ["Ctrl-q"]
 enter_directory = ["Right"]
 directory_up = ["Backspace", "Left"]
 history_previous = ["Alt-Left"]
@@ -142,8 +143,9 @@ create_directory = ["F7"]
 [theme]
 name = "catppuccin macchiato"
 ```
-- You can assign multiple shortcuts to the same action.
-- Shortcut format: `Ctrl-Up`, `Left`, `Ctrl-Down`, `Alt-Right`, etc.
+- You can assign multiple shortcuts to the same action (e.g., `quit = ["Ctrl-q", "Esc"]`).
+- Shortcut format: `Ctrl-q`, `Esc`, `Ctrl-Up`, `Left`, `Ctrl-Down`, `Alt-Right`, etc.
+- Supported values include any key combination usable elsewhere in the config.
 - Supported themes:
   - **Catppuccin** (dark): `catppuccin macchiato`, `catppuccin frappe`, `catppuccin mocha`
   - **Catppuccin** (light): `catppuccin latte`
