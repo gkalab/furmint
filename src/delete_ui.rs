@@ -51,20 +51,43 @@ pub fn draw_delete_popup(f: &mut ratatui::Frame, state: &DeleteState, palette: &
         // Truncate if too long
         let truncated = crate::ui_utils::truncate_middle_with_ellipsis(&name, 40);
         if state.is_permanent {
-            format!("Permanently delete '{}'?\n(Y)es (N)o", truncated)
+            format!("Permanently delete '{}'?", truncated)
         } else {
-            format!("Trash '{}'?\n(Y)es (N)o", truncated)
+            format!("Trash '{}'?", truncated)
         }
     } else if state.is_permanent {
-        format!("Permanently delete {} items?\n(Y)es (N)o", count)
+        format!("Permanently delete {} items?", count)
     } else {
-        format!("Trash {} items?\n(Y)es (N)o", count)
+        format!("Trash {} items?", count)
     };
 
-    let paragraph = Paragraph::new(message)
-        .block(block)
+    // Divide popup_area for message and button row
+    // Robust: message uses Min, button row is Length(1)
+    let layout = Layout::vertical([
+        Constraint::Min(2), // Message
+        Constraint::Length(1), // Button row
+    ]).split(popup_area);
+
+    // Draw block/borders first
+    f.render_widget(&block, popup_area);
+    let mut inner_area = block.inner(popup_area);
+    inner_area.x += 1;
+    inner_area.width = inner_area.width.saturating_sub(2);
+    
+    let layout = Layout::vertical([
+        Constraint::Min(2), // Message
+        Constraint::Length(1), // Button row
+    ]).split(inner_area);
+
+    let p_message = Paragraph::new(message)
         .style(Style::default().fg(text_color).bg(bg_color))
         .alignment(Alignment::Center);
+    f.render_widget(p_message, layout[0]);
 
-    f.render_widget(paragraph, popup_area);
+    crate::ui_utils::draw_button_row(
+        f,
+        &["(Y)es", "(N)o"],
+        layout[1],
+        text_color,
+    );
 }

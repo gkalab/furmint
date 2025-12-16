@@ -42,17 +42,13 @@ pub fn draw_conflict_popup(f: &mut ratatui::Frame, state: &ConflictState, palett
     );
 
     let inner_area = block.inner(popup_area);
-    f.render_widget(block, popup_area);
 
-    let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(3),    // Message + Path
-            Constraint::Length(1), // Spacer
-            Constraint::Length(1), // Row 1 buttons
-            Constraint::Length(1), // Row 2 buttons
-        ])
-        .split(inner_area);
+    let layout = Layout::vertical([
+        Constraint::Min(3),    // Message + Path
+        Constraint::Length(1), // Row 1 buttons
+        Constraint::Length(1), // Row 2 buttons
+    ]).split(inner_area);
+
 
     let _block_inner = Block::default();
 
@@ -63,21 +59,28 @@ pub fn draw_conflict_popup(f: &mut ratatui::Frame, state: &ConflictState, palett
         .style(Style::default().fg(text_color));
     f.render_widget(p_text, layout[0]);
 
-    // Row 1
-    let row1 = "[O]verwrite  [S]kip  [C]ancel";
-    f.render_widget(
-        Paragraph::new(row1)
-            .alignment(Alignment::Center)
-            .style(Style::default().fg(text_color).add_modifier(Modifier::BOLD)),
-        layout[2],
+    // Draw block/borders first
+    f.render_widget(&block, popup_area);
+    let mut inner_area = block.inner(popup_area);
+    inner_area.x += 1;
+    inner_area.width = inner_area.width.saturating_sub(2);
+    let layout = Layout::vertical([
+        Constraint::Min(3),    // Message + Path
+        Constraint::Length(1), // Row 1 buttons
+        Constraint::Length(1), // Row 2 buttons
+    ]).split(inner_area);
+
+    crate::ui_utils::draw_button_row(
+        f,
+        &["[O]verwrite", "[S]kip", "[C]ancel"],
+        layout[1],
+        text_color,
     );
 
-    // Row 2
-    let row2 = "Overwrite [Y]All  Skip [A]ll";
-    f.render_widget(
-        Paragraph::new(row2)
-            .alignment(Alignment::Center)
-            .style(Style::default().fg(text_color).add_modifier(Modifier::BOLD)),
-        layout[3],
+    crate::ui_utils::draw_button_row(
+        f,
+        &["Overwrite [Y]All", "Skip [A]ll"],
+        layout[2],
+        text_color,
     );
 }

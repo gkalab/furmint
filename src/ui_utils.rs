@@ -1,4 +1,30 @@
-// Utility functions for UI truncation and formatting
+// Utility functions for UI truncation, formatting, and generic UI widgets
+
+use ratatui::prelude::*;
+use ratatui::widgets::Paragraph;
+
+/// Draws a simple horizontal row of button labels, à la yazi (hotkey style, no focus handling)
+/// - `labels`: List of strings such as ["[Y]es", "(N)o"]
+/// - `area`: Rect to render into
+/// - `f`: Frame reference
+/// - `text_color`: Foreground color for labels
+pub fn draw_button_row<'a>(
+    f: &mut ratatui::Frame<'a>,
+    labels: &[&str],
+    area: Rect,
+    text_color: Color,
+) {
+    use ratatui::layout::Constraint;
+    let constraints = vec![Constraint::Fill(1); labels.len()];
+    let chunks = ratatui::layout::Layout::horizontal(constraints).split(area);
+    for (i, label) in labels.iter().enumerate() {
+        let p = Paragraph::new(*label)
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(text_color).add_modifier(Modifier::BOLD));
+        f.render_widget(p, chunks[i]);
+    }
+}
+
 
 pub fn truncate_middle_with_ellipsis(name: &str, max_width: usize) -> String {
     let ellipsis = "…"; // Unicode ellipsis

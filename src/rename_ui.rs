@@ -45,13 +45,34 @@ pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &RenameState, palette: &
         // Popup width is 60. "Overwrite ? (Y)es (N)o" takes ~23 chars + filename.
         // Available space for filename is ~35 chars.
         let truncated_name = crate::ui_utils::truncate_middle_with_ellipsis(&state.new_name, 35);
-        let text = format!("Overwrite {}? (Y)es (N)o", truncated_name);
-        let paragraph = Paragraph::new(text)
-            .block(block)
+        let text = format!("Overwrite {}?", truncated_name);
+
+        // More robust: message gets Min, button gets Length(1)
+        let layout = Layout::vertical([
+            Constraint::Min(2), // Message row
+            Constraint::Length(1), // Button row
+        ]).split(popup_area);
+
+        // Draw block/borders first
+        f.render_widget(&block, popup_area);
+        let mut inner_area = block.inner(popup_area);
+        inner_area.x += 1;
+        inner_area.width = inner_area.width.saturating_sub(2);
+        let layout = Layout::vertical([
+            Constraint::Min(2), // Message row
+            Constraint::Length(1), // Button row
+        ]).split(inner_area);
+        let p_message = Paragraph::new(text)
             .style(Style::default().fg(text_color).bg(bg_color))
             .alignment(Alignment::Center);
+        f.render_widget(p_message, layout[0]);
 
-        f.render_widget(paragraph, popup_area);
+        crate::ui_utils::draw_button_row(
+            f,
+            &["(Y)es", "(N)o"],
+            layout[1],
+            text_color,
+        );
     } else {
         let (title, title_style) = if let Some(err) = &state.error {
             (

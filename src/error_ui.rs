@@ -37,23 +37,46 @@ pub fn draw_error_popup(f: &mut ratatui::Frame, state: &ErrorState, palette: &Th
 
     let inner_area = block.inner(popup_area);
 
-    f.render_widget(block, popup_area);
+    // Compute layout in inner_area (border box)
+    let layout = Layout::vertical([
+        Constraint::Length(1), // Path label
+        Constraint::Length(1), // Path
+        Constraint::Min(2),    // Error message
+        Constraint::Length(1), // Button row
+    ]).split(inner_area);
 
-    let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1), // Path label
-            Constraint::Length(1), // Path
-            Constraint::Length(1), // Spacer
-            Constraint::Min(2),    // Error message
-            Constraint::Length(1), // Spacer
-            Constraint::Length(1), // Buttons
-        ])
-        .split(inner_area);
+    // Draw block/borders first
+    f.render_widget(&block, popup_area);
+    let mut inner_area = block.inner(popup_area);
+    inner_area.x += 1;
+    inner_area.width = inner_area.width.saturating_sub(2);
+    let layout = Layout::vertical([
+        Constraint::Length(1), // Path label
+        Constraint::Length(1), // Path
+        Constraint::Min(2),    // Error message
+        Constraint::Length(1), // Button row
+    ]).split(inner_area);
 
     f.render_widget(
         Paragraph::new("Path:").style(Style::default().fg(text_color).add_modifier(Modifier::BOLD)),
         layout[0],
+    );
+    f.render_widget(
+        Paragraph::new(state.error_path.as_str()).style(Style::default().fg(text_color)),
+        layout[1],
+    );
+    f.render_widget(
+        Paragraph::new(state.error_message.as_str())
+            .wrap(Wrap { trim: true })
+            .style(Style::default().fg(Color::Red)),
+        layout[2],
+    );
+
+    crate::ui_utils::draw_button_row(
+        f,
+        &["[R]etry", "[S]kip", "Skip [A]ll", "[C]ancel"],
+        layout[3],
+        text_color,
     );
     f.render_widget(
         Paragraph::new(state.error_path.as_str()).style(Style::default().fg(text_color)),
@@ -64,12 +87,13 @@ pub fn draw_error_popup(f: &mut ratatui::Frame, state: &ErrorState, palette: &Th
         Paragraph::new(state.error_message.as_str())
             .wrap(Wrap { trim: true })
             .style(Style::default().fg(Color::Red)),
-        layout[3],
+        layout[2],
     );
 
-    let buttons = "[R]etry  [S]kip  Skip [A]ll  [C]ancel";
-    let p_buttons = Paragraph::new(buttons)
-        .alignment(Alignment::Center)
-        .style(Style::default().fg(text_color).add_modifier(Modifier::BOLD));
-    f.render_widget(p_buttons, layout[5]);
+    crate::ui_utils::draw_button_row(
+        f,
+        &["[R]etry", "[S]kip", "Skip [A]ll", "[C]ancel"],
+        layout[3],
+        text_color,
+    );
 }

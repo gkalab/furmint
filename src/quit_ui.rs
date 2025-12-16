@@ -39,18 +39,18 @@ pub fn draw_quit_popup(
         .border_style(Style::default().fg(border_color))
         .style(Style::default().bg(bg_color));
 
-    f.render_widget(block.clone(), popup_area);
+    // Draw block/borders first
+    f.render_widget(&block, popup_area);
+    let mut inner_area = block.inner(popup_area);
+    // Add margin so content/buttons never touch borders
+    inner_area.x += 1;
+    inner_area.width = inner_area.width.saturating_sub(2);
+	// Optionally margin on y as well for more padding
 
-    let inner_area = block.inner(popup_area);
-
-    let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(2), // Message
-            Constraint::Length(1), // Spacer
-            Constraint::Length(1), // Buttons
-        ])
-        .split(inner_area);
+    let layout = Layout::vertical([
+        Constraint::Min(2), // Message
+        Constraint::Length(1), // Button row
+    ]).split(inner_area);
 
     let message = "There are running tasks!\nAre you sure you want to quit?";
     let p = Paragraph::new(message)
@@ -58,9 +58,10 @@ pub fn draw_quit_popup(
         .style(Style::default().fg(text_color));
     f.render_widget(p, layout[0]);
 
-    let buttons = "[Y]es    [N]o";
-    let p_buttons = Paragraph::new(buttons)
-        .alignment(Alignment::Center)
-        .style(Style::default().fg(text_color).add_modifier(Modifier::BOLD));
-    f.render_widget(p_buttons, layout[2]);
+    crate::ui_utils::draw_button_row(
+        f,
+        &["[Y]es", "[N]o"],
+        layout[1],
+        text_color,
+    );
 }
