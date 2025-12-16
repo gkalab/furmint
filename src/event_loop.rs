@@ -271,6 +271,8 @@ fn draw_ui(
 
         // Draw create directory popup
         crate::create_dir_ui::draw_create_dir_popup(f, &app.create_directory_popup, palette);
+        // Draw create file popup
+        crate::create_file_ui::draw_create_file_popup(f, &app.create_file_popup, palette);
 
         // Draw delete popup
         crate::delete_ui::draw_delete_popup(f, &app.delete_popup, palette);
@@ -373,6 +375,10 @@ pub async fn handle_event(
             // Handle create directory popup
             if app.create_directory_popup.is_visible {
                 return handle_create_directory_popup_event(code, app);
+            }
+
+            if app.create_file_popup.is_visible {
+                return handle_create_file_popup_event(code, app, &input_tx).await;
             }
 
             // Handle delete popup
@@ -665,6 +671,14 @@ async fn handle_main_panel_event(
         && keys.contains(&shortcut)
     {
         handle_init_rename(app);
+        return false;
+    }
+
+    // Create File
+    if let Some(keys) = &keyboard.create_file
+        && keys.contains(&shortcut)
+    {
+        handle_init_create_file(app);
         return false;
     }
 
@@ -1002,68 +1016,34 @@ use crossterm::event::Event as CrosstermEvent;
 use tokio::sync::mpsc::UnboundedSender;
 
 pub async fn handle_edit(app: &mut AppState, input_tx: UnboundedSender<CrosstermEvent>) {
-    // Stop input polling
-    if let Some(handle) = app.input_polling_handle.take() {
-        handle.abort();
-    }
-    // Pause watcher
-    if let Some(watcher) = &mut app.watcher {
-        let paths = watcher.watched_paths.clone();
-        for path in &paths {
-            let _ = watcher.unwatch(path);
-        }
-    }
     let tab_manager = match app.active {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
     };
-    // Collect current_dir and edited_file_name before any watcher or sync_watcher calls
-    let (panel_current_dir, edited_file_name) = {
+    let entry = {
         let panel = tab_manager.active_tab_mut();
-        let dir = panel.current_dir.clone();
-        let mut name = None;
-        if let Some(entry) = panel.current_entry().cloned()
-            && !entry.is_dir
-        {
-            name = Some(entry.name.clone());
-            let file_path = panel.current_dir.join(&entry.name);
-            let result =
-                tokio::task::spawn_blocking(move || open_in_default_editor(&file_path)).await;
-            if let Err(e) = result {
-                panel.error = Some(format!("Error opening editor: {}", e));
-            } else if let Err(e) = result.unwrap() {
-                panel.error = Some(format!("Error opening editor: {}", e));
-            }
-        }
-        (dir, name)
+        panel.current_entry().cloned()
     };
-    // Resume watcher
-    if let Some(watcher) = &mut app.watcher {
-        let _ = watcher.watch(&panel_current_dir);
-    }
-    app.sync_watcher();
-    // Refresh file list and restore cursor
-    let panel = match app.active {
-        PanelSide::Left => &mut app.left,
-        PanelSide::Right => &mut app.right,
-    }
-    .active_tab_mut();
-    if let Ok(entries) = crate::fs_ops::list_dir(&panel_current_dir) {
-        panel.entries = entries;
-        panel.sort_entries();
-        if let Some(name) = edited_file_name {
-            if let Some(idx) = panel.entries.iter().position(|e| e.name == name) {
-                panel.cursor = idx;
-            } else if panel.cursor >= panel.entries.len() {
-                panel.cursor = panel.entries.len().saturating_sub(1);
+    if let Some(entry) = entry {
+        if !entry.is_dir {
+            let file_path = {
+                let panel = tab_manager.active_tab_mut();
+                panel.current_dir.join(&entry.name)
+            };
+            let entry_name = entry.name.clone();
+            let result =
+                open_file_in_editor_with_env_handling(app, &file_path, Some(entry_name), &input_tx)
+                    .await;
+            if let Err(e) = result {
+                let tab_manager = match app.active {
+                    PanelSide::Left => &mut app.left,
+                    PanelSide::Right => &mut app.right,
+                };
+                let panel = tab_manager.active_tab_mut();
+                panel.error = Some(format!("Error opening editor: {}", e));
             }
         }
     }
-    // Restart input polling after editing
-    app.input_polling_handle = Some(spawn_input_polling(input_tx.clone()));
-    // Request explicit redraw after editing
-    app.needs_redraw = true;
-    // Redraw UI will be handled by event loop after edit
 }
 
 fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut AppState) {
@@ -1400,6 +1380,19 @@ mod tests {
             "Alt-Left"
         );
     }
+}
+
+fn handle_init_create_file(app: &mut AppState) {
+    let tab_manager = match app.active {
+        PanelSide::Left => &app.left,
+        PanelSide::Right => &app.right,
+    };
+    let panel = tab_manager.active_tab();
+    app.create_file_popup.is_visible = true;
+    app.create_file_popup.input_value.clear();
+    app.create_file_popup.cursor_position = 0;
+    app.create_file_popup.error = None;
+    app.create_file_popup.parent_dir = panel.current_dir.clone();
 }
 
 fn handle_init_rename(app: &mut AppState) {
@@ -2277,4 +2270,206 @@ fn handle_create_directory_popup_event(code: KeyCode, app: &mut AppState) -> boo
         app.create_directory_popup.error = None;
     }
     false
+}
+
+pub async fn handle_create_file_popup_event(
+    code: KeyCode,
+    app: &mut AppState,
+    input_tx: &tokio::sync::mpsc::UnboundedSender<crossterm::event::Event>,
+) -> bool {
+    
+    use std::io::Write;
+    use std::path::Path;
+    match code {
+        KeyCode::Esc => {
+            app.create_file_popup.reset();
+        }
+        KeyCode::Enter => {
+            app.create_file_popup.error = None;
+            let input = app.create_file_popup.input_value.trim();
+            if input.is_empty() {
+                app.create_file_popup.error = Some("File name cannot be empty".to_string());
+                return false;
+            }
+            let path_buf = if input.starts_with("~") {
+                if let Some(home) = directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf())
+                {
+                    if input == "~" {
+                        home
+                    } else if input.starts_with("~/") {
+                        home.join(&input[2..])
+                    } else {
+                        app.create_file_popup.error =
+                            Some("Unsupported ~username syntax".to_string());
+                        return false;
+                    }
+                } else {
+                    app.create_file_popup.error =
+                        Some("Cannot resolve ~ to home directory".to_string());
+                    return false;
+                }
+            } else {
+                let p = Path::new(input);
+                if p.is_absolute() {
+                    p.to_path_buf()
+                } else {
+                    app.create_file_popup.parent_dir.join(p)
+                }
+            };
+            // Disallow creating a directory and special names
+            if path_buf.as_os_str().is_empty() || path_buf.ends_with("/") || path_buf.is_dir() {
+                app.create_file_popup.error = Some("Invalid file name".to_string());
+                return false;
+            }
+            // File must not already exist
+            if path_buf.exists() {
+                app.create_file_popup.error =
+                    Some("A file with that name already exists".to_string());
+                return false;
+            }
+            // Try to create empty file atomically
+            let create_result = std::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&path_buf);
+            match create_result {
+                Ok(mut f) => {
+                    // file will be truncated, nothing to write; drop after this scope
+                    if let Err(e) = f.flush() {
+                        app.create_file_popup.error = Some(format!("Error writing file: {}", e));
+                        return false;
+                    }
+                    drop(f);
+                }
+                Err(e) => {
+                    app.create_file_popup.error = Some(format!("Failed to create file: {}", e));
+                    return false;
+                }
+            };
+            // Open in editor using environment helper
+            let file_name_opt = path_buf
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|s| s.to_string());
+            let editor_result =
+                open_file_in_editor_with_env_handling(app, &path_buf, file_name_opt, input_tx)
+                    .await;
+            if let Err(e) = editor_result {
+                app.create_file_popup.error = Some(format!("Failed to open in editor: {}", e));
+                return false;
+            }
+            app.create_file_popup.reset();
+        }
+        KeyCode::Char(c) => {
+            app.create_file_popup.error = None;
+            app.create_file_popup
+                .input_value
+                .insert(app.create_file_popup.cursor_position, c);
+            app.create_file_popup.cursor_position += 1;
+        }
+        KeyCode::Backspace => {
+            app.create_file_popup.error = None;
+            if app.create_file_popup.cursor_position > 0 {
+                app.create_file_popup
+                    .input_value
+                    .remove(app.create_file_popup.cursor_position - 1);
+                app.create_file_popup.cursor_position -= 1;
+            }
+        }
+        KeyCode::Delete => {
+            app.create_file_popup.error = None;
+            if app.create_file_popup.cursor_position < app.create_file_popup.input_value.len() {
+                app.create_file_popup
+                    .input_value
+                    .remove(app.create_file_popup.cursor_position);
+            }
+        }
+        KeyCode::Left => {
+            if app.create_file_popup.cursor_position > 0 {
+                app.create_file_popup.cursor_position -= 1;
+            }
+        }
+        KeyCode::Right => {
+            if app.create_file_popup.cursor_position < app.create_file_popup.input_value.len() {
+                app.create_file_popup.cursor_position += 1;
+            }
+        }
+        KeyCode::Home => {
+            app.create_file_popup.cursor_position = 0;
+        }
+        KeyCode::End => {
+            app.create_file_popup.cursor_position = app.create_file_popup.input_value.len();
+        }
+        _ => {}
+    }
+    false
+}
+
+pub async fn open_file_in_editor_with_env_handling(
+    app: &mut AppState,
+    file_path: &std::path::Path,
+    filename_to_select: Option<String>,
+    input_tx: &tokio::sync::mpsc::UnboundedSender<crossterm::event::Event>,
+) -> anyhow::Result<()> {
+    // 1. Abort input polling
+    if let Some(handle) = app.input_polling_handle.take() {
+        handle.abort();
+    }
+    // 2. Pause watcher
+    let panel_current_dir = {
+        let tab_manager = match app.active {
+            PanelSide::Left => &mut app.left,
+            PanelSide::Right => &mut app.right,
+        };
+        let panel = tab_manager.active_tab_mut();
+        panel.current_dir.clone()
+    };
+    if let Some(watcher) = &mut app.watcher {
+        let paths = watcher.watched_paths.clone();
+        for path in &paths {
+            let _ = watcher.unwatch(path);
+        }
+    }
+    // 3. Run editor
+    let result = tokio::task::spawn_blocking({
+        let path = file_path.to_path_buf();
+        move || open_in_default_editor(&path)
+    })
+    .await;
+    let err = match result {
+        Ok(Ok(())) => None,
+        Ok(Err(e)) => Some(format!("Error opening editor: {}", e)),
+        Err(e) => Some(format!("Error launching editor: {}", e)),
+    };
+    // 4. Restart watcher
+    if let Some(watcher) = &mut app.watcher {
+        let _ = watcher.watch(&panel_current_dir);
+    }
+    app.sync_watcher();
+    // 5. Refresh file list and cursor
+    let tab_manager = match app.active {
+        PanelSide::Left => &mut app.left,
+        PanelSide::Right => &mut app.right,
+    };
+    let panel = tab_manager.active_tab_mut();
+    if let Ok(entries) = crate::fs_ops::list_dir(&panel_current_dir) {
+        panel.entries = entries;
+        panel.sort_entries();
+        if let Some(name) = filename_to_select {
+            if let Some(idx) = panel.entries.iter().position(|e| e.name == name) {
+                panel.cursor = idx;
+            } else if panel.cursor >= panel.entries.len() {
+                panel.cursor = panel.entries.len().saturating_sub(1);
+            }
+        }
+    }
+    // 6. Restart input polling
+    app.input_polling_handle = Some(spawn_input_polling(input_tx.clone()));
+    app.needs_redraw = true;
+    // 7. Return error or success
+    if let Some(e) = err {
+        Err(anyhow::anyhow!(e))
+    } else {
+        Ok(())
+    }
 }

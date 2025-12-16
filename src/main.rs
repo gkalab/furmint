@@ -3,6 +3,7 @@ mod config;
 mod conflict_ui;
 mod copy_move_ui;
 mod create_dir_ui;
+mod create_file_ui;
 mod delete_ui;
 mod dir_history;
 mod empty_trash_ui;
@@ -76,6 +77,7 @@ async fn main() -> Result<()> {
     let task_manager = crate::tasks::TaskManager::new(task_tx);
 
     let mut app = app::AppState {
+        create_file_popup: crate::app::CreateFileState::new(),
         left: crate::app::TabManager::new(cwd.clone())?,
         right: crate::app::TabManager::new(cwd.clone())?,
         active: crate::app::PanelSide::Left,

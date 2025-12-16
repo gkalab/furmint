@@ -434,6 +434,33 @@ pub enum PanelSide {
     Right,
 }
 
+pub struct CreateFileState {
+    pub is_visible: bool,
+    pub input_value: String,
+    pub cursor_position: usize,
+    pub error: Option<String>,
+    pub parent_dir: std::path::PathBuf,
+}
+
+impl CreateFileState {
+    pub fn new() -> Self {
+        Self {
+            is_visible: false,
+            input_value: String::new(),
+            cursor_position: 0,
+            error: None,
+            parent_dir: std::path::PathBuf::new(),
+        }
+    }
+    pub fn reset(&mut self) {
+        self.is_visible = false;
+        self.input_value.clear();
+        self.cursor_position = 0;
+        self.error = None;
+        self.parent_dir = std::path::PathBuf::new();
+    }
+}
+
 pub struct AppState {
     pub left: TabManager,
     pub right: TabManager,
@@ -449,6 +476,7 @@ pub struct AppState {
     pub error_popup: ErrorState,
     pub quit_confirmation: QuitConfirmationState,
     pub task_manager: crate::tasks::TaskManager,
+    pub create_file_popup: CreateFileState,
 
     // Channels to communicate decisions back to tasks
     pub task_decision_txs:
@@ -775,6 +803,21 @@ impl FileViewerState {
 
 #[cfg(test)]
 mod tests {
+    // Test for CreateFileState reset
+    #[test]
+    fn test_create_file_state_reset() {
+        let mut s = super::CreateFileState::new();
+        s.input_value = "test".to_string();
+        s.cursor_position = 5;
+        s.is_visible = true;
+        s.error = Some("nope".to_string());
+        s.reset();
+        assert!(!s.is_visible);
+        assert_eq!(s.input_value, "");
+        assert_eq!(s.cursor_position, 0);
+        assert!(s.error.is_none());
+        assert_eq!(s.parent_dir, std::path::PathBuf::new());
+    }
     use super::*;
     use std::path::PathBuf;
 

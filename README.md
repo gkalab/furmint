@@ -139,6 +139,7 @@ copy_files = ["F5"]
 move_files = ["F6"]
 create_directory = ["F7"]
 empty_trash = ["Ctrl-F8"]
+create_file = ["Shift-F4"]
 
 
 [theme]
