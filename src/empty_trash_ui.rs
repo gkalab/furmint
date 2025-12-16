@@ -3,7 +3,11 @@ use crate::theme::ThemePalette;
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
-pub fn draw_empty_trash_popup(f: &mut ratatui::Frame, state: &EmptyTrashState, palette: &ThemePalette) {
+pub fn draw_empty_trash_popup(
+    f: &mut ratatui::Frame,
+    state: &EmptyTrashState,
+    palette: &ThemePalette,
+) {
     if !state.is_visible {
         return;
     }
@@ -57,18 +61,25 @@ pub fn draw_empty_trash_popup(f: &mut ratatui::Frame, state: &EmptyTrashState, p
 }
 
 // Handles empty trash confirmation popup key actions (Y, N, Esc, Enter)
-pub fn handle_empty_trash_popup_event(code: crossterm::event::KeyCode, app: &mut crate::app::AppState) -> bool {
+pub fn handle_empty_trash_popup_event(
+    code: crossterm::event::KeyCode,
+    app: &mut crate::app::AppState,
+) -> bool {
     match code {
-        crossterm::event::KeyCode::Char('y') | crossterm::event::KeyCode::Char('Y') | crossterm::event::KeyCode::Enter => {
+        crossterm::event::KeyCode::Char('y')
+        | crossterm::event::KeyCode::Char('Y')
+        | crossterm::event::KeyCode::Enter => {
             // The actual trash empty logic is queued as a background task elsewhere
             app.empty_trash_popup.is_visible = false;
             app.spawn_empty_trash_task();
             true
-        },
-        crossterm::event::KeyCode::Char('n') | crossterm::event::KeyCode::Char('N') | crossterm::event::KeyCode::Esc => {
+        }
+        crossterm::event::KeyCode::Char('n')
+        | crossterm::event::KeyCode::Char('N')
+        | crossterm::event::KeyCode::Esc => {
             app.empty_trash_popup.is_visible = false;
             false
-        },
+        }
         _ => false,
     }
 }

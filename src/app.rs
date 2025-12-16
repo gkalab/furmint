@@ -201,7 +201,6 @@ impl Tab {
     }
 
     /// Get all selected entries.
-
     pub fn get_selected_entries(&self) -> Vec<&FileEntry> {
         self.entries.iter().filter(|e| e.selected).collect()
     }
@@ -490,25 +489,25 @@ impl AppState {
 
     pub fn spawn_empty_trash_task(&mut self) {
         let name = "Emptying trash".to_string();
-        self.task_manager.spawn_task(name, |_cancel, tx, id| async move {
-            let result = crate::fs_ops::empty_trash().await;
-            match result {
-                Ok(num) => {
-                    let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
-                        id,
-                        crate::tasks::TaskStatus::Completed,
-                    ));
+        self.task_manager
+            .spawn_task(name, |_cancel, tx, id| async move {
+                let result = crate::fs_ops::empty_trash().await;
+                match result {
+                    Ok(_num) => {
+                        let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
+                            id,
+                            crate::tasks::TaskStatus::Completed,
+                        ));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
+                            id,
+                            crate::tasks::TaskStatus::Failed(e),
+                        ));
+                    }
                 }
-                Err(e) => {
-                    let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
-                        id,
-                        crate::tasks::TaskStatus::Failed(e),
-                    ));
-                }
-            }
-        });
+            });
     }
-
 }
 
 pub struct RenameState {
@@ -700,7 +699,6 @@ impl QuitConfirmationState {
     }
 }
 
-
 pub struct EmptyTrashState {
     pub is_visible: bool,
 }
@@ -708,9 +706,6 @@ pub struct EmptyTrashState {
 impl EmptyTrashState {
     pub fn new() -> Self {
         Self { is_visible: false }
-    }
-    pub fn reset(&mut self) {
-        self.is_visible = false;
     }
 }
 

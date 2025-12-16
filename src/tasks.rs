@@ -138,7 +138,6 @@ impl TaskManager {
         }
     }
 
-    // For UI
     pub fn get_tasks(&self) -> Vec<(usize, String, TaskStatus, Option<(usize, usize)>)> {
         let tasks = self.tasks.lock().unwrap();
         let mut result: Vec<_> = tasks

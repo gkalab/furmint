@@ -18,9 +18,9 @@ pub async fn empty_trash() -> std::result::Result<usize, String> {
     {
         // Use SHEmptyRecycleBinW from shell32
         unsafe {
+            use winapi::shared::winerror::S_OK;
             use winapi::um::shellapi::SHEmptyRecycleBinW;
             use winapi::um::winnt::HANDLE;
-            use winapi::shared::winerror::S_OK;
             let hwnd: HANDLE = ptr::null_mut();
             let pszRoot: *const u16 = ptr::null();
             let res = SHEmptyRecycleBinW(hwnd, pszRoot, 0);
@@ -33,9 +33,9 @@ pub async fn empty_trash() -> std::result::Result<usize, String> {
     }
     #[cfg(target_os = "macos")]
     {
+        use std::env;
         use std::fs;
         use std::path::PathBuf;
-        use std::env;
         let home = env::var("HOME").map_err(|e| format!("No HOME: {e}"))?;
         let trash_dir = PathBuf::from(format!("{}/.Trash", home));
         if !trash_dir.exists() {
@@ -56,9 +56,9 @@ pub async fn empty_trash() -> std::result::Result<usize, String> {
     }
     #[cfg(target_os = "linux")]
     {
+        use std::env;
         use std::fs;
         use std::path::PathBuf;
-        use std::env;
         let home = env::var("HOME").map_err(|e| format!("No HOME: {e}"))?;
         let base = PathBuf::from(format!("{}/.local/share/Trash", home));
         let files = base.join("files");
@@ -85,7 +85,6 @@ pub async fn empty_trash() -> std::result::Result<usize, String> {
         Err("Not supported on this OS".to_string())
     }
 }
-
 
 #[derive(Clone)]
 pub struct FileEntry {

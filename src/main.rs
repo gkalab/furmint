@@ -5,6 +5,7 @@ mod copy_move_ui;
 mod create_dir_ui;
 mod delete_ui;
 mod dir_history;
+mod empty_trash_ui;
 mod error_ui;
 mod event_loop;
 mod fs_ops;
@@ -17,7 +18,6 @@ mod theme;
 mod ui;
 mod ui_utils;
 mod watcher;
-mod empty_trash_ui;
 
 use crate::config::load_config;
 use anyhow::Result;

@@ -365,40 +365,39 @@ pub fn draw_panel_status(
             let tasks = task_manager.get_tasks();
             let active_task = tasks
                 .iter()
-                .filter(|t| matches!(t.2, crate::tasks::TaskStatus::Running))
-                .last();
+                .rev()
+                .find(|t| matches!(t.2, crate::tasks::TaskStatus::Running));
 
             if let Some((_, _, crate::tasks::TaskStatus::Running, Some((processed, total)))) =
                 active_task
+                && *total > 0
             {
-                if *total > 0 {
-                    let percent = (*processed as f32 / *total as f32 * 100.0) as usize;
-                    let progress_text =
-                        format!("{}% ({} left)", percent, total.saturating_sub(*processed));
-                    let text_width = progress_text.len() as u16 + 2; // Add some spacing
+                let percent = (*processed as f32 / *total as f32 * 100.0) as usize;
+                let progress_text =
+                    format!("{}% ({} left)", percent, total.saturating_sub(*processed));
+                let text_width = progress_text.len() as u16 + 2; // Add some spacing
 
-                    let chunks = Layout::default()
-                        .direction(Direction::Horizontal)
-                        .constraints([Constraint::Length(text_width), Constraint::Min(0)])
-                        .split(status_area);
+                let chunks = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Length(text_width), Constraint::Min(0)])
+                    .split(status_area);
 
-                    // Task Info (Left)
-                    let progress_paragraph = ratatui::widgets::Paragraph::new(progress_text)
-                        .alignment(Alignment::Left)
-                        .style(Style::default().fg(Color::Rgb(
-                            palette.yellow.r,
-                            palette.yellow.g,
-                            palette.yellow.b,
-                        )));
-                    f.render_widget(progress_paragraph, chunks[0]);
+                // Task Info (Left)
+                let progress_paragraph = ratatui::widgets::Paragraph::new(progress_text)
+                    .alignment(Alignment::Left)
+                    .style(Style::default().fg(Color::Rgb(
+                        palette.yellow.r,
+                        palette.yellow.g,
+                        palette.yellow.b,
+                    )));
+                f.render_widget(progress_paragraph, chunks[0]);
 
-                    // File Info (Right)
-                    let paragraph = ratatui::widgets::Paragraph::new(status)
-                        .alignment(Alignment::Right)
-                        .style(Style::default().fg(fg));
-                    f.render_widget(paragraph, chunks[1]);
-                    return;
-                }
+                // File Info (Right)
+                let paragraph = ratatui::widgets::Paragraph::new(status)
+                    .alignment(Alignment::Right)
+                    .style(Style::default().fg(fg));
+                f.render_widget(paragraph, chunks[1]);
+                return;
             }
 
             // Default: just file info (Right aligned)

@@ -281,7 +281,7 @@ fn draw_ui(
         // Draw conflict popup
         crate::conflict_ui::draw_conflict_popup(f, &app.conflict_popup, palette);
 
-         // Draw task manager
+        // Draw task manager
         crate::task_ui::draw_task_manager(f, &app.task_manager, app.show_task_manager, palette);
 
         // Draw empty trash popup
@@ -315,25 +315,25 @@ pub async fn handle_event(
             let quit_match = keyboard
                 .quit
                 .as_ref()
-                .map_or(false, |keys| keys.contains(&shortcut));
-            if quit_match && !app.file_viewer.is_visible
-                    && !app.fuzzy_search.is_visible
-                    && !app.rename_popup.is_visible
-                    && !app.create_directory_popup.is_visible
-                    && !app.delete_popup.is_visible
-                    && !app.rename_popup.is_visible
-                    && !app.delete_popup.is_visible
-                    && !app.copy_move_popup.is_visible
-                    && !app.conflict_popup.is_visible
-                    && !app.quit_confirmation.is_visible  // Wait if confirmation is open, let it handle Esc
-                    && !app.error_popup.is_visible // Wait if error popup is open
-                    && !app.show_task_manager
+                .is_some_and(|keys| keys.contains(&shortcut));
+            if quit_match
+                && !app.file_viewer.is_visible
+                && !app.fuzzy_search.is_visible
+                && !app.rename_popup.is_visible
+                && !app.create_directory_popup.is_visible
+                && !app.delete_popup.is_visible
+                && !app.copy_move_popup.is_visible
+                && !app.conflict_popup.is_visible
+                && !app.quit_confirmation.is_visible
+                && !app.error_popup.is_visible
+                && !app.show_task_manager
             {
                 if app.task_manager.has_running_tasks() {
                     app.quit_confirmation.is_visible = true;
                     return false;
+                } else {
+                    return true;
                 }
-                return true;
             }
 
             // Handle error popup
@@ -434,12 +434,12 @@ fn handle_quit_popup_event(code: KeyCode, app: &mut AppState) -> bool {
     match code {
         KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
             // Confirm quit
-            return true;
+            true
         }
         KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
             // Cancel quit
             app.quit_confirmation.reset();
-            return false;
+            false
         }
         _ => false,
     }
@@ -1831,10 +1831,8 @@ fn spawn_copy_move_task(app: &mut AppState) {
                     ));
                     return;
                 }
-            } else {
-                if let Some(parent) = dest_path.parent() {
-                    let _ = tokio::fs::create_dir_all(parent).await;
-                }
+            } else if let Some(parent) = dest_path.parent() {
+                let _ = tokio::fs::create_dir_all(parent).await;
             }
 
             let mut failures = Vec::new();
@@ -1903,14 +1901,14 @@ fn count_items(paths: &[std::path::PathBuf]) -> usize {
     let mut count = 0;
     for path in paths {
         count += 1; // Count the item itself
-        if path.is_dir() {
-            if let Ok(entries) = std::fs::read_dir(path) {
-                let mut children = Vec::new();
-                for entry in entries.flatten() {
-                    children.push(entry.path());
-                }
-                count += count_items(&children);
+        if path.is_dir()
+            && let Ok(entries) = std::fs::read_dir(path)
+        {
+            let mut children = Vec::new();
+            for entry in entries.flatten() {
+                children.push(entry.path());
             }
+            count += count_items(&children);
         }
     }
     count
@@ -1976,11 +1974,11 @@ fn recursive_op<'a>(
                     // Move optimization: Try rename first if it's a move operation
                     if action == crate::app::CopyMoveAction::Move {
                         // Only try rename if dest doesn't exist to avoid implicit overwrite
-                        if let Ok(false) = tokio::fs::try_exists(&dest).await {
-                            if tokio::fs::rename(&src, &dest).await.is_ok() {
-                                // Success, no need to process children or post-process
-                                continue;
-                            }
+                        if let Ok(false) = tokio::fs::try_exists(&dest).await
+                            && tokio::fs::rename(&src, &dest).await.is_ok()
+                        {
+                            // Success, no need to process children or post-process
+                            continue;
                         }
                     }
 
@@ -2191,15 +2189,14 @@ fn handle_create_directory_popup_event(code: KeyCode, app: &mut AppState) -> boo
                         tab_manager.active_tab_mut().sort_entries();
 
                         // Try to select the new directory
-                        if let Some(name) = new_path.file_name().and_then(|n| n.to_str()) {
-                            if let Some(idx) = tab_manager
+                        if let Some(name) = new_path.file_name().and_then(|n| n.to_str())
+                            && let Some(idx) = tab_manager
                                 .active_tab()
                                 .entries
                                 .iter()
                                 .position(|e| e.name == name)
-                            {
-                                tab_manager.active_tab_mut().cursor = idx;
-                            }
+                        {
+                            tab_manager.active_tab_mut().cursor = idx;
                         }
                     }
                 }

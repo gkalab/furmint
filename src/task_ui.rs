@@ -93,8 +93,7 @@ pub fn draw_task_manager(
                 let filled = (ratio * bar_width as f64).round() as usize;
                 let empty = bar_width.saturating_sub(filled);
 
-                let bar: String = std::iter::repeat('=').take(filled).collect::<String>()
-                    + &std::iter::repeat(' ').take(empty).collect::<String>();
+                let bar: String = "=".repeat(filled) + &" ".repeat(empty);
 
                 format!("[{}] {}% ({} left)", bar, percentage, left)
             } else {
