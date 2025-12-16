@@ -20,8 +20,8 @@ pub async fn empty_trash() -> std::result::Result<usize, String> {
         unsafe {
             use winapi::shared::winerror::S_OK;
             use winapi::um::shellapi::SHEmptyRecycleBinW;
-            use winapi::um::winnt::HANDLE;
-            let hwnd: HANDLE = ptr::null_mut();
+            use winapi::shared::windef::HWND;
+            let hwnd: HWND = std::ptr::null_mut();
             let pszRoot: *const u16 = ptr::null();
             let res = SHEmptyRecycleBinW(hwnd, pszRoot, 0);
             if res == S_OK {
