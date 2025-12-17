@@ -31,6 +31,7 @@ pub struct KeyboardConfig {
     pub select_all: Option<Vec<String>>,
     pub new_dir: Option<Vec<String>>,
     pub open_terminal: Option<Vec<String>>,
+    pub help: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -74,6 +75,7 @@ pub fn default_keyboard_config() -> KeyboardConfig {
         new_dir: Some(vec!["F7".to_string()]),
         select_all: Some(vec!["Ctrl-a".to_string()]),
         open_terminal: Some(vec!["F9".to_string()]),
+        help: Some(vec!["F1".to_string()]),
     }
 }
 
@@ -193,6 +195,10 @@ pub fn merge_keyboard_config(
             .as_ref()
             .and_then(|k| k.open_terminal.clone())
             .or_else(|| default.open_terminal.clone()),
+        help: user
+            .as_ref()
+            .and_then(|k| k.help.clone())
+            .or_else(|| default.help.clone()),
     }
 }
 

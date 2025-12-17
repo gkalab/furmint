@@ -477,6 +477,7 @@ pub struct AppState {
     pub quit_confirmation: QuitConfirmationState,
     pub task_manager: crate::tasks::TaskManager,
     pub create_file_popup: CreateFileState,
+    pub help_popup: HelpState,
 
     // Channels to communicate decisions back to tasks
     pub task_decision_txs:
@@ -738,6 +739,20 @@ impl EmptyTrashState {
     }
 }
 
+pub struct HelpState {
+    pub is_visible: bool,
+}
+
+impl HelpState {
+    pub fn new() -> Self {
+        Self { is_visible: false }
+    }
+
+    pub fn reset(&mut self) {
+        self.is_visible = false;
+    }
+}
+
 pub struct FileViewerState {
     pub path: PathBuf,
     pub content: Vec<String>,
@@ -818,6 +833,15 @@ mod tests {
         assert_eq!(s.cursor_position, 0);
         assert!(s.error.is_none());
         assert_eq!(s.parent_dir, std::path::PathBuf::new());
+    }
+
+    // Test for HelpState reset
+    #[test]
+    fn test_help_state_reset() {
+        let mut s = super::HelpState::new();
+        s.is_visible = true;
+        s.reset();
+        assert!(!s.is_visible);
     }
     use super::*;
     use std::path::PathBuf;

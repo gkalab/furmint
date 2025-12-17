@@ -11,6 +11,7 @@ mod error_ui;
 mod event_loop;
 mod fs_ops;
 mod fuzzy_search_ui;
+mod help_ui;
 mod quit_ui;
 mod rename_ui;
 mod task_ui;
@@ -28,8 +29,27 @@ use std::env;
 #[tokio::main]
 async fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
+    let bin_name = args.get(0).map(|s| s.as_str()).unwrap_or("fm");
 
     // Handle CLI arguments
+    if args.contains(&"--help".to_string()) || args.contains(&"-h".to_string()) {
+        println!("fm - A TUI file manager");
+        println!();
+        println!("Usage: {} [OPTIONS]", bin_name);
+        println!();
+        println!("Options:");
+        println!("  -h, --help            Show this help message");
+        println!("  --version             Show version information");
+        println!("  --create-config       Create default configuration file");
+        println!();
+        println!("Key bindings (default):");
+        println!("  F1                  Show help screen");
+        println!("  Ctrl-q              Quit");
+        println!("  Arrow keys          Navigate");
+        println!("  Enter               Enter directory / Open file");
+        println!("  Tab                 Change panel");
+        return Ok(());
+    }
     if args.contains(&"--version".to_string()) {
         println!("fm version {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
@@ -115,6 +135,7 @@ async fn main() -> Result<()> {
         conflict_popup: crate::app::ConflictState::new(),
         error_popup: crate::app::ErrorState::new(),
         quit_confirmation: crate::app::QuitConfirmationState::new(),
+        help_popup: crate::app::HelpState::new(),
         task_manager,
         task_decision_txs: std::collections::HashMap::new(),
         show_task_manager: false,

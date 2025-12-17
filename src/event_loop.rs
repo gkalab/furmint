@@ -52,12 +52,12 @@ pub async fn run_event_loop(
     let mut should_exit = false;
 
     // Initial draw
-    draw_ui(terminal, app, palette)?;
+    draw_ui(terminal, app, palette, &keyboard)?;
 
     while !should_exit {
         // Explicit redraw if requested (e.g. after editor)
         if app.needs_redraw {
-            draw_ui(terminal, app, palette)?;
+            draw_ui(terminal, app, palette, &keyboard)?;
             app.needs_redraw = false;
         }
         tokio::select! {
@@ -65,7 +65,7 @@ pub async fn run_event_loop(
                             Some(event) = watcher_rx.recv() => {
                                 handle_watcher_event(event, app);
                                 app.sync_watcher();
-                                draw_ui(terminal, app, palette)?;
+                                draw_ui(terminal, app, palette, &keyboard)?;
                             }
                             // Handle input events
                             Some(event) = input_rx.recv() => {
@@ -86,7 +86,7 @@ pub async fn run_event_loop(
                                 if exit {
                                     should_exit = true;
                                 } else {
-                                    draw_ui(terminal, app, palette)?;
+                                    draw_ui(terminal, app, palette, &keyboard)?;
                                 }
 
                                 // Sync watcher if navigation happened
@@ -95,7 +95,7 @@ pub async fn run_event_loop(
                             // Handle task events
                             Some(event) = task_rx.recv() => {
                                 handle_task_event(event, app);
-                                draw_ui(terminal, app, palette)?;
+                                draw_ui(terminal, app, palette, &keyboard)?;
                             }
                             else => break,
                         }
@@ -175,6 +175,7 @@ fn draw_ui(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
     app: &mut AppState,
     palette: &ThemePalette,
+    keyboard: &KeyboardConfig,
 ) -> anyhow::Result<()> {
     terminal.draw(|f| {
         let size = f.area();
@@ -294,6 +295,9 @@ fn draw_ui(
 
         // Draw error popup
         crate::error_ui::draw_error_popup(f, &app.error_popup, palette);
+
+        // Draw help popup
+        crate::help_ui::draw_help_popup(f, app.help_popup.is_visible, keyboard, palette);
     })?;
     Ok(())
 }
@@ -328,6 +332,7 @@ pub async fn handle_event(
                 && !app.conflict_popup.is_visible
                 && !app.quit_confirmation.is_visible
                 && !app.error_popup.is_visible
+                && !app.help_popup.is_visible
                 && !app.show_task_manager
             {
                 if app.task_manager.has_running_tasks() {
@@ -342,6 +347,14 @@ pub async fn handle_event(
             if app.error_popup.is_visible {
                 if handle_error_popup_event(code, app).await {
                     return true;
+                }
+                return false;
+            }
+
+            // Handle help popup
+            if app.help_popup.is_visible {
+                if code == KeyCode::Esc {
+                    app.help_popup.reset();
                 }
                 return false;
             }
@@ -727,6 +740,15 @@ async fn handle_main_panel_event(
         app.show_task_manager = !app.show_task_manager;
         return false;
     }
+
+    // Help
+    if let Some(keys) = &keyboard.help
+        && keys.contains(&shortcut)
+    {
+        app.help_popup.is_visible = true;
+        return false;
+    }
+
     // Open Terminal
     if let Some(keys) = &keyboard.open_terminal
         && keys.contains(&shortcut)
