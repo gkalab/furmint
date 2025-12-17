@@ -727,6 +727,13 @@ async fn handle_main_panel_event(
         app.show_task_manager = !app.show_task_manager;
         return false;
     }
+    // Open Terminal
+    if let Some(keys) = &keyboard.open_terminal
+        && keys.contains(&shortcut)
+    {
+        handle_open_terminal(app);
+        return false;
+    }
 
     // Sorting shortcuts
     if let Some(keys) = &keyboard.sort_by_name
@@ -2471,4 +2478,89 @@ pub async fn open_file_in_editor_with_env_handling(
     } else {
         Ok(())
     }
+}
+pub fn handle_open_terminal(app: &mut AppState) {
+    let tab_manager = match app.active {
+        PanelSide::Left => &app.left,
+        PanelSide::Right => &app.right,
+    };
+    let current_dir = tab_manager.active_tab().current_dir.clone();
+    let configured_terminal = app.terminal.clone();
+
+    tokio::spawn(async move {
+        if let Err(e) = open_terminal(&current_dir, configured_terminal) {
+            eprintln!("Error opening terminal: {}", e);
+        }
+    });
+}
+
+fn open_terminal(
+    dir: &std::path::Path,
+    configured_terminal: Option<String>,
+) -> anyhow::Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(term) = configured_terminal {
+            Command::new(term).current_dir(dir).spawn()?;
+            return Ok(());
+        }
+        // Try x-terminal-emulator first (standard on Debian-based)
+        if Command::new("x-terminal-emulator").arg("--version").output().is_ok() {
+             Command::new("x-terminal-emulator").current_dir(dir).spawn()?;
+             return Ok(());
+        }
+        // Common terminals
+        let terminals = [
+            "gnome-terminal",
+            "konsole",
+            "xfce4-terminal",
+            "alacritty",
+            "kitty",
+            "foot",
+            "termite",
+            "st",
+            "xterm",
+            "urxvt",
+        ];
+        for term in terminals {
+            if Command::new(term).arg("--version").output().is_ok() {
+                Command::new(term).current_dir(dir).spawn()?;
+                return Ok(());
+            }
+        }
+        Err(anyhow::anyhow!("No terminal found"))
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(term) = configured_terminal {
+             Command::new("open").arg("-a").arg(term).arg(dir).spawn()?;
+        } else {
+             Command::new("open").arg("-a").arg("Terminal").arg(dir).spawn()?;
+        }
+        Ok(())
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(term) = configured_terminal {
+            Command::new("cmd")
+                .arg("/c")
+                .arg("start")
+                .arg(term)
+                .current_dir(dir)
+                .spawn()?;
+        } else {
+            Command::new("cmd")
+                .arg("/c")
+                .arg("start")
+                .arg("cmd")
+                .current_dir(dir)
+                .spawn()?;
+        }
+        Ok(())
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    Err(anyhow::anyhow!("Unsupported OS"))
 }

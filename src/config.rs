@@ -30,6 +30,7 @@ pub struct KeyboardConfig {
     pub task_manager: Option<Vec<String>>,
     pub select_all: Option<Vec<String>>,
     pub create_directory: Option<Vec<String>>,
+    pub open_terminal: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -42,6 +43,7 @@ pub struct ThemeConfig {
 pub struct AppConfig {
     pub keyboard: Option<KeyboardConfig>,
     pub theme: Option<ThemeConfig>,
+    pub terminal: Option<String>,
 }
 
 // Default key bindings (update as needed)
@@ -72,6 +74,7 @@ pub fn default_keyboard_config() -> KeyboardConfig {
         task_manager: Some(vec!["F10".to_string()]),
         create_directory: Some(vec!["F7".to_string()]),
         select_all: Some(vec!["Ctrl-a".to_string()]),
+        open_terminal: Some(vec!["F9".to_string()]),
     }
 }
 
@@ -187,6 +190,10 @@ pub fn merge_keyboard_config(
             .as_ref()
             .and_then(|k| k.quit.clone())
             .or_else(|| default.quit.clone()),
+        open_terminal: user
+            .as_ref()
+            .and_then(|k| k.open_terminal.clone())
+            .or_else(|| default.open_terminal.clone()),
     }
 }
 
@@ -216,7 +223,7 @@ pub fn merge_theme_config(
     })
 }
 
-pub fn load_config() -> Result<(KeyboardConfig, ThemeConfig), String> {
+pub fn load_config() -> Result<(KeyboardConfig, ThemeConfig, Option<String>), String> {
     let path = config_path().ok_or("Could not determine config directory")?;
     let default_keyboard = default_keyboard_config();
     let default_theme = default_theme_config();
@@ -227,9 +234,10 @@ pub fn load_config() -> Result<(KeyboardConfig, ThemeConfig), String> {
             toml::from_str(&content).map_err(|e| format!("Config file is invalid: {}", e))?;
         let keyboard = merge_keyboard_config(&user_config.keyboard, &default_keyboard);
         let theme = merge_theme_config(&user_config.theme, &default_theme)?;
-        Ok((keyboard, theme))
+        let terminal = user_config.terminal.clone();
+        Ok((keyboard, theme, terminal))
     } else {
-        Ok((default_keyboard, default_theme))
+        Ok((default_keyboard, default_theme, None))
     }
 }
 

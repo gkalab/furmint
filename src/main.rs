@@ -32,7 +32,7 @@ async fn main() -> Result<()> {
         ratatui::Terminal::new(ratatui::backend::CrosstermBackend::new(std::io::stdout()))?;
 
     // Load config
-    let (keyboard, theme_config) = match load_config() {
+    let (keyboard, theme_config, terminal_config) = match load_config() {
         Ok(cfg) => cfg,
         Err(e) => {
             eprintln!("Error loading config: {e}");
@@ -101,6 +101,7 @@ async fn main() -> Result<()> {
         watcher,
         input_polling_handle: None,
         needs_redraw: false,
+        terminal: terminal_config,
     };
 
     // Record initial directory visit

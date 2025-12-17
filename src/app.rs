@@ -489,6 +489,7 @@ pub struct AppState {
     // Input polling task handle
     pub input_polling_handle: Option<tokio::task::JoinHandle<()>>,
     pub needs_redraw: bool, // <--- Added for explicit redraw after editor
+    pub terminal: Option<String>,
 }
 
 impl AppState {
