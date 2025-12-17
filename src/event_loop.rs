@@ -2481,19 +2481,16 @@ pub async fn open_file_in_editor_with_env_handling(
 }
 pub fn handle_open_terminal(app: &mut AppState) {
     let tab_manager = match app.active {
-        PanelSide::Left => &app.left,
-        PanelSide::Right => &app.right,
+        PanelSide::Left => &mut app.left,
+        PanelSide::Right => &mut app.right,
     };
     let current_dir = tab_manager.active_tab().current_dir.clone();
     let configured_terminal = app.global.terminal.clone();
 
-    tokio::spawn(async move {
-        if let Err(e) = open_terminal(&current_dir, configured_terminal) {
-            eprintln!("Error opening terminal: {}", e);
-        }
-    });
+    if let Err(e) = open_terminal(&current_dir, configured_terminal) {
+        tab_manager.active_tab_mut().error = Some(format!("Error opening terminal: {}", e));
+    }
 }
-
 fn open_terminal(dir: &std::path::Path, configured_terminal: Option<String>) -> anyhow::Result<()> {
     #[cfg(target_os = "linux")]
     {

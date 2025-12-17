@@ -1,9 +1,9 @@
 use directories::ProjectDirs;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct KeyboardConfig {
     pub new_file: Option<Vec<String>>,
     pub quit: Option<Vec<String>>,
@@ -33,13 +33,13 @@ pub struct KeyboardConfig {
     pub open_terminal: Option<Vec<String>>,
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct GlobalConfig {
     pub theme: Option<String>,
     pub terminal: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct AppConfig {
     pub global: Option<GlobalConfig>,
     pub keyboard: Option<KeyboardConfig>,
@@ -80,7 +80,7 @@ pub fn default_keyboard_config() -> KeyboardConfig {
 pub fn default_global_config() -> GlobalConfig {
     GlobalConfig {
         theme: Some("mariana".to_string()),
-        terminal: Some("alacritty".to_string()),
+        terminal: None,
     }
 }
 
@@ -242,4 +242,27 @@ pub fn load_config() -> Result<(KeyboardConfig, GlobalConfig), String> {
 
 pub fn config_path() -> Option<PathBuf> {
     ProjectDirs::from("org", "fm", "fm").map(|proj_dirs| proj_dirs.config_dir().join("config.toml"))
+}
+pub fn create_default_config() -> Result<PathBuf, String> {
+    let path = config_path().ok_or("Could not determine config directory")?;
+    if path.exists() {
+        return Err(format!("Config file already exists at {:?}", path));
+    }
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create config directory: {}", e))?;
+    }
+
+    let default_config = AppConfig {
+        global: Some(default_global_config()),
+        keyboard: Some(default_keyboard_config()),
+    };
+
+    let toml_content = toml::to_string_pretty(&default_config)
+        .map_err(|e| format!("Failed to serialize default config: {}", e))?;
+
+    fs::write(&path, toml_content).map_err(|e| format!("Failed to write config file: {}", e))?;
+
+    Ok(path)
 }

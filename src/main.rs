@@ -20,13 +20,34 @@ mod ui;
 mod ui_utils;
 mod watcher;
 
-use crate::config::load_config;
+use crate::config::{create_default_config, load_config};
 use anyhow::Result;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use std::env;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let args: Vec<String> = env::args().collect();
+
+    // Handle CLI arguments
+    if args.contains(&"--version".to_string()) {
+        println!("fm version {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
+    if args.contains(&"--create-config".to_string()) {
+        match create_default_config() {
+            Ok(path) => {
+                println!("Default configuration created at: {:?}", path);
+                return Ok(());
+            }
+            Err(e) => {
+                eprintln!("Error creating default config: {}", e);
+                std::process::exit(1);
+            }
+        }
+    }
+
     enable_raw_mode()?;
     let mut terminal =
         ratatui::Terminal::new(ratatui::backend::CrosstermBackend::new(std::io::stdout()))?;

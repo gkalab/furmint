@@ -104,9 +104,11 @@ The file manager supports multiple tabs per panel, allowing you to work with mul
 
 ---
 
-## Keyboard and Theme Configuration
+### Command Line Options
 
-The app supports user-configurable keyboard shortcuts and theme selection via a TOML config file.
+Support for basic maintenance and information:
+- `--version`: Display the application version and exit.
+- `--create-config`: Generate a default configuration file at the system's default location (fails if it already exists).
 
 ### Config File Location
 - **Linux:** `~/.config/fm/config.toml`
