@@ -596,21 +596,21 @@ async fn handle_main_panel_event(
         return false;
     }
     // Next tab
-    if let Some(keys) = &keyboard.next_tab
+    if let Some(keys) = &keyboard.tab_next
         && keys.contains(&shortcut)
     {
         handle_next_tab(app);
         return false;
     }
     // Previous tab
-    if let Some(keys) = &keyboard.prev_tab
+    if let Some(keys) = &keyboard.tab_prev
         && keys.contains(&shortcut)
     {
         handle_prev_tab(app);
         return false;
     }
     // Close tab
-    if let Some(keys) = &keyboard.close_tab
+    if let Some(keys) = &keyboard.tab_close
         && keys.contains(&shortcut)
     {
         handle_close_tab(app);
@@ -618,35 +618,35 @@ async fn handle_main_panel_event(
     }
 
     // Previous directory from history
-    if let Some(keys) = &keyboard.history_previous
+    if let Some(keys) = &keyboard.back
         && keys.contains(&shortcut)
     {
         handle_history_previous(app);
         return false;
     }
     // Next directory from history
-    if let Some(keys) = &keyboard.history_next
+    if let Some(keys) = &keyboard.forward
         && keys.contains(&shortcut)
     {
         handle_history_next(app);
         return false;
     }
     // Enter directory
-    if let Some(keys) = &keyboard.enter_directory
+    if let Some(keys) = &keyboard.enter_dir
         && keys.contains(&shortcut)
     {
         handle_enter_directory(app);
         return false;
     }
     // Directory up
-    if let Some(keys) = &keyboard.directory_up
+    if let Some(keys) = &keyboard.up_dir
         && keys.contains(&shortcut)
     {
         handle_directory_up(app);
         return false;
     }
     // Edit
-    if let Some(keys) = &keyboard.edit
+    if let Some(keys) = &keyboard.edit_file
         && keys.contains(&shortcut)
     {
         // Await edit action, pass input_tx
@@ -654,7 +654,7 @@ async fn handle_main_panel_event(
         return false;
     }
     // Fuzzy search
-    if let Some(keys) = &keyboard.fuzzy_search
+    if let Some(keys) = &keyboard.search
         && keys.contains(&shortcut)
     {
         app.fuzzy_search.is_visible = true;
@@ -675,7 +675,7 @@ async fn handle_main_panel_event(
     }
 
     // Create File
-    if let Some(keys) = &keyboard.create_file
+    if let Some(keys) = &keyboard.new_file
         && keys.contains(&shortcut)
     {
         handle_init_create_file(app);
@@ -683,7 +683,7 @@ async fn handle_main_panel_event(
     }
 
     // Create Directory
-    if let Some(keys) = &keyboard.create_directory
+    if let Some(keys) = &keyboard.new_dir
         && keys.contains(&shortcut)
     {
         handle_init_create_directory(app);
@@ -698,7 +698,7 @@ async fn handle_main_panel_event(
         return false;
     }
     // Delete Permanently
-    if let Some(keys) = &keyboard.delete_permanently
+    if let Some(keys) = &keyboard.delete_force
         && keys.contains(&shortcut)
     {
         handle_init_delete(app, true);
@@ -706,7 +706,7 @@ async fn handle_main_panel_event(
     }
 
     // Copy
-    if let Some(keys) = &keyboard.copy_files
+    if let Some(keys) = &keyboard.copy_to
         && keys.contains(&shortcut)
     {
         handle_init_copy(app);
@@ -714,14 +714,14 @@ async fn handle_main_panel_event(
     }
 
     // Move
-    if let Some(keys) = &keyboard.move_files
+    if let Some(keys) = &keyboard.move_to
         && keys.contains(&shortcut)
     {
         handle_init_move(app);
         return false;
     }
     // Task Manager
-    if let Some(keys) = &keyboard.task_manager
+    if let Some(keys) = &keyboard.tasks
         && keys.contains(&shortcut)
     {
         app.show_task_manager = !app.show_task_manager;
@@ -736,25 +736,25 @@ async fn handle_main_panel_event(
     }
 
     // Sorting shortcuts
-    if let Some(keys) = &keyboard.sort_by_name
+    if let Some(keys) = &keyboard.sort_name
         && keys.contains(&shortcut)
     {
         handle_sort(app, crate::app::SortColumn::Name);
         return false;
     }
-    if let Some(keys) = &keyboard.sort_by_extension
+    if let Some(keys) = &keyboard.sort_ext
         && keys.contains(&shortcut)
     {
         handle_sort(app, crate::app::SortColumn::Extension);
         return false;
     }
-    if let Some(keys) = &keyboard.sort_by_date
+    if let Some(keys) = &keyboard.sort_date
         && keys.contains(&shortcut)
     {
         handle_sort(app, crate::app::SortColumn::Date);
         return false;
     }
-    if let Some(keys) = &keyboard.sort_by_size
+    if let Some(keys) = &keyboard.sort_size
         && keys.contains(&shortcut)
     {
         handle_sort(app, crate::app::SortColumn::Size);
@@ -2485,7 +2485,7 @@ pub fn handle_open_terminal(app: &mut AppState) {
         PanelSide::Right => &app.right,
     };
     let current_dir = tab_manager.active_tab().current_dir.clone();
-    let configured_terminal = app.terminal.clone();
+    let configured_terminal = app.global.terminal.clone();
 
     tokio::spawn(async move {
         if let Err(e) = open_terminal(&current_dir, configured_terminal) {
@@ -2494,10 +2494,7 @@ pub fn handle_open_terminal(app: &mut AppState) {
     });
 }
 
-fn open_terminal(
-    dir: &std::path::Path,
-    configured_terminal: Option<String>,
-) -> anyhow::Result<()> {
+fn open_terminal(dir: &std::path::Path, configured_terminal: Option<String>) -> anyhow::Result<()> {
     #[cfg(target_os = "linux")]
     {
         if let Some(term) = configured_terminal {
@@ -2505,9 +2502,15 @@ fn open_terminal(
             return Ok(());
         }
         // Try x-terminal-emulator first (standard on Debian-based)
-        if Command::new("x-terminal-emulator").arg("--version").output().is_ok() {
-             Command::new("x-terminal-emulator").current_dir(dir).spawn()?;
-             return Ok(());
+        if Command::new("x-terminal-emulator")
+            .arg("--version")
+            .output()
+            .is_ok()
+        {
+            Command::new("x-terminal-emulator")
+                .current_dir(dir)
+                .spawn()?;
+            return Ok(());
         }
         // Common terminals
         let terminals = [
@@ -2534,9 +2537,13 @@ fn open_terminal(
     #[cfg(target_os = "macos")]
     {
         if let Some(term) = configured_terminal {
-             Command::new("open").arg("-a").arg(term).arg(dir).spawn()?;
+            Command::new("open").arg("-a").arg(term).arg(dir).spawn()?;
         } else {
-             Command::new("open").arg("-a").arg("Terminal").arg(dir).spawn()?;
+            Command::new("open")
+                .arg("-a")
+                .arg("Terminal")
+                .arg(dir)
+                .spawn()?;
         }
         Ok(())
     }

@@ -115,38 +115,38 @@ The app supports user-configurable keyboard shortcuts and theme selection via a 
 
 ### Example `config.toml`
 ```toml
-[keyboard]
-quit = ["Ctrl-q"]
-enter_directory = ["Right"]
-directory_up = ["Backspace", "Left"]
-history_previous = ["Alt-Left"]
-history_next = ["Alt-Right"]
-edit = ["F4"]
-new_tab = ["Ctrl-t"]
-next_tab = ["Ctrl-Right"]
-prev_tab = ["Ctrl-Left"]
-close_tab = ["Ctrl-w"]
-fuzzy_search = ["Ctrl-p"]
-sort_by_name = ["Ctrl-F2"]
-sort_by_extension = ["Ctrl-F4"]
-sort_by_date = ["Ctrl-F5"]
-sort_by_size = ["Ctrl-F6"]
-rename = ["F2"]
-delete = ["Delete"]
-delete_permanently = ["Shift-Delete"]
-task_manager = ["F10"]
-copy_files = ["F5"]
-move_files = ["F6"]
-create_directory = ["F7"]
-empty_trash = ["Ctrl-F8"]
-create_file = ["Shift-F4"]
-open_terminal = ["F9"]
-
-[theme]
-name = "catppuccin macchiato"
-
+[global]
+theme = "mariana"
 # Optional: Configure default terminal to launch
 # terminal = "gnome-terminal"
+
+[keyboard]
+new_file = ["Shift-F4"]
+quit = ["Ctrl-q"]
+back = ["Alt-Left"]
+forward = ["Alt-Right"]
+enter_dir = ["Right"]
+up_dir = ["Backspace", "Left"]
+edit_file = ["F4"]
+new_tab = ["Ctrl-t"]
+tab_next = ["Ctrl-Right"]
+tab_prev = ["Ctrl-Left"]
+tab_close = ["Ctrl-w"]
+search = ["Ctrl-p"]
+sort_name = ["Ctrl-F2"]
+sort_ext = ["Ctrl-F4"]
+sort_date = ["Ctrl-F5"]
+sort_size = ["Ctrl-F6"]
+copy_to = ["F5"]
+move_to = ["F6"]
+rename = ["F2"]
+delete = ["Delete"]
+delete_force = ["Shift-Delete"]
+empty_trash = ["Ctrl-F8"]
+tasks = ["F10"]
+new_dir = ["F7"]
+select_all = ["Ctrl-a"]
+open_terminal = ["F9"]
 ```
 - You can assign multiple shortcuts to the same action (e.g., `quit = ["Ctrl-q", "Esc"]`).
 - Shortcut format: `Ctrl-q`, `Esc`, `Ctrl-Up`, `Left`, `Ctrl-Down`, `Alt-Right`, etc.

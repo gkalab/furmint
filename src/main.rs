@@ -32,7 +32,7 @@ async fn main() -> Result<()> {
         ratatui::Terminal::new(ratatui::backend::CrosstermBackend::new(std::io::stdout()))?;
 
     // Load config
-    let (keyboard, theme_config, terminal_config) = match load_config() {
+    let (keyboard, global_config) = match load_config() {
         Ok(cfg) => cfg,
         Err(e) => {
             eprintln!("Error loading config: {e}");
@@ -42,8 +42,8 @@ async fn main() -> Result<()> {
     };
 
     // Select theme
-    let theme_name = theme_config
-        .name
+    let theme_name = global_config
+        .theme
         .as_deref()
         .unwrap_or("catppuccin macchiato");
     let palette = theme::get_theme(theme_name).unwrap_or_else(theme::default_theme);
@@ -83,7 +83,7 @@ async fn main() -> Result<()> {
         active: crate::app::PanelSide::Left,
         file_viewer: crate::app::FileViewerState::new(
             palette.is_dark,
-            theme_config.name.as_deref().unwrap_or("default"),
+            global_config.theme.as_deref().unwrap_or("default"),
         ),
         fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
         rename_popup: crate::app::RenameState::new(),
@@ -101,7 +101,7 @@ async fn main() -> Result<()> {
         watcher,
         input_polling_handle: None,
         needs_redraw: false,
-        terminal: terminal_config,
+        global: global_config,
     };
 
     // Record initial directory visit
