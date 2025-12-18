@@ -113,7 +113,8 @@ On Windows, you can quickly change the drive for either panel using dedicated sh
 ### Keyboard Shortcuts
 - **Alt+F1**: Open drive selection for the **left** panel
 - **Alt+F2**: Open drive selection for the **right** panel
-- **Arrow keys / j, k**: Navigate drive list
+- **Arrow keys**: Navigate drive list
+- **Drive Letters (A, C, D, etc.)**: Quick-jump to a specific drive
 - **Enter**: Switch to selected drive
 - **Esc**: Close dropdown without changing drive
 - **Tab**: Switch between panels (existing functionality)

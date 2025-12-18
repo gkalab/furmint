@@ -38,19 +38,30 @@ pub fn handle_drive_select_event(code: KeyCode, app: &mut AppState) -> bool {
         KeyCode::Esc => {
             app.drive_select_popup.reset();
         }
-        KeyCode::Char('j') | KeyCode::Down => {
+        KeyCode::Down => {
             if !app.drive_select_popup.drives.is_empty() {
                 app.drive_select_popup.selected_index = (app.drive_select_popup.selected_index + 1)
                     % app.drive_select_popup.drives.len();
             }
         }
-        KeyCode::Char('k') | KeyCode::Up => {
+        KeyCode::Up => {
             if !app.drive_select_popup.drives.is_empty() {
                 if app.drive_select_popup.selected_index == 0 {
                     app.drive_select_popup.selected_index = app.drive_select_popup.drives.len() - 1;
                 } else {
                     app.drive_select_popup.selected_index -= 1;
                 }
+            }
+        }
+        KeyCode::Char(c) => {
+            let target = format!("{}:\\", c.to_ascii_uppercase());
+            if let Some(idx) = app
+                .drive_select_popup
+                .drives
+                .iter()
+                .position(|d| d.to_ascii_uppercase() == target)
+            {
+                app.drive_select_popup.selected_index = idx;
             }
         }
         KeyCode::Enter => {
