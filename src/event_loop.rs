@@ -2616,18 +2616,7 @@ fn spawn_terminal(
     #[cfg(target_os = "windows")]
     {
         if let Some(c) = command {
-            Command::new("cmd")
-                .arg("/c")
-                .arg("start")
-                .arg(if let Some(term) = configured_terminal {
-                    term
-                } else {
-                    "cmd".to_string()
-                })
-                .arg("/k") // Keep terminal open after command
-                .arg(c)
-                .current_dir(dir)
-                .spawn()?;
+            Command::new(c).current_dir(dir).spawn()?;
         } else if let Some(term) = configured_terminal {
             Command::new("cmd")
                 .arg("/c")
