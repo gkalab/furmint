@@ -165,14 +165,14 @@ pub fn draw_drive_select_popup(f: &mut Frame, app: &mut AppState, palette: &Them
         .map(|(i, d)| {
             let is_selected = i == app.drive_select_popup.selected_index;
             if is_selected {
-                ListItem::new(format!("> {}", d)).style(
+                ListItem::new(d.clone()).style(
                     Style::default()
                         .fg(highlight_fg)
                         .bg(highlight_bg)
                         .add_modifier(Modifier::BOLD),
                 )
             } else {
-                ListItem::new(format!("  {}", d)).style(Style::default().fg(text_color))
+                ListItem::new(d.clone()).style(Style::default().fg(text_color))
             }
         })
         .collect();
