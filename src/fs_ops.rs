@@ -267,6 +267,25 @@ pub fn format_modified(modified: Option<SystemTime>) -> String {
     }
 }
 
+// Helper to detect executables
+pub fn is_executable(_full_path: &std::path::Path, e: &FileEntry) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::symlink_metadata(_full_path) {
+            let mode = meta.permissions().mode();
+            mode & 0o111 != 0 && !e.is_dir
+        } else {
+            false
+        }
+    }
+    #[cfg(windows)]
+    {
+        let lower = e.name.to_lowercase();
+        (lower.ends_with(".exe") || lower.ends_with(".bat") || lower.ends_with(".cmd")) && !e.is_dir
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

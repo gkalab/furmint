@@ -1273,21 +1273,53 @@ fn handle_enter_directory(app: &mut AppState) {
     };
     let panel = tab_manager.active_tab_mut();
 
-    if let Some(entry) = panel.current_entry().cloned()
-        && entry.is_dir
-    {
-        let new_dir = if entry.name == ".." {
-            panel.current_dir.parent().map(|p| p.to_path_buf())
-        } else {
-            Some(panel.current_dir.join(&entry.name))
-        };
-
-        if let Some(path) = new_dir {
-            if let Err(e) = panel.navigate_to(path.clone()) {
-                panel.error = Some(format!("Error: {}", e));
+    if let Some(entry) = panel.current_entry().cloned() {
+        if entry.is_dir {
+            let new_dir = if entry.name == ".." {
+                panel.current_dir.parent().map(|p| p.to_path_buf())
             } else {
-                app.dir_history.record_visit(&path);
-                update_viewer_content(app);
+                Some(panel.current_dir.join(&entry.name))
+            };
+
+            if let Some(path) = new_dir {
+                if let Err(e) = panel.navigate_to(path.clone()) {
+                    panel.error = Some(format!("Error: {}", e));
+                } else {
+                    app.dir_history.record_visit(&path);
+                    update_viewer_content(app);
+                }
+            }
+        } else {
+            let full_path = panel.current_dir.join(&entry.name);
+            let is_exe = crate::fs_ops::is_executable(&full_path, &entry);
+
+            if is_exe {
+                // Launch executable in the default terminal
+                let configured_terminal = app.global.terminal.clone();
+                if let Err(e) = spawn_terminal(
+                    &panel.current_dir,
+                    configured_terminal,
+                    Some(full_path.to_string_lossy().to_string()),
+                ) {
+                    panel.error = Some(format!("Error launching in terminal: {}", e));
+                }
+            } else {
+                // Open with default application: Use xdg-open on Linux for better WM integration
+                #[cfg(target_os = "linux")]
+                {
+                    let _ = Command::new("xdg-open")
+                        .arg(&full_path)
+                        .stdin(std::process::Stdio::null())
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .spawn();
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    if let Err(e) = open::that(&full_path) {
+                        panel.error = Some(format!("Error opening file: {}", e));
+                    }
+                }
             }
         }
     }
@@ -2509,53 +2541,61 @@ pub fn handle_open_terminal(app: &mut AppState) {
     let current_dir = tab_manager.active_tab().current_dir.clone();
     let configured_terminal = app.global.terminal.clone();
 
-    if let Err(e) = open_terminal(&current_dir, configured_terminal) {
+    if let Err(e) = spawn_terminal(&current_dir, configured_terminal, None) {
         tab_manager.active_tab_mut().error = Some(format!("Error opening terminal: {}", e));
     }
 }
-fn open_terminal(dir: &std::path::Path, configured_terminal: Option<String>) -> anyhow::Result<()> {
+fn spawn_terminal(
+    dir: &std::path::Path,
+    configured_terminal: Option<String>,
+    command: Option<String>,
+) -> anyhow::Result<()> {
     #[cfg(target_os = "linux")]
     {
-        if let Some(term) = configured_terminal {
-            Command::new(term).current_dir(dir).spawn()?;
-            return Ok(());
-        }
-        // Try x-terminal-emulator first (standard on Debian-based)
-        if Command::new("x-terminal-emulator")
-            .arg("--version")
-            .output()
-            .is_ok()
-        {
-            Command::new("x-terminal-emulator")
-                .current_dir(dir)
-                .spawn()?;
-            return Ok(());
-        }
-        // Common terminals
-        let terminals = [
-            "gnome-terminal",
-            "konsole",
-            "xfce4-terminal",
-            "alacritty",
-            "kitty",
-            "foot",
-            "termite",
-            "st",
-            "xterm",
-            "urxvt",
-        ];
-        for term in terminals {
-            if Command::new(term).arg("--version").output().is_ok() {
-                Command::new(term).current_dir(dir).spawn()?;
+        let terminal_list = if let Some(term) = configured_terminal {
+            vec![term]
+        } else {
+            vec![
+                "x-terminal-emulator".to_string(),
+                "gnome-terminal".to_string(),
+                "konsole".to_string(),
+                "xfce4-terminal".to_string(),
+                "alacritty".to_string(),
+                "kitty".to_string(),
+                "foot".to_string(),
+                "termite".to_string(),
+                "st".to_string(),
+                "xterm".to_string(),
+                "urxvt".to_string(),
+            ]
+        };
+
+        for term in terminal_list {
+            let mut cmd = Command::new(&term);
+            cmd.current_dir(dir);
+
+            if let Some(ref c) = command {
+                // Most Linux terminals use -e to execute a command
+                // Some might need special handling, but -e is the most universal
+                cmd.arg("-e").arg(c);
+            }
+
+            // Check if terminal exists before spawning
+            if Command::new(&term).arg("--version").output().is_ok()
+                || term == "x-terminal-emulator"
+            {
+                cmd.spawn()?;
                 return Ok(());
             }
         }
-        Err(anyhow::anyhow!("No terminal found"))
+        Err(anyhow::anyhow!("No suitable terminal emulator found"))
     }
 
     #[cfg(target_os = "macos")]
     {
-        if let Some(term) = configured_terminal {
+        if let Some(c) = command {
+            Command::new("open").arg("-a").arg("Terminal").arg("-e").arg(c).current_dir(dir).spawn()?;
+        } else if let Some(term) = configured_terminal {
             Command::new("open").arg("-a").arg(term).arg(dir).spawn()?;
         } else {
             Command::new("open")
@@ -2569,7 +2609,16 @@ fn open_terminal(dir: &std::path::Path, configured_terminal: Option<String>) -> 
 
     #[cfg(target_os = "windows")]
     {
-        if let Some(term) = configured_terminal {
+        if let Some(c) = command {
+            Command::new("cmd")
+                .arg("/c")
+                .arg("start")
+                .arg(if let Some(term) = configured_terminal { term } else { "cmd".to_string() })
+                .arg("/k") // Keep terminal open after command
+                .arg(c)
+                .current_dir(dir)
+                .spawn()?;
+        } else if let Some(term) = configured_terminal {
             Command::new("cmd")
                 .arg("/c")
                 .arg("start")
