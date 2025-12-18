@@ -98,7 +98,7 @@ fn perform_drive_navigation(app: &mut AppState, drive: String) {
     }
 }
 
-pub fn draw_drive_select_popup(f: &mut Frame, app: &mut AppState, _palette: &ThemePalette) {
+pub fn draw_drive_select_popup(f: &mut Frame, app: &mut AppState, palette: &ThemePalette) {
     if !app.drive_select_popup.is_visible || app.drive_select_popup.drives.is_empty() {
         return;
     }
@@ -146,20 +146,30 @@ pub fn draw_drive_select_popup(f: &mut Frame, app: &mut AppState, _palette: &The
 
     f.render_widget(Clear, popup_rect);
 
+    let bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
+    let border_color = Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b);
+    let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
+
+    let highlight_bg = Color::Rgb(palette.surface2.r, palette.surface2.g, palette.surface2.b);
+    let highlight_fg = if !palette.is_dark {
+        bg_color
+    } else {
+        text_color
+    };
+
     let items: Vec<ListItem> = app
         .drive_select_popup
         .drives
         .iter()
         .enumerate()
         .map(|(i, d)| {
-            if i == app.drive_select_popup.selected_index {
-                ListItem::new(format!("> {}", d)).style(
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                )
+            let is_selected = i == app.drive_select_popup.selected_index;
+            if is_selected {
+                ListItem::new(format!("> {}", d))
+                    .style(Style::default().fg(highlight_fg).bg(highlight_bg).add_modifier(Modifier::BOLD))
             } else {
-                ListItem::new(format!("  {}", d)).style(Style::default().fg(Color::White))
+                ListItem::new(format!("  {}", d))
+                    .style(Style::default().fg(text_color))
             }
         })
         .collect();
@@ -168,7 +178,9 @@ pub fn draw_drive_select_popup(f: &mut Frame, app: &mut AppState, _palette: &The
         Block::default()
             .title(" Select Drive ")
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan)),
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(border_color))
+            .style(Style::default().bg(bg_color)),
     );
 
     f.render_widget(list, popup_rect);
