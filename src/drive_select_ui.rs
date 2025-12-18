@@ -9,7 +9,7 @@ use ratatui::{
 };
 
 #[cfg(windows)]
-extern "system" {
+unsafe extern "system" {
     fn GetLogicalDrives() -> u32;
 }
 
