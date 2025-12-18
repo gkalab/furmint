@@ -2594,7 +2594,13 @@ fn spawn_terminal(
     #[cfg(target_os = "macos")]
     {
         if let Some(c) = command {
-            Command::new("open").arg("-a").arg("Terminal").arg("-e").arg(c).current_dir(dir).spawn()?;
+            Command::new("open")
+                .arg("-a")
+                .arg("Terminal")
+                .arg("-e")
+                .arg(c)
+                .current_dir(dir)
+                .spawn()?;
         } else if let Some(term) = configured_terminal {
             Command::new("open").arg("-a").arg(term).arg(dir).spawn()?;
         } else {
@@ -2613,7 +2619,11 @@ fn spawn_terminal(
             Command::new("cmd")
                 .arg("/c")
                 .arg("start")
-                .arg(if let Some(term) = configured_terminal { term } else { "cmd".to_string() })
+                .arg(if let Some(term) = configured_terminal {
+                    term
+                } else {
+                    "cmd".to_string()
+                })
                 .arg("/k") // Keep terminal open after command
                 .arg(c)
                 .current_dir(dir)
