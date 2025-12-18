@@ -2619,6 +2619,7 @@ fn spawn_terminal(
             Command::new("cmd")
                 .arg("/c")
                 .arg("start")
+                .arg("")
                 .arg(c)
                 .current_dir(dir)
                 .spawn()?;
@@ -2626,6 +2627,7 @@ fn spawn_terminal(
             Command::new("cmd")
                 .arg("/c")
                 .arg("start")
+                .arg("")
                 .arg(term)
                 .current_dir(dir)
                 .spawn()?;
@@ -2633,6 +2635,7 @@ fn spawn_terminal(
             Command::new("cmd")
                 .arg("/c")
                 .arg("start")
+                .arg("")
                 .arg("cmd")
                 .current_dir(dir)
                 .spawn()?;
