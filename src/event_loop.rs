@@ -298,6 +298,9 @@ fn draw_ui(
 
         // Draw help popup
         crate::help_ui::draw_help_popup(f, app.help_popup.is_visible, keyboard, palette);
+
+        // Draw drive selection popup
+        crate::drive_select_ui::draw_drive_select_popup(f, app, palette);
     })?;
     Ok(())
 }
@@ -333,6 +336,7 @@ pub async fn handle_event(
                 && !app.quit_confirmation.is_visible
                 && !app.error_popup.is_visible
                 && !app.help_popup.is_visible
+                && !app.drive_select_popup.is_visible
                 && !app.show_task_manager
             {
                 if app.task_manager.has_running_tasks() {
@@ -402,6 +406,11 @@ pub async fn handle_event(
             // Handle copy/move popup
             if app.copy_move_popup.is_visible {
                 return handle_copy_move_popup_event(code, app);
+            }
+
+            // Handle drive selection popup
+            if app.drive_select_popup.is_visible {
+                return crate::drive_select_ui::handle_drive_select_event(code, app);
             }
 
             // Handle conflict popup
@@ -754,6 +763,34 @@ async fn handle_main_panel_event(
         && keys.contains(&shortcut)
     {
         handle_open_terminal(app);
+        return false;
+    }
+
+    // Drive Selection Left (Windows only)
+    if let Some(keys) = &keyboard.change_drive_left
+        && keys.contains(&shortcut)
+    {
+        let drives = crate::drive_select_ui::get_available_drives();
+        if !drives.is_empty() {
+            app.drive_select_popup.is_visible = true;
+            app.drive_select_popup.drives = drives;
+            app.drive_select_popup.side = crate::app::PanelSide::Left;
+            app.drive_select_popup.selected_index = 0;
+        }
+        return false;
+    }
+
+    // Drive Selection Right (Windows only)
+    if let Some(keys) = &keyboard.change_drive_right
+        && keys.contains(&shortcut)
+    {
+        let drives = crate::drive_select_ui::get_available_drives();
+        if !drives.is_empty() {
+            app.drive_select_popup.is_visible = true;
+            app.drive_select_popup.drives = drives;
+            app.drive_select_popup.side = crate::app::PanelSide::Right;
+            app.drive_select_popup.selected_index = 0;
+        }
         return false;
     }
 

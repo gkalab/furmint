@@ -428,7 +428,7 @@ impl TabManager {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone, Copy, Debug)]
 pub enum PanelSide {
     Left,
     Right,
@@ -478,6 +478,7 @@ pub struct AppState {
     pub task_manager: crate::tasks::TaskManager,
     pub create_file_popup: CreateFileState,
     pub help_popup: HelpState,
+    pub drive_select_popup: DriveSelectState,
 
     // Channels to communicate decisions back to tasks
     pub task_decision_txs:
@@ -599,6 +600,30 @@ impl CreateDirectoryState {
         self.new_name.clear();
         self.cursor_position = 0;
         self.error = None;
+    }
+}
+
+pub struct DriveSelectState {
+    pub is_visible: bool,
+    pub drives: Vec<String>,
+    pub selected_index: usize,
+    pub side: PanelSide,
+}
+
+impl DriveSelectState {
+    pub fn new() -> Self {
+        Self {
+            is_visible: false,
+            drives: Vec::new(),
+            selected_index: 0,
+            side: PanelSide::Left,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.is_visible = false;
+        self.drives.clear();
+        self.selected_index = 0;
     }
 }
 

@@ -32,6 +32,8 @@ pub struct KeyboardConfig {
     pub new_dir: Option<Vec<String>>,
     pub open_terminal: Option<Vec<String>>,
     pub help: Option<Vec<String>>,
+    pub change_drive_left: Option<Vec<String>>,
+    pub change_drive_right: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -76,6 +78,8 @@ pub fn default_keyboard_config() -> KeyboardConfig {
         select_all: Some(vec!["Ctrl-a".to_string()]),
         open_terminal: Some(vec!["F9".to_string()]),
         help: Some(vec!["F1".to_string()]),
+        change_drive_left: Some(vec!["Alt-F1".to_string()]),
+        change_drive_right: Some(vec!["Alt-F2".to_string()]),
     }
 }
 
@@ -199,6 +203,14 @@ pub fn merge_keyboard_config(
             .as_ref()
             .and_then(|k| k.help.clone())
             .or_else(|| default.help.clone()),
+        change_drive_left: user
+            .as_ref()
+            .and_then(|k| k.change_drive_left.clone())
+            .or_else(|| default.change_drive_left.clone()),
+        change_drive_right: user
+            .as_ref()
+            .and_then(|k| k.change_drive_right.clone())
+            .or_else(|| default.change_drive_right.clone()),
     }
 }
 

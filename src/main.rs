@@ -6,6 +6,7 @@ mod create_dir_ui;
 mod create_file_ui;
 mod delete_ui;
 mod dir_history;
+mod drive_select_ui;
 mod empty_trash_ui;
 mod error_ui;
 mod event_loop;
@@ -136,6 +137,7 @@ async fn main() -> Result<()> {
         error_popup: crate::app::ErrorState::new(),
         quit_confirmation: crate::app::QuitConfirmationState::new(),
         help_popup: crate::app::HelpState::new(),
+        drive_select_popup: crate::app::DriveSelectState::new(),
         task_manager,
         task_decision_txs: std::collections::HashMap::new(),
         show_task_manager: false,

@@ -98,6 +98,24 @@ The file manager supports multiple tabs per panel, allowing you to work with mul
 - **Alt+Right**: Switch to next tab (cycles: Tab1→Tab2→Tab3→Tab1)
 - **Alt+Left**: Switch to previous tab (cycles: Tab3→Tab2→Tab1→Tab3)
 - **Ctrl+W**: Close current tab (minimum 1 tab per panel)
+
+---
+
+## Windows Drive Selection (Windows only)
+
+On Windows, you can quickly change the drive for either panel using dedicated shortcuts.
+
+### Features
+- **Drive Dropdown**: Open a list of all available system drives (A:, C:, D:, etc.)
+- **Side Specific**: Change drives independently for the left or right panel
+- **Responsive**: Enter to select, Esc to cancel
+
+### Keyboard Shortcuts
+- **Alt+F1**: Open drive selection for the **left** panel
+- **Alt+F2**: Open drive selection for the **right** panel
+- **Arrow keys / j, k**: Navigate drive list
+- **Enter**: Switch to selected drive
+- **Esc**: Close dropdown without changing drive
 - **Tab**: Switch between panels (existing functionality)
 
 > **Note**: Ctrl+Tab is not used because many terminal emulators don't reliably capture it. Alt+Arrow keys are universally supported and provide intuitive bidirectional navigation.
