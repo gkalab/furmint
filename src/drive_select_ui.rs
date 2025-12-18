@@ -55,13 +55,14 @@ pub fn handle_drive_select_event(code: KeyCode, app: &mut AppState) -> bool {
         }
         KeyCode::Char(c) => {
             let target = format!("{}:\\", c.to_ascii_uppercase());
-            if let Some(idx) = app
+            if let Some(drive) = app
                 .drive_select_popup
                 .drives
                 .iter()
-                .position(|d| d.to_ascii_uppercase() == target)
+                .find(|d| d.to_ascii_uppercase() == target)
+                .cloned()
             {
-                app.drive_select_popup.selected_index = idx;
+                perform_drive_navigation(app, drive);
             }
         }
         KeyCode::Enter => {
@@ -71,27 +72,30 @@ pub fn handle_drive_select_event(code: KeyCode, app: &mut AppState) -> bool {
                 .get(app.drive_select_popup.selected_index)
                 .cloned()
             {
-                let side = app.drive_select_popup.side;
-                let path = std::path::PathBuf::from(&drive);
-
-                // We must use a scope or temporary to avoid borrow checker issues if we mutations app further
-                let success = {
-                    let tab_manager = match side {
-                        PanelSide::Left => &mut app.left,
-                        PanelSide::Right => &mut app.right,
-                    };
-                    tab_manager.active_tab_mut().navigate_to(path).is_ok()
-                };
-
-                if success {
-                    app.drive_select_popup.reset();
-                    app.sync_watcher();
-                }
+                perform_drive_navigation(app, drive);
             }
         }
         _ => {}
     }
     false
+}
+
+fn perform_drive_navigation(app: &mut AppState, drive: String) {
+    let side = app.drive_select_popup.side;
+    let path = std::path::PathBuf::from(&drive);
+
+    let success = {
+        let tab_manager = match side {
+            PanelSide::Left => &mut app.left,
+            PanelSide::Right => &mut app.right,
+        };
+        tab_manager.active_tab_mut().navigate_to(path).is_ok()
+    };
+
+    if success {
+        app.drive_select_popup.reset();
+        app.sync_watcher();
+    }
 }
 
 pub fn draw_drive_select_popup(f: &mut Frame, app: &mut AppState, _palette: &ThemePalette) {
