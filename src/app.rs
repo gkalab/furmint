@@ -20,6 +20,7 @@ pub struct Tab {
     // Sorting
     pub sort_column: SortColumn,
     pub sort_direction: SortDirection,
+    pub scroll_offset: usize,
 }
 
 impl Tab {
@@ -40,6 +41,7 @@ impl Tab {
             last_type_time: None,
             sort_column: SortColumn::Name,
             sort_direction: SortDirection::Ascending,
+            scroll_offset: 0,
         };
         tab.sort_entries();
         Ok(tab)
@@ -321,6 +323,19 @@ impl Tab {
             };
         }
         self.sort_entries();
+    }
+
+    /// Update scroll offset to ensure the cursor is visible
+    pub fn scroll_to_cursor(&mut self, visible_rows: usize) {
+        if visible_rows == 0 {
+            return;
+        }
+
+        if self.cursor < self.scroll_offset {
+            self.scroll_offset = self.cursor;
+        } else if self.cursor >= self.scroll_offset + visible_rows {
+            self.scroll_offset = self.cursor - visible_rows + 1;
+        }
     }
 }
 

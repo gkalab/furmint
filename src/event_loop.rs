@@ -230,7 +230,7 @@ fn draw_ui(
             crate::ui::draw_tab_bar(f, &app.left, left_panel_layout[0], palette, is_active);
             draw_panel(
                 f,
-                app.left.active_tab(),
+                app.left.active_tab_mut(),
                 is_active,
                 left_panel_layout[1],
                 palette,
@@ -244,7 +244,7 @@ fn draw_ui(
             crate::ui::draw_tab_bar(f, &app.right, right_panel_layout[0], palette, is_active);
             draw_panel(
                 f,
-                app.right.active_tab(),
+                app.right.active_tab_mut(),
                 is_active,
                 right_panel_layout[1],
                 palette,

@@ -77,11 +77,15 @@ pub fn draw_tab_bar(
 
 pub fn draw_panel(
     f: &mut ratatui::Frame,
-    panel: &Tab,
+    panel: &mut Tab,
     active: bool,
     area: Rect,
     palette: &ThemePalette,
 ) {
+    // Calculate visible rows for scrolling logic
+    let visible_rows = area.height.saturating_sub(3) as usize; // -2 for borders, -1 for header
+    panel.scroll_to_cursor(visible_rows);
+
     // Compute max width for Size column
     let size_width = panel
         .entries
@@ -101,36 +105,41 @@ pub fn draw_panel(
         10 // minimum width for name
     };
 
-    let rows = panel.entries.iter().map(|e| {
-        // Account for ratatui border: subtract 2 from available width
-        let visible_name_width = if name_col_width > 2 {
-            name_col_width - 2
-        } else {
-            1
-        };
-        let truncated_name = truncate_middle_with_ellipsis(&e.name, visible_name_width);
-        let mut name_cell = Cell::from(truncated_name);
-        let full_path = panel.current_dir.join(&e.name);
-        let name_style = if e.is_dir {
-            Style::default().fg(Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b))
-        } else if crate::fs_ops::is_executable(&full_path, e) {
-            Style::default().fg(Color::Rgb(
-                palette.green.r,
-                palette.green.g,
-                palette.green.b,
-            ))
-        } else {
-            Style::default().fg(text_fg)
-        };
-        name_cell = name_cell.style(name_style);
-        Row::new(vec![
-            name_cell,
-            Cell::from(format_size(e.size, e.is_dir, e.is_symlink))
-                .style(Style::default().fg(text_fg)),
-            Cell::from(format_modified(e.modified)).style(Style::default().fg(text_fg)),
-            Cell::from(e.attributes.clone()).style(Style::default().fg(text_fg)),
-        ])
-    });
+    let rows = panel
+        .entries
+        .iter()
+        .skip(panel.scroll_offset)
+        .take(visible_rows)
+        .map(|e| {
+            // Account for ratatui border: subtract 2 from available width
+            let visible_name_width = if name_col_width > 2 {
+                name_col_width - 2
+            } else {
+                1
+            };
+            let truncated_name = truncate_middle_with_ellipsis(&e.name, visible_name_width);
+            let mut name_cell = Cell::from(truncated_name);
+            let full_path = panel.current_dir.join(&e.name);
+            let name_style = if e.is_dir {
+                Style::default().fg(Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b))
+            } else if crate::fs_ops::is_executable(&full_path, e) {
+                Style::default().fg(Color::Rgb(
+                    palette.green.r,
+                    palette.green.g,
+                    palette.green.b,
+                ))
+            } else {
+                Style::default().fg(text_fg)
+            };
+            name_cell = name_cell.style(name_style);
+            Row::new(vec![
+                name_cell,
+                Cell::from(format_size(e.size, e.is_dir, e.is_symlink))
+                    .style(Style::default().fg(text_fg)),
+                Cell::from(format_modified(e.modified)).style(Style::default().fg(text_fg)),
+                Cell::from(e.attributes.clone()).style(Style::default().fg(text_fg)),
+            ])
+        });
 
     let border_color = if active {
         Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b)
@@ -170,10 +179,12 @@ pub fn draw_panel(
         ))))
         .block(block)
         .row_highlight_style(Style::default().bg(highlight_bg).fg(highlight_fg));
+
     f.render_stateful_widget(
         table,
         area,
-        &mut TableState::default().with_selected(Some(panel.cursor)),
+        &mut TableState::default()
+            .with_selected(Some(panel.cursor.saturating_sub(panel.scroll_offset))),
     );
 
     // Draw selection markers over the left border
@@ -184,22 +195,14 @@ pub fn draw_panel(
         Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b)
     };
 
-    // Calculate which entries are visible in the current view
-    let visible_rows = area.height.saturating_sub(2) as usize; // -2 for top/bottom borders
-    let start_idx = if panel.cursor >= visible_rows {
-        panel.cursor - visible_rows + 1
-    } else {
-        0
-    };
-
     for (idx, entry) in panel
         .entries
         .iter()
         .enumerate()
-        .skip(start_idx)
+        .skip(panel.scroll_offset)
         .take(visible_rows)
     {
-        let row_y = area.y + 2 + (idx - start_idx) as u16; // +2 for border and header
+        let row_y = area.y + 2 + (idx - panel.scroll_offset) as u16; // +2 for border and header
 
         if row_y >= area.y + area.height - 1 {
             break; // Don't draw past the bottom border
@@ -224,14 +227,14 @@ pub fn draw_panel(
     }
 
     // Draw unobtrusive vertical scrollbar if needed
-    let visible_rows = area.height.saturating_sub(1) as usize; // 1 for header
+    // visible_rows is already calculated as height - 3
     let total_entries = panel.entries.len();
 
     let scroll_area = Rect {
         x: area.x + area.width - 1,
         y: area.y + 2, // +2 for border and header
         width: 1,
-        height: (visible_rows as u16).saturating_sub(2),
+        height: visible_rows as u16,
     };
 
     crate::ui_utils::draw_scrollbar(
