@@ -4,6 +4,7 @@ use crate::theme::ThemePalette;
 use crate::ui::{draw_panel, draw_panel_status};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
+use crossterm::ExecutableCommand;
 use ratatui::prelude::*;
 #[cfg(not(target_os = "windows"))]
 use std::env;
@@ -55,8 +56,9 @@ pub async fn run_event_loop(
     draw_ui(terminal, app, palette, &keyboard)?;
 
     while !should_exit {
-        // Explicit redraw if requested (e.g. after editor)
+        // Explicit redraw if requested (e.g. after editor or console toggle)
         if app.needs_redraw {
+            terminal.clear()?;
             draw_ui(terminal, app, palette, &keyboard)?;
             app.needs_redraw = false;
         }
@@ -86,6 +88,10 @@ pub async fn run_event_loop(
                                 if exit {
                                     should_exit = true;
                                 } else {
+                                    if app.needs_redraw {
+                                        terminal.clear()?;
+                                        app.needs_redraw = false;
+                                    }
                                     draw_ui(terminal, app, palette, &keyboard)?;
                                 }
 
@@ -447,6 +453,23 @@ pub async fn handle_event(
             }
             if app.file_viewer.focused {
                 handle_file_viewer_event(code, app);
+                return false;
+            }
+
+            // Handle toggle console
+            let toggle_console_match = keyboard
+                .toggle_console
+                .as_ref()
+                .is_some_and(|keys| keys.contains(&shortcut));
+            if toggle_console_match {
+                if let Err(e) = handle_toggle_console(app, &input_tx).await {
+                    let tab_manager = match app.active {
+                        PanelSide::Left => &mut app.left,
+                        PanelSide::Right => &mut app.right,
+                    };
+                    tab_manager.active_tab_mut().error =
+                        Some(format!("Error toggling console: {}", e));
+                }
                 return false;
             }
 
@@ -2580,6 +2603,91 @@ pub fn handle_open_terminal(app: &mut AppState) {
 
     if let Err(e) = spawn_terminal(&current_dir, configured_terminal, None) {
         tab_manager.active_tab_mut().error = Some(format!("Error opening terminal: {}", e));
+    }
+}
+
+pub async fn handle_toggle_console(
+    app: &mut AppState,
+    input_tx: &tokio::sync::mpsc::UnboundedSender<crossterm::event::Event>,
+) -> anyhow::Result<()> {
+    // 1. Abort input polling
+    if let Some(handle) = app.input_polling_handle.take() {
+        handle.abort();
+    }
+
+    // 2. Disable raw mode and show cursor
+    disable_raw_mode()?;
+    std::io::stdout()
+        .execute(crossterm::cursor::Show)
+        .map_err(|e| anyhow::anyhow!("Failed to show cursor: {}", e))?;
+
+    // 3. Pause watcher
+    let panel_current_dir = {
+        let tab_manager = match app.active {
+            PanelSide::Left => &mut app.left,
+            PanelSide::Right => &mut app.right,
+        };
+        let panel = tab_manager.active_tab_mut();
+        panel.current_dir.clone()
+    };
+    if let Some(watcher) = &mut app.watcher {
+        let paths = watcher.watched_paths.clone();
+        for path in &paths {
+            let _ = watcher.unwatch(path);
+        }
+    }
+
+    // 4. Run shell
+    println!("\r\n--- Dropping to shell. Type 'exit' to return to fm ---\r\n");
+    let result = tokio::task::spawn_blocking({
+        let dir = panel_current_dir.clone();
+        move || {
+            let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".to_string());
+            Command::new(shell).current_dir(dir).status()
+        }
+    })
+    .await;
+
+    let err = match result {
+        Ok(Ok(_)) => None,
+        Ok(Err(e)) => Some(format!("Error running shell: {}", e)),
+        Err(e) => Some(format!("Error launching shell: {}", e)),
+    };
+
+    // 5. Restart watcher
+    if let Some(watcher) = &mut app.watcher {
+        let _ = watcher.watch(&panel_current_dir);
+    }
+    app.sync_watcher();
+
+    // 6. Restore raw mode
+    enable_raw_mode()?;
+
+    // 7. Restart input polling
+    app.input_polling_handle = Some(spawn_input_polling(input_tx.clone()));
+
+    // 8. Refresh all tabs in both panels
+    let refresh_tab = |tab: &mut crate::app::Tab| {
+        if let Ok(entries) = crate::fs_ops::list_dir(&tab.current_dir) {
+            tab.entries = entries;
+            tab.sort_entries();
+        }
+    };
+
+    for tab in &mut app.left.tabs {
+        refresh_tab(tab);
+    }
+    for tab in &mut app.right.tabs {
+        refresh_tab(tab);
+    }
+
+    app.needs_redraw = true;
+
+    // 8. Return error if any
+    if let Some(e) = err {
+        Err(anyhow::anyhow!(e))
+    } else {
+        Ok(())
     }
 }
 fn spawn_terminal(

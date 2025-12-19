@@ -29,6 +29,9 @@ What Has Been Accomplished
    - Keep status bar visible and unobtrusive.
    - Clear the screen after exit.
    - Quit keys: Ctrl-q and Esc.
+4. Console Toggle:
+   - Use `Ctrl-o` to toggle between the TUI and a shell.
+   - Dropping to shell is persistent and returns to the same state.
 
 ---
 
@@ -168,6 +171,7 @@ tasks = ["F10"]
 new_dir = ["F7"]
 select_all = ["Ctrl-a"]
 open_terminal = ["F9"]
+toggle_console = ["Ctrl-o"]
 ```
 - You can assign multiple shortcuts to the same action (e.g., `quit = ["Ctrl-q", "Esc"]`).
 - Shortcut format: `Ctrl-q`, `Esc`, `Ctrl-Up`, `Left`, `Ctrl-Down`, `Alt-Right`, etc.
