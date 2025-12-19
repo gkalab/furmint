@@ -101,6 +101,7 @@ The file manager supports multiple tabs per panel, allowing you to work with mul
 - **Alt+Right**: Switch to next tab (cycles: Tab1→Tab2→Tab3→Tab1)
 - **Alt+Left**: Switch to previous tab (cycles: Tab3→Tab2→Tab1→Tab3)
 - **Ctrl+W**: Close current tab (minimum 1 tab per panel)
+- **Ctrl+U**: Swap current active and passive tabs
 
 ---
 
@@ -172,6 +173,7 @@ new_dir = ["F7"]
 select_all = ["Ctrl-a"]
 open_terminal = ["F9"]
 toggle_console = ["Ctrl-o"]
+swap_tabs = ["Ctrl-u"]
 ```
 - You can assign multiple shortcuts to the same action (e.g., `quit = ["Ctrl-q", "Esc"]`).
 - Shortcut format: `Ctrl-q`, `Esc`, `Ctrl-Up`, `Left`, `Ctrl-Down`, `Alt-Right`, etc.

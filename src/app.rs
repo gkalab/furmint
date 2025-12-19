@@ -539,6 +539,23 @@ impl AppState {
                 }
             });
     }
+
+    /// Swaps the current active tab of the left panel with the current active tab of the right panel
+    pub fn swap_active_tabs(&mut self) {
+        let left_idx = self.left.active_tab_index;
+        let right_idx = self.right.active_tab_index;
+
+        if left_idx < self.left.tabs.len() && right_idx < self.right.tabs.len() {
+            let left_tab = self.left.tabs.remove(left_idx);
+            let right_tab = self.right.tabs.remove(right_idx);
+
+            self.left.tabs.insert(left_idx, right_tab);
+            self.right.tabs.insert(right_idx, left_tab);
+
+            // Re-sync watcher as paths might have changed
+            self.sync_watcher();
+        }
+    }
 }
 
 pub struct RenameState {

@@ -781,6 +781,14 @@ async fn handle_main_panel_event(
         return false;
     }
 
+    // Swap Tabs
+    if let Some(keys) = &keyboard.swap_tabs
+        && keys.contains(&shortcut)
+    {
+        app.swap_active_tabs();
+        return false;
+    }
+
     // Open Terminal
     if let Some(keys) = &keyboard.open_terminal
         && keys.contains(&shortcut)

@@ -35,6 +35,7 @@ pub struct KeyboardConfig {
     pub change_drive_left: Option<Vec<String>>,
     pub change_drive_right: Option<Vec<String>>,
     pub toggle_console: Option<Vec<String>>,
+    pub swap_tabs: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -82,6 +83,7 @@ pub fn default_keyboard_config() -> KeyboardConfig {
         change_drive_left: Some(vec!["Alt-F1".to_string()]),
         change_drive_right: Some(vec!["Alt-F2".to_string()]),
         toggle_console: Some(vec!["Ctrl-o".to_string()]),
+        swap_tabs: Some(vec!["Ctrl-u".to_string()]),
     }
 }
 
@@ -217,6 +219,10 @@ pub fn merge_keyboard_config(
             .as_ref()
             .and_then(|k| k.toggle_console.clone())
             .or_else(|| default.toggle_console.clone()),
+        swap_tabs: user
+            .as_ref()
+            .and_then(|k| k.swap_tabs.clone())
+            .or_else(|| default.swap_tabs.clone()),
     }
 }
 
