@@ -15,6 +15,7 @@ mod fuzzy_search_ui;
 mod help_ui;
 mod quit_ui;
 mod rename_ui;
+mod state;
 mod task_ui;
 mod tasks;
 mod theme;
