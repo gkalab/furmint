@@ -66,7 +66,6 @@ pub struct AppConfig {
     pub viewer: Option<ViewerConfig>,
 }
 
-
 // Default key bindings
 pub fn default_keyboard_config() -> KeyboardConfig {
     KeyboardConfig {
@@ -290,8 +289,14 @@ pub fn load_config() -> Result<(KeyboardConfig, GlobalConfig, EditorConfig, View
     let path = config_path().ok_or("Could not determine config directory")?;
     let default_keyboard = default_keyboard_config();
     let default_global = default_global_config();
-    let default_editor = EditorConfig { command: None, in_terminal: Some(true) };
-    let default_viewer = ViewerConfig { command: None, in_terminal: Some(true) };
+    let default_editor = EditorConfig {
+        command: None,
+        in_terminal: Some(true),
+    };
+    let default_viewer = ViewerConfig {
+        command: None,
+        in_terminal: Some(true),
+    };
     if path.exists() {
         let content =
             fs::read_to_string(&path).map_err(|e| format!("Failed to read config file: {}", e))?;
@@ -303,10 +308,14 @@ pub fn load_config() -> Result<(KeyboardConfig, GlobalConfig, EditorConfig, View
         let viewer = user_config.viewer.unwrap_or(default_viewer);
         Ok((keyboard, global, editor, viewer))
     } else {
-        Ok((default_keyboard, default_global, default_editor, default_viewer))
+        Ok((
+            default_keyboard,
+            default_global,
+            default_editor,
+            default_viewer,
+        ))
     }
 }
-
 
 pub fn config_path() -> Option<PathBuf> {
     ProjectDirs::from("org", "fm", "fm").map(|proj_dirs| proj_dirs.config_dir().join("config.toml"))

@@ -432,7 +432,12 @@ pub async fn handle_event(
             }
 
             if code == KeyCode::F(3) && modifiers == KeyModifiers::NONE {
-                if let Some(viewer_cmd) = app.viewer_cfg.command.as_ref().or(app.global.viewer.as_ref()) {
+                if let Some(viewer_cmd) = app
+                    .viewer_cfg
+                    .command
+                    .as_ref()
+                    .or(app.global.viewer.as_ref())
+                {
                     let tab_manager = match app.active {
                         PanelSide::Left => &app.left,
                         PanelSide::Right => &app.right,
@@ -441,7 +446,10 @@ pub async fn handle_event(
                         if !entry.is_dir {
                             let full_path = tab_manager.active_tab().current_dir.join(&entry.name);
                             let file_arg = full_path.to_string_lossy().to_string();
-                            let mut args: Vec<String> = viewer_cmd.split_whitespace().map(|s| s.to_string()).collect();
+                            let mut args: Vec<String> = viewer_cmd
+                                .split_whitespace()
+                                .map(|s| s.to_string())
+                                .collect();
                             args.push(file_arg);
                             let in_terminal = app.viewer_cfg.in_terminal.unwrap_or(true);
                             if in_terminal {
@@ -466,14 +474,16 @@ pub async fn handle_event(
                                     .stdin(Stdio::null())
                                     .stdout(Stdio::null())
                                     .stderr(Stdio::null())
-                                    .spawn() {
-                                    Ok(_) => {},
+                                    .spawn()
+                                {
+                                    Ok(_) => {}
                                     Err(e) => {
                                         let tab_manager = match app.active {
                                             PanelSide::Left => &mut app.left,
                                             PanelSide::Right => &mut app.right,
                                         };
-                                        tab_manager.active_tab_mut().error = Some(format!("Error launching viewer: {}", e));
+                                        tab_manager.active_tab_mut().error =
+                                            Some(format!("Error launching viewer: {}", e));
                                     }
                                 }
                             }
@@ -1223,9 +1233,18 @@ pub async fn handle_edit(app: &mut AppState, input_tx: UnboundedSender<Crossterm
             } else {
                 // FALLBACK: use robust legacy handler for SSH/TTY friendliness
                 let entry_name = entry.name.clone();
-                let result = open_file_in_editor_with_env_handling(app, &file_path, Some(entry_name), &input_tx).await;
+                let result = open_file_in_editor_with_env_handling(
+                    app,
+                    &file_path,
+                    Some(entry_name),
+                    &input_tx,
+                )
+                .await;
                 if let Err(e) = result {
-                    error_msg = Some(format!("No editor configured and could not launch default: {}", e));
+                    error_msg = Some(format!(
+                        "No editor configured and could not launch default: {}",
+                        e
+                    ));
                 }
             }
             if let Some(e) = error_msg {
@@ -2804,7 +2823,7 @@ fn spawn_terminal(
     wrap_shell: bool,
 ) -> anyhow::Result<()> {
     use std::ffi::OsString;
-use std::process::{Command, Stdio};
+    use std::process::{Command, Stdio};
 
     #[cfg(target_os = "linux")]
     {
