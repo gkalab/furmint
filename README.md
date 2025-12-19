@@ -145,6 +145,14 @@ theme = "mariana"
 # Optional: Configure default terminal to launch
 # terminal = "gnome-terminal"
 
+[editor]
+command = "nvim"
+in_terminal = true # Launch nvim in terminal (CLI editor)
+
+[viewer]
+command = "evince"
+in_terminal = false # Launch evince directly (do NOT use terminal)
+
 [keyboard]
 new_file = ["Shift-F4"]
 quit = ["Ctrl-q"]
@@ -175,6 +183,11 @@ open_terminal = ["F9"]
 toggle_console = ["Ctrl-o"]
 swap_tabs = ["Ctrl-u"]
 ```
+
+- For CLI editors (like `nvim`, `vim`, `nano`, `less`), set `in_terminal = true`.
+- For graphical editors/viewers (like `gedit`, `evince`, `code`, `okular`), set `in_terminal = false`.
+- If in_terminal is omitted, the default is `true` (conservative, for backward compatibility).
+
 - You can assign multiple shortcuts to the same action (e.g., `quit = ["Ctrl-q", "Esc"]`).
 - Shortcut format: `Ctrl-q`, `Esc`, `Ctrl-Up`, `Left`, `Ctrl-Down`, `Alt-Right`, etc.
 - Supported values include any key combination usable elsewhere in the config.

@@ -74,7 +74,7 @@ async fn main() -> Result<()> {
         ratatui::Terminal::new(ratatui::backend::CrosstermBackend::new(std::io::stdout()))?;
 
     // Load config
-    let (keyboard, global_config) = match load_config() {
+    let (keyboard, global_config, editor_cfg, viewer_cfg) = match load_config() {
         Ok(cfg) => cfg,
         Err(e) => {
             eprintln!("Error loading config: {e}");
@@ -151,6 +151,8 @@ async fn main() -> Result<()> {
             input_polling_handle: None,
             needs_redraw: false,
             global: global_config,
+            editor_cfg,
+            viewer_cfg,
             create_file_popup: crate::app::CreateFileState::new(),
         }
     } else {
@@ -182,6 +184,8 @@ async fn main() -> Result<()> {
             input_polling_handle: None,
             needs_redraw: false,
             global: global_config,
+            editor_cfg,
+            viewer_cfg,
         }
     };
 

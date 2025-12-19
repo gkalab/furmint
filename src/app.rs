@@ -546,6 +546,8 @@ pub struct AppState {
     pub input_polling_handle: Option<tokio::task::JoinHandle<()>>,
     pub needs_redraw: bool, // <--- Added for explicit redraw after editor
     pub global: crate::config::GlobalConfig,
+    pub editor_cfg: crate::config::EditorConfig,
+    pub viewer_cfg: crate::config::ViewerConfig,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

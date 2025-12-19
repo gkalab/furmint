@@ -8,7 +8,7 @@ use crossterm::terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode};
 use ratatui::prelude::*;
 #[cfg(not(target_os = "windows"))]
 use std::env;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 pub(crate) fn spawn_input_polling(
     input_tx: tokio::sync::mpsc::UnboundedSender<crossterm::event::Event>,
@@ -44,6 +44,8 @@ pub async fn run_event_loop(
     watcher_rx: &mut tokio::sync::mpsc::UnboundedReceiver<crate::watcher::WatcherEvent>,
     task_rx: &mut tokio::sync::mpsc::UnboundedReceiver<crate::tasks::TaskEvent>,
 ) -> anyhow::Result<()> {
+    use std::process::Stdio;
+
     // Create channel for terminal events
     let (input_tx, mut input_rx) = tokio::sync::mpsc::unbounded_channel();
 
@@ -430,6 +432,55 @@ pub async fn handle_event(
             }
 
             if code == KeyCode::F(3) && modifiers == KeyModifiers::NONE {
+                if let Some(viewer_cmd) = app.viewer_cfg.command.as_ref().or(app.global.viewer.as_ref()) {
+                    let tab_manager = match app.active {
+                        PanelSide::Left => &app.left,
+                        PanelSide::Right => &app.right,
+                    };
+                    if let Some(entry) = tab_manager.active_tab().current_entry() {
+                        if !entry.is_dir {
+                            let full_path = tab_manager.active_tab().current_dir.join(&entry.name);
+                            let file_arg = full_path.to_string_lossy().to_string();
+                            let mut args: Vec<String> = viewer_cmd.split_whitespace().map(|s| s.to_string()).collect();
+                            args.push(file_arg);
+                            let in_terminal = app.viewer_cfg.in_terminal.unwrap_or(true);
+                            if in_terminal {
+                                if let Err(e) = spawn_terminal(
+                                    &tab_manager.active_tab().current_dir,
+                                    app.global.terminal.clone(),
+                                    args,
+                                    true,
+                                ) {
+                                    let tab_manager = match app.active {
+                                        PanelSide::Left => &mut app.left,
+                                        PanelSide::Right => &mut app.right,
+                                    };
+                                    tab_manager.active_tab_mut().error =
+                                        Some(format!("Error launching viewer: {}", e));
+                                }
+                            } else {
+                                // launch directly (background)
+                                match std::process::Command::new(&args[0])
+                                    .args(&args[1..])
+                                    .current_dir(&tab_manager.active_tab().current_dir)
+                                    .stdin(Stdio::null())
+                                    .stdout(Stdio::null())
+                                    .stderr(Stdio::null())
+                                    .spawn() {
+                                    Ok(_) => {},
+                                    Err(e) => {
+                                        let tab_manager = match app.active {
+                                            PanelSide::Left => &mut app.left,
+                                            PanelSide::Right => &mut app.right,
+                                        };
+                                        tab_manager.active_tab_mut().error = Some(format!("Error launching viewer: {}", e));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    return false;
+                }
                 app.file_viewer.is_visible = !app.file_viewer.is_visible;
                 if app.file_viewer.is_visible {
                     update_viewer_content(app);
@@ -1127,17 +1178,68 @@ pub async fn handle_edit(app: &mut AppState, input_tx: UnboundedSender<Crossterm
                 let panel = tab_manager.active_tab_mut();
                 panel.current_dir.join(&entry.name)
             };
-            let entry_name = entry.name.clone();
-            let result =
-                open_file_in_editor_with_env_handling(app, &file_path, Some(entry_name), &input_tx)
-                    .await;
-            if let Err(e) = result {
+
+            // Always use the new [editor] config
+            let editor_cfg = &app.editor_cfg;
+            let mut error_msg = None;
+            if let Some(cmd) = &editor_cfg.command {
+                let file_arg = file_path.to_string_lossy().to_string();
+                // Split editor.command by whitespace (handle quotes properly)
+                let parts = shell_words::split(cmd).unwrap_or_else(|_| vec![cmd.clone()]);
+                if parts.is_empty() {
+                    error_msg = Some("Invalid editor command".to_string());
+                } else {
+                    let program = &parts[0];
+                    let mut args = parts[1..].to_vec();
+                    args.push(file_arg);
+                    if editor_cfg.in_terminal.unwrap_or(true) {
+                        // Launch in terminal: pass program and args
+                        let mut t_args = vec![program.clone()];
+                        t_args.extend(args.clone());
+                        if let Err(e) = spawn_terminal(
+                            &tab_manager.active_tab().current_dir,
+                            app.global.terminal.clone(),
+                            t_args,
+                            true,
+                        ) {
+                            error_msg = Some(format!("Error launching editor: {}", e));
+                        }
+                    } else {
+                        // Launch as GUI/background process
+                        match Command::new(program)
+                            .args(&args)
+                            .stdin(Stdio::null())
+                            .stdout(Stdio::null())
+                            .stderr(Stdio::null())
+                            .spawn()
+                        {
+                            Ok(_) => (),
+                            Err(e) => {
+                                error_msg = Some(format!("Error launching editor: {}", e));
+                            }
+                        }
+                    }
+                }
+            } else {
+                // FALLBACK: use the system default editor in a terminal
+                let editor = get_default_editor();
+                let file_arg = file_path.to_string_lossy().to_string();
+                let args = vec![file_arg];
+                if let Err(e) = spawn_terminal(
+                    &tab_manager.active_tab().current_dir,
+                    app.global.terminal.clone(),
+                    std::iter::once(editor).chain(args.clone()).collect(),
+                    true,
+                ) {
+                    error_msg = Some(format!("No editor configured and could not launch system default: {}", e));
+                }
+            }
+            if let Some(e) = error_msg {
                 let tab_manager = match app.active {
                     PanelSide::Left => &mut app.left,
                     PanelSide::Right => &mut app.right,
                 };
-                let panel = tab_manager.active_tab_mut();
-                panel.error = Some(format!("Error opening editor: {}", e));
+                tab_manager.active_tab_mut().error = Some(e);
             }
         }
     }
@@ -1367,7 +1469,8 @@ fn handle_enter_directory(app: &mut AppState) {
                 if let Err(e) = spawn_terminal(
                     &panel.current_dir,
                     configured_terminal,
-                    Some(full_path.to_string_lossy().to_string()),
+                    vec![full_path.to_string_lossy().to_string()],
+                    false,
                 ) {
                     panel.error = Some(format!("Error launching in terminal: {}", e));
                 }
@@ -2609,7 +2712,7 @@ pub fn handle_open_terminal(app: &mut AppState) {
     let current_dir = tab_manager.active_tab().current_dir.clone();
     let configured_terminal = app.global.terminal.clone();
 
-    if let Err(e) = spawn_terminal(&current_dir, configured_terminal, None) {
+    if let Err(e) = spawn_terminal(&current_dir, configured_terminal, Vec::new(), false) {
         tab_manager.active_tab_mut().error = Some(format!("Error opening terminal: {}", e));
     }
 }
@@ -2703,59 +2806,144 @@ pub async fn handle_toggle_console(
 fn spawn_terminal(
     dir: &std::path::Path,
     configured_terminal: Option<String>,
-    command: Option<String>,
+    args: Vec<String>,
+    wrap_shell: bool,
 ) -> anyhow::Result<()> {
+    use std::ffi::OsString;
+use std::process::{Command, Stdio};
+
     #[cfg(target_os = "linux")]
     {
-        let terminal_list = if let Some(term) = configured_terminal {
-            vec![term]
-        } else {
-            vec![
-                "x-terminal-emulator".to_string(),
-                "gnome-terminal".to_string(),
-                "konsole".to_string(),
-                "xfce4-terminal".to_string(),
-                "alacritty".to_string(),
-                "kitty".to_string(),
-                "foot".to_string(),
-                "termite".to_string(),
-                "st".to_string(),
-                "xterm".to_string(),
-                "urxvt".to_string(),
-            ]
+        let shell_trap = |cmdline: String| {
+            format!(
+                "{} || (echo; echo 'Command failed. Press Enter to close...'; read)",
+                cmdline
+            )
         };
 
-        for term in terminal_list {
-            let mut cmd = Command::new(&term);
+        let template_terminals = [
+            ("alacritty", vec!["--command"]),
+            ("kitty", vec!["sh", "-c"]),
+            ("gnome-terminal", vec!["--", "bash", "-c"]),
+            ("xfce4-terminal", vec!["--command"]),
+            ("konsole", vec!["-e"]),
+            ("xterm", vec!["-e"]),
+            ("urxvt", vec!["-e"]),
+            ("st", vec!["-e"]),
+            ("termite", vec!["-e"]),
+            ("foot", vec!["-e"]),
+            ("x-terminal-emulator", vec!["-e"]),
+        ];
+
+        let is_configured = configured_terminal
+            .as_ref()
+            .map(|t| t.trim().len() > 0)
+            .unwrap_or(false);
+
+        let mut tried_terms = Vec::new();
+        let mut terminals: Vec<(String, Vec<&str>)> = if let Some(term) = configured_terminal {
+            let bin = term.trim().to_string();
+            // Search for terminal in known list
+            let args = template_terminals
+                .iter()
+                .find(|(name, _)| bin.contains(*name))
+                .map(|(_, v)| v.clone())
+                .unwrap_or(vec!["-e"]);
+            vec![(bin, args)]
+        } else {
+            template_terminals
+                .iter()
+                .map(|(n, v)| (n.to_string(), v.clone()))
+                .collect()
+        };
+
+        for (terminal, opt_args) in &terminals {
+            tried_terms.push(terminal.clone());
+            let mut cmd = Command::new(terminal);
             cmd.current_dir(dir);
-
-            if let Some(ref c) = command {
-                // Most Linux terminals use -e to execute a command
-                // Some might need special handling, but -e is the most universal
-                cmd.arg("-e").arg(c);
+            if args.len() == 0 {
+                // No program: just open an interactive shell/terminal
+                if terminal == "alacritty" {
+                    cmd.args(["--command", "bash"]);
+                } else if terminal == "kitty" {
+                    cmd.args(["sh"]);
+                } else if terminal == "gnome-terminal" {
+                    cmd.args(["--"]);
+                } else {
+                    // fallback, try terminal without extra args
+                }
+            } else {
+                let mut join_args = |args: &[String]| {
+                    args.iter()
+                        .map(|a| shell_escape::escape(a.into()))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                };
+                if wrap_shell {
+                    let cmdline = join_args(&args);
+                    let shell_cmd = shell_trap(cmdline);
+                    if terminal == "alacritty" {
+                        cmd.arg("--command").arg("bash").arg("-c").arg(shell_cmd);
+                    } else if terminal == "kitty" {
+                        cmd.args(["sh", "-c", &shell_cmd]);
+                    } else if terminal == "gnome-terminal" {
+                        cmd.args(["--", "bash", "-c", &shell_cmd]);
+                    } else if terminal == "xfce4-terminal" {
+                        // This terminal allows --command, no -e
+                        cmd.arg("--command")
+                            .arg(format!("bash -c '{}'", shell_cmd.replace("'", "'\\''")));
+                    } else {
+                        // fallback -e sh -c
+                        cmd.arg("-e").arg("bash").arg("-c").arg(shell_cmd);
+                    }
+                } else {
+                    let joined = args.clone();
+                    if opt_args.len() > 0 {
+                        cmd.args(opt_args.clone());
+                    }
+                    for arg in joined {
+                        cmd.arg(arg);
+                    }
+                }
             }
-
-            // Check if terminal exists before spawning
-            if Command::new(&term).arg("--version").output().is_ok()
-                || term == "x-terminal-emulator"
+            // Check if the terminal exists and works
+            if Command::new(terminal).arg("--version").output().is_ok()
+                || terminal == "x-terminal-emulator"
             {
-                cmd.spawn()?;
-                return Ok(());
+                match cmd.spawn() {
+                    Ok(_) => return Ok(()),
+                    Err(e) => continue,
+                }
             }
         }
-        Err(anyhow::anyhow!("No suitable terminal emulator found"))
+        Err(anyhow::anyhow!(format!(
+            "No suitable terminal emulator found (tried: {:?})",
+            tried_terms
+        )))
     }
 
     #[cfg(target_os = "macos")]
     {
-        if let Some(c) = command {
-            Command::new("open")
-                .arg("-a")
-                .arg("Terminal")
-                .arg("-e")
-                .arg(c)
-                .current_dir(dir)
-                .spawn()?;
+        if !args.is_empty() {
+            let mut cmd = Command::new("open");
+            cmd.arg("-a").arg("Terminal").arg("-e");
+            if wrap_shell {
+                let mut shell_cmd = args
+                    .iter()
+                    .map(|a| format!("\"{}\"", a.replace("\"", "\\\"")))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                shell_cmd = format!(
+                    "{} || (echo; echo 'Command failed. Press Enter to close...'; read)",
+                    shell_cmd
+                );
+                cmd.arg("bash").arg("-c").arg(shell_cmd);
+            } else {
+                for arg in &args {
+                    cmd.arg(arg);
+                }
+            }
+            cmd.current_dir(dir).spawn()?;
         } else if let Some(term) = configured_terminal {
             Command::new("open").arg("-a").arg(term).arg(dir).spawn()?;
         } else {
@@ -2770,17 +2958,31 @@ fn spawn_terminal(
 
     #[cfg(target_os = "windows")]
     {
-        if let Some(c) = command {
-            Command::new("cmd")
-                .arg("/c")
-                .arg("start")
-                .arg("")
-                .arg(c)
-                .current_dir(dir)
-                .spawn()?;
+        use std::os::windows::process::CommandExt;
+        if !args.is_empty() {
+            let mut cmd = Command::new("cmd");
+            if wrap_shell {
+                cmd.arg("/C").arg("start").arg("");
+                let mut line = args
+                    .iter()
+                    .map(|a| format!("\"{}\"", a.replace("\"", "\\\"")))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                line = format!(
+                    "{} || (echo. & echo Command failed. Press any key to close... & pause > nul)",
+                    line
+                );
+                cmd.arg("cmd").arg("/k").arg(line);
+            } else {
+                cmd.arg("/C").arg("start").arg("");
+                for arg in &args {
+                    cmd.arg(arg);
+                }
+            }
+            cmd.current_dir(dir).spawn()?;
         } else if let Some(term) = configured_terminal {
             Command::new("cmd")
-                .arg("/c")
+                .arg("/C")
                 .arg("start")
                 .arg("")
                 .arg(term)
@@ -2788,7 +2990,7 @@ fn spawn_terminal(
                 .spawn()?;
         } else {
             Command::new("cmd")
-                .arg("/c")
+                .arg("/C")
                 .arg("start")
                 .arg("")
                 .arg("cmd")

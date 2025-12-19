@@ -39,16 +39,33 @@ pub struct KeyboardConfig {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct EditorConfig {
+    pub command: Option<String>,
+    pub in_terminal: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct ViewerConfig {
+    pub command: Option<String>,
+    pub in_terminal: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct GlobalConfig {
     pub theme: Option<String>,
     pub terminal: Option<String>,
+    pub editor: Option<String>, // deprecated: string fallback, prefer [editor]
+    pub viewer: Option<String>, // deprecated: string fallback, prefer [viewer]
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct AppConfig {
     pub global: Option<GlobalConfig>,
     pub keyboard: Option<KeyboardConfig>,
+    pub editor: Option<EditorConfig>,
+    pub viewer: Option<ViewerConfig>,
 }
+
 
 // Default key bindings
 pub fn default_keyboard_config() -> KeyboardConfig {
@@ -91,6 +108,8 @@ pub fn default_global_config() -> GlobalConfig {
     GlobalConfig {
         theme: Some("mariana".to_string()),
         terminal: None,
+        editor: None,
+        viewer: None,
     }
 }
 
@@ -239,6 +258,15 @@ pub fn merge_global_config(
         .and_then(|g| g.terminal.clone())
         .or_else(|| default.terminal.clone());
 
+    let editor = user
+        .as_ref()
+        .and_then(|g| g.editor.clone())
+        .or_else(|| default.editor.clone());
+    let viewer = user
+        .as_ref()
+        .and_then(|g| g.viewer.clone())
+        .or_else(|| default.viewer.clone());
+
     // Validate theme name
     if let Some(ref n) = theme
         && !crate::theme::THEME_NAMES.contains(&n.as_str())
@@ -250,13 +278,20 @@ pub fn merge_global_config(
         ));
     }
 
-    Ok(GlobalConfig { theme, terminal })
+    Ok(GlobalConfig {
+        theme,
+        terminal,
+        editor,
+        viewer,
+    })
 }
 
-pub fn load_config() -> Result<(KeyboardConfig, GlobalConfig), String> {
+pub fn load_config() -> Result<(KeyboardConfig, GlobalConfig, EditorConfig, ViewerConfig), String> {
     let path = config_path().ok_or("Could not determine config directory")?;
     let default_keyboard = default_keyboard_config();
     let default_global = default_global_config();
+    let default_editor = EditorConfig { command: None, in_terminal: Some(true) };
+    let default_viewer = ViewerConfig { command: None, in_terminal: Some(true) };
     if path.exists() {
         let content =
             fs::read_to_string(&path).map_err(|e| format!("Failed to read config file: {}", e))?;
@@ -264,11 +299,14 @@ pub fn load_config() -> Result<(KeyboardConfig, GlobalConfig), String> {
             toml::from_str(&content).map_err(|e| format!("Config file is invalid: {}", e))?;
         let keyboard = merge_keyboard_config(&user_config.keyboard, &default_keyboard);
         let global = merge_global_config(&user_config.global, &default_global)?;
-        Ok((keyboard, global))
+        let editor = user_config.editor.unwrap_or(default_editor);
+        let viewer = user_config.viewer.unwrap_or(default_viewer);
+        Ok((keyboard, global, editor, viewer))
     } else {
-        Ok((default_keyboard, default_global))
+        Ok((default_keyboard, default_global, default_editor, default_viewer))
     }
 }
+
 
 pub fn config_path() -> Option<PathBuf> {
     ProjectDirs::from("org", "fm", "fm").map(|proj_dirs| proj_dirs.config_dir().join("config.toml"))
@@ -287,6 +325,8 @@ pub fn create_default_config() -> Result<PathBuf, String> {
     let default_config = AppConfig {
         global: Some(default_global_config()),
         keyboard: Some(default_keyboard_config()),
+        editor: Some(EditorConfig::default()),
+        viewer: Some(ViewerConfig::default()),
     };
 
     let toml_content = toml::to_string_pretty(&default_config)
