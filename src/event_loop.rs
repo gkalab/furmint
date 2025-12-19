@@ -44,8 +44,6 @@ pub async fn run_event_loop(
     watcher_rx: &mut tokio::sync::mpsc::UnboundedReceiver<crate::watcher::WatcherEvent>,
     task_rx: &mut tokio::sync::mpsc::UnboundedReceiver<crate::tasks::TaskEvent>,
 ) -> anyhow::Result<()> {
-    use std::process::Stdio;
-
     // Create channel for terminal events
     let (input_tx, mut input_rx) = tokio::sync::mpsc::unbounded_channel();
 
@@ -2822,8 +2820,7 @@ fn spawn_terminal(
     args: Vec<String>,
     wrap_shell: bool,
 ) -> anyhow::Result<()> {
-    use std::ffi::OsString;
-    use std::process::{Command, Stdio};
+    use std::process::Command;
 
     #[cfg(target_os = "linux")]
     {
@@ -2848,13 +2845,8 @@ fn spawn_terminal(
             ("x-terminal-emulator", vec!["-e"]),
         ];
 
-        let is_configured = configured_terminal
-            .as_ref()
-            .map(|t| t.trim().len() > 0)
-            .unwrap_or(false);
-
         let mut tried_terms = Vec::new();
-        let mut terminals: Vec<(String, Vec<&str>)> = if let Some(term) = configured_terminal {
+        let terminals: Vec<(String, Vec<&str>)> = if let Some(term) = configured_terminal {
             let bin = term.trim().to_string();
             // Search for terminal in known list
             let args = template_terminals
@@ -2886,7 +2878,7 @@ fn spawn_terminal(
                     // fallback, try terminal without extra args
                 }
             } else {
-                let mut join_args = |args: &[String]| {
+                let join_args = |args: &[String]| {
                     args.iter()
                         .map(|a| shell_escape::escape(a.into()))
                         .collect::<Vec<_>>()
@@ -2925,7 +2917,13 @@ fn spawn_terminal(
             {
                 match cmd.spawn() {
                     Ok(_) => return Ok(()),
-                    Err(e) => continue,
+                    Err(e) => {
+                        // On error, propagate the error context back to the caller for UI display
+                        return Err(anyhow::anyhow!(format!(
+                            "Failed to spawn terminal {}: {}",
+                            terminal, e
+                        )));
+                    }
                 }
             }
         }
