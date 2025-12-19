@@ -1,3 +1,6 @@
+// Clippy allows - complex type is acceptable for task representation
+#![allow(clippy::type_complexity)]
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -129,8 +132,8 @@ impl TaskManager {
         }
         let current = self.selected_index.load(Ordering::Relaxed);
         // We need to match the sort order of get_tasks: by ID
-        let mut ids: Vec<usize> = tasks.keys().cloned().collect();
-        ids.sort();
+        let mut ids: Vec<usize> = tasks.keys().copied().collect();
+        ids.sort_unstable();
         if current < ids.len() {
             Some(ids[current])
         } else {

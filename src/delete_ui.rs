@@ -51,14 +51,14 @@ pub fn draw_delete_popup(f: &mut ratatui::Frame, state: &DeleteState, palette: &
         // Truncate if too long
         let truncated = crate::ui_utils::truncate_middle_with_ellipsis(&name, 40);
         if state.is_permanent {
-            format!("Permanently delete '{}'?", truncated)
+            format!("Permanently delete '{truncated}'?")
         } else {
-            format!("Trash '{}'?", truncated)
+            format!("Trash '{truncated}'?")
         }
     } else if state.is_permanent {
-        format!("Permanently delete {} items?", count)
+        format!("Permanently delete {count} items?")
     } else {
-        format!("Trash {} items?", count)
+        format!("Trash {count} items?")
     };
 
     // Divide popup_area for message and button row

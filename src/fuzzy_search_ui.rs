@@ -83,8 +83,8 @@ pub fn draw_fuzzy_search_popup(
 
     // Calculate popup size (centered, 60% width, 50% height)
     let area = f.area();
-    let popup_width = (area.width as f32 * 0.6).min(80.0) as u16;
-    let popup_height = (area.height as f32 * 0.5).min(20.0) as u16;
+    let popup_width = (f32::from(area.width) * 0.6).min(80.0) as u16;
+    let popup_height = (f32::from(area.height) * 0.5).min(20.0) as u16;
     let popup_x = (area.width.saturating_sub(popup_width)) / 2;
     let popup_y = (area.height.saturating_sub(popup_height)) / 2;
 
@@ -219,10 +219,10 @@ pub fn draw_fuzzy_search_popup(
             // Use the same highlight style as the main panel
             let highlight_bg =
                 Color::Rgb(palette.surface2.r, palette.surface2.g, palette.surface2.b);
-            let highlight_fg = if !palette.is_dark {
-                Color::Rgb(palette.base.r, palette.base.g, palette.base.b)
-            } else {
+            let highlight_fg = if palette.is_dark {
                 Color::Rgb(palette.text.r, palette.text.g, palette.text.b)
+            } else {
+                Color::Rgb(palette.base.r, palette.base.g, palette.base.b)
             };
             (highlight_fg, highlight_bg)
         } else {

@@ -23,7 +23,7 @@ pub struct DirectoryHistory {
 }
 
 impl DirectoryHistory {
-    /// Create a new DirectoryHistory with the default cache file location
+    /// Create a new `DirectoryHistory` with the default cache file location
     pub fn new() -> Result<Self> {
         let cache_file = Self::get_cache_file_path()?;
         let mut history = Self {
@@ -95,7 +95,7 @@ impl DirectoryHistory {
 
         // Combine visit count and recency
         // Visit count has more weight
-        (entry.visit_count as f64 * 2.0) + (recency_score * 10.0)
+        (f64::from(entry.visit_count) * 2.0) + (recency_score * 10.0)
     }
 
     /// Perform fuzzy search on directory paths

@@ -151,10 +151,10 @@ pub fn draw_drive_select_popup(f: &mut Frame, app: &mut AppState, palette: &Them
     let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
 
     let highlight_bg = Color::Rgb(palette.surface2.r, palette.surface2.g, palette.surface2.b);
-    let highlight_fg = if !palette.is_dark {
-        bg_color
-    } else {
+    let highlight_fg = if palette.is_dark {
         text_color
+    } else {
+        bg_color
     };
 
     let items: Vec<ListItem> = app

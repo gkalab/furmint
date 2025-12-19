@@ -59,7 +59,7 @@ pub fn draw_tab_bar(
 
         // Add tab with padding
         spans.push(Span::styled(
-            format!(" {} ", truncated_title),
+            format!(" {truncated_title} "),
             Style::default().fg(fg).bg(bg),
         ));
 
@@ -268,18 +268,15 @@ pub fn draw_panel_status(
     let status = if !error.is_empty() {
         error.to_string()
     } else if selected_count > 0 {
-        format!(
-            "{} files, {} dirs | {} selected",
-            file_count, dir_count, selected_count
-        )
+        format!("{file_count} files, {dir_count} dirs | {selected_count} selected")
     } else {
-        format!("{} files, {} dirs", file_count, dir_count)
+        format!("{file_count} files, {dir_count} dirs")
     };
     // Use the same background as file/directory rows (surface1)
-    let fg = if !error.is_empty() {
-        Color::Rgb(palette.red.r, palette.red.g, palette.red.b)
-    } else {
+    let fg = if error.is_empty() {
         Color::Rgb(palette.text.r, palette.text.g, palette.text.b)
+    } else {
+        Color::Rgb(palette.red.r, palette.red.g, palette.red.b)
     };
     // Move status line one character to the right and reduce width by 2 (1 for left offset, 1 for right margin)
     let status_area = Rect {
@@ -311,7 +308,7 @@ pub fn draw_panel_status(
                 let text = if running_count == 1 {
                     "1 task running".to_string()
                 } else {
-                    format!("{} tasks running", running_count)
+                    format!("{running_count} tasks running")
                 };
                 let text_width = text.len() as u16;
 
@@ -640,19 +637,15 @@ mod tests {
                 resulting_text.push_str(&span.content);
             }
 
-            println!("Test Case: {}", description);
-            println!("  Input: {:?}", input);
-            println!("  Result: '{}'", resulting_text);
-            println!("  Display width: {}", total_width);
+            println!("Test Case: {description}");
+            println!("  Input: {input:?}");
+            println!("  Result: '{resulting_text}'");
+            println!("  Display width: {total_width}");
 
             // Assert that the total width does not exceed max_width
             assert!(
                 total_width <= max_width,
-                "Overflow detected for '{}'! Width: {}, Max: {}. Result: '{}'",
-                description,
-                total_width,
-                max_width,
-                resulting_text
+                "Overflow detected for '{description}'! Width: {total_width}, Max: {max_width}. Result: '{resulting_text}'"
             );
         }
     }

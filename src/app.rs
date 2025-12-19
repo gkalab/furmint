@@ -79,7 +79,7 @@ impl Tab {
         }
     }
 
-    /// Move cursor up by page_size.
+    /// Move cursor up by `page_size`.
     pub fn move_cursor_page_up(&mut self, page_size: usize) {
         if self.cursor >= page_size {
             self.cursor -= page_size;
@@ -88,7 +88,7 @@ impl Tab {
         }
     }
 
-    /// Move cursor down by page_size.
+    /// Move cursor down by `page_size`.
     pub fn move_cursor_page_down(&mut self, page_size: usize) {
         let max_idx = self.entries.len().saturating_sub(1);
         if self.cursor + page_size <= max_idx {
@@ -162,7 +162,7 @@ impl Tab {
                 .current_dir
                 .file_name()
                 .and_then(|n| n.to_str())
-                .map(|s| s.to_string());
+                .map(std::string::ToString::to_string);
 
             self.navigate_to(parent.to_path_buf())?;
 
@@ -236,9 +236,8 @@ impl Tab {
             if a.is_dir != b.is_dir {
                 if a.is_dir {
                     return std::cmp::Ordering::Less;
-                } else {
-                    return std::cmp::Ordering::Greater;
                 }
+                return std::cmp::Ordering::Greater;
             }
 
             // Special case for ".." to always be at the top
@@ -372,7 +371,7 @@ pub struct TabManager {
 }
 
 impl TabManager {
-    /// Create a new TabManager with a single tab
+    /// Create a new `TabManager` with a single tab
     pub fn new(initial_path: PathBuf) -> anyhow::Result<Self> {
         Ok(Self {
             tabs: vec![Tab::new(initial_path)?],
@@ -996,6 +995,18 @@ impl FileViewerState {
     }
 }
 
+fn ensure_dir_exists(path: PathBuf) -> PathBuf {
+    let mut current = path;
+    while !current.exists() || !current.is_dir() {
+        if let Some(parent) = current.parent() {
+            current = parent.to_path_buf();
+        } else {
+            return std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+        }
+    }
+    current
+}
+
 #[cfg(test)]
 mod tests {
     // Test for CreateFileState reset
@@ -1033,7 +1044,7 @@ mod tests {
                 is_symlink: false,
                 size: None,
                 modified: None,
-                attributes: "".to_string(),
+                attributes: String::new(),
                 selected: false,
             },
             FileEntry {
@@ -1273,16 +1284,4 @@ mod tests {
         assert_eq!(new_tab.sort_column, SortColumn::Size);
         assert_eq!(new_tab.sort_direction, SortDirection::Descending);
     }
-}
-
-fn ensure_dir_exists(path: PathBuf) -> PathBuf {
-    let mut current = path;
-    while !current.exists() || !current.is_dir() {
-        if let Some(parent) = current.parent() {
-            current = parent.to_path_buf();
-        } else {
-            return std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
-        }
-    }
-    current
 }

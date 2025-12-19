@@ -45,7 +45,7 @@ pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &RenameState, palette: &
         // Popup width is 60. "Overwrite ? (Y)es (N)o" takes ~23 chars + filename.
         // Available space for filename is ~35 chars.
         let truncated_name = crate::ui_utils::truncate_middle_with_ellipsis(&state.new_name, 35);
-        let text = format!("Overwrite {}?", truncated_name);
+        let text = format!("Overwrite {truncated_name}?");
 
         // Draw block/borders first
         f.render_widget(&block, popup_area);

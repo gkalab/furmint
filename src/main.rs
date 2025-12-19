@@ -30,13 +30,13 @@ use std::env;
 #[tokio::main]
 async fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
-    let bin_name = args.first().map(|s| s.as_str()).unwrap_or("fm");
+    let bin_name = args.first().map_or("fm", std::string::String::as_str);
 
     // Handle CLI arguments
     if args.contains(&"--help".to_string()) || args.contains(&"-h".to_string()) {
         println!("fm - A TUI file manager");
         println!();
-        println!("Usage: {} [OPTIONS]", bin_name);
+        println!("Usage: {bin_name} [OPTIONS]");
         println!();
         println!("Options:");
         println!("  -h, --help            Show this help message");
@@ -59,11 +59,11 @@ async fn main() -> Result<()> {
     if args.contains(&"--create-config".to_string()) {
         match create_default_config() {
             Ok(path) => {
-                println!("Default configuration created at: {:?}", path);
+                println!("Default configuration created at: {path:?}");
                 return Ok(());
             }
             Err(e) => {
-                eprintln!("Error creating default config: {}", e);
+                eprintln!("Error creating default config: {e}");
                 std::process::exit(1);
             }
         }
@@ -109,7 +109,7 @@ async fn main() -> Result<()> {
         .ok()
         .map(|mut w| {
             if let Err(e) = w.watch(&cwd) {
-                eprintln!("Failed to start watcher: {}", e);
+                eprintln!("Failed to start watcher: {e}");
             }
             w
         });

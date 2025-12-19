@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 
 // Cross-platform: empties user trash. Returns number of deleted items, or error.
+#[allow(clippy::unused_async)] // async kept for API consistency even if not currently awaiting
 pub async fn empty_trash() -> std::result::Result<usize, String> {
     #[cfg(target_os = "windows")]
     {
@@ -57,7 +58,7 @@ pub async fn empty_trash() -> std::result::Result<usize, String> {
         use std::fs;
         use std::path::PathBuf;
         let home = env::var("HOME").map_err(|e| format!("No HOME: {e}"))?;
-        let base = PathBuf::from(format!("{}/.local/share/Trash", home));
+        let base = PathBuf::from(format!("{home}/.local/share/Trash"));
         let files = base.join("files");
         let info = base.join("info");
         let mut removed = 0;
@@ -156,7 +157,7 @@ pub fn get_attributes(_meta: &Metadata, is_dir: bool) -> String {
             });
         }
         let s: String = attrs.chars().take(10).collect();
-        format!("{:<10}", s) // pad/truncate to 10
+        format!("{s:<10}") // pad/truncate to 10
     }
     #[cfg(not(unix))]
     {
@@ -174,7 +175,7 @@ pub fn list_dir(path: &PathBuf) -> Result<Vec<FileEntry>> {
         is_symlink: false,
         size: None,
         modified: None,
-        attributes: "".to_string(),
+        attributes: String::new(),
         selected: false,
     });
     for entry in fs::read_dir(path)? {
@@ -250,7 +251,7 @@ pub fn format_size(size: Option<u64>, is_dir: bool, is_symlink: bool) -> String 
         } else if s >= 1_000 {
             format!("{:>6.1}K", s as f64 / 1_000.0)
         } else {
-            format!("{:>7}", s)
+            format!("{s:>7}")
         }
     } else {
         "       ".to_string()
@@ -361,7 +362,7 @@ mod tests {
         let temp_dir = std::env::temp_dir();
         let test_file = temp_dir.join("fm_test_large.txt");
         let mut file = std::fs::File::create(&test_file).unwrap();
-        file.write_all(&vec![b'a'; 100]).unwrap();
+        file.write_all(&[b'a'; 100]).unwrap();
 
         let result = read_file_content(&test_file, 50);
         assert!(result.is_ok());

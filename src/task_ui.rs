@@ -79,7 +79,7 @@ pub fn draw_task_manager(
         };
 
         // Task Name Line
-        let item_title = format!("[{}] {} - {}", id, name, status_str);
+        let item_title = format!("[{id}] {name} - {status_str}");
 
         // Progress Bar Line
         let progress_line = if let Some((processed, total)) = progress {
@@ -95,7 +95,7 @@ pub fn draw_task_manager(
 
                 let bar: String = "=".repeat(filled) + &" ".repeat(empty);
 
-                format!("[{}] {}% ({} left)", bar, percentage, left)
+                format!("[{bar}] {percentage}% ({left} left)")
             } else {
                 "Calculating...".to_string()
             }
@@ -117,7 +117,7 @@ pub fn draw_task_manager(
 
         if let TaskStatus::Failed(e) = status {
             spans.push(Line::from(Span::styled(
-                format!("Error: {}", e),
+                format!("Error: {e}"),
                 style.fg(Color::Rgb(palette.red.r, palette.red.g, palette.red.b)),
             )));
         }

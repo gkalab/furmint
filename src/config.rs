@@ -299,9 +299,9 @@ pub fn load_config() -> Result<(KeyboardConfig, GlobalConfig, EditorConfig, View
     };
     if path.exists() {
         let content =
-            fs::read_to_string(&path).map_err(|e| format!("Failed to read config file: {}", e))?;
+            fs::read_to_string(&path).map_err(|e| format!("Failed to read config file: {e}"))?;
         let user_config: AppConfig =
-            toml::from_str(&content).map_err(|e| format!("Config file is invalid: {}", e))?;
+            toml::from_str(&content).map_err(|e| format!("Config file is invalid: {e}"))?;
         let keyboard = merge_keyboard_config(&user_config.keyboard, &default_keyboard);
         let global = merge_global_config(&user_config.global, &default_global)?;
         let editor = user_config.editor.unwrap_or(default_editor);
@@ -323,12 +323,12 @@ pub fn config_path() -> Option<PathBuf> {
 pub fn create_default_config() -> Result<PathBuf, String> {
     let path = config_path().ok_or("Could not determine config directory")?;
     if path.exists() {
-        return Err(format!("Config file already exists at {:?}", path));
+        return Err(format!("Config file already exists at {path:?}"));
     }
 
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create config directory: {}", e))?;
+            .map_err(|e| format!("Failed to create config directory: {e}"))?;
     }
 
     let default_config = AppConfig {
@@ -339,9 +339,9 @@ pub fn create_default_config() -> Result<PathBuf, String> {
     };
 
     let toml_content = toml::to_string_pretty(&default_config)
-        .map_err(|e| format!("Failed to serialize default config: {}", e))?;
+        .map_err(|e| format!("Failed to serialize default config: {e}"))?;
 
-    fs::write(&path, toml_content).map_err(|e| format!("Failed to write config file: {}", e))?;
+    fs::write(&path, toml_content).map_err(|e| format!("Failed to write config file: {e}"))?;
 
     Ok(path)
 }

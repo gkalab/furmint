@@ -35,7 +35,7 @@ pub fn draw_copy_move_popup(f: &mut ratatui::Frame, state: &CopyMoveState, palet
         CopyMoveAction::Move => "Move",
     };
     let count = state.source_paths.len();
-    let title = format!("{} {} item(s) to:", title_prefix, count);
+    let title = format!("{title_prefix} {count} item(s) to:");
 
     let mut block = Block::default()
         .borders(Borders::ALL)
@@ -46,7 +46,7 @@ pub fn draw_copy_move_popup(f: &mut ratatui::Frame, state: &CopyMoveState, palet
 
     if let Some(error) = &state.error {
         block = block.title_bottom(
-            Line::from(format!(" Error: {} ", error))
+            Line::from(format!(" Error: {error} "))
                 .style(Style::default().fg(Color::Rgb(palette.red.r, palette.red.g, palette.red.b)))
                 .alignment(Alignment::Center),
         );

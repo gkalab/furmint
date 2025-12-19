@@ -1,7 +1,7 @@
 use crate::config::KeyboardConfig;
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
-use ratatui::widgets::*;
+use ratatui::widgets::{Block, Borders, Cell, Clear, Row, Table};
 
 pub fn draw_help_popup(
     f: &mut ratatui::Frame,
@@ -79,10 +79,9 @@ pub fn draw_help_popup(
         for (label, keys) in bindings {
             let keys_str = keys
                 .as_ref()
-                .map(|k| k.join(", "))
-                .unwrap_or_else(|| "None".to_string());
+                .map_or_else(|| "None".to_string(), |k| k.join(", "));
             rows.push(Row::new(vec![
-                Cell::from(format!("  {}", label)),
+                Cell::from(format!("  {label}")),
                 Cell::from(keys_str),
             ]));
         }
