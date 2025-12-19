@@ -1,4 +1,5 @@
 use crate::fs_ops::FileEntry;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 #[derive(Clone)]
@@ -44,6 +45,18 @@ impl Tab {
             scroll_offset: 0,
         };
         tab.sort_entries();
+        Ok(tab)
+    }
+
+    pub fn from_persistent(p: PersistentTab) -> anyhow::Result<Self> {
+        let path = ensure_dir_exists(p.path);
+        let mut tab = Tab::new(path)?;
+        tab.sort_column = p.sort_column;
+        tab.sort_direction = p.sort_direction;
+        tab.sort_entries();
+        if p.cursor < tab.entries.len() {
+            tab.cursor = p.cursor;
+        }
         Ok(tab)
     }
 
@@ -339,7 +352,7 @@ impl Tab {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
 pub enum SortColumn {
     Name,
     Extension,
@@ -347,7 +360,7 @@ pub enum SortColumn {
     Size,
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
 pub enum SortDirection {
     Ascending,
     Descending,
@@ -364,6 +377,32 @@ impl TabManager {
         Ok(Self {
             tabs: vec![Tab::new(initial_path)?],
             active_tab_index: 0,
+        })
+    }
+
+    pub fn from_persistent(p: PersistentPanel) -> anyhow::Result<Self> {
+        let mut tabs = Vec::new();
+        for pt in p.tabs {
+            if let Ok(tab) = Tab::from_persistent(pt) {
+                tabs.push(tab);
+            }
+        }
+
+        if tabs.is_empty() {
+            tabs.push(Tab::new(
+                std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
+            )?);
+        }
+
+        let active_tab_index = if p.active_tab_index < tabs.len() {
+            p.active_tab_index
+        } else {
+            0
+        };
+
+        Ok(Self {
+            tabs,
+            active_tab_index,
         })
     }
 
@@ -443,7 +482,7 @@ impl TabManager {
     }
 }
 
-#[derive(PartialEq, Clone, Copy, Debug)]
+#[derive(PartialEq, Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum PanelSide {
     Left,
     Right,
@@ -507,6 +546,87 @@ pub struct AppState {
     pub input_polling_handle: Option<tokio::task::JoinHandle<()>>,
     pub needs_redraw: bool, // <--- Added for explicit redraw after editor
     pub global: crate::config::GlobalConfig,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PersistentTab {
+    pub path: PathBuf,
+    pub cursor: usize,
+    pub sort_column: SortColumn,
+    pub sort_direction: SortDirection,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PersistentPanel {
+    pub tabs: Vec<PersistentTab>,
+    pub active_tab_index: usize,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PersistentState {
+    pub left: PersistentPanel,
+    pub right: PersistentPanel,
+    pub active_side: PanelSide,
+}
+
+impl AppState {
+    pub fn save_state(&self) -> anyhow::Result<()> {
+        let state = PersistentState {
+            left: PersistentPanel {
+                tabs: self
+                    .left
+                    .tabs
+                    .iter()
+                    .map(|t| PersistentTab {
+                        path: t.current_dir.clone(),
+                        cursor: t.cursor,
+                        sort_column: t.sort_column,
+                        sort_direction: t.sort_direction,
+                    })
+                    .collect(),
+                active_tab_index: self.left.active_tab_index,
+            },
+            right: PersistentPanel {
+                tabs: self
+                    .right
+                    .tabs
+                    .iter()
+                    .map(|t| PersistentTab {
+                        path: t.current_dir.clone(),
+                        cursor: t.cursor,
+                        sort_column: t.sort_column,
+                        sort_direction: t.sort_direction,
+                    })
+                    .collect(),
+                active_tab_index: self.right.active_tab_index,
+            },
+            active_side: self.active,
+        };
+
+        let path = Self::get_state_file_path()?;
+        let content = serde_json::to_string_pretty(&state)?;
+        std::fs::write(path, content)?;
+        Ok(())
+    }
+
+    pub fn load_state() -> anyhow::Result<Option<PersistentState>> {
+        let path = Self::get_state_file_path()?;
+        if !path.exists() {
+            return Ok(None);
+        }
+
+        let content = std::fs::read_to_string(path)?;
+        let state: PersistentState = serde_json::from_str(&content)?;
+        Ok(Some(state))
+    }
+
+    fn get_state_file_path() -> anyhow::Result<PathBuf> {
+        let proj_dirs = directories::ProjectDirs::from("org", "fm", "fm")
+            .ok_or_else(|| anyhow::anyhow!("Could not determine data directory"))?;
+        let data_dir = proj_dirs.data_dir();
+        std::fs::create_dir_all(data_dir)?;
+        Ok(data_dir.join("state.json"))
+    }
 }
 
 impl AppState {
@@ -957,6 +1077,7 @@ mod tests {
             last_type_time: None,
             sort_column: SortColumn::Name,
             sort_direction: SortDirection::Ascending,
+            scroll_offset: 0,
         }
     }
 
@@ -1150,4 +1271,16 @@ mod tests {
         assert_eq!(new_tab.sort_column, SortColumn::Size);
         assert_eq!(new_tab.sort_direction, SortDirection::Descending);
     }
+}
+
+fn ensure_dir_exists(path: PathBuf) -> PathBuf {
+    let mut current = path;
+    while !current.exists() || !current.is_dir() {
+        if let Some(parent) = current.parent() {
+            current = parent.to_path_buf();
+        } else {
+            return std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+        }
+    }
+    current
 }
