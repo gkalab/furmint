@@ -1221,17 +1221,11 @@ pub async fn handle_edit(app: &mut AppState, input_tx: UnboundedSender<Crossterm
                     }
                 }
             } else {
-                // FALLBACK: use the system default editor in a terminal
-                let editor = get_default_editor();
-                let file_arg = file_path.to_string_lossy().to_string();
-                let args = vec![file_arg];
-                if let Err(e) = spawn_terminal(
-                    &tab_manager.active_tab().current_dir,
-                    app.global.terminal.clone(),
-                    std::iter::once(editor).chain(args.clone()).collect(),
-                    true,
-                ) {
-                    error_msg = Some(format!("No editor configured and could not launch system default: {}", e));
+                // FALLBACK: use robust legacy handler for SSH/TTY friendliness
+                let entry_name = entry.name.clone();
+                let result = open_file_in_editor_with_env_handling(app, &file_path, Some(entry_name), &input_tx).await;
+                if let Err(e) = result {
+                    error_msg = Some(format!("No editor configured and could not launch default: {}", e));
                 }
             }
             if let Some(e) = error_msg {
