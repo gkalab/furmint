@@ -2,9 +2,9 @@ use crate::app::{AppState, PanelSide};
 use crate::config::KeyboardConfig;
 use crate::theme::ThemePalette;
 use crate::ui::{draw_panel, draw_panel_status};
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use crossterm::ExecutableCommand;
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode};
 use ratatui::prelude::*;
 #[cfg(not(target_os = "windows"))]
 use std::env;
@@ -2618,8 +2618,10 @@ pub async fn handle_toggle_console(
     // 2. Disable raw mode and show cursor
     disable_raw_mode()?;
     std::io::stdout()
-        .execute(crossterm::cursor::Show)
-        .map_err(|e| anyhow::anyhow!("Failed to show cursor: {}", e))?;
+        .execute(crossterm::cursor::Show)?
+        .execute(Clear(ClearType::All))?
+        .execute(crossterm::cursor::MoveTo(0, 0))
+        .map_err(|e| anyhow::anyhow!("Failed to reset terminal: {}", e))?;
 
     // 3. Pause watcher
     let panel_current_dir = {
