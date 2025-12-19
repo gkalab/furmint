@@ -30,7 +30,7 @@ use std::env;
 #[tokio::main]
 async fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
-    let bin_name = args.get(0).map(|s| s.as_str()).unwrap_or("fm");
+    let bin_name = args.first().map(|s| s.as_str()).unwrap_or("fm");
 
     // Handle CLI arguments
     if args.contains(&"--help".to_string()) || args.contains(&"-h".to_string()) {

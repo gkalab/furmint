@@ -440,49 +440,49 @@ pub async fn handle_event(
                         PanelSide::Left => &app.left,
                         PanelSide::Right => &app.right,
                     };
-                    if let Some(entry) = tab_manager.active_tab().current_entry() {
-                        if !entry.is_dir {
-                            let full_path = tab_manager.active_tab().current_dir.join(&entry.name);
-                            let file_arg = full_path.to_string_lossy().to_string();
-                            let mut args: Vec<String> = viewer_cmd
-                                .split_whitespace()
-                                .map(|s| s.to_string())
-                                .collect();
-                            args.push(file_arg);
-                            let in_terminal = app.viewer_cfg.in_terminal.unwrap_or(true);
-                            if in_terminal {
-                                if let Err(e) = spawn_terminal(
-                                    &tab_manager.active_tab().current_dir,
-                                    app.global.terminal.clone(),
-                                    args,
-                                    true,
-                                ) {
+                    if let Some(entry) = tab_manager.active_tab().current_entry()
+                        && !entry.is_dir
+                    {
+                        let full_path = tab_manager.active_tab().current_dir.join(&entry.name);
+                        let file_arg = full_path.to_string_lossy().to_string();
+                        let mut args: Vec<String> = viewer_cmd
+                            .split_whitespace()
+                            .map(|s| s.to_string())
+                            .collect();
+                        args.push(file_arg);
+                        let in_terminal = app.viewer_cfg.in_terminal.unwrap_or(true);
+                        if in_terminal {
+                            if let Err(e) = spawn_terminal(
+                                &tab_manager.active_tab().current_dir,
+                                app.global.terminal.clone(),
+                                args,
+                                true,
+                            ) {
+                                let tab_manager = match app.active {
+                                    PanelSide::Left => &mut app.left,
+                                    PanelSide::Right => &mut app.right,
+                                };
+                                tab_manager.active_tab_mut().error =
+                                    Some(format!("Error launching viewer: {}", e));
+                            }
+                        } else {
+                            // launch directly (background)
+                            match std::process::Command::new(&args[0])
+                                .args(&args[1..])
+                                .current_dir(&tab_manager.active_tab().current_dir)
+                                .stdin(Stdio::null())
+                                .stdout(Stdio::null())
+                                .stderr(Stdio::null())
+                                .spawn()
+                            {
+                                Ok(_) => {}
+                                Err(e) => {
                                     let tab_manager = match app.active {
                                         PanelSide::Left => &mut app.left,
                                         PanelSide::Right => &mut app.right,
                                     };
                                     tab_manager.active_tab_mut().error =
                                         Some(format!("Error launching viewer: {}", e));
-                                }
-                            } else {
-                                // launch directly (background)
-                                match std::process::Command::new(&args[0])
-                                    .args(&args[1..])
-                                    .current_dir(&tab_manager.active_tab().current_dir)
-                                    .stdin(Stdio::null())
-                                    .stdout(Stdio::null())
-                                    .stderr(Stdio::null())
-                                    .spawn()
-                                {
-                                    Ok(_) => {}
-                                    Err(e) => {
-                                        let tab_manager = match app.active {
-                                            PanelSide::Left => &mut app.left,
-                                            PanelSide::Right => &mut app.right,
-                                        };
-                                        tab_manager.active_tab_mut().error =
-                                            Some(format!("Error launching viewer: {}", e));
-                                    }
                                 }
                             }
                         }
@@ -1180,78 +1180,74 @@ pub async fn handle_edit(app: &mut AppState, input_tx: UnboundedSender<Crossterm
         let panel = tab_manager.active_tab_mut();
         panel.current_entry().cloned()
     };
-    if let Some(entry) = entry {
-        if !entry.is_dir {
-            let file_path = {
-                let panel = tab_manager.active_tab_mut();
-                panel.current_dir.join(&entry.name)
-            };
+    if let Some(entry) = entry
+        && !entry.is_dir
+    {
+        let file_path = {
+            let panel = tab_manager.active_tab_mut();
+            panel.current_dir.join(&entry.name)
+        };
 
-            // Always use the new [editor] config
-            let editor_cfg = &app.editor_cfg;
-            let mut error_msg = None;
-            if let Some(cmd) = &editor_cfg.command {
-                let file_arg = file_path.to_string_lossy().to_string();
-                // Split editor.command by whitespace (handle quotes properly)
-                let parts = shell_words::split(cmd).unwrap_or_else(|_| vec![cmd.clone()]);
-                if parts.is_empty() {
-                    error_msg = Some("Invalid editor command".to_string());
+        // Always use the new [editor] config
+        let editor_cfg = &app.editor_cfg;
+        let mut error_msg = None;
+        if let Some(cmd) = &editor_cfg.command {
+            let file_arg = file_path.to_string_lossy().to_string();
+            // Split editor.command by whitespace (handle quotes properly)
+            let parts = shell_words::split(cmd).unwrap_or_else(|_| vec![cmd.clone()]);
+            if parts.is_empty() {
+                error_msg = Some("Invalid editor command".to_string());
+            } else {
+                let program = &parts[0];
+                let mut args = parts[1..].to_vec();
+                args.push(file_arg);
+                if editor_cfg.in_terminal.unwrap_or(true) {
+                    // Launch in terminal: pass program and args
+                    let mut t_args = vec![program.clone()];
+                    t_args.extend(args.clone());
+                    if let Err(e) = spawn_terminal(
+                        &tab_manager.active_tab().current_dir,
+                        app.global.terminal.clone(),
+                        t_args,
+                        true,
+                    ) {
+                        error_msg = Some(format!("Error launching editor: {}", e));
+                    }
                 } else {
-                    let program = &parts[0];
-                    let mut args = parts[1..].to_vec();
-                    args.push(file_arg);
-                    if editor_cfg.in_terminal.unwrap_or(true) {
-                        // Launch in terminal: pass program and args
-                        let mut t_args = vec![program.clone()];
-                        t_args.extend(args.clone());
-                        if let Err(e) = spawn_terminal(
-                            &tab_manager.active_tab().current_dir,
-                            app.global.terminal.clone(),
-                            t_args,
-                            true,
-                        ) {
+                    // Launch as GUI/background process
+                    match Command::new(program)
+                        .args(&args)
+                        .stdin(Stdio::null())
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .spawn()
+                    {
+                        Ok(_) => (),
+                        Err(e) => {
                             error_msg = Some(format!("Error launching editor: {}", e));
-                        }
-                    } else {
-                        // Launch as GUI/background process
-                        match Command::new(program)
-                            .args(&args)
-                            .stdin(Stdio::null())
-                            .stdout(Stdio::null())
-                            .stderr(Stdio::null())
-                            .spawn()
-                        {
-                            Ok(_) => (),
-                            Err(e) => {
-                                error_msg = Some(format!("Error launching editor: {}", e));
-                            }
                         }
                     }
                 }
-            } else {
-                // FALLBACK: use robust legacy handler for SSH/TTY friendliness
-                let entry_name = entry.name.clone();
-                let result = open_file_in_editor_with_env_handling(
-                    app,
-                    &file_path,
-                    Some(entry_name),
-                    &input_tx,
-                )
-                .await;
-                if let Err(e) = result {
-                    error_msg = Some(format!(
-                        "No editor configured and could not launch default: {}",
-                        e
-                    ));
-                }
             }
-            if let Some(e) = error_msg {
-                let tab_manager = match app.active {
-                    PanelSide::Left => &mut app.left,
-                    PanelSide::Right => &mut app.right,
-                };
-                tab_manager.active_tab_mut().error = Some(e);
+        } else {
+            // FALLBACK: use robust legacy handler for SSH/TTY friendliness
+            let entry_name = entry.name.clone();
+            let result =
+                open_file_in_editor_with_env_handling(app, &file_path, Some(entry_name), &input_tx)
+                    .await;
+            if let Err(e) = result {
+                error_msg = Some(format!(
+                    "No editor configured and could not launch default: {}",
+                    e
+                ));
             }
+        }
+        if let Some(e) = error_msg {
+            let tab_manager = match app.active {
+                PanelSide::Left => &mut app.left,
+                PanelSide::Right => &mut app.right,
+            };
+            tab_manager.active_tab_mut().error = Some(e);
         }
     }
 }
@@ -2538,8 +2534,8 @@ pub async fn handle_create_file_popup_event(
                 {
                     if input == "~" {
                         home
-                    } else if input.starts_with("~/") {
-                        home.join(&input[2..])
+                    } else if let Some(stripped) = input.strip_prefix("~/") {
+                        home.join(stripped)
                     } else {
                         app.create_file_popup.error =
                             Some("Unsupported ~username syntax".to_string());
@@ -2866,7 +2862,7 @@ fn spawn_terminal(
             tried_terms.push(terminal.clone());
             let mut cmd = Command::new(terminal);
             cmd.current_dir(dir);
-            if args.len() == 0 {
+            if args.is_empty() {
                 // No program: just open an interactive shell/terminal
                 if terminal == "alacritty" {
                     cmd.args(["--command", "bash"]);
@@ -2903,7 +2899,7 @@ fn spawn_terminal(
                     }
                 } else {
                     let joined = args.clone();
-                    if opt_args.len() > 0 {
+                    if !opt_args.is_empty() {
                         cmd.args(opt_args.clone());
                     }
                     for arg in joined {
