@@ -62,7 +62,7 @@ pub fn handle_drive_select_event(code: KeyCode, app: &mut AppState) -> bool {
                 .find(|d| d.to_ascii_uppercase() == target)
                 .cloned()
             {
-                perform_drive_navigation(app, drive);
+                perform_drive_navigation(app, drive.as_str());
             }
         }
         KeyCode::Enter => {
@@ -72,7 +72,7 @@ pub fn handle_drive_select_event(code: KeyCode, app: &mut AppState) -> bool {
                 .get(app.drive_select_popup.selected_index)
                 .cloned()
             {
-                perform_drive_navigation(app, drive);
+                perform_drive_navigation(app, &drive);
             }
         }
         _ => {}
@@ -80,16 +80,16 @@ pub fn handle_drive_select_event(code: KeyCode, app: &mut AppState) -> bool {
     false
 }
 
-fn perform_drive_navigation(app: &mut AppState, drive: String) {
+fn perform_drive_navigation(app: &mut AppState, drive: &str) {
     let side = app.drive_select_popup.side;
-    let path = std::path::PathBuf::from(&drive);
+    let path = std::path::PathBuf::from(drive);
 
     let success = {
         let tab_manager = match side {
             PanelSide::Left => &mut app.left,
             PanelSide::Right => &mut app.right,
         };
-        tab_manager.active_tab_mut().navigate_to(path).is_ok()
+        tab_manager.active_tab_mut().navigate_to(&path).is_ok()
     };
 
     if success {
@@ -135,7 +135,7 @@ pub fn draw_drive_select_popup(f: &mut Frame, app: &mut AppState, palette: &Them
         .split(popup_column);
 
     // Adjust height based on number of drives
-    let drive_count = app.drive_select_popup.drives.len() as u16;
+    let drive_count = u16::try_from(app.drive_select_popup.drives.len()).unwrap_or(u16::MAX);
     let height = (drive_count + 2).min(vertical_chunks[1].height);
     let popup_rect = Rect::new(
         vertical_chunks[1].x,
@@ -150,8 +150,9 @@ pub fn draw_drive_select_popup(f: &mut Frame, app: &mut AppState, palette: &Them
     let border_color = Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b);
     let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
 
-    let highlight_bg = Color::Rgb(palette.surface2.r, palette.surface2.g, palette.surface2.b);
-    let highlight_fg = if palette.is_dark {
+    let drive_selection_background =
+        Color::Rgb(palette.surface2.r, palette.surface2.g, palette.surface2.b);
+    let drive_selection_foreground = if palette.is_dark {
         text_color
     } else {
         bg_color
@@ -167,8 +168,8 @@ pub fn draw_drive_select_popup(f: &mut Frame, app: &mut AppState, palette: &Them
             if is_selected {
                 ListItem::new(d.clone()).style(
                     Style::default()
-                        .fg(highlight_fg)
-                        .bg(highlight_bg)
+                        .fg(drive_selection_foreground)
+                        .bg(drive_selection_background)
                         .add_modifier(Modifier::BOLD),
                 )
             } else {

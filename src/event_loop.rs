@@ -55,7 +55,7 @@ pub fn spawn_input_polling(
                     }
                     Err(_) => break,
                 },
-                Ok(Ok(false)) => continue,
+                Ok(Ok(false)) => {}
                 Ok(Err(_)) | Err(_) => break,
             }
         }

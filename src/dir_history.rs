@@ -70,8 +70,8 @@ impl DirectoryHistory {
 
         // Sort by score: combination of visit count and recency
         entries.sort_by(|a, b| {
-            let score_a = self.calculate_score(a);
-            let score_b = self.calculate_score(b);
+            let score_a = Self::calculate_score(a);
+            let score_b = Self::calculate_score(b);
             score_b.partial_cmp(&score_a).unwrap()
         });
 
@@ -79,7 +79,7 @@ impl DirectoryHistory {
     }
 
     /// Calculate a score for a directory based on visit count and recency
-    fn calculate_score(&self, entry: &DirEntry) -> f64 {
+    fn calculate_score(entry: &DirEntry) -> f64 {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -87,7 +87,7 @@ impl DirectoryHistory {
 
         // Age in days
         let age_seconds = now.saturating_sub(entry.last_visited);
-        let age_days = age_seconds as f64 / 86400.0;
+        let age_days = age_seconds as f64 / 86400.0; // casting is safe: only affects score precision, not correctness
 
         // Decay factor: recent visits are worth more
         // After 30 days, recency contributes very little
@@ -120,8 +120,8 @@ impl DirectoryHistory {
         // Sort by fuzzy match score (higher is better), then by history score
         results.sort_by(|a, b| match b.1.cmp(&a.1) {
             std::cmp::Ordering::Equal => {
-                let score_a = self.calculate_score(&a.0);
-                let score_b = self.calculate_score(&b.0);
+                let score_a = Self::calculate_score(&a.0);
+                let score_b = Self::calculate_score(&b.0);
                 score_b
                     .partial_cmp(&score_a)
                     .unwrap_or(std::cmp::Ordering::Equal)

@@ -323,7 +323,7 @@ pub fn config_path() -> Option<PathBuf> {
 pub fn create_default_config() -> Result<PathBuf, String> {
     let path = config_path().ok_or("Could not determine config directory")?;
     if path.exists() {
-        return Err(format!("Config file already exists at {path:?}"));
+        return Err(format!("Config file already exists at {}", path.display()));
     }
 
     if let Some(parent) = path.parent() {

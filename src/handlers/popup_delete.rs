@@ -136,7 +136,7 @@ mod tests {
         use tokio::sync::mpsc;
         let (task_tx, _task_rx) = mpsc::unbounded_channel::<TaskEvent>();
 
-        let mut tab = Tab::new(PathBuf::from("/tmp")).unwrap();
+        let mut tab = Tab::new(&PathBuf::from("/tmp")).unwrap();
         tab.entries.clear();
         tab.entries.push(FileEntry {
             name: name.to_string(),
@@ -222,7 +222,7 @@ mod tests {
     fn test_handle_init_delete_no_selection_does_nothing() {
         // Build state with tab that only has ".." entry
         use crate::app::Tab;
-        let mut tab = Tab::new(PathBuf::from("/tmp")).unwrap();
+        let mut tab = Tab::new(&PathBuf::from("/tmp")).unwrap();
         tab.entries.clear();
         tab.entries.push(FileEntry {
             name: "..".to_string(),

@@ -146,7 +146,7 @@ pub(crate) fn handle_enter_directory(app: &mut AppState) {
             };
 
             if let Some(path) = new_dir {
-                if let Err(e) = panel.navigate_to(path.clone()) {
+                if let Err(e) = panel.navigate_to(&path) {
                     panel.error = Some(format!("Error: {e}"));
                 } else {
                     app.dir_history.record_visit(&path);

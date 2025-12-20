@@ -218,14 +218,14 @@ pub fn draw_fuzzy_search_popup(
         let is_selected = dir_idx == state.selected_index;
         let (fg, bg) = if is_selected {
             // Use the same highlight style as the main panel
-            let highlight_bg =
+            let list_selection_background =
                 Color::Rgb(palette.surface2.r, palette.surface2.g, palette.surface2.b);
-            let highlight_fg = if palette.is_dark {
+            let list_selection_foreground = if palette.is_dark {
                 Color::Rgb(palette.text.r, palette.text.g, palette.text.b)
             } else {
                 Color::Rgb(palette.base.r, palette.base.g, palette.base.b)
             };
-            (highlight_fg, highlight_bg)
+            (list_selection_foreground, list_selection_background)
         } else {
             (
                 Color::Rgb(palette.text.r, palette.text.g, palette.text.b),

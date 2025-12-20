@@ -159,13 +159,13 @@ pub fn draw_panel(
         Constraint::Length(19), // Modified: always 19
         Constraint::Length(10), // Attributes: always 10
     ];
-    let highlight_bg = if active {
+    let panel_selection_background = if active {
         Color::Rgb(palette.surface2.r, palette.surface2.g, palette.surface2.b)
     } else {
         // Use a lighter color for the selection line of the inactive panel
         Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b)
     };
-    let highlight_fg = if !palette.is_dark && active {
+    let panel_selection_foreground = if !palette.is_dark && active {
         // For light themes, use the base background color for text on the dark selection background
         Color::Rgb(palette.base.r, palette.base.g, palette.base.b)
     } else {
@@ -178,7 +178,11 @@ pub fn draw_panel(
             palette.yellow.b,
         ))))
         .block(block)
-        .row_highlight_style(Style::default().bg(highlight_bg).fg(highlight_fg));
+        .row_highlight_style(
+            Style::default()
+                .bg(panel_selection_background)
+                .fg(panel_selection_foreground),
+        );
 
     f.render_stateful_widget(
         table,

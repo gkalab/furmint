@@ -34,8 +34,8 @@ pub struct Tab {
 
 impl Tab {
     /// Create a new tab at the specified directory
-    pub fn new(path: PathBuf) -> anyhow::Result<Self> {
-        let entries = crate::fs_ops::list_dir(&path)?;
+    pub fn new(path: &PathBuf) -> anyhow::Result<Self> {
+        let entries = crate::fs_ops::list_dir(path)?;
         let mut tab = Self {
             current_dir: path.clone(),
             entries,
@@ -58,7 +58,7 @@ impl Tab {
 
     pub fn from_persistent(p: PersistentTab) -> anyhow::Result<Self> {
         let path = ensure_dir_exists(p.path);
-        let mut tab = Tab::new(path)?;
+        let mut tab = Tab::new(&path)?;
         tab.sort_column = p.sort_column;
         tab.sort_direction = p.sort_direction;
         tab.sort_entries();
@@ -126,9 +126,9 @@ impl Tab {
     }
 
     /// Navigate to a new directory.
-    pub fn navigate_to(&mut self, path: std::path::PathBuf) -> anyhow::Result<()> {
+    pub fn navigate_to(&mut self, path: &std::path::PathBuf) -> anyhow::Result<()> {
         self.save_cursor_to_history();
-        let entries = crate::fs_ops::list_dir(&path)?;
+        let entries = crate::fs_ops::list_dir(path)?;
         self.current_dir = path.clone();
         self.entries = entries;
         self.sort_entries();
@@ -143,7 +143,7 @@ impl Tab {
             .history
             .iter()
             .enumerate()
-            .find(|(_, h)| h.path == path)
+            .find(|(_, h)| h.path == *path)
         {
             self.cursor = hist.cursor.min(self.entries.len().saturating_sub(1));
             self.history_index = idx;
@@ -172,7 +172,7 @@ impl Tab {
                 .and_then(|n| n.to_str())
                 .map(std::string::ToString::to_string);
 
-            self.navigate_to(parent.to_path_buf())?;
+            self.navigate_to(&parent.to_path_buf())?;
 
             // Find and select the directory we just came from
             if let Some(dir_name) = current_dir_name
@@ -382,7 +382,7 @@ impl TabManager {
     /// Create a new `TabManager` with a single tab
     pub fn new(initial_path: PathBuf) -> anyhow::Result<Self> {
         Ok(Self {
-            tabs: vec![Tab::new(initial_path)?],
+            tabs: vec![Tab::new(&initial_path)?],
             active_tab_index: 0,
         })
     }
@@ -397,7 +397,7 @@ impl TabManager {
 
         if tabs.is_empty() {
             tabs.push(Tab::new(
-                std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
+                &std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
             )?);
         }
 
@@ -431,7 +431,7 @@ impl TabManager {
             (active.sort_column, active.sort_direction)
         };
 
-        let mut new_tab = Tab::new(path)?;
+        let mut new_tab = Tab::new(&path)?;
 
         // Apply sort settings
         new_tab.sort_column = sort_column;

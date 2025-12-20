@@ -15,10 +15,7 @@ pub(crate) fn handle_fuzzy_search_event(code: KeyCode, app: &mut AppState) -> bo
                     crate::app::PanelSide::Left => &mut app.left,
                     crate::app::PanelSide::Right => &mut app.right,
                 };
-                if let Err(e) = tab_manager
-                    .active_tab_mut()
-                    .navigate_to(selected_dir.clone())
-                {
+                if let Err(e) = tab_manager.active_tab_mut().navigate_to(&selected_dir) {
                     tab_manager.active_tab_mut().error = Some(format!("Error: {e}"));
                 } else {
                     app.dir_history.record_visit(&selected_dir);

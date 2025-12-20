@@ -1,4 +1,4 @@
-//! Miscellaneous popup event handlers: quit, help, empty_trash, drive_select
+//! Miscellaneous popup event handlers: quit, help, `empty_trash`, `drive_select`
 
 use crate::app::AppState;
 use crossterm::event::KeyCode;

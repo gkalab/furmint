@@ -131,7 +131,7 @@ pub fn recursive_op<'a>(
                     if action == crate::app::CopyMoveAction::Move {
                         let dest_exists = fs.try_exists(&dest).await.unwrap_or(false);
                         if !dest_exists && fs.rename(&src, &dest).await.is_ok() {
-                            continue;
+                            {}
                         }
                     }
 
@@ -168,9 +168,8 @@ pub fn recursive_op<'a>(
                             }
                         };
                         for path in children {
-                            let name = match path.file_name() {
-                                Some(n) => n,
-                                None => continue,
+                            let Some(name) = path.file_name() else {
+                                continue;
                             };
                             let child_dest = dest.join(name);
                             stack.push(WorkItem::Process {
@@ -242,7 +241,7 @@ pub fn recursive_op<'a>(
                                             decision = rx.recv().await;
                                         }
                                         match decision {
-                                            Some(crate::tasks::TaskDecision::Retry) => continue,
+                                            Some(crate::tasks::TaskDecision::Retry) => {}
                                             Some(crate::tasks::TaskDecision::Skip) => {
                                                 perform = false;
                                                 break;
