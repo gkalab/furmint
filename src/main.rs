@@ -71,19 +71,26 @@ async fn main() -> Result<()> {
         }
     }
 
+    let result = run().await;
+
+    disable_raw_mode().ok();
+
+    if let Err(e) = result {
+        eprintln!("Error: {e}");
+        std::process::exit(1);
+    }
+
+    Ok(())
+}
+
+async fn run() -> Result<()> {
     enable_raw_mode()?;
     let mut terminal =
         ratatui::Terminal::new(ratatui::backend::CrosstermBackend::new(std::io::stdout()))?;
 
     // Load config
-    let (keyboard, global_config, editor_cfg, viewer_cfg) = match load_config() {
-        Ok(cfg) => cfg,
-        Err(e) => {
-            eprintln!("Error loading config: {e}");
-            disable_raw_mode()?;
-            std::process::exit(1);
-        }
-    };
+    let (keyboard, global_config, editor_cfg, viewer_cfg) =
+        load_config().map_err(anyhow::Error::msg)?;
 
     // Select theme
     let theme_name = global_config
@@ -96,25 +103,17 @@ async fn main() -> Result<()> {
     let cwd = env::current_dir()?;
 
     // Initialize directory history
-    let dir_history = match dir_history::DirectoryHistory::new() {
-        Ok(h) => h,
-        Err(e) => {
-            eprintln!("Error loading directory history: {e}");
-            disable_raw_mode()?;
-            std::process::exit(1);
-        }
-    };
+    let dir_history = dir_history::DirectoryHistory::new().map_err(anyhow::Error::msg)?;
 
     // Initialize watcher
     let (watcher_tx, mut watcher_rx) = tokio::sync::mpsc::unbounded_channel();
-    let watcher = crate::watcher::AppWatcher::new(watcher_tx)
-        .ok()
-        .map(|mut w| {
-            if let Err(e) = w.watch(&cwd) {
-                eprintln!("Failed to start watcher: {e}");
-            }
-            w
-        });
+    let watcher = crate::watcher::AppWatcher::new(watcher_tx).ok();
+    let watcher = if let Some(mut w) = watcher {
+        let _ = w.watch(&cwd);
+        Some(w)
+    } else {
+        None
+    };
 
     // Initialize task manager channel
     let (task_tx, mut task_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -208,15 +207,10 @@ async fn main() -> Result<()> {
     .await?;
 
     // Save directory history on exit
-    if let Err(e) = app.dir_history.save() {
-        eprintln!("Error saving directory history: {e}");
-    }
+    let _ = app.dir_history.save();
 
     // Save app state on exit
-    if let Err(e) = app.save_state() {
-        eprintln!("Error saving app state: {e}");
-    }
+    let _ = app.save_state();
 
-    disable_raw_mode()?;
     Ok(())
 }
