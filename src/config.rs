@@ -345,3 +345,74 @@ pub fn create_default_config() -> Result<PathBuf, String> {
 
     Ok(path)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_path_returns_some() {
+        let path = config_path();
+        assert!(path.is_some(), "Config path should return Some(PathBuf)");
+    }
+
+    #[test]
+    fn test_merge_keyboard_config_prefers_user() {
+        let user = Some(KeyboardConfig {
+            new_file: Some(vec!["user-key".to_string()]),
+            ..KeyboardConfig::default()
+        });
+        let default = KeyboardConfig {
+            new_file: Some(vec!["default-key".to_string()]),
+            ..KeyboardConfig::default()
+        };
+        let merged = merge_keyboard_config(&user, &default);
+        assert_eq!(merged.new_file, Some(vec!["user-key".to_string()]));
+    }
+
+    #[test]
+    fn test_merge_keyboard_config_fallbacks_to_default() {
+        let user = None;
+        let default = KeyboardConfig {
+            new_file: Some(vec!["default-key".to_string()]),
+            ..KeyboardConfig::default()
+        };
+        let merged = merge_keyboard_config(&user, &default);
+        assert_eq!(merged.new_file, Some(vec!["default-key".to_string()]));
+    }
+
+    #[test]
+    fn test_merge_global_config_theme_validation() {
+        let user = Some(GlobalConfig {
+            theme: Some("invalid".to_string()),
+            ..GlobalConfig::default()
+        });
+        let default = GlobalConfig {
+            theme: Some("mariana".to_string()),
+            ..GlobalConfig::default()
+        };
+        let result = merge_global_config(&user, &default);
+        assert!(result.is_err(), "Invalid theme should error");
+    }
+
+    #[test]
+    fn test_merge_global_config_valid_theme() {
+        let valid_theme = crate::theme::THEME_NAMES.iter().next().unwrap().to_string();
+        let user = Some(GlobalConfig {
+            theme: Some(valid_theme.clone()),
+            ..GlobalConfig::default()
+        });
+        let default = GlobalConfig::default();
+        let result = merge_global_config(&user, &default);
+        assert!(result.is_ok(), "Valid theme should not error");
+        assert_eq!(result.unwrap().theme, Some(valid_theme));
+    }
+
+    #[test]
+    fn test_default_keyboard_and_global_config() {
+        let keyboard = default_keyboard_config();
+        let global = default_global_config();
+        assert!(keyboard.quit.is_some());
+        assert!(global.theme.is_some());
+    }
+}

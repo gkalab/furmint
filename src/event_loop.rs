@@ -903,4 +903,149 @@ mod tests {
             "Alt-Left"
         );
     }
+
+    #[test]
+    fn test_handle_watcher_event_filesystem_change() {
+        // Setup AppState mock: two tabs, stub current_dir, fake entries
+        use crate::watcher::WatcherEvent;
+        let mut app = crate::app::AppState {
+            left: crate::app::TabManager {
+                tabs: vec![crate::app::Tab {
+                    current_dir: std::path::PathBuf::from("/mock"),
+                    entries: vec![crate::fs_ops::FileEntry {
+                        name: "testfile.txt".to_string(),
+                        is_dir: false,
+                        is_symlink: false,
+                        size: Some(12),
+                        modified: None,
+                        attributes: "".to_string(),
+                        selected: false,
+                    }],
+                    cursor: 0,
+                    history: vec![],
+                    history_index: 0,
+                    error: None,
+                    typed_buffer: String::new(),
+                    last_type_time: None,
+                    sort_column: crate::app::SortColumn::Name,
+                    sort_direction: crate::app::SortDirection::Ascending,
+                    scroll_offset: 0,
+                }],
+                active_tab_index: 0,
+            },
+            right: crate::app::TabManager {
+                tabs: vec![crate::app::Tab {
+                    current_dir: std::path::PathBuf::from("/mock"),
+                    entries: vec![],
+                    cursor: 0,
+                    history: vec![],
+                    history_index: 0,
+                    error: None,
+                    typed_buffer: String::new(),
+                    last_type_time: None,
+                    sort_column: crate::app::SortColumn::Name,
+                    sort_direction: crate::app::SortDirection::Ascending,
+                    scroll_offset: 0,
+                }],
+                active_tab_index: 0,
+            },
+            active: crate::app::PanelSide::Left,
+            file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
+            fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
+            rename_popup: crate::state::RenameState::new(),
+            create_directory_popup: crate::state::CreateDirectoryState::new(),
+            delete_popup: crate::state::DeleteState::new(),
+            empty_trash_popup: crate::state::EmptyTrashState::new(),
+            copy_move_popup: crate::state::CopyMoveState::new(),
+            conflict_popup: crate::state::ConflictState::new(),
+            error_popup: crate::state::ErrorState::new(),
+            quit_confirmation: crate::state::QuitConfirmationState::new(),
+            task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
+            create_file_popup: crate::state::CreateFileState::new(),
+            help_popup: crate::state::HelpState::new(),
+            drive_select_popup: crate::state::DriveSelectState::new(),
+            task_decision_txs: std::collections::HashMap::new(),
+            show_task_manager: false,
+            dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
+            watcher: None,
+            input_polling_handle: None,
+            needs_redraw: false,
+            global: crate::config::GlobalConfig::default(),
+            editor_cfg: crate::config::EditorConfig::default(),
+            viewer_cfg: crate::config::ViewerConfig::default(),
+        };
+        let paths = vec![std::path::PathBuf::from("/mock")];
+        let event = WatcherEvent::FileSystemChange(paths);
+        super::handle_watcher_event(event, &mut app);
+        // Check cursor and error remain valid
+        assert!(app.left.active_tab().cursor == 0);
+        assert!(app.left.active_tab().error.is_none());
+    }
+
+    #[test]
+    fn test_handle_watcher_event_error() {
+        use crate::watcher::WatcherEvent;
+        let mut app = crate::app::AppState {
+            left: crate::app::TabManager {
+                tabs: vec![crate::app::Tab {
+                    current_dir: std::path::PathBuf::from("/mock"),
+                    entries: vec![],
+                    cursor: 0,
+                    history: vec![],
+                    history_index: 0,
+                    error: None,
+                    typed_buffer: String::new(),
+                    last_type_time: None,
+                    sort_column: crate::app::SortColumn::Name,
+                    sort_direction: crate::app::SortDirection::Ascending,
+                    scroll_offset: 0,
+                }],
+                active_tab_index: 0,
+            },
+            right: crate::app::TabManager {
+                tabs: vec![crate::app::Tab {
+                    current_dir: std::path::PathBuf::from("/mock"),
+                    entries: vec![],
+                    cursor: 0,
+                    history: vec![],
+                    history_index: 0,
+                    error: None,
+                    typed_buffer: String::new(),
+                    last_type_time: None,
+                    sort_column: crate::app::SortColumn::Name,
+                    sort_direction: crate::app::SortDirection::Ascending,
+                    scroll_offset: 0,
+                }],
+                active_tab_index: 0,
+            },
+            active: crate::app::PanelSide::Left,
+            file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
+            fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
+            rename_popup: crate::state::RenameState::new(),
+            create_directory_popup: crate::state::CreateDirectoryState::new(),
+            delete_popup: crate::state::DeleteState::new(),
+            empty_trash_popup: crate::state::EmptyTrashState::new(),
+            copy_move_popup: crate::state::CopyMoveState::new(),
+            conflict_popup: crate::state::ConflictState::new(),
+            error_popup: crate::state::ErrorState::new(),
+            quit_confirmation: crate::state::QuitConfirmationState::new(),
+            task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
+            create_file_popup: crate::state::CreateFileState::new(),
+            help_popup: crate::state::HelpState::new(),
+            drive_select_popup: crate::state::DriveSelectState::new(),
+            task_decision_txs: std::collections::HashMap::new(),
+            show_task_manager: false,
+            dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
+            watcher: None,
+            input_polling_handle: None,
+            needs_redraw: false,
+            global: crate::config::GlobalConfig::default(),
+            editor_cfg: crate::config::EditorConfig::default(),
+            viewer_cfg: crate::config::ViewerConfig::default(),
+        };
+        let event = WatcherEvent::Error("test error".to_string());
+        super::handle_watcher_event(event, &mut app);
+        // Should not panic or change error field
+        assert!(app.left.active_tab().error.is_none());
+    }
 }

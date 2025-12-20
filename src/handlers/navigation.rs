@@ -254,3 +254,145 @@ pub(crate) fn handle_toggle_selection(app: &mut AppState) {
     tab_manager.active_tab_mut().toggle_selection();
     update_viewer_content(app);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::{AppState, PanelSide, Tab, TabManager};
+    use crate::config::GlobalConfig;
+    use crate::dir_history::DirectoryHistory;
+    use crate::fs_ops::FileEntry;
+    use crate::state::{
+        ConflictState, CopyMoveState, CreateDirectoryState, CreateFileState, DeleteState,
+        DriveSelectState, EmptyTrashState, ErrorState, FileViewerState, HelpState,
+        QuitConfirmationState, RenameState,
+    };
+    use crate::tasks::TaskManager;
+
+    fn test_app(entries: Vec<FileEntry>) -> AppState {
+        let tab = Tab {
+            current_dir: std::path::PathBuf::from("/tmp"),
+            entries,
+            cursor: 0,
+            history: vec![],
+            history_index: 0,
+            error: None,
+            typed_buffer: String::new(),
+            last_type_time: None,
+            sort_column: crate::app::SortColumn::Name,
+            sort_direction: crate::app::SortDirection::Ascending,
+            scroll_offset: 0,
+        };
+        AppState {
+            left: TabManager {
+                tabs: vec![tab.clone()],
+                active_tab_index: 0,
+            },
+            right: TabManager {
+                tabs: vec![tab],
+                active_tab_index: 0,
+            },
+            active: PanelSide::Left,
+            file_viewer: FileViewerState::new(false, "test-theme"),
+            fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
+            rename_popup: RenameState::new(),
+            create_directory_popup: CreateDirectoryState::new(),
+            delete_popup: DeleteState::new(),
+            empty_trash_popup: EmptyTrashState::new(),
+            copy_move_popup: CopyMoveState::new(),
+            conflict_popup: ConflictState::new(),
+            error_popup: ErrorState::new(),
+            quit_confirmation: QuitConfirmationState::new(),
+            task_manager: TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
+            create_file_popup: CreateFileState::new(),
+            help_popup: HelpState::new(),
+            drive_select_popup: DriveSelectState::new(),
+            task_decision_txs: std::collections::HashMap::new(),
+            show_task_manager: false,
+            dir_history: DirectoryHistory::new().unwrap(),
+            watcher: None,
+            input_polling_handle: None,
+            needs_redraw: false,
+            global: GlobalConfig::default(),
+            editor_cfg: crate::config::EditorConfig::default(),
+            viewer_cfg: crate::config::ViewerConfig::default(),
+        }
+    }
+
+    #[test]
+    fn test_handle_up_moves_cursor() {
+        let entry = FileEntry {
+            name: "one".to_string(),
+            is_dir: false,
+            is_symlink: false,
+            size: None,
+            modified: None,
+            attributes: String::new(),
+            selected: false,
+        };
+        let mut app = test_app(vec![entry.clone(); 3]);
+        app.left.active_tab_mut().cursor = 2;
+        handle_up(&mut app);
+        assert_eq!(app.left.active_tab().cursor, 1);
+    }
+
+    #[test]
+    fn test_handle_down_moves_cursor() {
+        let entry = FileEntry {
+            name: "one".to_string(),
+            is_dir: false,
+            is_symlink: false,
+            size: None,
+            modified: None,
+            attributes: String::new(),
+            selected: false,
+        };
+        let mut app = test_app(vec![entry.clone(); 3]);
+        handle_down(&mut app);
+        assert_eq!(app.left.active_tab().cursor, 1);
+    }
+
+    #[test]
+    fn test_handle_page_up_down() {
+        let entries = vec![
+            FileEntry {
+                name: "file".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false
+            };
+            50
+        ];
+        let mut app = test_app(entries);
+        app.left.active_tab_mut().cursor = 45;
+        handle_page_up(&mut app);
+        assert!(app.left.active_tab().cursor < 45);
+        handle_page_down(&mut app);
+        assert!(app.left.active_tab().cursor > 0);
+    }
+
+    #[test]
+    fn test_handle_home_end() {
+        let entries = vec![
+            FileEntry {
+                name: "file".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false
+            };
+            10
+        ];
+        let mut app = test_app(entries);
+        app.left.active_tab_mut().cursor = 4;
+        handle_home(&mut app);
+        assert_eq!(app.left.active_tab().cursor, 0);
+        handle_end(&mut app);
+        assert_eq!(app.left.active_tab().cursor, 9);
+    }
+}
