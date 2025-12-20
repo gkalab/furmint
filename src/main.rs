@@ -121,73 +121,28 @@ async fn run() -> Result<()> {
 
     let persistent_state = crate::app::AppState::load_state().ok().flatten();
 
+    let ctx = crate::app::AppConfigContext {
+        palette: &palette,
+        global: global_config,
+        editor_cfg,
+        viewer_cfg,
+        dir_history,
+        watcher,
+        task_manager,
+    };
+
     let mut app = if let Some(state) = persistent_state {
         let left = crate::app::TabManager::from_persistent(state.left)?;
         let right = crate::app::TabManager::from_persistent(state.right)?;
 
-        crate::app::AppState {
-            left,
-            right,
-            active: state.active_side,
-            file_viewer: crate::app::FileViewerState::new(
-                palette.is_dark,
-                global_config.theme.as_deref().unwrap_or("default"),
-            ),
-            fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
-            rename_popup: crate::app::RenameState::new(),
-            create_directory_popup: crate::app::CreateDirectoryState::new(),
-            delete_popup: crate::app::DeleteState::new(),
-            empty_trash_popup: crate::app::EmptyTrashState::new(),
-            copy_move_popup: crate::app::CopyMoveState::new(),
-            conflict_popup: crate::app::ConflictState::new(),
-            error_popup: crate::app::ErrorState::new(),
-            quit_confirmation: crate::app::QuitConfirmationState::new(),
-            help_popup: crate::app::HelpState::new(),
-            drive_select_popup: crate::app::DriveSelectState::new(),
-            task_manager,
-            task_decision_txs: std::collections::HashMap::new(),
-            show_task_manager: false,
-            dir_history,
-            watcher,
-            input_polling_handle: None,
-            needs_redraw: false,
-            global: global_config,
-            editor_cfg,
-            viewer_cfg,
-            create_file_popup: crate::app::CreateFileState::new(),
-        }
+        crate::app::AppState::new(left, right, state.active_side, ctx)
     } else {
-        crate::app::AppState {
-            create_file_popup: crate::app::CreateFileState::new(),
-            left: crate::app::TabManager::new(cwd.clone())?,
-            right: crate::app::TabManager::new(cwd.clone())?,
-            active: crate::app::PanelSide::Left,
-            file_viewer: crate::app::FileViewerState::new(
-                palette.is_dark,
-                global_config.theme.as_deref().unwrap_or("default"),
-            ),
-            fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
-            rename_popup: crate::app::RenameState::new(),
-            create_directory_popup: crate::app::CreateDirectoryState::new(),
-            delete_popup: crate::app::DeleteState::new(),
-            empty_trash_popup: crate::app::EmptyTrashState::new(),
-            copy_move_popup: crate::app::CopyMoveState::new(),
-            conflict_popup: crate::app::ConflictState::new(),
-            error_popup: crate::app::ErrorState::new(),
-            quit_confirmation: crate::app::QuitConfirmationState::new(),
-            help_popup: crate::app::HelpState::new(),
-            drive_select_popup: crate::app::DriveSelectState::new(),
-            task_manager,
-            task_decision_txs: std::collections::HashMap::new(),
-            show_task_manager: false,
-            dir_history,
-            watcher,
-            input_polling_handle: None,
-            needs_redraw: false,
-            global: global_config,
-            editor_cfg,
-            viewer_cfg,
-        }
+        crate::app::AppState::new(
+            crate::app::TabManager::new(cwd.clone())?,
+            crate::app::TabManager::new(cwd.clone())?,
+            crate::app::PanelSide::Left,
+            ctx,
+        )
     };
 
     // Record initial directory visit

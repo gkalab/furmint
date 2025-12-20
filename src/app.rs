@@ -551,7 +551,56 @@ pub struct PersistentState {
     pub active_side: PanelSide,
 }
 
+pub struct AppConfigContext<'a> {
+    pub palette: &'a crate::theme::ThemePalette,
+    pub global: crate::config::GlobalConfig,
+    pub editor_cfg: crate::config::EditorConfig,
+    pub viewer_cfg: crate::config::ViewerConfig,
+    pub dir_history: crate::dir_history::DirectoryHistory,
+    pub watcher: Option<crate::watcher::AppWatcher>,
+    pub task_manager: crate::tasks::TaskManager,
+}
+
 impl AppState {
+    pub fn new(
+        left: TabManager,
+        right: TabManager,
+        active: PanelSide,
+        ctx: AppConfigContext,
+    ) -> Self {
+        Self {
+            left,
+            right,
+            active,
+            file_viewer: FileViewerState::new(
+                ctx.palette.is_dark,
+                ctx.global.theme.as_deref().unwrap_or("default"),
+            ),
+            fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
+            rename_popup: RenameState::new(),
+            create_directory_popup: CreateDirectoryState::new(),
+            delete_popup: DeleteState::new(),
+            empty_trash_popup: EmptyTrashState::new(),
+            copy_move_popup: CopyMoveState::new(),
+            conflict_popup: ConflictState::new(),
+            error_popup: ErrorState::new(),
+            quit_confirmation: QuitConfirmationState::new(),
+            help_popup: HelpState::new(),
+            drive_select_popup: DriveSelectState::new(),
+            task_manager: ctx.task_manager,
+            task_decision_txs: std::collections::HashMap::new(),
+            show_task_manager: false,
+            dir_history: ctx.dir_history,
+            watcher: ctx.watcher,
+            input_polling_handle: None,
+            needs_redraw: false,
+            global: ctx.global,
+            editor_cfg: ctx.editor_cfg,
+            viewer_cfg: ctx.viewer_cfg,
+            create_file_popup: CreateFileState::new(),
+        }
+    }
+
     pub fn save_state(&self) -> anyhow::Result<()> {
         let state = PersistentState {
             left: PersistentPanel {
