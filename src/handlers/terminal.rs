@@ -155,7 +155,6 @@ pub fn spawn_terminal(
 
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::process::CommandExt;
         if !args.is_empty() {
             let mut cmd = Command::new("cmd");
             if wrap_shell {
