@@ -90,7 +90,7 @@ pub fn spawn_terminal(
                         cmd.arg("-e").arg("bash").arg("-c").arg(shell_cmd);
                     }
                 } else {
-                    let joined = args.clone();
+                    let joined = args.to_owned();
                     if !opt_args.is_empty() {
                         cmd.args(opt_args.clone());
                     }

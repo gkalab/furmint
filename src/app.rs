@@ -129,7 +129,7 @@ impl Tab {
     pub fn navigate_to(&mut self, path: &std::path::PathBuf) -> anyhow::Result<()> {
         self.save_cursor_to_history();
         let entries = crate::fs_ops::list_dir(path)?;
-        self.current_dir = path.clone();
+        self.current_dir.clone_from(path);
         self.entries = entries;
         self.sort_entries();
 
@@ -278,7 +278,7 @@ impl Tab {
                     SortColumn::Size | SortColumn::Extension => {
                         a.name.to_lowercase().cmp(&b.name.to_lowercase())
                     }
-                    _ => {
+                    SortColumn::Name => {
                         let ordering = a.name.to_lowercase().cmp(&b.name.to_lowercase());
                         match self.sort_direction {
                             SortDirection::Ascending => ordering,

@@ -41,7 +41,7 @@ impl FileViewerState {
     }
 
     pub fn load_content(&mut self, path: PathBuf) {
-        self.path = path.clone();
+        self.path.clone_from(&path);
         self.scroll_offset = 0;
         self.horizontal_scroll_offset = 0;
 

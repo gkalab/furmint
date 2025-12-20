@@ -73,7 +73,7 @@ impl TaskManager {
         let cancel_flag = Arc::new(AtomicBool::new(false));
 
         let task = Task {
-            name: name.clone(),
+            name: name.to_string(),
             status: TaskStatus::Running,
             progress: None,
             cancel_flag: cancel_flag.clone(),
@@ -176,7 +176,7 @@ impl TaskManager {
                     self.selected_index.store(0, Ordering::Relaxed);
                 }
             }
-            _ => {}
+            TaskStatus::Running => {}
         }
     }
 

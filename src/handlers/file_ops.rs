@@ -225,7 +225,7 @@ pub fn recursive_op<'a>(
                                     let _ = fs.remove_file(&dest).await;
                                 }
                                 match fs.copy(&src, &dest).await {
-                                    Ok(_) => break, // Success
+                                    Ok(()) => break, // Success
                                     Err(e) => {
                                         if decision_state.skip_all {
                                             perform = false;

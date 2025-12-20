@@ -61,7 +61,7 @@ async fn main() -> Result<()> {
     if args.contains(&"--create-config".to_string()) {
         match create_default_config() {
             Ok(path) => {
-                println!("Default configuration created at: {path:?}");
+                println!("Default configuration created at: {}", path.display());
                 return Ok(());
             }
             Err(e) => {
