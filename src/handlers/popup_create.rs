@@ -9,28 +9,28 @@ pub fn handle_init_create_file(app: &mut AppState) {
         crate::app::PanelSide::Right => &app.right,
     };
     let panel = tab_manager.active_tab();
-    app.create_file_popup.is_visible = true;
-    app.create_file_popup.input_value.clear();
-    app.create_file_popup.cursor_position = 0;
-    app.create_file_popup.error = None;
-    app.create_file_popup.parent_dir = panel.current_dir.clone();
+    app.popups.create_file.is_visible = true;
+    app.popups.create_file.input_value.clear();
+    app.popups.create_file.cursor_position = 0;
+    app.popups.create_file.error = None;
+    app.popups.create_file.parent_dir = panel.current_dir.clone();
 }
 
 pub fn handle_init_create_directory(app: &mut AppState) {
-    app.create_directory_popup.is_visible = true;
-    app.create_directory_popup.new_name.clear();
-    app.create_directory_popup.cursor_position = 0;
-    app.create_directory_popup.error = None;
+    app.popups.create_directory.is_visible = true;
+    app.popups.create_directory.new_name.clear();
+    app.popups.create_directory.cursor_position = 0;
+    app.popups.create_directory.error = None;
 }
 
-pub fn handle_create_directory_popup_event(code: KeyCode, app: &mut AppState) -> bool {
+pub fn handle_create_directory_event(code: KeyCode, app: &mut AppState) -> bool {
     match code {
         KeyCode::Esc => {
-            app.create_directory_popup.is_visible = false;
-            app.create_directory_popup.reset();
+            app.popups.create_directory.is_visible = false;
+            app.popups.create_directory.reset();
         }
         KeyCode::Enter => {
-            let new_name = app.create_directory_popup.new_name.trim().to_string();
+            let new_name = app.popups.create_directory.new_name.trim().to_string();
             if new_name.is_empty() {
                 return false;
             }
@@ -44,8 +44,8 @@ pub fn handle_create_directory_popup_event(code: KeyCode, app: &mut AppState) ->
 
             match crate::fs_ops::create_directory(&new_path) {
                 Ok(()) => {
-                    app.create_directory_popup.is_visible = false;
-                    app.create_directory_popup.reset();
+                    app.popups.create_directory.is_visible = false;
+                    app.popups.create_directory.reset();
                     // Reload active tab
                     if let Ok(entries) = crate::fs_ops::list_dir(current_dir) {
                         tab_manager.active_tab_mut().entries = entries;
@@ -64,85 +64,88 @@ pub fn handle_create_directory_popup_event(code: KeyCode, app: &mut AppState) ->
                     }
                 }
                 Err(e) => {
-                    app.create_directory_popup.error = Some(e.to_string());
+                    app.popups.create_directory.error = Some(e.to_string());
                 }
             }
         }
         KeyCode::Backspace => {
-            if app.create_directory_popup.cursor_position > 0 {
-                let current_len = app.create_directory_popup.new_name.chars().count();
-                if app.create_directory_popup.cursor_position <= current_len {
+            if app.popups.create_directory.cursor_position > 0 {
+                let current_len = app.popups.create_directory.new_name.chars().count();
+                if app.popups.create_directory.cursor_position <= current_len {
                     // Remove char at cursor_position - 1
                     let byte_idx = app
-                        .create_directory_popup
+                        .popups
+                        .create_directory
                         .new_name
                         .char_indices()
-                        .nth(app.create_directory_popup.cursor_position - 1)
+                        .nth(app.popups.create_directory.cursor_position - 1)
                         .map(|(i, _)| i)
                         .unwrap();
-                    app.create_directory_popup.new_name.remove(byte_idx);
-                    app.create_directory_popup.cursor_position -= 1;
+                    app.popups.create_directory.new_name.remove(byte_idx);
+                    app.popups.create_directory.cursor_position -= 1;
                 }
             }
         }
         KeyCode::Delete => {
-            let current_len = app.create_directory_popup.new_name.chars().count();
-            if app.create_directory_popup.cursor_position < current_len {
+            let current_len = app.popups.create_directory.new_name.chars().count();
+            if app.popups.create_directory.cursor_position < current_len {
                 let byte_idx = app
-                    .create_directory_popup
+                    .popups
+                    .create_directory
                     .new_name
                     .char_indices()
-                    .nth(app.create_directory_popup.cursor_position)
+                    .nth(app.popups.create_directory.cursor_position)
                     .map(|(i, _)| i)
                     .unwrap();
-                app.create_directory_popup.new_name.remove(byte_idx);
+                app.popups.create_directory.new_name.remove(byte_idx);
             }
         }
         KeyCode::Left => {
-            if app.create_directory_popup.cursor_position > 0 {
-                app.create_directory_popup.cursor_position -= 1;
+            if app.popups.create_directory.cursor_position > 0 {
+                app.popups.create_directory.cursor_position -= 1;
             }
         }
         KeyCode::Right => {
-            let len = app.create_directory_popup.new_name.chars().count();
-            if app.create_directory_popup.cursor_position < len {
-                app.create_directory_popup.cursor_position += 1;
+            let len = app.popups.create_directory.new_name.chars().count();
+            if app.popups.create_directory.cursor_position < len {
+                app.popups.create_directory.cursor_position += 1;
             }
         }
         KeyCode::Home => {
-            app.create_directory_popup.cursor_position = 0;
+            app.popups.create_directory.cursor_position = 0;
         }
         KeyCode::End => {
-            app.create_directory_popup.cursor_position =
-                app.create_directory_popup.new_name.chars().count();
+            app.popups.create_directory.cursor_position =
+                app.popups.create_directory.new_name.chars().count();
         }
         KeyCode::Char(c) => {
-            let idx = app.create_directory_popup.cursor_position;
+            let idx = app.popups.create_directory.cursor_position;
             // Insert at cursor position
-            if idx >= app.create_directory_popup.new_name.chars().count() {
-                app.create_directory_popup.new_name.push(c);
+            if idx >= app.popups.create_directory.new_name.chars().count() {
+                app.popups.create_directory.new_name.push(c);
             } else {
                 let byte_idx = app
-                    .create_directory_popup
+                    .popups
+                    .create_directory
                     .new_name
                     .char_indices()
                     .nth(idx)
                     .map(|(i, _)| i)
                     .unwrap();
-                app.create_directory_popup.new_name.insert(byte_idx, c);
+                app.popups.create_directory.new_name.insert(byte_idx, c);
             }
-            app.create_directory_popup.cursor_position += 1;
+            app.popups.create_directory.cursor_position += 1;
         }
         _ => {}
     }
     // Clear error on any input in the popup
-    if code != KeyCode::Enter && app.create_directory_popup.error.is_some() {
-        app.create_directory_popup.error = None;
+    if code != KeyCode::Enter && app.popups.create_directory.error.is_some() {
+        app.popups.create_directory.error = None;
     }
     false
 }
 
-pub async fn handle_create_file_popup_event(
+pub async fn handle_create_file_event(
     code: KeyCode,
     app: &mut AppState,
     input_tx: &tokio::sync::mpsc::UnboundedSender<crossterm::event::Event>,
@@ -151,13 +154,13 @@ pub async fn handle_create_file_popup_event(
     use std::path::Path;
     match code {
         KeyCode::Esc => {
-            app.create_file_popup.reset();
+            app.popups.create_file.reset();
         }
         KeyCode::Enter => {
-            app.create_file_popup.error = None;
-            let input = app.create_file_popup.input_value.trim();
+            app.popups.create_file.error = None;
+            let input = app.popups.create_file.input_value.trim();
             if input.is_empty() {
-                app.create_file_popup.error = Some("File name cannot be empty".to_string());
+                app.popups.create_file.error = Some("File name cannot be empty".to_string());
                 return false;
             }
             let path_buf = if input.starts_with('~') {
@@ -168,12 +171,12 @@ pub async fn handle_create_file_popup_event(
                     } else if let Some(stripped) = input.strip_prefix("~/") {
                         home.join(stripped)
                     } else {
-                        app.create_file_popup.error =
+                        app.popups.create_file.error =
                             Some("Unsupported ~username syntax".to_string());
                         return false;
                     }
                 } else {
-                    app.create_file_popup.error =
+                    app.popups.create_file.error =
                         Some("Cannot resolve ~ to home directory".to_string());
                     return false;
                 }
@@ -182,17 +185,17 @@ pub async fn handle_create_file_popup_event(
                 if p.is_absolute() {
                     p.to_path_buf()
                 } else {
-                    app.create_file_popup.parent_dir.join(p)
+                    app.popups.create_file.parent_dir.join(p)
                 }
             };
             // Disallow creating a directory and special names
             if path_buf.as_os_str().is_empty() || path_buf.ends_with("/") || path_buf.is_dir() {
-                app.create_file_popup.error = Some("Invalid file name".to_string());
+                app.popups.create_file.error = Some("Invalid file name".to_string());
                 return false;
             }
             // File must not already exist
             if path_buf.exists() {
-                app.create_file_popup.error =
+                app.popups.create_file.error =
                     Some("A file with that name already exists".to_string());
                 return false;
             }
@@ -205,13 +208,13 @@ pub async fn handle_create_file_popup_event(
                 Ok(mut f) => {
                     // file will be truncated, nothing to write; drop after this scope
                     if let Err(e) = f.flush() {
-                        app.create_file_popup.error = Some(format!("Error writing file: {e}"));
+                        app.popups.create_file.error = Some(format!("Error writing file: {e}"));
                         return false;
                     }
                     drop(f);
                 }
                 Err(e) => {
-                    app.create_file_popup.error = Some(format!("Failed to create file: {e}"));
+                    app.popups.create_file.error = Some(format!("Failed to create file: {e}"));
                     return false;
                 }
             }
@@ -228,50 +231,53 @@ pub async fn handle_create_file_popup_event(
             )
             .await;
             if let Err(e) = editor_result {
-                app.create_file_popup.error = Some(format!("Failed to open in editor: {e}"));
+                app.popups.create_file.error = Some(format!("Failed to open in editor: {e}"));
                 return false;
             }
-            app.create_file_popup.reset();
+            app.popups.create_file.reset();
         }
         KeyCode::Char(c) => {
-            app.create_file_popup.error = None;
-            app.create_file_popup
+            app.popups.create_file.error = None;
+            app.popups
+                .create_file
                 .input_value
-                .insert(app.create_file_popup.cursor_position, c);
-            app.create_file_popup.cursor_position += 1;
+                .insert(app.popups.create_file.cursor_position, c);
+            app.popups.create_file.cursor_position += 1;
         }
         KeyCode::Backspace => {
-            app.create_file_popup.error = None;
-            if app.create_file_popup.cursor_position > 0 {
-                app.create_file_popup
+            app.popups.create_file.error = None;
+            if app.popups.create_file.cursor_position > 0 {
+                app.popups
+                    .create_file
                     .input_value
-                    .remove(app.create_file_popup.cursor_position - 1);
-                app.create_file_popup.cursor_position -= 1;
+                    .remove(app.popups.create_file.cursor_position - 1);
+                app.popups.create_file.cursor_position -= 1;
             }
         }
         KeyCode::Delete => {
-            app.create_file_popup.error = None;
-            if app.create_file_popup.cursor_position < app.create_file_popup.input_value.len() {
-                app.create_file_popup
+            app.popups.create_file.error = None;
+            if app.popups.create_file.cursor_position < app.popups.create_file.input_value.len() {
+                app.popups
+                    .create_file
                     .input_value
-                    .remove(app.create_file_popup.cursor_position);
+                    .remove(app.popups.create_file.cursor_position);
             }
         }
         KeyCode::Left => {
-            if app.create_file_popup.cursor_position > 0 {
-                app.create_file_popup.cursor_position -= 1;
+            if app.popups.create_file.cursor_position > 0 {
+                app.popups.create_file.cursor_position -= 1;
             }
         }
         KeyCode::Right => {
-            if app.create_file_popup.cursor_position < app.create_file_popup.input_value.len() {
-                app.create_file_popup.cursor_position += 1;
+            if app.popups.create_file.cursor_position < app.popups.create_file.input_value.len() {
+                app.popups.create_file.cursor_position += 1;
             }
         }
         KeyCode::Home => {
-            app.create_file_popup.cursor_position = 0;
+            app.popups.create_file.cursor_position = 0;
         }
         KeyCode::End => {
-            app.create_file_popup.cursor_position = app.create_file_popup.input_value.len();
+            app.popups.create_file.cursor_position = app.popups.create_file.input_value.len();
         }
         _ => {}
     }
@@ -282,20 +288,11 @@ pub async fn handle_create_file_popup_event(
 mod tests {
     use super::*;
     use crate::app::{AppState, PanelSide};
-    use crate::state::{CreateDirectoryState, CreateFileState};
     use crossterm::event::KeyCode;
     use std::path::PathBuf;
 
     fn basic_app_state() -> AppState {
-        use crate::state::ConflictState;
-        use crate::state::CopyMoveState;
-        use crate::state::DeleteState;
-        use crate::state::DriveSelectState;
-        use crate::state::EmptyTrashState;
-        use crate::state::ErrorState;
         use crate::state::FileViewerState;
-        use crate::state::HelpState;
-        use crate::state::QuitConfirmationState;
         use crate::state::RenameState;
         use crate::tasks::TaskEvent;
         use tokio::sync::mpsc;
@@ -308,18 +305,8 @@ mod tests {
             active: PanelSide::Left,
             file_viewer: FileViewerState::new(false, ""),
             fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
-            rename_popup: RenameState::default(),
-            create_directory_popup: CreateDirectoryState::default(),
-            delete_popup: DeleteState::default(),
-            empty_trash_popup: EmptyTrashState::default(),
-            copy_move_popup: CopyMoveState::default(),
-            conflict_popup: ConflictState::default(),
-            error_popup: ErrorState::default(),
-            quit_confirmation: QuitConfirmationState::default(),
+            popups: crate::app::Popups::new(),
             task_manager: crate::tasks::TaskManager::new(task_tx),
-            create_file_popup: CreateFileState::default(),
-            help_popup: HelpState::default(),
-            drive_select_popup: DriveSelectState::default(),
             task_decision_txs: Default::default(),
             show_task_manager: false,
             dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
@@ -337,44 +324,44 @@ mod tests {
         let mut app = basic_app_state();
         app.active = PanelSide::Right;
         handle_init_create_file(&mut app);
-        assert!(app.create_file_popup.is_visible);
-        assert_eq!(app.create_file_popup.input_value, "");
-        assert_eq!(app.create_file_popup.cursor_position, 0);
-        assert!(app.create_file_popup.error.is_none());
+        assert!(app.popups.create_file.is_visible);
+        assert_eq!(app.popups.create_file.input_value, "");
+        assert_eq!(app.popups.create_file.cursor_position, 0);
+        assert!(app.popups.create_file.error.is_none());
 
         handle_init_create_directory(&mut app);
-        assert!(app.create_directory_popup.is_visible);
-        assert_eq!(app.create_directory_popup.new_name, "");
-        assert_eq!(app.create_directory_popup.cursor_position, 0);
-        assert!(app.create_directory_popup.error.is_none());
+        assert!(app.popups.create_directory.is_visible);
+        assert_eq!(app.popups.create_directory.new_name, "");
+        assert_eq!(app.popups.create_directory.cursor_position, 0);
+        assert!(app.popups.create_directory.error.is_none());
     }
 
     #[test]
-    fn test_handle_create_directory_popup_event_typing_backspace() {
+    fn test_handle_create_directory_event_typing_backspace() {
         let mut app = basic_app_state();
         handle_init_create_directory(&mut app);
         // A typical typing workflow
         for c in "abc".chars() {
-            handle_create_directory_popup_event(KeyCode::Char(c), &mut app);
+            handle_create_directory_event(KeyCode::Char(c), &mut app);
         }
-        assert_eq!(app.create_directory_popup.new_name, "abc");
-        assert_eq!(app.create_directory_popup.cursor_position, 3);
+        assert_eq!(app.popups.create_directory.new_name, "abc");
+        assert_eq!(app.popups.create_directory.cursor_position, 3);
         // Backspace -- removes one char
-        handle_create_directory_popup_event(KeyCode::Backspace, &mut app);
-        assert_eq!(app.create_directory_popup.new_name, "ab");
-        assert_eq!(app.create_directory_popup.cursor_position, 2);
+        handle_create_directory_event(KeyCode::Backspace, &mut app);
+        assert_eq!(app.popups.create_directory.new_name, "ab");
+        assert_eq!(app.popups.create_directory.cursor_position, 2);
     }
 
     #[test]
-    fn test_handle_create_directory_popup_enter_empty_fails() {
+    fn test_handle_create_directory_enter_empty_fails() {
         let mut app = basic_app_state();
         handle_init_create_directory(&mut app);
-        let ret = handle_create_directory_popup_event(KeyCode::Enter, &mut app);
+        let ret = handle_create_directory_event(KeyCode::Enter, &mut app);
         // Should not accept empty name
         assert!(!ret);
         assert!(
-            app.create_directory_popup.error.is_none()
-                || app.create_directory_popup.new_name.is_empty()
+            app.popups.create_directory.error.is_none()
+                || app.popups.create_directory.new_name.is_empty()
         );
     }
 }

@@ -262,11 +262,7 @@ mod tests {
     use crate::config::GlobalConfig;
     use crate::dir_history::DirectoryHistory;
     use crate::fs_ops::FileEntry;
-    use crate::state::{
-        ConflictState, CopyMoveState, CreateDirectoryState, CreateFileState, DeleteState,
-        DriveSelectState, EmptyTrashState, ErrorState, FileViewerState, HelpState,
-        QuitConfirmationState, RenameState,
-    };
+    use crate::state::FileViewerState;
     use crate::tasks::TaskManager;
 
     fn test_app(entries: Vec<FileEntry>) -> AppState {
@@ -295,18 +291,8 @@ mod tests {
             active: PanelSide::Left,
             file_viewer: FileViewerState::new(false, "test-theme"),
             fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
-            rename_popup: RenameState::new(),
-            create_directory_popup: CreateDirectoryState::new(),
-            delete_popup: DeleteState::new(),
-            empty_trash_popup: EmptyTrashState::new(),
-            copy_move_popup: CopyMoveState::new(),
-            conflict_popup: ConflictState::new(),
-            error_popup: ErrorState::new(),
-            quit_confirmation: QuitConfirmationState::new(),
+            popups: crate::app::Popups::new(),
             task_manager: TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
-            create_file_popup: CreateFileState::new(),
-            help_popup: HelpState::new(),
-            drive_select_popup: DriveSelectState::new(),
             task_decision_txs: std::collections::HashMap::new(),
             show_task_manager: false,
             dir_history: DirectoryHistory::new().unwrap(),

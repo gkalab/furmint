@@ -13,34 +13,34 @@ pub(crate) fn handle_init_rename(app: &mut AppState) {
         if entry.name == ".." {
             return;
         }
-        app.rename_popup.is_visible = true;
-        app.rename_popup.original_name = entry.name.clone();
-        app.rename_popup.new_name = entry.name.clone();
-        app.rename_popup.parent_dir = panel.current_dir.clone();
-        app.rename_popup.show_overwrite_confirm = false;
-        app.rename_popup.is_dir = entry.is_dir;
-        app.rename_popup.error = None;
+        app.popups.rename.is_visible = true;
+        app.popups.rename.original_name = entry.name.clone();
+        app.popups.rename.new_name = entry.name.clone();
+        app.popups.rename.parent_dir = panel.current_dir.clone();
+        app.popups.rename.show_overwrite_confirm = false;
+        app.popups.rename.is_dir = entry.is_dir;
+        app.popups.rename.error = None;
 
         // Position cursor before extension
         let path = std::path::Path::new(&entry.name);
         if let Some(stem) = path.file_stem() {
-            app.rename_popup.cursor_position = stem.len();
+            app.popups.rename.cursor_position = stem.len();
         } else {
-            app.rename_popup.cursor_position = entry.name.len();
+            app.popups.rename.cursor_position = entry.name.len();
         }
     }
 }
 
-pub(crate) fn handle_rename_popup_event(code: KeyCode, app: &mut AppState) -> bool {
-    if app.rename_popup.show_overwrite_confirm {
+pub(crate) fn handle_rename_event(code: KeyCode, app: &mut AppState) -> bool {
+    if app.popups.rename.show_overwrite_confirm {
         match code {
             KeyCode::Char('y' | 'Y') => {
                 perform_rename(app, true);
-                app.rename_popup.reset();
+                app.popups.rename.reset();
             }
             KeyCode::Char('n' | 'N') | KeyCode::Esc => {
-                app.rename_popup.show_overwrite_confirm = false;
-                app.rename_popup.reset();
+                app.popups.rename.show_overwrite_confirm = false;
+                app.popups.rename.reset();
             }
             _ => {}
         }
@@ -49,63 +49,71 @@ pub(crate) fn handle_rename_popup_event(code: KeyCode, app: &mut AppState) -> bo
 
     match code {
         KeyCode::Esc => {
-            app.rename_popup.reset();
+            app.popups.rename.reset();
         }
         KeyCode::Enter => {
-            if app.rename_popup.new_name == app.rename_popup.original_name {
-                app.rename_popup.reset();
+            if app.popups.rename.new_name == app.popups.rename.original_name {
+                app.popups.rename.reset();
             } else {
-                let new_path = app.rename_popup.parent_dir.join(&app.rename_popup.new_name);
+                let new_path = app
+                    .popups
+                    .rename
+                    .parent_dir
+                    .join(&app.popups.rename.new_name);
                 if new_path.exists() {
-                    if app.rename_popup.is_dir {
-                        app.rename_popup.error = Some("Error: Target directory exists".to_string());
+                    if app.popups.rename.is_dir {
+                        app.popups.rename.error =
+                            Some("Error: Target directory exists".to_string());
                     } else {
-                        app.rename_popup.show_overwrite_confirm = true;
+                        app.popups.rename.show_overwrite_confirm = true;
                     }
                 } else {
                     perform_rename(app, false);
-                    app.rename_popup.reset();
+                    app.popups.rename.reset();
                 }
             }
         }
         KeyCode::Char(c) => {
-            app.rename_popup.error = None; // Clear error on typing
-            app.rename_popup
+            app.popups.rename.error = None; // Clear error on typing
+            app.popups
+                .rename
                 .new_name
-                .insert(app.rename_popup.cursor_position, c);
-            app.rename_popup.cursor_position += 1;
+                .insert(app.popups.rename.cursor_position, c);
+            app.popups.rename.cursor_position += 1;
         }
         KeyCode::Backspace => {
-            app.rename_popup.error = None;
-            if app.rename_popup.cursor_position > 0 {
-                app.rename_popup
+            app.popups.rename.error = None;
+            if app.popups.rename.cursor_position > 0 {
+                app.popups
+                    .rename
                     .new_name
-                    .remove(app.rename_popup.cursor_position - 1);
-                app.rename_popup.cursor_position -= 1;
+                    .remove(app.popups.rename.cursor_position - 1);
+                app.popups.rename.cursor_position -= 1;
             }
         }
         KeyCode::Delete => {
-            if app.rename_popup.cursor_position < app.rename_popup.new_name.len() {
-                app.rename_popup
+            if app.popups.rename.cursor_position < app.popups.rename.new_name.len() {
+                app.popups
+                    .rename
                     .new_name
-                    .remove(app.rename_popup.cursor_position);
+                    .remove(app.popups.rename.cursor_position);
             }
         }
         KeyCode::Left => {
-            if app.rename_popup.cursor_position > 0 {
-                app.rename_popup.cursor_position -= 1;
+            if app.popups.rename.cursor_position > 0 {
+                app.popups.rename.cursor_position -= 1;
             }
         }
         KeyCode::Right => {
-            if app.rename_popup.cursor_position < app.rename_popup.new_name.len() {
-                app.rename_popup.cursor_position += 1;
+            if app.popups.rename.cursor_position < app.popups.rename.new_name.len() {
+                app.popups.rename.cursor_position += 1;
             }
         }
         KeyCode::Home => {
-            app.rename_popup.cursor_position = 0;
+            app.popups.rename.cursor_position = 0;
         }
         KeyCode::End => {
-            app.rename_popup.cursor_position = app.rename_popup.new_name.len();
+            app.popups.rename.cursor_position = app.popups.rename.new_name.len();
         }
         _ => {}
     }
@@ -114,10 +122,15 @@ pub(crate) fn handle_rename_popup_event(code: KeyCode, app: &mut AppState) -> bo
 
 pub(crate) fn perform_rename(app: &mut AppState, overwrite: bool) {
     let old_path = app
-        .rename_popup
+        .popups
+        .rename
         .parent_dir
-        .join(&app.rename_popup.original_name);
-    let new_path = app.rename_popup.parent_dir.join(&app.rename_popup.new_name);
+        .join(&app.popups.rename.original_name);
+    let new_path = app
+        .popups
+        .rename
+        .parent_dir
+        .join(&app.popups.rename.new_name);
 
     let result = if overwrite && cfg!(target_os = "windows") && new_path.exists() {
         std::fs::remove_file(&new_path).and_then(|()| std::fs::rename(&old_path, &new_path))
@@ -139,7 +152,7 @@ pub(crate) fn perform_rename(app: &mut AppState, overwrite: bool) {
                     if let Some(idx) = panel
                         .entries
                         .iter()
-                        .position(|e| e.name == app.rename_popup.new_name)
+                        .position(|e| e.name == app.popups.rename.new_name)
                     {
                         panel.cursor = idx;
                     }
@@ -168,7 +181,6 @@ mod tests {
     use std::path::PathBuf;
 
     fn test_app_with_entry(name: &str, is_dir: bool) -> AppState {
-        use crate::state::*;
         use crate::tasks::TaskEvent;
         use tokio::sync::mpsc;
         let (task_tx, _task_rx) = mpsc::unbounded_channel::<TaskEvent>();
@@ -195,18 +207,8 @@ mod tests {
             active: PanelSide::Left,
             file_viewer: crate::state::FileViewerState::new(false, ""),
             fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
-            rename_popup: RenameState::default(),
-            create_directory_popup: CreateDirectoryState::default(),
-            delete_popup: DeleteState::default(),
-            empty_trash_popup: EmptyTrashState::default(),
-            copy_move_popup: CopyMoveState::default(),
-            conflict_popup: ConflictState::default(),
-            error_popup: ErrorState::default(),
-            quit_confirmation: QuitConfirmationState::default(),
+            popups: crate::app::Popups::new(),
             task_manager: crate::tasks::TaskManager::new(task_tx),
-            create_file_popup: CreateFileState::default(),
-            help_popup: HelpState::default(),
-            drive_select_popup: DriveSelectState::default(),
             task_decision_txs: Default::default(),
             show_task_manager: false,
             dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
@@ -223,45 +225,45 @@ mod tests {
     fn test_init_rename_for_normal_file() {
         let mut app = test_app_with_entry("myfile.txt", false);
         handle_init_rename(&mut app);
-        assert!(app.rename_popup.is_visible);
-        assert_eq!(app.rename_popup.original_name, "myfile.txt");
+        assert!(app.popups.rename.is_visible);
+        assert_eq!(app.popups.rename.original_name, "myfile.txt");
         // Cursor should be placed before extension
-        assert!(app.rename_popup.cursor_position < app.rename_popup.original_name.len());
+        assert!(app.popups.rename.cursor_position < app.popups.rename.original_name.len());
     }
 
     #[test]
     fn test_init_rename_skips_dotdot() {
         let mut app = test_app_with_entry("..", true);
         handle_init_rename(&mut app);
-        assert!(!app.rename_popup.is_visible);
+        assert!(!app.popups.rename.is_visible);
     }
 
     #[test]
-    fn test_rename_popup_typing_and_backspace() {
+    fn test_rename_typing_and_backspace() {
         let mut app = test_app_with_entry("file.txt", false);
         handle_init_rename(&mut app);
-        let orig = app.rename_popup.new_name.clone();
-        handle_rename_popup_event(KeyCode::Char('a'), &mut app);
-        assert_ne!(app.rename_popup.new_name, orig);
-        handle_rename_popup_event(KeyCode::Backspace, &mut app);
-        assert_eq!(app.rename_popup.new_name, orig);
+        let orig = app.popups.rename.new_name.clone();
+        handle_rename_event(KeyCode::Char('a'), &mut app);
+        assert_ne!(app.popups.rename.new_name, orig);
+        handle_rename_event(KeyCode::Backspace, &mut app);
+        assert_eq!(app.popups.rename.new_name, orig);
     }
 
     #[test]
-    fn test_rename_popup_esc_resets() {
+    fn test_rename_esc_resets() {
         let mut app = test_app_with_entry("other.txt", false);
         handle_init_rename(&mut app);
-        assert!(app.rename_popup.is_visible);
-        handle_rename_popup_event(KeyCode::Esc, &mut app);
-        assert!(!app.rename_popup.is_visible);
+        assert!(app.popups.rename.is_visible);
+        handle_rename_event(KeyCode::Esc, &mut app);
+        assert!(!app.popups.rename.is_visible);
     }
 
     #[test]
-    fn test_rename_popup_enter_same_name_resets() {
+    fn test_rename_enter_same_name_resets() {
         let mut app = test_app_with_entry("foo.txt", false);
         handle_init_rename(&mut app);
-        assert!(app.rename_popup.is_visible);
-        handle_rename_popup_event(KeyCode::Enter, &mut app);
-        assert!(!app.rename_popup.is_visible);
+        assert!(app.popups.rename.is_visible);
+        handle_rename_event(KeyCode::Enter, &mut app);
+        assert!(!app.popups.rename.is_visible);
     }
 }

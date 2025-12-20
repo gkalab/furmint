@@ -3,14 +3,14 @@
 use crate::app::AppState;
 use crossterm::event::KeyCode;
 
-pub(crate) fn handle_delete_popup_event(code: KeyCode, app: &mut AppState) -> bool {
+pub(crate) fn handle_delete_event(code: KeyCode, app: &mut AppState) -> bool {
     match code {
         KeyCode::Esc | KeyCode::Char('n') => {
-            app.delete_popup.reset();
+            app.popups.delete.reset();
         }
         KeyCode::Char('y') | KeyCode::Enter => {
             handle_confirm_delete(app);
-            app.delete_popup.reset();
+            app.popups.delete.reset();
         }
         _ => {}
     }
@@ -40,14 +40,14 @@ pub(crate) fn handle_init_delete(app: &mut AppState, permanent: bool) {
         return;
     }
 
-    app.delete_popup.selected_paths = selected;
-    app.delete_popup.is_permanent = permanent;
-    app.delete_popup.is_visible = true;
+    app.popups.delete.selected_paths = selected;
+    app.popups.delete.is_permanent = permanent;
+    app.popups.delete.is_visible = true;
 }
 
 pub(crate) fn handle_confirm_delete(app: &mut AppState) {
-    let paths = app.delete_popup.selected_paths.clone();
-    let is_permanent = app.delete_popup.is_permanent;
+    let paths = app.popups.delete.selected_paths.clone();
+    let is_permanent = app.popups.delete.is_permanent;
 
     let name = if is_permanent {
         format!("Deleting {} items permanently", paths.len())
@@ -118,20 +118,11 @@ mod tests {
     use crate::app::Tab;
     use crate::app::{AppState, PanelSide};
     use crate::fs_ops::FileEntry;
-    use crate::state::DeleteState;
     use crossterm::event::KeyCode;
     use std::path::PathBuf;
 
     fn basic_app_with_entry(name: &str) -> AppState {
-        use crate::state::ConflictState;
-        use crate::state::CopyMoveState;
-        use crate::state::DriveSelectState;
-        use crate::state::EmptyTrashState;
-        use crate::state::ErrorState;
         use crate::state::FileViewerState;
-        use crate::state::HelpState;
-        use crate::state::QuitConfirmationState;
-        use crate::state::RenameState;
         use crate::tasks::TaskEvent;
         use tokio::sync::mpsc;
         let (task_tx, _task_rx) = mpsc::unbounded_channel::<TaskEvent>();
@@ -158,18 +149,8 @@ mod tests {
             active: PanelSide::Left,
             file_viewer: FileViewerState::new(false, ""),
             fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
-            rename_popup: RenameState::default(),
-            create_directory_popup: crate::state::CreateDirectoryState::default(),
-            delete_popup: DeleteState::default(),
-            empty_trash_popup: EmptyTrashState::default(),
-            copy_move_popup: CopyMoveState::default(),
-            conflict_popup: ConflictState::default(),
-            error_popup: ErrorState::default(),
-            quit_confirmation: QuitConfirmationState::default(),
+            popups: crate::app::Popups::new(),
             task_manager: crate::tasks::TaskManager::new(task_tx),
-            create_file_popup: crate::state::CreateFileState::default(),
-            help_popup: HelpState::default(),
-            drive_select_popup: DriveSelectState::default(),
             task_decision_txs: Default::default(),
             show_task_manager: false,
             dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
@@ -186,36 +167,36 @@ mod tests {
     fn test_handle_init_delete_populates_popup() {
         let mut app = basic_app_with_entry("test_file.txt");
         handle_init_delete(&mut app, false);
-        assert!(app.delete_popup.is_visible);
-        assert!(!app.delete_popup.selected_paths.is_empty());
-        assert!(!app.delete_popup.is_permanent);
+        assert!(app.popups.delete.is_visible);
+        assert!(!app.popups.delete.selected_paths.is_empty());
+        assert!(!app.popups.delete.is_permanent);
     }
 
     #[test]
     fn test_handle_init_delete_permanent_sets_flag() {
         let mut app = basic_app_with_entry("test_file2.txt");
         handle_init_delete(&mut app, true);
-        assert!(app.delete_popup.is_visible);
-        assert!(app.delete_popup.is_permanent);
+        assert!(app.popups.delete.is_visible);
+        assert!(app.popups.delete.is_permanent);
     }
 
     #[test]
-    fn test_handle_delete_popup_event_esc_resets() {
+    fn test_handle_delete_event_esc_resets() {
         let mut app = basic_app_with_entry("will_reset.txt");
         handle_init_delete(&mut app, false);
-        assert!(app.delete_popup.is_visible);
-        handle_delete_popup_event(KeyCode::Esc, &mut app);
-        assert!(!app.delete_popup.is_visible);
+        assert!(app.popups.delete.is_visible);
+        handle_delete_event(KeyCode::Esc, &mut app);
+        assert!(!app.popups.delete.is_visible);
     }
 
     #[tokio::test]
-    async fn test_handle_delete_popup_event_enter_triggers_confirm() {
+    async fn test_handle_delete_event_enter_triggers_confirm() {
         let mut app = basic_app_with_entry("some_file.txt");
         handle_init_delete(&mut app, false);
-        assert!(app.delete_popup.is_visible);
-        handle_delete_popup_event(KeyCode::Enter, &mut app);
+        assert!(app.popups.delete.is_visible);
+        handle_delete_event(KeyCode::Enter, &mut app);
         // Should become invisible after
-        assert!(!app.delete_popup.is_visible);
+        assert!(!app.popups.delete.is_visible);
     }
 
     #[test]
@@ -236,7 +217,7 @@ mod tests {
         let mut app = basic_app_with_entry("willnotuse");
         app.left.tabs[0] = tab;
         handle_init_delete(&mut app, false);
-        assert!(!app.delete_popup.is_visible);
-        assert!(app.delete_popup.selected_paths.is_empty());
+        assert!(!app.popups.delete.is_visible);
+        assert!(app.popups.delete.selected_paths.is_empty());
     }
 }

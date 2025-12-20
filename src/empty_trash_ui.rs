@@ -68,12 +68,12 @@ pub fn handle_empty_trash_popup_event(
     match code {
         crossterm::event::KeyCode::Char('y' | 'Y') | crossterm::event::KeyCode::Enter => {
             // The actual trash empty logic is queued as a background task elsewhere
-            app.empty_trash_popup.is_visible = false;
+            app.popups.empty_trash.is_visible = false;
             app.spawn_empty_trash_task();
             true
         }
         crossterm::event::KeyCode::Char('n' | 'N') | crossterm::event::KeyCode::Esc => {
-            app.empty_trash_popup.is_visible = false;
+            app.popups.empty_trash.is_visible = false;
             false
         }
         _ => false,

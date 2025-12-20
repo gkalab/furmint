@@ -495,24 +495,46 @@ pub enum PanelSide {
     Right,
 }
 
+pub struct Popups {
+    pub rename: RenameState,
+    pub create_directory: CreateDirectoryState,
+    pub delete: DeleteState,
+    pub empty_trash: EmptyTrashState,
+    pub copy_move: CopyMoveState,
+    pub conflict: ConflictState,
+    pub error: ErrorState,
+    pub quit_confirmation: QuitConfirmationState,
+    pub create_file: CreateFileState,
+    pub help: HelpState,
+    pub drive_select: DriveSelectState,
+}
+
+impl Popups {
+    pub fn new() -> Self {
+        Self {
+            rename: RenameState::new(),
+            create_directory: CreateDirectoryState::new(),
+            delete: DeleteState::new(),
+            empty_trash: EmptyTrashState::new(),
+            copy_move: CopyMoveState::new(),
+            conflict: ConflictState::new(),
+            error: ErrorState::new(),
+            quit_confirmation: QuitConfirmationState::new(),
+            create_file: CreateFileState::new(),
+            help: HelpState::new(),
+            drive_select: DriveSelectState::new(),
+        }
+    }
+}
+
 pub struct AppState {
     pub left: TabManager,
     pub right: TabManager,
     pub active: PanelSide,
     pub file_viewer: FileViewerState,
     pub fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState,
-    pub rename_popup: RenameState,
-    pub create_directory_popup: CreateDirectoryState,
-    pub delete_popup: DeleteState,
-    pub empty_trash_popup: EmptyTrashState,
-    pub copy_move_popup: CopyMoveState,
-    pub conflict_popup: ConflictState,
-    pub error_popup: ErrorState,
-    pub quit_confirmation: QuitConfirmationState,
+    pub popups: Popups,
     pub task_manager: crate::tasks::TaskManager,
-    pub create_file_popup: CreateFileState,
-    pub help_popup: HelpState,
-    pub drive_select_popup: DriveSelectState,
 
     // Channels to communicate decisions back to tasks
     pub task_decision_txs:
@@ -577,16 +599,7 @@ impl AppState {
                 ctx.global.theme.as_deref().unwrap_or("default"),
             ),
             fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
-            rename_popup: RenameState::new(),
-            create_directory_popup: CreateDirectoryState::new(),
-            delete_popup: DeleteState::new(),
-            empty_trash_popup: EmptyTrashState::new(),
-            copy_move_popup: CopyMoveState::new(),
-            conflict_popup: ConflictState::new(),
-            error_popup: ErrorState::new(),
-            quit_confirmation: QuitConfirmationState::new(),
-            help_popup: HelpState::new(),
-            drive_select_popup: DriveSelectState::new(),
+            popups: crate::app::Popups::new(),
             task_manager: ctx.task_manager,
             task_decision_txs: std::collections::HashMap::new(),
             show_task_manager: false,
@@ -597,7 +610,6 @@ impl AppState {
             global: ctx.global,
             editor_cfg: ctx.editor_cfg,
             viewer_cfg: ctx.viewer_cfg,
-            create_file_popup: CreateFileState::new(),
         }
     }
 
@@ -676,10 +688,9 @@ impl AppState {
             // Convert to vector
             let paths_vec: Vec<std::path::PathBuf> = paths.into_iter().collect();
 
-            if let Err(e) = watcher.update_watched_paths(&paths_vec) {
+            if let Err(_e) = watcher.update_watched_paths(&paths_vec) {
                 // Log error or set it in active tab?
                 // For now just ignore or print to stderr
-                eprintln!("Watcher update error: {e}");
             }
         }
     }

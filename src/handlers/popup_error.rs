@@ -3,8 +3,8 @@
 use crate::app::AppState;
 use crossterm::event::KeyCode;
 
-pub(crate) async fn handle_error_popup_event(code: KeyCode, app: &mut AppState) -> bool {
-    let task_id = app.error_popup.task_id;
+pub(crate) async fn handle_error_event(code: KeyCode, app: &mut AppState) -> bool {
+    let task_id = app.popups.error.task_id;
     let decision = match code {
         KeyCode::Char('r' | 'R') => Some(crate::tasks::TaskDecision::Retry),
         KeyCode::Char('s' | 'S') => Some(crate::tasks::TaskDecision::Skip),
@@ -16,7 +16,7 @@ pub(crate) async fn handle_error_popup_event(code: KeyCode, app: &mut AppState) 
         if let Some(tx) = app.task_decision_txs.get(&task_id) {
             let _ = tx.send(d).await;
         }
-        app.error_popup.reset();
+        app.popups.error.reset();
     }
     false
 }

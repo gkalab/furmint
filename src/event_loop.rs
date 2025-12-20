@@ -12,21 +12,21 @@ use crate::handlers::navigation::{
     handle_history_previous, handle_home, handle_page_down, handle_page_up, handle_sort,
     handle_tab, handle_toggle_selection, handle_type_char, handle_up, update_viewer_content,
 };
-use crate::handlers::popup_conflict::handle_conflict_popup_event;
+use crate::handlers::popup_conflict::handle_conflict_event;
 use crate::handlers::popup_copy_move::{
-    handle_copy_move_popup_event, handle_init_copy, handle_init_move,
+    handle_copy_move_event, handle_init_copy, handle_init_move,
 };
 use crate::handlers::popup_create::{
-    handle_create_directory_popup_event, handle_create_file_popup_event,
-    handle_init_create_directory, handle_init_create_file,
+    handle_create_directory_event, handle_create_file_event, handle_init_create_directory,
+    handle_init_create_file,
 };
-use crate::handlers::popup_delete::{handle_delete_popup_event, handle_init_delete};
-use crate::handlers::popup_error::handle_error_popup_event;
+use crate::handlers::popup_delete::{handle_delete_event, handle_init_delete};
+use crate::handlers::popup_error::handle_error_event;
 use crate::handlers::popup_fuzzy::handle_fuzzy_search_event;
 use crate::handlers::popup_misc::{
     handle_quit_popup_event, handle_task_event, handle_task_manager_event,
 };
-use crate::handlers::popup_rename::{handle_init_rename, handle_rename_popup_event};
+use crate::handlers::popup_rename::{handle_init_rename, handle_rename_event};
 use crate::handlers::tabs::{handle_close_tab, handle_new_tab, handle_next_tab, handle_prev_tab};
 use crate::handlers::terminal::{handle_open_terminal, handle_toggle_console, spawn_terminal};
 use crate::theme::ThemePalette;
@@ -208,11 +208,10 @@ fn handle_watcher_event(event: crate::watcher::WatcherEvent, app: &mut AppState)
                 handle_tab(tab);
             }
         }
-        crate::watcher::WatcherEvent::Error(err) => {
+        crate::watcher::WatcherEvent::Error(_err) => {
             // Log error to active tab error field?
             // app.left.active_tab_mut().error = Some(format!("Watcher: {}", err));
             // Don't disturb user too much
-            eprintln!("Watcher error: {err}");
         }
     }
 }
@@ -314,36 +313,36 @@ fn draw_ui(
         crate::fuzzy_search_ui::draw_fuzzy_search_popup(f, &mut app.fuzzy_search, palette);
 
         // Draw rename popup on top of fuzzy search (though they shouldn't be open at same time)
-        crate::rename_ui::draw_rename_popup(f, &app.rename_popup, palette);
+        crate::rename_ui::draw_rename_popup(f, &app.popups.rename, palette);
 
         // Draw create directory popup
-        crate::create_dir_ui::draw_create_dir_popup(f, &app.create_directory_popup, palette);
+        crate::create_dir_ui::draw_create_dir_popup(f, &app.popups.create_directory, palette);
         // Draw create file popup
-        crate::create_file_ui::draw_create_file_popup(f, &app.create_file_popup, palette);
+        crate::create_file_ui::draw_create_file_popup(f, &app.popups.create_file, palette);
 
         // Draw delete popup
-        crate::delete_ui::draw_delete_popup(f, &app.delete_popup, palette);
+        crate::delete_ui::draw_delete_popup(f, &app.popups.delete, palette);
 
         // Draw copy/move popup
-        crate::copy_move_ui::draw_copy_move_popup(f, &app.copy_move_popup, palette);
+        crate::copy_move_ui::draw_copy_move_popup(f, &app.popups.copy_move, palette);
 
         // Draw conflict popup
-        crate::conflict_ui::draw_conflict_popup(f, &app.conflict_popup, palette);
+        crate::conflict_ui::draw_conflict_popup(f, &app.popups.conflict, palette);
 
         // Draw task manager
         crate::task_ui::draw_task_manager(f, &app.task_manager, app.show_task_manager, palette);
 
         // Draw empty trash popup
-        crate::empty_trash_ui::draw_empty_trash_popup(f, &app.empty_trash_popup, palette);
+        crate::empty_trash_ui::draw_empty_trash_popup(f, &app.popups.empty_trash, palette);
 
         // Draw quit confirmation popup
-        crate::quit_ui::draw_quit_popup(f, &app.quit_confirmation, palette);
+        crate::quit_ui::draw_quit_popup(f, &app.popups.quit_confirmation, palette);
 
         // Draw error popup
-        crate::error_ui::draw_error_popup(f, &app.error_popup, palette);
+        crate::error_ui::draw_error_popup(f, &app.popups.error, palette);
 
         // Draw help popup
-        crate::help_ui::draw_help_popup(f, app.help_popup.is_visible, keyboard, palette);
+        crate::help_ui::draw_help_popup(f, app.popups.help.is_visible, keyboard, palette);
 
         // Draw drive selection popup
         crate::drive_select_ui::draw_drive_select_popup(f, app, palette);
@@ -374,42 +373,42 @@ pub async fn handle_event(
             if quit_match
                 && !app.file_viewer.is_visible
                 && !app.fuzzy_search.is_visible
-                && !app.rename_popup.is_visible
-                && !app.create_directory_popup.is_visible
-                && !app.delete_popup.is_visible
-                && !app.copy_move_popup.is_visible
-                && !app.conflict_popup.is_visible
-                && !app.quit_confirmation.is_visible
-                && !app.error_popup.is_visible
-                && !app.help_popup.is_visible
-                && !app.drive_select_popup.is_visible
+                && !app.popups.rename.is_visible
+                && !app.popups.create_directory.is_visible
+                && !app.popups.delete.is_visible
+                && !app.popups.copy_move.is_visible
+                && !app.popups.conflict.is_visible
+                && !app.popups.quit_confirmation.is_visible
+                && !app.popups.error.is_visible
+                && !app.popups.help.is_visible
+                && !app.popups.drive_select.is_visible
                 && !app.show_task_manager
             {
                 if app.task_manager.has_running_tasks() {
-                    app.quit_confirmation.is_visible = true;
+                    app.popups.quit_confirmation.is_visible = true;
                     return false;
                 }
                 return true;
             }
 
             // Handle error popup
-            if app.error_popup.is_visible {
-                if handle_error_popup_event(code, app).await {
+            if app.popups.error.is_visible {
+                if handle_error_event(code, app).await {
                     return true;
                 }
                 return false;
             }
 
             // Handle help popup
-            if app.help_popup.is_visible {
+            if app.popups.help.is_visible {
                 if code == KeyCode::Esc {
-                    app.help_popup.reset();
+                    app.popups.help.reset();
                 }
                 return false;
             }
 
             // Handle empty trash popup
-            if app.empty_trash_popup.is_visible {
+            if app.popups.empty_trash.is_visible {
                 if crate::empty_trash_ui::handle_empty_trash_popup_event(code, app) {
                     return false;
                 }
@@ -417,7 +416,7 @@ pub async fn handle_event(
             }
 
             // Handle quit confirmation popup
-            if app.quit_confirmation.is_visible {
+            if app.popups.quit_confirmation.is_visible {
                 if handle_quit_popup_event(code, app) {
                     return true; // Quit confirmed
                 }
@@ -430,37 +429,37 @@ pub async fn handle_event(
             }
 
             // Handle rename popup
-            if app.rename_popup.is_visible {
-                return handle_rename_popup_event(code, app);
+            if app.popups.rename.is_visible {
+                return handle_rename_event(code, app);
             }
 
             // Handle create directory popup
-            if app.create_directory_popup.is_visible {
-                return handle_create_directory_popup_event(code, app);
+            if app.popups.create_directory.is_visible {
+                return handle_create_directory_event(code, app);
             }
 
-            if app.create_file_popup.is_visible {
-                return handle_create_file_popup_event(code, app, &input_tx).await;
+            if app.popups.create_file.is_visible {
+                return handle_create_file_event(code, app, &input_tx).await;
             }
 
             // Handle delete popup
-            if app.delete_popup.is_visible {
-                return handle_delete_popup_event(code, app);
+            if app.popups.delete.is_visible {
+                return handle_delete_event(code, app);
             }
 
             // Handle copy/move popup
-            if app.copy_move_popup.is_visible {
-                return handle_copy_move_popup_event(code, app);
+            if app.popups.copy_move.is_visible {
+                return handle_copy_move_event(code, app);
             }
 
             // Handle drive selection popup
-            if app.drive_select_popup.is_visible {
+            if app.popups.drive_select.is_visible {
                 return crate::drive_select_ui::handle_drive_select_event(code, app);
             }
 
             // Handle conflict popup
-            if app.conflict_popup.is_visible {
-                return handle_conflict_popup_event(code, app).await;
+            if app.popups.conflict.is_visible {
+                return handle_conflict_event(code, app).await;
             }
 
             // Handle task manager
@@ -592,7 +591,7 @@ async fn handle_main_panel_event(
     if let Some(keys) = &keyboard.empty_trash
         && keys.contains(&shortcut)
     {
-        app.empty_trash_popup.is_visible = true;
+        app.popups.empty_trash.is_visible = true;
         return false;
     }
 
@@ -750,7 +749,7 @@ async fn handle_main_panel_event(
     if let Some(keys) = &keyboard.help
         && keys.contains(&shortcut)
     {
-        app.help_popup.is_visible = true;
+        app.popups.help.is_visible = true;
         return false;
     }
 
@@ -776,10 +775,10 @@ async fn handle_main_panel_event(
     {
         let drives = crate::drive_select_ui::get_available_drives();
         if !drives.is_empty() {
-            app.drive_select_popup.is_visible = true;
-            app.drive_select_popup.drives = drives;
-            app.drive_select_popup.side = crate::app::PanelSide::Left;
-            app.drive_select_popup.selected_index = 0;
+            app.popups.drive_select.is_visible = true;
+            app.popups.drive_select.drives = drives;
+            app.popups.drive_select.side = crate::app::PanelSide::Left;
+            app.popups.drive_select.selected_index = 0;
         }
         return false;
     }
@@ -790,10 +789,10 @@ async fn handle_main_panel_event(
     {
         let drives = crate::drive_select_ui::get_available_drives();
         if !drives.is_empty() {
-            app.drive_select_popup.is_visible = true;
-            app.drive_select_popup.drives = drives;
-            app.drive_select_popup.side = crate::app::PanelSide::Right;
-            app.drive_select_popup.selected_index = 0;
+            app.popups.drive_select.is_visible = true;
+            app.popups.drive_select.drives = drives;
+            app.popups.drive_select.side = crate::app::PanelSide::Right;
+            app.popups.drive_select.selected_index = 0;
         }
         return false;
     }
@@ -966,18 +965,8 @@ mod tests {
             active: crate::app::PanelSide::Left,
             file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
             fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
-            rename_popup: crate::state::RenameState::new(),
-            create_directory_popup: crate::state::CreateDirectoryState::new(),
-            delete_popup: crate::state::DeleteState::new(),
-            empty_trash_popup: crate::state::EmptyTrashState::new(),
-            copy_move_popup: crate::state::CopyMoveState::new(),
-            conflict_popup: crate::state::ConflictState::new(),
-            error_popup: crate::state::ErrorState::new(),
-            quit_confirmation: crate::state::QuitConfirmationState::new(),
+            popups: crate::app::Popups::new(),
             task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
-            create_file_popup: crate::state::CreateFileState::new(),
-            help_popup: crate::state::HelpState::new(),
-            drive_select_popup: crate::state::DriveSelectState::new(),
             task_decision_txs: std::collections::HashMap::new(),
             show_task_manager: false,
             dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
@@ -1044,18 +1033,8 @@ mod tests {
             active: crate::app::PanelSide::Left,
             file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
             fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
-            rename_popup: crate::state::RenameState::new(),
-            create_directory_popup: crate::state::CreateDirectoryState::new(),
-            delete_popup: crate::state::DeleteState::new(),
-            empty_trash_popup: crate::state::EmptyTrashState::new(),
-            copy_move_popup: crate::state::CopyMoveState::new(),
-            conflict_popup: crate::state::ConflictState::new(),
-            error_popup: crate::state::ErrorState::new(),
-            quit_confirmation: crate::state::QuitConfirmationState::new(),
+            popups: crate::app::Popups::new(),
             task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
-            create_file_popup: crate::state::CreateFileState::new(),
-            help_popup: crate::state::HelpState::new(),
-            drive_select_popup: crate::state::DriveSelectState::new(),
             task_decision_txs: std::collections::HashMap::new(),
             show_task_manager: false,
             dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
@@ -1142,18 +1121,8 @@ mod tests {
             active: crate::app::PanelSide::Left,
             file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
             fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
-            rename_popup: crate::state::RenameState::new(),
-            create_directory_popup: crate::state::CreateDirectoryState::new(),
-            delete_popup: crate::state::DeleteState::new(),
-            empty_trash_popup: crate::state::EmptyTrashState::new(),
-            copy_move_popup: crate::state::CopyMoveState::new(),
-            conflict_popup: crate::state::ConflictState::new(),
-            error_popup: crate::state::ErrorState::new(),
-            quit_confirmation: crate::state::QuitConfirmationState::new(),
+            popups: crate::app::Popups::new(),
             task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
-            create_file_popup: crate::state::CreateFileState::new(),
-            help_popup: crate::state::HelpState::new(),
-            drive_select_popup: crate::state::DriveSelectState::new(),
             task_decision_txs: std::collections::HashMap::new(),
             show_task_manager: false,
             dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),

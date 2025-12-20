@@ -93,7 +93,7 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
-    fn test_draw_conflict_popup_visible_does_not_panic() {
+    fn test_draw_popup_conflict_visible_does_not_panic() {
         // Setup test backend and Frame
         let backend = TestBackend::new(80, 24);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
@@ -113,7 +113,7 @@ mod tests {
     }
 
     #[test]
-    fn test_draw_conflict_popup_invisible_does_nothing() {
+    fn test_draw_popup_conflict_invisible_does_nothing() {
         // Setup test backend and Frame
         let backend = TestBackend::new(80, 24);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();

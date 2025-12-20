@@ -48,21 +48,21 @@ pub fn init_copy_move(app: &mut AppState, action: crate::app::CopyMoveAction) {
     };
     let dest = inactive_tab.current_dir.to_string_lossy().to_string();
 
-    app.copy_move_popup.source_paths = paths;
-    app.copy_move_popup.action = action;
-    app.copy_move_popup.destination_input = dest;
-    app.copy_move_popup.cursor_position = app.copy_move_popup.destination_input.len();
-    app.copy_move_popup.input_selected = false;
-    app.copy_move_popup.is_visible = true;
+    app.popups.copy_move.source_paths = paths;
+    app.popups.copy_move.action = action;
+    app.popups.copy_move.destination_input = dest;
+    app.popups.copy_move.cursor_position = app.popups.copy_move.destination_input.len();
+    app.popups.copy_move.input_selected = false;
+    app.popups.copy_move.is_visible = true;
 }
 
-pub fn handle_copy_move_popup_event(code: KeyCode, app: &mut AppState) -> bool {
+pub fn handle_copy_move_event(code: KeyCode, app: &mut AppState) -> bool {
     match code {
         KeyCode::Esc => {
-            app.copy_move_popup.reset();
+            app.popups.copy_move.reset();
         }
         KeyCode::Enter => {
-            let dest_input = app.copy_move_popup.destination_input.clone();
+            let dest_input = app.popups.copy_move.destination_input.clone();
             let dest_path = if dest_input.starts_with('~') {
                 if let Some(base_dirs) = directories::BaseDirs::new() {
                     let home = base_dirs.home_dir();
@@ -87,23 +87,23 @@ pub fn handle_copy_move_popup_event(code: KeyCode, app: &mut AppState) -> bool {
                     PanelSide::Right => app.right.active_tab().current_dir.join(&dest_path),
                 }
             };
-            app.copy_move_popup.destination_input = dest_abs.to_string_lossy().to_string();
-            for src in &app.copy_move_popup.source_paths {
+            app.popups.copy_move.destination_input = dest_abs.to_string_lossy().to_string();
+            for src in &app.popups.copy_move.source_paths {
                 if let Ok(src_abs) = src.canonicalize() {
                     if src_abs == dest_abs {
-                        app.copy_move_popup.error =
+                        app.popups.copy_move.error =
                             Some("Cannot copy/move source into itself".to_string());
                         return false;
                     }
                     if dest_abs.starts_with(&src_abs) {
-                        app.copy_move_popup.error =
+                        app.popups.copy_move.error =
                             Some("Cannot copy/move into subdirectory of itself".to_string());
                         return false;
                     }
                     if let Some(file_name) = src_abs.file_name() {
                         let effective_dest = dest_abs.join(file_name);
                         if effective_dest == src_abs {
-                            app.copy_move_popup.error =
+                            app.popups.copy_move.error =
                                 Some("Source and destination are the same".to_string());
                             return false;
                         }
@@ -111,45 +111,48 @@ pub fn handle_copy_move_popup_event(code: KeyCode, app: &mut AppState) -> bool {
                 }
             }
             spawn_copy_move_task(app);
-            app.copy_move_popup.reset();
+            app.popups.copy_move.reset();
         }
         KeyCode::Char(c) => {
-            app.copy_move_popup.error = None;
-            app.copy_move_popup
+            app.popups.copy_move.error = None;
+            app.popups
+                .copy_move
                 .destination_input
-                .insert(app.copy_move_popup.cursor_position, c);
-            app.copy_move_popup.cursor_position += 1;
+                .insert(app.popups.copy_move.cursor_position, c);
+            app.popups.copy_move.cursor_position += 1;
         }
         KeyCode::Backspace => {
-            if app.copy_move_popup.cursor_position > 0 {
-                app.copy_move_popup
+            if app.popups.copy_move.cursor_position > 0 {
+                app.popups
+                    .copy_move
                     .destination_input
-                    .remove(app.copy_move_popup.cursor_position - 1);
-                app.copy_move_popup.cursor_position -= 1;
+                    .remove(app.popups.copy_move.cursor_position - 1);
+                app.popups.copy_move.cursor_position -= 1;
             }
         }
         KeyCode::Delete => {
-            if app.copy_move_popup.cursor_position < app.copy_move_popup.destination_input.len() {
-                app.copy_move_popup
+            if app.popups.copy_move.cursor_position < app.popups.copy_move.destination_input.len() {
+                app.popups
+                    .copy_move
                     .destination_input
-                    .remove(app.copy_move_popup.cursor_position);
+                    .remove(app.popups.copy_move.cursor_position);
             }
         }
         KeyCode::Left => {
-            if app.copy_move_popup.cursor_position > 0 {
-                app.copy_move_popup.cursor_position -= 1;
+            if app.popups.copy_move.cursor_position > 0 {
+                app.popups.copy_move.cursor_position -= 1;
             }
         }
         KeyCode::Right => {
-            if app.copy_move_popup.cursor_position < app.copy_move_popup.destination_input.len() {
-                app.copy_move_popup.cursor_position += 1;
+            if app.popups.copy_move.cursor_position < app.popups.copy_move.destination_input.len() {
+                app.popups.copy_move.cursor_position += 1;
             }
         }
         KeyCode::Home => {
-            app.copy_move_popup.cursor_position = 0;
+            app.popups.copy_move.cursor_position = 0;
         }
         KeyCode::End => {
-            app.copy_move_popup.cursor_position = app.copy_move_popup.destination_input.len();
+            app.popups.copy_move.cursor_position = app.popups.copy_move.destination_input.len();
         }
         _ => {}
     }
@@ -157,9 +160,9 @@ pub fn handle_copy_move_popup_event(code: KeyCode, app: &mut AppState) -> bool {
 }
 
 pub fn spawn_copy_move_task(app: &mut AppState) {
-    let paths = app.copy_move_popup.source_paths.clone();
-    let dest_str = app.copy_move_popup.destination_input.clone();
-    let action = app.copy_move_popup.action;
+    let paths = app.popups.copy_move.source_paths.clone();
+    let dest_str = app.popups.copy_move.destination_input.clone();
+    let action = app.popups.copy_move.action;
 
     // Validate destination
     let dest_path = std::path::PathBuf::from(&dest_str);
@@ -293,7 +296,7 @@ mod popup_copy_move_unit_tests {
 
     use crate::app::{AppState, PanelSide, Tab, TabManager};
     use crate::fs_ops::FileEntry;
-    use crate::state::{CopyMoveAction, CopyMoveState};
+    use crate::state::CopyMoveAction;
     use crossterm::event::KeyCode;
     use std::collections::HashMap;
     use std::path::PathBuf;
@@ -349,18 +352,8 @@ mod popup_copy_move_unit_tests {
             // Popups and config fields as default/minimal:
             file_viewer: Default::default(),
             fuzzy_search: Default::default(),
-            rename_popup: Default::default(),
-            create_directory_popup: Default::default(),
-            delete_popup: Default::default(),
-            empty_trash_popup: Default::default(),
-            copy_move_popup: CopyMoveState::new(),
-            conflict_popup: Default::default(),
-            error_popup: Default::default(),
-            quit_confirmation: Default::default(),
+            popups: crate::app::Popups::new(),
             task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
-            create_file_popup: Default::default(),
-            help_popup: Default::default(),
-            drive_select_popup: Default::default(),
             task_decision_txs: HashMap::new(),
             show_task_manager: false,
             dir_history: Default::default(),
@@ -384,9 +377,9 @@ mod popup_copy_move_unit_tests {
         let mut app =
             minimal_state_with_entries(PanelSide::Left, left_entries, right_entries.clone(), 0, 0);
         handle_init_copy(&mut app);
-        assert_eq!(app.copy_move_popup.is_visible, true);
-        assert_eq!(app.copy_move_popup.action, CopyMoveAction::Copy);
-        assert!(app.copy_move_popup.source_paths[0].ends_with("A.txt"));
+        assert_eq!(app.popups.copy_move.is_visible, true);
+        assert_eq!(app.popups.copy_move.action, CopyMoveAction::Copy);
+        assert!(app.popups.copy_move.source_paths[0].ends_with("A.txt"));
 
         let left_entries = vec![
             make_fileentry("B.txt", false, false),
@@ -395,7 +388,7 @@ mod popup_copy_move_unit_tests {
         let mut app =
             minimal_state_with_entries(PanelSide::Left, left_entries, right_entries.clone(), 0, 0);
         handle_init_move(&mut app);
-        assert_eq!(app.copy_move_popup.action, CopyMoveAction::Move);
+        assert_eq!(app.popups.copy_move.action, CopyMoveAction::Move);
     }
 
     #[test]
@@ -407,7 +400,7 @@ mod popup_copy_move_unit_tests {
         // Cursor points to "foo"
         let mut app = minimal_state_with_entries(PanelSide::Left, left_entries, vec![], 0, 0);
         handle_init_copy(&mut app);
-        assert!(app.copy_move_popup.source_paths[0].ends_with("foo"));
+        assert!(app.popups.copy_move.source_paths[0].ends_with("foo"));
     }
 
     #[test]
@@ -416,82 +409,65 @@ mod popup_copy_move_unit_tests {
         // Cursor points to ".."
         let mut app = minimal_state_with_entries(PanelSide::Left, left_entries, vec![], 0, 0);
         handle_init_copy(&mut app);
-        assert!(!app.copy_move_popup.is_visible);
-        assert_eq!(app.copy_move_popup.source_paths.len(), 0);
+        assert!(!app.popups.copy_move.is_visible);
+        assert_eq!(app.popups.copy_move.source_paths.len(), 0);
     }
 
     #[test]
-    fn test_handle_copy_move_popup_event_char_and_edit() {
+    fn test_handle_copy_move_event_char_and_edit() {
         let left_entries = vec![make_fileentry("a", true, false)];
         let mut app = minimal_state_with_entries(PanelSide::Left, left_entries, vec![], 0, 0);
         handle_init_copy(&mut app);
-        app.copy_move_popup.destination_input.clear();
-        app.copy_move_popup.cursor_position = 0;
+        app.popups.copy_move.destination_input.clear();
+        app.popups.copy_move.cursor_position = 0;
         // Insert 'x'
-        handle_copy_move_popup_event(KeyCode::Char('x'), &mut app);
-        assert_eq!(app.copy_move_popup.destination_input, "x");
-        assert_eq!(app.copy_move_popup.cursor_position, 1);
+        handle_copy_move_event(KeyCode::Char('x'), &mut app);
+        assert_eq!(app.popups.copy_move.destination_input, "x");
+        assert_eq!(app.popups.copy_move.cursor_position, 1);
         // Insert 'y' at position 1
-        handle_copy_move_popup_event(KeyCode::Char('y'), &mut app);
-        assert_eq!(app.copy_move_popup.destination_input, "xy");
-        assert_eq!(app.copy_move_popup.cursor_position, 2);
+        handle_copy_move_event(KeyCode::Char('y'), &mut app);
+        assert_eq!(app.popups.copy_move.destination_input, "xy");
+        assert_eq!(app.popups.copy_move.cursor_position, 2);
         // Backspace
-        handle_copy_move_popup_event(KeyCode::Backspace, &mut app);
-        assert_eq!(app.copy_move_popup.destination_input, "x");
-        assert_eq!(app.copy_move_popup.cursor_position, 1);
+        handle_copy_move_event(KeyCode::Backspace, &mut app);
+        assert_eq!(app.popups.copy_move.destination_input, "x");
+        assert_eq!(app.popups.copy_move.cursor_position, 1);
         // Left
-        handle_copy_move_popup_event(KeyCode::Left, &mut app);
-        assert_eq!(app.copy_move_popup.cursor_position, 0);
+        handle_copy_move_event(KeyCode::Left, &mut app);
+        assert_eq!(app.popups.copy_move.cursor_position, 0);
         // Delete (removes 'x')
-        handle_copy_move_popup_event(KeyCode::Delete, &mut app);
-        assert_eq!(app.copy_move_popup.destination_input, "");
-        assert_eq!(app.copy_move_popup.cursor_position, 0);
+        handle_copy_move_event(KeyCode::Delete, &mut app);
+        assert_eq!(app.popups.copy_move.destination_input, "");
+        assert_eq!(app.popups.copy_move.cursor_position, 0);
     }
 
     #[test]
-    fn test_handle_copy_move_popup_event_navigation_keys() {
+    fn test_handle_copy_move_event_navigation_keys() {
         let left_entries = vec![make_fileentry("a", true, false)];
         let mut app = minimal_state_with_entries(PanelSide::Left, left_entries, vec![], 0, 0);
         handle_init_copy(&mut app);
-        app.copy_move_popup.destination_input = "abcdef".to_string();
-        app.copy_move_popup.cursor_position = 3;
+        app.popups.copy_move.destination_input = "abcdef".to_string();
+        app.popups.copy_move.cursor_position = 3;
         // Home
-        handle_copy_move_popup_event(KeyCode::Home, &mut app);
-        assert_eq!(app.copy_move_popup.cursor_position, 0);
+        handle_copy_move_event(KeyCode::Home, &mut app);
+        assert_eq!(app.popups.copy_move.cursor_position, 0);
         // End
-        handle_copy_move_popup_event(KeyCode::End, &mut app);
-        assert_eq!(app.copy_move_popup.cursor_position, 6);
+        handle_copy_move_event(KeyCode::End, &mut app);
+        assert_eq!(app.popups.copy_move.cursor_position, 6);
         // Right at end (should stay)
-        handle_copy_move_popup_event(KeyCode::Right, &mut app);
-        assert_eq!(app.copy_move_popup.cursor_position, 6);
+        handle_copy_move_event(KeyCode::Right, &mut app);
+        assert_eq!(app.popups.copy_move.cursor_position, 6);
     }
 
     #[test]
-    fn test_handle_copy_move_popup_event_escape_resets_popup() {
+    fn test_handle_copy_move_event_escape_resets_popup() {
         let left_entries = vec![make_fileentry("a", true, false)];
         let mut app = minimal_state_with_entries(PanelSide::Left, left_entries, vec![], 0, 0);
         handle_init_copy(&mut app);
-        app.copy_move_popup.error = Some("some error".to_string());
-        assert!(app.copy_move_popup.is_visible);
-        handle_copy_move_popup_event(KeyCode::Esc, &mut app);
-        assert!(!app.copy_move_popup.is_visible);
-        assert!(app.copy_move_popup.error.is_none());
+        app.popups.copy_move.error = Some("some error".to_string());
+        assert!(app.popups.copy_move.is_visible);
+        handle_copy_move_event(KeyCode::Esc, &mut app);
+        assert!(!app.popups.copy_move.is_visible);
+        assert!(app.popups.copy_move.error.is_none());
     }
-
-    /*
-    // The logic for Enter and path/IO is tricky to unit test without patching/spying.
-    // We'll test that errors are set for same source/destination, by placing a file and using itself as dest.
-    #[test]
-    fn test_popup_error_for_same_source_and_destination() {
-        let left_entries = vec![make_fileentry("foo", true, false)];
-        let mut app = minimal_state_with_entries(PanelSide::Left, left_entries.clone(), vec![], 0, 0);
-        handle_init_copy(&mut app);
-        // Simulate dest input is identical to selected file
-        let src_path = app.copy_move_popup.source_paths[0].clone();
-        app.copy_move_popup.destination_input = src_path.to_string_lossy().to_string();
-        // Patch canonicalize to return itself
-
-        // (Cannot patch natively; this test will depend on real logic and file system. Alternative is to set up a dummy temp file, but
-        // for project purposes, verify the edge check works with temp dir)
-    }*/
 }

@@ -36,27 +36,30 @@ pub fn get_available_drives() -> Vec<String> {
 pub fn handle_drive_select_event(code: KeyCode, app: &mut AppState) -> bool {
     match code {
         KeyCode::Esc => {
-            app.drive_select_popup.reset();
+            app.popups.drive_select.reset();
         }
         KeyCode::Down => {
-            if !app.drive_select_popup.drives.is_empty() {
-                app.drive_select_popup.selected_index = (app.drive_select_popup.selected_index + 1)
-                    % app.drive_select_popup.drives.len();
+            if !app.popups.drive_select.drives.is_empty() {
+                app.popups.drive_select.selected_index = (app.popups.drive_select.selected_index
+                    + 1)
+                    % app.popups.drive_select.drives.len();
             }
         }
         KeyCode::Up => {
-            if !app.drive_select_popup.drives.is_empty() {
-                if app.drive_select_popup.selected_index == 0 {
-                    app.drive_select_popup.selected_index = app.drive_select_popup.drives.len() - 1;
+            if !app.popups.drive_select.drives.is_empty() {
+                if app.popups.drive_select.selected_index == 0 {
+                    app.popups.drive_select.selected_index =
+                        app.popups.drive_select.drives.len() - 1;
                 } else {
-                    app.drive_select_popup.selected_index -= 1;
+                    app.popups.drive_select.selected_index -= 1;
                 }
             }
         }
         KeyCode::Char(c) => {
             let target = format!("{}:\\", c.to_ascii_uppercase());
             if let Some(drive) = app
-                .drive_select_popup
+                .popups
+                .drive_select
                 .drives
                 .iter()
                 .find(|d| d.to_ascii_uppercase() == target)
@@ -67,9 +70,10 @@ pub fn handle_drive_select_event(code: KeyCode, app: &mut AppState) -> bool {
         }
         KeyCode::Enter => {
             if let Some(drive) = app
-                .drive_select_popup
+                .popups
+                .drive_select
                 .drives
-                .get(app.drive_select_popup.selected_index)
+                .get(app.popups.drive_select.selected_index)
                 .cloned()
             {
                 perform_drive_navigation(app, &drive);
@@ -81,7 +85,7 @@ pub fn handle_drive_select_event(code: KeyCode, app: &mut AppState) -> bool {
 }
 
 fn perform_drive_navigation(app: &mut AppState, drive: &str) {
-    let side = app.drive_select_popup.side;
+    let side = app.popups.drive_select.side;
     let path = std::path::PathBuf::from(drive);
 
     let success = {
@@ -93,22 +97,22 @@ fn perform_drive_navigation(app: &mut AppState, drive: &str) {
     };
 
     if success {
-        app.drive_select_popup.reset();
+        app.popups.drive_select.reset();
         app.sync_watcher();
     }
 }
 
 pub fn draw_drive_select_popup(f: &mut Frame, app: &mut AppState, palette: &ThemePalette) {
-    if !app.drive_select_popup.is_visible || app.drive_select_popup.drives.is_empty() {
+    if !app.popups.drive_select.is_visible || app.popups.drive_select.drives.is_empty() {
         return;
     }
 
     let size = f.area();
 
-    // Position the popup on the left or right side based on app.drive_select_popup.side
+    // Position the popup on the left or right side based on app.popups.drive_select.side
     let horizontal_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints(if app.drive_select_popup.side == PanelSide::Left {
+        .constraints(if app.popups.drive_select.side == PanelSide::Left {
             [
                 Constraint::Percentage(5),  // Left margin
                 Constraint::Percentage(30), // Popup width
@@ -135,7 +139,7 @@ pub fn draw_drive_select_popup(f: &mut Frame, app: &mut AppState, palette: &Them
         .split(popup_column);
 
     // Adjust height based on number of drives
-    let drive_count = u16::try_from(app.drive_select_popup.drives.len()).unwrap_or(u16::MAX);
+    let drive_count = u16::try_from(app.popups.drive_select.drives.len()).unwrap_or(u16::MAX);
     let height = (drive_count + 2).min(vertical_chunks[1].height);
     let popup_rect = Rect::new(
         vertical_chunks[1].x,
@@ -159,12 +163,13 @@ pub fn draw_drive_select_popup(f: &mut Frame, app: &mut AppState, palette: &Them
     };
 
     let items: Vec<ListItem> = app
-        .drive_select_popup
+        .popups
+        .drive_select
         .drives
         .iter()
         .enumerate()
         .map(|(i, d)| {
-            let is_selected = i == app.drive_select_popup.selected_index;
+            let is_selected = i == app.popups.drive_select.selected_index;
             if is_selected {
                 ListItem::new(d.clone()).style(
                     Style::default()

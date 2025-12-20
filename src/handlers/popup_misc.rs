@@ -7,7 +7,7 @@ pub(crate) fn handle_quit_popup_event(code: KeyCode, app: &mut AppState) -> bool
     match code {
         KeyCode::Char('y' | 'Y') | KeyCode::Enter => true,
         KeyCode::Char('n' | 'N') | KeyCode::Esc => {
-            app.quit_confirmation.reset();
+            app.popups.quit_confirmation.reset();
             false
         }
         _ => false,
@@ -24,17 +24,17 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
         }
         crate::tasks::TaskEvent::Conflict(id, path, conflict_type) => {
             // Show conflict popup
-            app.conflict_popup.task_id = id;
-            app.conflict_popup.conflict_path = path;
-            app.conflict_popup.conflict_type = conflict_type;
-            app.conflict_popup.is_visible = true;
+            app.popups.conflict.task_id = id;
+            app.popups.conflict.conflict_path = path;
+            app.popups.conflict.conflict_type = conflict_type;
+            app.popups.conflict.is_visible = true;
         }
         crate::tasks::TaskEvent::Error(id, path, msg) => {
             // Show error popup
-            app.error_popup.task_id = id;
-            app.error_popup.error_path = path;
-            app.error_popup.error_message = msg;
-            app.error_popup.is_visible = true;
+            app.popups.error.task_id = id;
+            app.popups.error.error_path = path;
+            app.popups.error.error_message = msg;
+            app.popups.error.is_visible = true;
         }
     }
 }

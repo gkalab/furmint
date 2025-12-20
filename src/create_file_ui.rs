@@ -76,7 +76,7 @@ pub fn draw_create_file_popup(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::create_file::CreateFileState;
+    use crate::state::CreateFileState;
     use crate::theme::catppuccin_macchiato;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
