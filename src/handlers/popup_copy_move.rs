@@ -251,7 +251,9 @@ pub(crate) fn spawn_copy_move_task(app: &mut AppState) {
                     processed: &processed_items,
                     decision_rx: &decision_rx,
                 };
+                let fs_impl = crate::handlers::file_ops::StdFileSystem;
                 let res = crate::handlers::file_ops::recursive_op(
+                    &fs_impl,
                     src,
                     &target,
                     action,

@@ -1,5 +1,53 @@
 //! File operations helpers: recursive ops, item counters, decision state
 
+use async_trait::async_trait;
+
+#[async_trait]
+pub trait FileSystem: Send + Sync {
+    async fn try_exists(&self, path: &std::path::Path) -> anyhow::Result<bool>;
+    async fn is_dir(&self, path: &std::path::Path) -> anyhow::Result<bool>;
+    async fn create_dir_all(&self, path: &std::path::Path) -> anyhow::Result<()>;
+    async fn read_dir(&self, path: &std::path::Path) -> anyhow::Result<Vec<std::path::PathBuf>>;
+    async fn rename(&self, src: &std::path::Path, dst: &std::path::Path) -> anyhow::Result<()>;
+    async fn remove_file(&self, path: &std::path::Path) -> anyhow::Result<()>;
+    async fn copy(&self, src: &std::path::Path, dst: &std::path::Path) -> anyhow::Result<()>;
+}
+
+pub struct StdFileSystem;
+
+#[async_trait]
+impl FileSystem for StdFileSystem {
+    async fn try_exists(&self, path: &std::path::Path) -> anyhow::Result<bool> {
+        Ok(tokio::fs::try_exists(path).await?)
+    }
+    async fn is_dir(&self, path: &std::path::Path) -> anyhow::Result<bool> {
+        Ok(path.is_dir())
+    }
+    async fn create_dir_all(&self, path: &std::path::Path) -> anyhow::Result<()> {
+        Ok(tokio::fs::create_dir_all(path).await?)
+    }
+    async fn read_dir(&self, path: &std::path::Path) -> anyhow::Result<Vec<std::path::PathBuf>> {
+        let mut result = Vec::new();
+        let mut rd = tokio::fs::read_dir(path).await?;
+        while let Ok(Some(entry)) = rd.next_entry().await {
+            result.push(entry.path());
+        }
+        Ok(result)
+    }
+    async fn rename(&self, src: &std::path::Path, dst: &std::path::Path) -> anyhow::Result<()> {
+        Ok(tokio::fs::rename(src, dst).await?)
+    }
+    async fn remove_file(&self, path: &std::path::Path) -> anyhow::Result<()> {
+        Ok(tokio::fs::remove_file(path).await?)
+    }
+    async fn copy(&self, src: &std::path::Path, dst: &std::path::Path) -> anyhow::Result<()> {
+        tokio::fs::copy(src, dst)
+            .await
+            .map(|_| ())
+            .map_err(anyhow::Error::from)
+    }
+}
+
 // Helper to count items recursively
 pub fn count_items(paths: &[std::path::PathBuf]) -> usize {
     let mut count = 0;
@@ -57,6 +105,152 @@ pub struct DecisionState {
     pub overwrite_all: bool,
     pub skip_all: bool,
     pub last_update: std::time::Instant,
+}
+
+#[cfg(test)]
+mod mock_fs_tests {
+    use super::*;
+    use async_trait::async_trait;
+    use std::collections::{HashMap, HashSet};
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use tokio::sync::{Mutex, mpsc};
+
+    #[derive(Default)]
+    struct FakeEntry {
+        is_dir: bool,
+    }
+
+    #[derive(Default)]
+    struct MockFileSystem {
+        files: Arc<Mutex<HashMap<PathBuf, FakeEntry>>>,
+        copies: Arc<Mutex<Vec<(PathBuf, PathBuf)>>>,
+        removed_files: Arc<Mutex<HashSet<PathBuf>>>,
+    }
+
+    #[async_trait]
+    impl FileSystem for MockFileSystem {
+        async fn try_exists(&self, path: &Path) -> anyhow::Result<bool> {
+            Ok(self.files.lock().await.contains_key(path)
+                && !self.removed_files.lock().await.contains(path))
+        }
+        async fn is_dir(&self, path: &Path) -> anyhow::Result<bool> {
+            Ok(self
+                .files
+                .lock()
+                .await
+                .get(path)
+                .map(|e| e.is_dir)
+                .unwrap_or(false))
+        }
+        async fn create_dir_all(&self, path: &Path) -> anyhow::Result<()> {
+            self.files
+                .lock()
+                .await
+                .insert(path.to_path_buf(), FakeEntry { is_dir: true });
+            Ok(())
+        }
+        async fn read_dir(&self, path: &Path) -> anyhow::Result<Vec<PathBuf>> {
+            let files = self.files.lock().await;
+            let mut out = Vec::new();
+            for k in files.keys() {
+                if k.parent() == Some(path) && !self.removed_files.lock().await.contains(k) {
+                    out.push(k.clone());
+                }
+            }
+            Ok(out)
+        }
+        async fn rename(&self, src: &Path, dst: &Path) -> anyhow::Result<()> {
+            let mut files = self.files.lock().await;
+            if let Some(entry) = files.remove(src) {
+                files.insert(dst.to_path_buf(), entry);
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!("No such file/dir for rename"))
+            }
+        }
+        async fn remove_file(&self, path: &Path) -> anyhow::Result<()> {
+            self.removed_files.lock().await.insert(path.to_path_buf());
+            Ok(())
+        }
+        async fn copy(&self, src: &Path, dst: &Path) -> anyhow::Result<()> {
+            let files = self.files.lock().await;
+            if files.contains_key(src) {
+                drop(files);
+                self.files
+                    .lock()
+                    .await
+                    .insert(dst.to_path_buf(), FakeEntry { is_dir: false });
+                self.copies
+                    .lock()
+                    .await
+                    .push((src.to_path_buf(), dst.to_path_buf()));
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!("Missing file for copy"))
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_mock_simple_move_conflict_overwrite() {
+        let fs = MockFileSystem::default();
+        let src = PathBuf::from("/src.txt");
+        let dst = PathBuf::from("/dst.txt");
+        fs.files
+            .lock()
+            .await
+            .insert(src.clone(), FakeEntry { is_dir: false });
+        fs.files
+            .lock()
+            .await
+            .insert(dst.clone(), FakeEntry { is_dir: false }); // Simulate existing dest
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (decision_tx, decision_rx_real) = mpsc::channel(1);
+        let processed = Arc::new(AtomicUsize::new(0));
+        let decision_rx = Arc::new(Mutex::new(decision_rx_real));
+        let ctx = RecursiveOpContext {
+            tx: &tx,
+            id: 1,
+            total: 1,
+            processed: &processed,
+            decision_rx: &decision_rx,
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let mut decision_state = DecisionState {
+            overwrite_all: false,
+            skip_all: false,
+            last_update: std::time::Instant::now(),
+        };
+        // Spawn task to send overwrite decision
+        tokio::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                if let crate::tasks::TaskEvent::Conflict(_id, _path, _ty) = event {
+                    let _ = decision_tx
+                        .send(crate::tasks::TaskDecision::Overwrite)
+                        .await;
+                }
+            }
+        });
+        // Call operation
+        let result = recursive_op(
+            &fs,
+            &src,
+            &dst,
+            crate::app::CopyMoveAction::Copy,
+            &cancel,
+            ctx,
+            &mut decision_state,
+        )
+        .await;
+        assert!(result.is_ok());
+        // dst must exist
+        assert!(fs.files.lock().await.contains_key(&dst));
+        // src remains for Copy
+        assert!(fs.files.lock().await.contains_key(&src));
+    }
 }
 
 #[cfg(test)]
@@ -126,6 +320,7 @@ pub struct RecursiveOpContext<'a> {
 }
 
 pub fn recursive_op<'a>(
+    fs: &'a dyn FileSystem,
     src: &'a std::path::Path,
     dest: &'a std::path::Path,
     action: crate::app::CopyMoveAction,
@@ -163,42 +358,36 @@ pub fn recursive_op<'a>(
                 WorkItem::Process { src, dest } => {
                     // Move optimization: Try rename first if it's a move operation
                     if action == crate::app::CopyMoveAction::Move {
-                        // Only try rename if dest doesn't exist to avoid implicit overwrite
-                        if let Ok(false) = tokio::fs::try_exists(&dest).await
-                            && tokio::fs::rename(&src, &dest).await.is_ok()
-                        {
-                            // Success, no need to process children or post-process
+                        let dest_exists = fs.try_exists(&dest).await.unwrap_or(false);
+                        if !dest_exists && fs.rename(&src, &dest).await.is_ok() {
                             continue;
                         }
                     }
 
-                    if src.is_dir() {
-                        // Directory handling
-                        let dest_exists = tokio::fs::try_exists(&dest).await.unwrap_or(false);
+                    if fs.is_dir(&src).await.unwrap_or(false) {
+                        let dest_exists = fs.try_exists(&dest).await.unwrap_or(false);
 
                         if !dest_exists {
-                            if let Err(e) = tokio::fs::create_dir_all(&dest).await {
+                            if let Err(e) = fs.create_dir_all(&dest).await {
                                 return Err(format!(
                                     "Failed to create directory {}: {}",
                                     dest.display(),
                                     e
                                 ));
                             }
-                        } else if !dest.is_dir() {
+                        } else if !fs.is_dir(&dest).await.unwrap_or(true) {
                             return Err(format!(
                                 "Destination {} exists and is not a directory",
                                 dest.display()
                             ));
                         }
 
-                        // If Move, we need to remove this dir AFTER processing children
                         if action == crate::app::CopyMoveAction::Move {
                             stack.push(WorkItem::PostProcessDir { src: src.clone() });
                         }
 
-                        // Read children
-                        let mut entries = match tokio::fs::read_dir(&src).await {
-                            Ok(e) => e,
+                        let children = match fs.read_dir(&src).await {
+                            Ok(v) => v,
                             Err(e) => {
                                 return Err(format!(
                                     "Failed to read directory {}: {}",
@@ -207,9 +396,7 @@ pub fn recursive_op<'a>(
                                 ));
                             }
                         };
-
-                        while let Ok(Some(entry)) = entries.next_entry().await {
-                            let path = entry.path();
+                        for path in children {
                             let name = match path.file_name() {
                                 Some(n) => n,
                                 None => continue,
@@ -223,7 +410,7 @@ pub fn recursive_op<'a>(
                     } else {
                         // File handling
                         let mut perform = true;
-                        let dest_exists = tokio::fs::try_exists(&dest).await.unwrap_or(false);
+                        let dest_exists = fs.try_exists(&dest).await.unwrap_or(false);
 
                         if dest_exists {
                             // Conflict resolution
@@ -242,9 +429,6 @@ pub fn recursive_op<'a>(
                                 // Wait for decision
                                 let mut decision = None;
                                 if let Some(rx) = ctx.decision_rx.try_lock().ok().as_mut() {
-                                    // We need to wait for a decision.
-                                    // NOTE: This blocks the async task, but that's what we want.
-                                    // The UI runs in a separate thread/event loop.
                                     decision = rx.recv().await;
                                 }
 
@@ -268,34 +452,26 @@ pub fn recursive_op<'a>(
                         if perform {
                             loop {
                                 if dest_exists {
-                                    // Try to remove destination if it exists (overwrite)
-                                    let _ = tokio::fs::remove_file(&dest).await;
+                                    let _ = fs.remove_file(&dest).await;
                                 }
-
-                                match tokio::fs::copy(&src, &dest).await {
+                                match fs.copy(&src, &dest).await {
                                     Ok(_) => break, // Success
                                     Err(e) => {
-                                        // Check SkipAll flag
                                         if decision_state.skip_all {
                                             perform = false;
                                             break;
                                         }
-
-                                        // Ask user
                                         let _ = ctx.tx.send(crate::tasks::TaskEvent::Error(
                                             ctx.id,
                                             src.display().to_string(),
                                             format!("Failed to copy to {}: {}", dest.display(), e),
                                         ));
-
-                                        // Wait for decision
                                         let mut decision = None;
                                         if let Some(rx) = ctx.decision_rx.try_lock().ok().as_mut() {
                                             decision = rx.recv().await;
                                         }
-
                                         match decision {
-                                            Some(crate::tasks::TaskDecision::Retry) => continue, // Retry loop
+                                            Some(crate::tasks::TaskDecision::Retry) => continue,
                                             Some(crate::tasks::TaskDecision::Skip) => {
                                                 perform = false;
                                                 break;
@@ -318,13 +494,8 @@ pub fn recursive_op<'a>(
                             }
                         }
 
-                        // If Move AND perform was success (or if we skipped, we usually DON'T delete source?
-                        // Wait, if we 'Skip', we shouldn't delete source in a Move.
-                        // Standard Move behavior: if we copy successfully, we delete source.
-                        // If we skip copying, the source remains.
-                        // So only delete source if perform was true AND success.
                         if action == crate::app::CopyMoveAction::Move && perform {
-                            let _ = tokio::fs::remove_file(&src).await;
+                            let _ = fs.remove_file(&src).await;
                         }
 
                         // Update progress
