@@ -244,16 +244,19 @@ pub(crate) fn spawn_copy_move_task(app: &mut AppState) {
                 };
 
                 // Recursive copy/move
+                let ctx = crate::handlers::file_ops::RecursiveOpContext {
+                    tx: &tx,
+                    id,
+                    total: total_items,
+                    processed: &processed_items,
+                    decision_rx: &decision_rx,
+                };
                 let res = crate::handlers::file_ops::recursive_op(
                     src,
                     &target,
                     action,
                     &cancel,
-                    &tx,
-                    id,
-                    total_items,
-                    &processed_items,
-                    &decision_rx,
+                    ctx,
                     &mut decision_state,
                 )
                 .await;

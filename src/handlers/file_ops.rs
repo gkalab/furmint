@@ -33,18 +33,22 @@ pub struct DecisionState {
 // Returns Result<(), String>
 // Iterative operation to avoid stack overflow
 // Returns Result<(), String>
+pub struct RecursiveOpContext<'a> {
+    pub tx: &'a tokio::sync::mpsc::UnboundedSender<crate::tasks::TaskEvent>,
+    pub id: usize,
+    pub total: usize,
+    pub processed: &'a std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    pub decision_rx: &'a std::sync::Arc<
+        tokio::sync::Mutex<tokio::sync::mpsc::Receiver<crate::tasks::TaskDecision>>,
+    >,
+}
+
 pub fn recursive_op<'a>(
     src: &'a std::path::Path,
     dest: &'a std::path::Path,
     action: crate::app::CopyMoveAction,
     cancel: &'a std::sync::Arc<std::sync::atomic::AtomicBool>,
-    tx: &'a tokio::sync::mpsc::UnboundedSender<crate::tasks::TaskEvent>,
-    id: usize,
-    total: usize,
-    processed: &'a std::sync::Arc<std::sync::atomic::AtomicUsize>,
-    decision_rx: &'a std::sync::Arc<
-        tokio::sync::Mutex<tokio::sync::mpsc::Receiver<crate::tasks::TaskDecision>>,
-    >,
+    ctx: RecursiveOpContext<'a>,
     decision_state: &'a mut DecisionState,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>> {
     Box::pin(async move {
@@ -147,15 +151,15 @@ pub fn recursive_op<'a>(
                                 perform = false;
                             } else {
                                 // Ask user
-                                let _ = tx.send(crate::tasks::TaskEvent::Conflict(
-                                    id,
+                                let _ = ctx.tx.send(crate::tasks::TaskEvent::Conflict(
+                                    ctx.id,
                                     dest.clone(),
                                     crate::tasks::ConflictType::FileExists,
                                 ));
 
                                 // Wait for decision
                                 let mut decision = None;
-                                if let Some(rx) = decision_rx.try_lock().ok().as_mut() {
+                                if let Some(rx) = ctx.decision_rx.try_lock().ok().as_mut() {
                                     // We need to wait for a decision.
                                     // NOTE: This blocks the async task, but that's what we want.
                                     // The UI runs in a separate thread/event loop.
@@ -196,15 +200,15 @@ pub fn recursive_op<'a>(
                                         }
 
                                         // Ask user
-                                        let _ = tx.send(crate::tasks::TaskEvent::Error(
-                                            id,
+                                        let _ = ctx.tx.send(crate::tasks::TaskEvent::Error(
+                                            ctx.id,
                                             src.display().to_string(),
                                             format!("Failed to copy to {}: {}", dest.display(), e),
                                         ));
 
                                         // Wait for decision
                                         let mut decision = None;
-                                        if let Some(rx) = decision_rx.try_lock().ok().as_mut() {
+                                        if let Some(rx) = ctx.decision_rx.try_lock().ok().as_mut() {
                                             decision = rx.recv().await;
                                         }
 
@@ -242,13 +246,18 @@ pub fn recursive_op<'a>(
                         }
 
                         // Update progress
-                        let p = processed.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                        let p = ctx
+                            .processed
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                            + 1;
                         let now = std::time::Instant::now();
                         if now.duration_since(decision_state.last_update)
                             > std::time::Duration::from_millis(100)
-                            || p == total
+                            || p == ctx.total
                         {
-                            let _ = tx.send(crate::tasks::TaskEvent::UpdateProgress(id, p, total));
+                            let _ = ctx.tx.send(crate::tasks::TaskEvent::UpdateProgress(
+                                ctx.id, p, ctx.total,
+                            ));
                             decision_state.last_update = now;
                         }
                     }
