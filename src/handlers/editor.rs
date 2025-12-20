@@ -110,14 +110,14 @@ fn get_default_editor() -> String {
     let hkcr = RegKey::predef(HKEY_CLASSES_ROOT);
 
     // Look up the ProgID for .txt files
-    if let Ok(txt_key) = hkcr.open_subkey(".txt") {
-        if let Ok(prog_id) = txt_key.get_value::<String, _>("") {
-            // Open the ProgID key
-            if let Ok(prog_key) = hkcr.open_subkey(&prog_id) {
-                if let Ok(app) = prog_key.get_value::<String, _>("") {
-                    return app;
-                }
-            }
+    if let Ok(txt_key) = hkcr.open_subkey(".txt")
+        && let Ok(prog_id) = txt_key.get_value::<String, _>("")
+    {
+        // Open the ProgID key
+        if let Ok(prog_key) = hkcr.open_subkey(&prog_id)
+            && let Ok(app) = prog_key.get_value::<String, _>("")
+        {
+            return app;
         }
     }
 

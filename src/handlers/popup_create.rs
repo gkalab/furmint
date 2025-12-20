@@ -293,7 +293,6 @@ mod tests {
 
     fn basic_app_state() -> AppState {
         use crate::state::FileViewerState;
-        use crate::state::RenameState;
         use crate::tasks::TaskEvent;
         use tokio::sync::mpsc;
 
