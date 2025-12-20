@@ -28,3 +28,38 @@ impl Default for ErrorState {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_and_default() {
+        let state = ErrorState::new();
+        assert!(!state.is_visible);
+        assert_eq!(state.task_id, 0);
+        assert!(state.error_path.is_empty());
+        assert!(state.error_message.is_empty());
+
+        let default_state = ErrorState::default();
+        assert_eq!(state.is_visible, default_state.is_visible);
+        assert_eq!(state.task_id, default_state.task_id);
+        assert_eq!(state.error_path, default_state.error_path);
+        assert_eq!(state.error_message, default_state.error_message);
+    }
+
+    #[test]
+    fn test_reset() {
+        let mut state = ErrorState {
+            is_visible: true,
+            task_id: 123,
+            error_path: String::from("some/path"),
+            error_message: String::from("error occurred"),
+        };
+        state.reset();
+        assert!(!state.is_visible);
+        assert_eq!(state.task_id, 0);
+        assert!(state.error_path.is_empty());
+        assert!(state.error_message.is_empty());
+    }
+}

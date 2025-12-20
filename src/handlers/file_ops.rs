@@ -18,6 +18,41 @@ pub fn count_items(paths: &[std::path::PathBuf]) -> usize {
     count
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::{self, File};
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_count_items_empty() {
+        let empty: Vec<PathBuf> = vec![];
+        assert_eq!(count_items(&empty), 0);
+    }
+
+    #[test]
+    fn test_count_items_files_and_dirs() {
+        // Setup temp dir structure: tmpdir/ (file1, subdir/file2, subdir2/)
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let file1 = tmp_dir.path().join("file1.txt");
+        File::create(&file1).unwrap();
+        let subdir = tmp_dir.path().join("subdir");
+        fs::create_dir(&subdir).unwrap();
+        let file2 = subdir.join("file2.txt");
+        File::create(&file2).unwrap();
+        let subdir2 = tmp_dir.path().join("subdir2");
+        fs::create_dir(&subdir2).unwrap();
+
+        // Paths to test: root of tmp_dir only
+        let root_entries: Vec<PathBuf> = fs::read_dir(tmp_dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        // Should count: file1.txt, subdir, subdir2, file2.txt
+        assert_eq!(count_items(&root_entries), 4);
+    }
+}
+
 pub struct DecisionState {
     pub overwrite_all: bool,
     pub skip_all: bool,

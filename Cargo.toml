@@ -3,6 +3,9 @@ name = "fm"
 version = "0.1.0"
 edition = "2024"
 
+[dev-dependencies]
+tempfile = "3"
+
 [dependencies]
 anyhow = "1.0"
 bytesize = "2.3"
