@@ -17,11 +17,6 @@ pub fn handle_init_create_file(app: &mut AppState) {
 }
 
 pub fn handle_init_create_directory(app: &mut AppState) {
-    let tab_manager = match app.active {
-        crate::app::PanelSide::Left => &app.left,
-        crate::app::PanelSide::Right => &app.right,
-    };
-    let panel = tab_manager.active_tab();
     app.create_directory_popup.is_visible = true;
     app.create_directory_popup.new_name.clear();
     app.create_directory_popup.cursor_position = 0;

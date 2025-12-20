@@ -5,7 +5,30 @@
 
 use crate::app::{AppState, PanelSide};
 use crate::config::KeyboardConfig;
-use crate::handlers::*;
+use crate::handlers::editor::handle_edit;
+use crate::handlers::file_viewer::handle_file_viewer_event;
+use crate::handlers::navigation::{
+    handle_directory_up, handle_down, handle_end, handle_enter_directory, handle_history_next,
+    handle_history_previous, handle_home, handle_page_down, handle_page_up, handle_sort,
+    handle_tab, handle_toggle_selection, handle_type_char, handle_up, update_viewer_content,
+};
+use crate::handlers::popup_conflict::handle_conflict_popup_event;
+use crate::handlers::popup_copy_move::{
+    handle_copy_move_popup_event, handle_init_copy, handle_init_move,
+};
+use crate::handlers::popup_create::{
+    handle_create_directory_popup_event, handle_create_file_popup_event,
+    handle_init_create_directory, handle_init_create_file,
+};
+use crate::handlers::popup_delete::{handle_delete_popup_event, handle_init_delete};
+use crate::handlers::popup_error::handle_error_popup_event;
+use crate::handlers::popup_fuzzy::handle_fuzzy_search_event;
+use crate::handlers::popup_misc::{
+    handle_quit_popup_event, handle_task_event, handle_task_manager_event,
+};
+use crate::handlers::popup_rename::{handle_init_rename, handle_rename_popup_event};
+use crate::handlers::tabs::{handle_close_tab, handle_new_tab, handle_next_tab, handle_prev_tab};
+use crate::handlers::terminal::{handle_open_terminal, handle_toggle_console, spawn_terminal};
 use crate::theme::ThemePalette;
 use crate::ui::{draw_panel, draw_panel_status};
 
