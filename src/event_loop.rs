@@ -167,9 +167,23 @@ fn handle_watcher_event(event: crate::watcher::WatcherEvent, app: &mut AppState)
                     // But here we are staying in same dir usually.
 
                     let old_cursor_name = tab.current_entry().map(|e| e.name.clone());
+                    let selected_names: std::collections::HashSet<String> = tab
+                        .entries
+                        .iter()
+                        .filter(|e| e.selected)
+                        .map(|e| e.name.clone())
+                        .collect();
 
                     if let Ok(entries) = crate::fs_ops::list_dir(&tab.current_dir) {
                         tab.entries = entries;
+
+                        // Restore selection
+                        for entry in &mut tab.entries {
+                            if selected_names.contains(&entry.name) {
+                                entry.selected = true;
+                            }
+                        }
+
                         tab.sort_entries();
 
                         // Try to restore cursor to same file
@@ -980,6 +994,113 @@ mod tests {
         // Check cursor and error remain valid
         assert!(app.left.active_tab().cursor == 0);
         assert!(app.left.active_tab().error.is_none());
+    }
+
+    #[test]
+    fn test_handle_watcher_event_preserves_selection() {
+        use crate::fs_ops::FileEntry;
+        use crate::watcher::WatcherEvent;
+        let mut app = crate::app::AppState {
+            left: crate::app::TabManager {
+                tabs: vec![crate::app::Tab {
+                    current_dir: std::path::PathBuf::from("/mock"),
+                    entries: vec![FileEntry {
+                        name: "testfile.txt".to_string(),
+                        is_dir: false,
+                        is_symlink: false,
+                        size: Some(12),
+                        modified: None,
+                        attributes: "".to_string(),
+                        selected: true, // Initially selected
+                    }],
+                    cursor: 0,
+                    history: vec![],
+                    history_index: 0,
+                    error: None,
+                    typed_buffer: String::new(),
+                    last_type_time: None,
+                    sort_column: crate::app::SortColumn::Name,
+                    sort_direction: crate::app::SortDirection::Ascending,
+                    scroll_offset: 0,
+                }],
+                active_tab_index: 0,
+            },
+            right: crate::app::TabManager {
+                tabs: vec![crate::app::Tab {
+                    current_dir: std::path::PathBuf::from("/mock"),
+                    entries: vec![],
+                    cursor: 0,
+                    history: vec![],
+                    history_index: 0,
+                    error: None,
+                    typed_buffer: String::new(),
+                    last_type_time: None,
+                    sort_column: crate::app::SortColumn::Name,
+                    sort_direction: crate::app::SortDirection::Ascending,
+                    scroll_offset: 0,
+                }],
+                active_tab_index: 0,
+            },
+            active: crate::app::PanelSide::Left,
+            file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
+            fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
+            rename_popup: crate::state::RenameState::new(),
+            create_directory_popup: crate::state::CreateDirectoryState::new(),
+            delete_popup: crate::state::DeleteState::new(),
+            empty_trash_popup: crate::state::EmptyTrashState::new(),
+            copy_move_popup: crate::state::CopyMoveState::new(),
+            conflict_popup: crate::state::ConflictState::new(),
+            error_popup: crate::state::ErrorState::new(),
+            quit_confirmation: crate::state::QuitConfirmationState::new(),
+            task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
+            create_file_popup: crate::state::CreateFileState::new(),
+            help_popup: crate::state::HelpState::new(),
+            drive_select_popup: crate::state::DriveSelectState::new(),
+            task_decision_txs: std::collections::HashMap::new(),
+            show_task_manager: false,
+            dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
+            watcher: None,
+            input_polling_handle: None,
+            needs_redraw: false,
+            global: crate::config::GlobalConfig::default(),
+            editor_cfg: crate::config::EditorConfig::default(),
+            viewer_cfg: crate::config::ViewerConfig::default(),
+        };
+
+        // Note: we need to mock list_dir or ensure it returns what we expect.
+        // In this test, handle_watcher_event will call list_dir("/mock").
+        // Since "/mock" doesn't exist, list_dir will fail, and it won't reload entries.
+        // Wait, I need a real directory to test reload.
+
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let file_path = tmp_dir.path().join("testfile.txt");
+        std::fs::File::create(&file_path).unwrap();
+
+        app.left.active_tab_mut().current_dir = tmp_dir.path().to_path_buf();
+        app.left.active_tab_mut().entries = vec![FileEntry {
+            name: "testfile.txt".to_string(),
+            is_dir: false,
+            is_symlink: false,
+            size: Some(0),
+            modified: None,
+            attributes: "".to_string(),
+            selected: true,
+        }];
+
+        let paths = vec![tmp_dir.path().to_path_buf()];
+        let event = WatcherEvent::FileSystemChange(paths);
+
+        super::handle_watcher_event(event, &mut app);
+
+        // Check if selection is preserved
+        assert!(
+            app.left
+                .active_tab()
+                .entries
+                .iter()
+                .any(|e| e.name == "testfile.txt" && e.selected),
+            "Selection should be preserved after watcher reload"
+        );
     }
 
     #[test]

@@ -53,14 +53,14 @@ pub async fn count_items(paths: &[std::path::PathBuf]) -> usize {
     let mut count = 0;
     for path in paths {
         count += 1; // Count the item itself
-        if path.is_dir() {
-            if let Ok(mut entries) = tokio::fs::read_dir(path).await {
-                let mut children = Vec::new();
-                while let Ok(Some(entry)) = entries.next_entry().await {
-                    children.push(entry.path());
-                }
-                count += Box::pin(count_items(&children)).await;
+        if path.is_dir()
+            && let Ok(mut entries) = tokio::fs::read_dir(path).await
+        {
+            let mut children = Vec::new();
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                children.push(entry.path());
             }
+            count += Box::pin(count_items(&children)).await;
         }
     }
     count

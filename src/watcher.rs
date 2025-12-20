@@ -1,5 +1,5 @@
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
-use notify_debouncer_full::{DebounceEventResult, Debouncer, FileIdMap, new_debouncer};
+use notify::{Config, RecommendedWatcher, RecursiveMode};
+use notify_debouncer_full::{DebounceEventResult, Debouncer, FileIdMap, new_debouncer_opt};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
@@ -21,7 +21,7 @@ impl AppWatcher {
         // We need to clone tx because the closure can differ
         let tx = tx.clone();
 
-        let debouncer = new_debouncer(
+        let debouncer = new_debouncer_opt::<_, RecommendedWatcher, FileIdMap>(
             Duration::from_millis(250),
             None,
             move |result: DebounceEventResult| match result {
@@ -40,6 +40,8 @@ impl AppWatcher {
                     }
                 }
             },
+            FileIdMap::new(),
+            Config::default(),
         )?;
 
         Ok(Self {
@@ -51,12 +53,7 @@ impl AppWatcher {
     pub fn watch(&mut self, path: &Path) -> anyhow::Result<()> {
         if !self.watched_paths.contains(&path.to_path_buf()) {
             // Watch non-recursive for current directory content
-            self.debouncer
-                .watcher()
-                .watch(path, RecursiveMode::NonRecursive)?;
-            self.debouncer
-                .cache()
-                .add_root(path, RecursiveMode::NonRecursive);
+            self.debouncer.watch(path, RecursiveMode::NonRecursive)?;
             self.watched_paths.push(path.to_path_buf());
         }
         Ok(())
@@ -64,13 +61,12 @@ impl AppWatcher {
 
     pub fn unwatch(&mut self, path: &Path) -> anyhow::Result<()> {
         if let Some(pos) = self.watched_paths.iter().position(|p| p == path) {
-            if let Err(e) = self.debouncer.watcher().unwatch(path) {
+            if let Err(e) = self.debouncer.unwatch(path) {
                 // Ignore "No watch was found" error as it might have been removed implicitly
                 if !e.to_string().contains("No watch was found") {
                     return Err(anyhow::anyhow!(e));
                 }
             }
-            self.debouncer.cache().remove_root(path);
             self.watched_paths.swap_remove(pos);
         }
         Ok(())
@@ -146,5 +142,19 @@ mod tests {
         watcher.update_watched_paths(&[p2.clone()]).unwrap();
         assert!(!watcher.watched_paths.contains(&p1));
         assert!(watcher.watched_paths.contains(&p2));
+    }
+
+    /// This test ensures that the debouncer is indeed using a `FileIdMap`.
+    /// If someone changes the type to `NoCache`, this test will fail to compile.
+    #[test]
+    fn test_debouncer_uses_file_id_map() {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let watcher = AppWatcher::new(tx).unwrap();
+
+        // This is a type-level assertion.
+        // We try to pass the debouncer to a function that explicitly expects FileIdMap.
+        fn assert_file_id_map_cache<W: notify::Watcher>(_d: &Debouncer<W, FileIdMap>) {}
+
+        assert_file_id_map_cache(&watcher.debouncer);
     }
 }
