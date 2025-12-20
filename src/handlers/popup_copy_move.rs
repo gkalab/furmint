@@ -3,15 +3,15 @@
 use crate::app::{AppState, PanelSide};
 use crossterm::event::KeyCode;
 
-pub(crate) fn handle_init_copy(app: &mut AppState) {
+pub fn handle_init_copy(app: &mut AppState) {
     init_copy_move(app, crate::app::CopyMoveAction::Copy);
 }
 
-pub(crate) fn handle_init_move(app: &mut AppState) {
+pub fn handle_init_move(app: &mut AppState) {
     init_copy_move(app, crate::app::CopyMoveAction::Move);
 }
 
-pub(crate) fn init_copy_move(app: &mut AppState, action: crate::app::CopyMoveAction) {
+pub fn init_copy_move(app: &mut AppState, action: crate::app::CopyMoveAction) {
     let tab_manager = match app.active {
         PanelSide::Left => &mut app.left,
         PanelSide::Right => &mut app.right,
@@ -56,7 +56,7 @@ pub(crate) fn init_copy_move(app: &mut AppState, action: crate::app::CopyMoveAct
     app.copy_move_popup.is_visible = true;
 }
 
-pub(crate) fn handle_copy_move_popup_event(code: KeyCode, app: &mut AppState) -> bool {
+pub fn handle_copy_move_popup_event(code: KeyCode, app: &mut AppState) -> bool {
     match code {
         KeyCode::Esc => {
             app.copy_move_popup.reset();
@@ -156,7 +156,7 @@ pub(crate) fn handle_copy_move_popup_event(code: KeyCode, app: &mut AppState) ->
     false
 }
 
-pub(crate) fn spawn_copy_move_task(app: &mut AppState) {
+pub fn spawn_copy_move_task(app: &mut AppState) {
     let paths = app.copy_move_popup.source_paths.clone();
     let dest_str = app.copy_move_popup.destination_input.clone();
     let action = app.copy_move_popup.action;

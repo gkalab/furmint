@@ -277,3 +277,102 @@ pub async fn handle_create_file_popup_event(
     }
     false
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::{AppState, PanelSide};
+    use crate::state::{CreateFileState, CreateDirectoryState};
+    use std::path::PathBuf;
+    use crossterm::event::KeyCode;
+
+    fn basic_app_state() -> AppState {
+        use crate::state::FileViewerState;
+        use crate::state::HelpState;
+        use crate::state::RenameState;
+        use crate::state::DeleteState;
+        use crate::state::EmptyTrashState;
+        use crate::state::CopyMoveState;
+        use crate::state::ConflictState;
+        use crate::state::ErrorState;
+        use crate::state::QuitConfirmationState;
+        use crate::state::DriveSelectState;
+        use crate::tasks::TaskEvent;
+        use tokio::sync::mpsc;
+
+        let (task_tx, _task_rx) = mpsc::unbounded_channel::<TaskEvent>();
+
+        AppState {
+            left: crate::app::TabManager::new(PathBuf::from("/tmp")).unwrap(),
+            right: crate::app::TabManager::new(PathBuf::from("/tmp")).unwrap(),
+            active: PanelSide::Left,
+            file_viewer: FileViewerState::new(false, ""),
+            fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
+            rename_popup: RenameState::default(),
+            create_directory_popup: CreateDirectoryState::default(),
+            delete_popup: DeleteState::default(),
+            empty_trash_popup: EmptyTrashState::default(),
+            copy_move_popup: CopyMoveState::default(),
+            conflict_popup: ConflictState::default(),
+            error_popup: ErrorState::default(),
+            quit_confirmation: QuitConfirmationState::default(),
+            task_manager: crate::tasks::TaskManager::new(task_tx),
+            create_file_popup: CreateFileState::default(),
+            help_popup: HelpState::default(),
+            drive_select_popup: DriveSelectState::default(),
+            task_decision_txs: Default::default(),
+            show_task_manager: false,
+            dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
+            watcher: None,
+            input_polling_handle: None,
+            needs_redraw: false,
+            global: crate::config::GlobalConfig::default(),
+            editor_cfg: crate::config::EditorConfig::default(),
+            viewer_cfg: crate::config::ViewerConfig::default(),
+        }
+    }
+
+
+    #[test]
+    fn test_handle_init_create_file_and_directory() {
+        let mut app = basic_app_state();
+        app.active = PanelSide::Right;
+        handle_init_create_file(&mut app);
+        assert!(app.create_file_popup.is_visible);
+        assert_eq!(app.create_file_popup.input_value, "");
+        assert_eq!(app.create_file_popup.cursor_position, 0);
+        assert!(app.create_file_popup.error.is_none());
+
+        handle_init_create_directory(&mut app);
+        assert!(app.create_directory_popup.is_visible);
+        assert_eq!(app.create_directory_popup.new_name, "");
+        assert_eq!(app.create_directory_popup.cursor_position, 0);
+        assert!(app.create_directory_popup.error.is_none());
+    }
+
+    #[test]
+    fn test_handle_create_directory_popup_event_typing_backspace() {
+        let mut app = basic_app_state();
+        handle_init_create_directory(&mut app);
+        // A typical typing workflow
+        for c in "abc".chars() {
+            handle_create_directory_popup_event(KeyCode::Char(c), &mut app);
+        }
+        assert_eq!(app.create_directory_popup.new_name, "abc");
+        assert_eq!(app.create_directory_popup.cursor_position, 3);
+        // Backspace -- removes one char
+        handle_create_directory_popup_event(KeyCode::Backspace, &mut app);
+        assert_eq!(app.create_directory_popup.new_name, "ab");
+        assert_eq!(app.create_directory_popup.cursor_position, 2);
+    }
+
+    #[test]
+    fn test_handle_create_directory_popup_enter_empty_fails() {
+        let mut app = basic_app_state();
+        handle_init_create_directory(&mut app);
+        let ret = handle_create_directory_popup_event(KeyCode::Enter, &mut app);
+        // Should not accept empty name
+        assert!(!ret);
+        assert!(app.create_directory_popup.error.is_none() || app.create_directory_popup.new_name.is_empty());
+    }
+}

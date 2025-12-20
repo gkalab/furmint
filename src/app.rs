@@ -15,6 +15,7 @@ pub struct HistoryEntry {
     pub cursor: usize,
 }
 
+#[derive(Clone)]
 pub struct Tab {
     pub current_dir: PathBuf,
     pub entries: Vec<FileEntry>,

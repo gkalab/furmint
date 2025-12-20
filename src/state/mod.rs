@@ -4,7 +4,7 @@
 mod conflict;
 mod copy_move;
 mod create_dir;
-mod create_file;
+pub mod create_file;
 mod delete;
 mod drive_select;
 mod empty_trash;
