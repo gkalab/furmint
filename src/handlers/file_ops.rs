@@ -66,239 +66,10 @@ pub fn count_items(paths: &[std::path::PathBuf]) -> usize {
     count
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs::{self, File};
-    use std::path::PathBuf;
-
-    #[test]
-    fn test_count_items_empty() {
-        let empty: Vec<PathBuf> = vec![];
-        assert_eq!(count_items(&empty), 0);
-    }
-
-    #[test]
-    fn test_count_items_files_and_dirs() {
-        // Setup temp dir structure: tmpdir/ (file1, subdir/file2, subdir2/)
-        let tmp_dir = tempfile::tempdir().unwrap();
-        let file1 = tmp_dir.path().join("file1.txt");
-        File::create(&file1).unwrap();
-        let subdir = tmp_dir.path().join("subdir");
-        fs::create_dir(&subdir).unwrap();
-        let file2 = subdir.join("file2.txt");
-        File::create(&file2).unwrap();
-        let subdir2 = tmp_dir.path().join("subdir2");
-        fs::create_dir(&subdir2).unwrap();
-
-        // Paths to test: root of tmp_dir only
-        let root_entries: Vec<PathBuf> = fs::read_dir(tmp_dir.path())
-            .unwrap()
-            .map(|e| e.unwrap().path())
-            .collect();
-        // Should count: file1.txt, subdir, subdir2, file2.txt
-        assert_eq!(count_items(&root_entries), 4);
-    }
-}
-
 pub struct DecisionState {
     pub overwrite_all: bool,
     pub skip_all: bool,
     pub last_update: std::time::Instant,
-}
-
-#[cfg(test)]
-mod mock_fs_tests {
-    use super::*;
-    use async_trait::async_trait;
-    use std::collections::{HashMap, HashSet};
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use tokio::sync::{Mutex, mpsc};
-
-    #[derive(Default)]
-    struct FakeEntry {
-        is_dir: bool,
-    }
-
-    #[derive(Default)]
-    struct MockFileSystem {
-        files: Arc<Mutex<HashMap<PathBuf, FakeEntry>>>,
-        copies: Arc<Mutex<Vec<(PathBuf, PathBuf)>>>,
-        removed_files: Arc<Mutex<HashSet<PathBuf>>>,
-    }
-
-    #[async_trait]
-    impl FileSystem for MockFileSystem {
-        async fn try_exists(&self, path: &Path) -> anyhow::Result<bool> {
-            Ok(self.files.lock().await.contains_key(path)
-                && !self.removed_files.lock().await.contains(path))
-        }
-        async fn is_dir(&self, path: &Path) -> anyhow::Result<bool> {
-            Ok(self
-                .files
-                .lock()
-                .await
-                .get(path)
-                .map(|e| e.is_dir)
-                .unwrap_or(false))
-        }
-        async fn create_dir_all(&self, path: &Path) -> anyhow::Result<()> {
-            self.files
-                .lock()
-                .await
-                .insert(path.to_path_buf(), FakeEntry { is_dir: true });
-            Ok(())
-        }
-        async fn read_dir(&self, path: &Path) -> anyhow::Result<Vec<PathBuf>> {
-            let files = self.files.lock().await;
-            let mut out = Vec::new();
-            for k in files.keys() {
-                if k.parent() == Some(path) && !self.removed_files.lock().await.contains(k) {
-                    out.push(k.clone());
-                }
-            }
-            Ok(out)
-        }
-        async fn rename(&self, src: &Path, dst: &Path) -> anyhow::Result<()> {
-            let mut files = self.files.lock().await;
-            if let Some(entry) = files.remove(src) {
-                files.insert(dst.to_path_buf(), entry);
-                Ok(())
-            } else {
-                Err(anyhow::anyhow!("No such file/dir for rename"))
-            }
-        }
-        async fn remove_file(&self, path: &Path) -> anyhow::Result<()> {
-            self.removed_files.lock().await.insert(path.to_path_buf());
-            Ok(())
-        }
-        async fn copy(&self, src: &Path, dst: &Path) -> anyhow::Result<()> {
-            let files = self.files.lock().await;
-            if files.contains_key(src) {
-                drop(files);
-                self.files
-                    .lock()
-                    .await
-                    .insert(dst.to_path_buf(), FakeEntry { is_dir: false });
-                self.copies
-                    .lock()
-                    .await
-                    .push((src.to_path_buf(), dst.to_path_buf()));
-                Ok(())
-            } else {
-                Err(anyhow::anyhow!("Missing file for copy"))
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_mock_simple_move_conflict_overwrite() {
-        let fs = MockFileSystem::default();
-        let src = PathBuf::from("/src.txt");
-        let dst = PathBuf::from("/dst.txt");
-        fs.files
-            .lock()
-            .await
-            .insert(src.clone(), FakeEntry { is_dir: false });
-        fs.files
-            .lock()
-            .await
-            .insert(dst.clone(), FakeEntry { is_dir: false }); // Simulate existing dest
-
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        let (decision_tx, decision_rx_real) = mpsc::channel(1);
-        let processed = Arc::new(AtomicUsize::new(0));
-        let decision_rx = Arc::new(Mutex::new(decision_rx_real));
-        let ctx = RecursiveOpContext {
-            tx: &tx,
-            id: 1,
-            total: 1,
-            processed: &processed,
-            decision_rx: &decision_rx,
-        };
-        let cancel = Arc::new(AtomicBool::new(false));
-        let mut decision_state = DecisionState {
-            overwrite_all: false,
-            skip_all: false,
-            last_update: std::time::Instant::now(),
-        };
-        // Spawn task to send overwrite decision
-        tokio::spawn(async move {
-            while let Some(event) = rx.recv().await {
-                if let crate::tasks::TaskEvent::Conflict(_id, _path, _ty) = event {
-                    let _ = decision_tx
-                        .send(crate::tasks::TaskDecision::Overwrite)
-                        .await;
-                }
-            }
-        });
-        // Call operation
-        let result = recursive_op(
-            &fs,
-            &src,
-            &dst,
-            crate::app::CopyMoveAction::Copy,
-            &cancel,
-            ctx,
-            &mut decision_state,
-        )
-        .await;
-        assert!(result.is_ok());
-        // dst must exist
-        assert!(fs.files.lock().await.contains_key(&dst));
-        // src remains for Copy
-        assert!(fs.files.lock().await.contains_key(&src));
-    }
-}
-
-#[cfg(test)]
-mod decision_state_tests {
-    use super::*;
-    use std::time::{Duration, Instant};
-
-    #[test]
-    fn test_initial_state() {
-        let before = Instant::now();
-        let d = DecisionState {
-            overwrite_all: false,
-            skip_all: false,
-            last_update: Instant::now(),
-        };
-        assert!(!d.overwrite_all);
-        assert!(!d.skip_all);
-        assert!(d.last_update >= before);
-    }
-
-    #[test]
-    fn test_overwrite_and_skip_flags() {
-        let t = Instant::now();
-        let mut d = DecisionState {
-            overwrite_all: false,
-            skip_all: false,
-            last_update: t,
-        };
-        d.overwrite_all = true;
-        assert!(d.overwrite_all);
-        d.skip_all = true;
-        assert!(d.skip_all);
-        d.overwrite_all = false;
-        assert!(!d.overwrite_all);
-    }
-
-    #[test]
-    fn test_last_update_mutability() {
-        let mut d = DecisionState {
-            overwrite_all: false,
-            skip_all: false,
-            last_update: Instant::now(),
-        };
-        let old = d.last_update;
-        std::thread::sleep(Duration::from_millis(10));
-        d.last_update = Instant::now();
-        assert!(d.last_update > old);
-    }
 }
 
 // Recursive operation
@@ -519,4 +290,233 @@ pub fn recursive_op<'a>(
         }
         Ok(())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::{self, File};
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_count_items_empty() {
+        let empty: Vec<PathBuf> = vec![];
+        assert_eq!(count_items(&empty), 0);
+    }
+
+    #[test]
+    fn test_count_items_files_and_dirs() {
+        // Setup temp dir structure: tmpdir/ (file1, subdir/file2, subdir2/)
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let file1 = tmp_dir.path().join("file1.txt");
+        File::create(&file1).unwrap();
+        let subdir = tmp_dir.path().join("subdir");
+        fs::create_dir(&subdir).unwrap();
+        let file2 = subdir.join("file2.txt");
+        File::create(&file2).unwrap();
+        let subdir2 = tmp_dir.path().join("subdir2");
+        fs::create_dir(&subdir2).unwrap();
+
+        // Paths to test: root of tmp_dir only
+        let root_entries: Vec<PathBuf> = fs::read_dir(tmp_dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        // Should count: file1.txt, subdir, subdir2, file2.txt
+        assert_eq!(count_items(&root_entries), 4);
+    }
+}
+
+#[cfg(test)]
+mod mock_fs_tests {
+    use super::*;
+    use async_trait::async_trait;
+    use std::collections::{HashMap, HashSet};
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicUsize};
+    use tokio::sync::{Mutex, mpsc};
+
+    #[derive(Default)]
+    struct FakeEntry {
+        is_dir: bool,
+    }
+
+    #[derive(Default)]
+    struct MockFileSystem {
+        files: Arc<Mutex<HashMap<PathBuf, FakeEntry>>>,
+        copies: Arc<Mutex<Vec<(PathBuf, PathBuf)>>>,
+        removed_files: Arc<Mutex<HashSet<PathBuf>>>,
+    }
+
+    #[async_trait]
+    impl FileSystem for MockFileSystem {
+        async fn try_exists(&self, path: &Path) -> anyhow::Result<bool> {
+            Ok(self.files.lock().await.contains_key(path)
+                && !self.removed_files.lock().await.contains(path))
+        }
+        async fn is_dir(&self, path: &Path) -> anyhow::Result<bool> {
+            Ok(self
+                .files
+                .lock()
+                .await
+                .get(path)
+                .map(|e| e.is_dir)
+                .unwrap_or(false))
+        }
+        async fn create_dir_all(&self, path: &Path) -> anyhow::Result<()> {
+            self.files
+                .lock()
+                .await
+                .insert(path.to_path_buf(), FakeEntry { is_dir: true });
+            Ok(())
+        }
+        async fn read_dir(&self, path: &Path) -> anyhow::Result<Vec<PathBuf>> {
+            let files = self.files.lock().await;
+            let mut out = Vec::new();
+            for k in files.keys() {
+                if k.parent() == Some(path) && !self.removed_files.lock().await.contains(k) {
+                    out.push(k.clone());
+                }
+            }
+            Ok(out)
+        }
+        async fn rename(&self, src: &Path, dst: &Path) -> anyhow::Result<()> {
+            let mut files = self.files.lock().await;
+            if let Some(entry) = files.remove(src) {
+                files.insert(dst.to_path_buf(), entry);
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!("No such file/dir for rename"))
+            }
+        }
+        async fn remove_file(&self, path: &Path) -> anyhow::Result<()> {
+            self.removed_files.lock().await.insert(path.to_path_buf());
+            Ok(())
+        }
+        async fn copy(&self, src: &Path, dst: &Path) -> anyhow::Result<()> {
+            let files = self.files.lock().await;
+            if files.contains_key(src) {
+                drop(files);
+                self.files
+                    .lock()
+                    .await
+                    .insert(dst.to_path_buf(), FakeEntry { is_dir: false });
+                self.copies
+                    .lock()
+                    .await
+                    .push((src.to_path_buf(), dst.to_path_buf()));
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!("Missing file for copy"))
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_mock_simple_move_conflict_overwrite() {
+        let fs = MockFileSystem::default();
+        let src = PathBuf::from("/src.txt");
+        let dst = PathBuf::from("/dst.txt");
+        fs.files
+            .lock()
+            .await
+            .insert(src.clone(), FakeEntry { is_dir: false });
+        fs.files
+            .lock()
+            .await
+            .insert(dst.clone(), FakeEntry { is_dir: false }); // Simulate existing dest
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (decision_tx, decision_rx_real) = mpsc::channel(1);
+        let processed = Arc::new(AtomicUsize::new(0));
+        let decision_rx = Arc::new(Mutex::new(decision_rx_real));
+        let ctx = RecursiveOpContext {
+            tx: &tx,
+            id: 1,
+            total: 1,
+            processed: &processed,
+            decision_rx: &decision_rx,
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let mut decision_state = DecisionState {
+            overwrite_all: false,
+            skip_all: false,
+            last_update: std::time::Instant::now(),
+        };
+        // Spawn task to send overwrite decision
+        tokio::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                if let crate::tasks::TaskEvent::Conflict(_id, _path, _ty) = event {
+                    let _ = decision_tx
+                        .send(crate::tasks::TaskDecision::Overwrite)
+                        .await;
+                }
+            }
+        });
+        // Call operation
+        let result = recursive_op(
+            &fs,
+            &src,
+            &dst,
+            crate::app::CopyMoveAction::Copy,
+            &cancel,
+            ctx,
+            &mut decision_state,
+        )
+        .await;
+        assert!(result.is_ok());
+        // dst must exist
+        assert!(fs.files.lock().await.contains_key(&dst));
+        // src remains for Copy
+        assert!(fs.files.lock().await.contains_key(&src));
+    }
+}
+
+#[cfg(test)]
+mod decision_state_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn test_initial_state() {
+        let before = Instant::now();
+        let d = DecisionState {
+            overwrite_all: false,
+            skip_all: false,
+            last_update: Instant::now(),
+        };
+        assert!(!d.overwrite_all);
+        assert!(!d.skip_all);
+        assert!(d.last_update >= before);
+    }
+
+    #[test]
+    fn test_overwrite_and_skip_flags() {
+        let t = Instant::now();
+        let mut d = DecisionState {
+            overwrite_all: false,
+            skip_all: false,
+            last_update: t,
+        };
+        d.overwrite_all = true;
+        assert!(d.overwrite_all);
+        d.skip_all = true;
+        assert!(d.skip_all);
+        d.overwrite_all = false;
+        assert!(!d.overwrite_all);
+    }
+
+    #[test]
+    fn test_last_update_mutability() {
+        let mut d = DecisionState {
+            overwrite_all: false,
+            skip_all: false,
+            last_update: Instant::now(),
+        };
+        let old = d.last_update;
+        std::thread::sleep(Duration::from_millis(10));
+        d.last_update = Instant::now();
+        assert!(d.last_update > old);
+    }
 }
