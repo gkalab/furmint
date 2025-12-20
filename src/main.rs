@@ -12,6 +12,7 @@ mod error_ui;
 mod event_loop;
 mod fs_ops;
 mod fuzzy_search_ui;
+mod handlers;
 mod help_ui;
 mod quit_ui;
 mod rename_ui;
