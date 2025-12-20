@@ -15,7 +15,7 @@ pub struct DirEntry {
     pub last_visited: u64, // Unix timestamp
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct DirectoryHistory {
     entries: HashMap<PathBuf, DirEntry>,
     #[serde(skip)]

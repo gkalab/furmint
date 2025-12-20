@@ -3,6 +3,7 @@ use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use std::path::PathBuf;
 
+#[derive(Default)]
 pub struct FuzzySearchState {
     pub is_visible: bool,
     pub input: String,

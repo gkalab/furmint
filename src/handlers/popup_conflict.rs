@@ -28,18 +28,17 @@ pub(crate) async fn handle_conflict_popup_event(code: KeyCode, app: &mut AppStat
 mod tests {
     use super::*;
     use crate::app::AppState;
-    use crate::state::ConflictState;
-    use crossterm::event::KeyCode;
     use crate::tasks::TaskDecision;
-    use tokio::sync::mpsc;
+    use crossterm::event::KeyCode;
     use std::collections::HashMap;
+    use tokio::sync::mpsc;
 
     fn app_with_conflict_popup(task_id: usize) -> (AppState, mpsc::Receiver<TaskDecision>) {
         use crate::state::*;
         use crate::tasks::TaskEvent;
         let (task_tx, _task_rx) = mpsc::unbounded_channel::<TaskEvent>();
         let (dec_tx, dec_rx) = mpsc::channel(1);
-        let mut app = AppState {
+        let app = AppState {
             left: crate::app::TabManager::new(std::path::PathBuf::from("/tmp")).unwrap(),
             right: crate::app::TabManager::new(std::path::PathBuf::from("/tmp")).unwrap(),
             active: crate::app::PanelSide::Left,
@@ -114,7 +113,13 @@ mod tests {
     async fn ignores_irrelevant_keys() {
         let (mut app, mut rx) = app_with_conflict_popup(42);
         let _ = handle_conflict_popup_event(KeyCode::Char('z'), &mut app).await;
-        assert!(app.conflict_popup.is_visible, "Unmapped key should not reset popup");
-        assert!(rx.try_recv().is_err(), "No decision should be sent for unmapped key");
+        assert!(
+            app.conflict_popup.is_visible,
+            "Unmapped key should not reset popup"
+        );
+        assert!(
+            rx.try_recv().is_err(),
+            "No decision should be sent for unmapped key"
+        );
     }
 }

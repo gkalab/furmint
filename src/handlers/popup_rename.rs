@@ -164,7 +164,6 @@ mod tests {
     use super::*;
     use crate::app::{AppState, PanelSide, Tab};
     use crate::fs_ops::FileEntry;
-    use crate::state::RenameState;
     use crossterm::event::KeyCode;
     use std::path::PathBuf;
 

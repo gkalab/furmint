@@ -76,12 +76,10 @@ pub fn draw_create_file_popup(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::backend::TestBackend;
-    use ratatui::buffer::Buffer;
-    use ratatui::Terminal;
-    use ratatui::prelude::*;
-    use crate::theme::catppuccin_macchiato;
     use crate::state::create_file::CreateFileState;
+    use crate::theme::catppuccin_macchiato;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
     use std::path::PathBuf;
 
     fn setup_default_state() -> CreateFileState {
@@ -98,11 +96,13 @@ mod tests {
     fn popup_renders_when_visible_no_error() {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
-        let mut state = setup_default_state();
+        let state = setup_default_state();
         let palette = catppuccin_macchiato();
-        terminal.draw(|f| {
-            draw_create_file_popup(f, &state, &palette);
-        }).unwrap();
+        terminal
+            .draw(|f| {
+                draw_create_file_popup(f, &state, &palette);
+            })
+            .unwrap();
         // No panics and buffer has something in top left
         let buf = terminal.backend().buffer();
         // There will be a Clear widget at the position, so just check top-left cell present
@@ -117,10 +117,12 @@ mod tests {
         state.is_visible = false;
         let palette = catppuccin_macchiato();
         let mut ran = false;
-        terminal.draw(|f| {
-            draw_create_file_popup(f, &state, &palette);
-            ran = true;
-        }).unwrap();
+        terminal
+            .draw(|f| {
+                draw_create_file_popup(f, &state, &palette);
+                ran = true;
+            })
+            .unwrap();
         assert!(ran); // Confirm code executed
         // The buffer should be blank at [0,0] (TestBackend is empty spaces)
         let buf = terminal.backend().buffer();
@@ -134,9 +136,11 @@ mod tests {
         let mut state = setup_default_state();
         state.error = Some("Something went wrong".to_string());
         let palette = catppuccin_macchiato();
-        terminal.draw(|f| {
-            draw_create_file_popup(f, &state, &palette);
-        }).unwrap();
+        terminal
+            .draw(|f| {
+                draw_create_file_popup(f, &state, &palette);
+            })
+            .unwrap();
         // Assert top-left cell (Clear draws a space)
         let buf = terminal.backend().buffer();
         assert_eq!(buf[(0, 0)].symbol(), " ");
@@ -151,9 +155,11 @@ mod tests {
         state.input_value = "a".repeat(100);
         state.cursor_position = 95;
         let palette = catppuccin_macchiato();
-        terminal.draw(|f| {
-            draw_create_file_popup(f, &state, &palette);
-        }).unwrap();
+        terminal
+            .draw(|f| {
+                draw_create_file_popup(f, &state, &palette);
+            })
+            .unwrap();
         // Buffer present
         let buf = terminal.backend().buffer();
         assert_eq!(buf[(0, 0)].symbol(), " ");

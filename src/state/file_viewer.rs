@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+#[derive(Default)]
 pub struct FileViewerState {
     pub path: PathBuf,
     pub content: Vec<String>,

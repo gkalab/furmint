@@ -115,23 +115,23 @@ pub(crate) fn handle_confirm_delete(app: &mut AppState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::{AppState, PanelSide};
-    use crate::state::DeleteState;
     use crate::app::Tab;
+    use crate::app::{AppState, PanelSide};
     use crate::fs_ops::FileEntry;
+    use crate::state::DeleteState;
     use crossterm::event::KeyCode;
     use std::path::PathBuf;
 
     fn basic_app_with_entry(name: &str) -> AppState {
+        use crate::state::ConflictState;
+        use crate::state::CopyMoveState;
+        use crate::state::DriveSelectState;
+        use crate::state::EmptyTrashState;
+        use crate::state::ErrorState;
         use crate::state::FileViewerState;
         use crate::state::HelpState;
-        use crate::state::RenameState;
-        use crate::state::EmptyTrashState;
-        use crate::state::CopyMoveState;
-        use crate::state::ConflictState;
-        use crate::state::ErrorState;
         use crate::state::QuitConfirmationState;
-        use crate::state::DriveSelectState;
+        use crate::state::RenameState;
         use crate::tasks::TaskEvent;
         use tokio::sync::mpsc;
         let (task_tx, _task_rx) = mpsc::unbounded_channel::<TaskEvent>();
@@ -221,8 +221,6 @@ mod tests {
     #[test]
     fn test_handle_init_delete_no_selection_does_nothing() {
         // Build state with tab that only has ".." entry
-        use crate::state::FileViewerState;
-        use crate::state::HelpState;
         use crate::app::Tab;
         let mut tab = Tab::new(PathBuf::from("/tmp")).unwrap();
         tab.entries.clear();

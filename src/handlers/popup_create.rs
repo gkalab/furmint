@@ -282,21 +282,21 @@ pub async fn handle_create_file_popup_event(
 mod tests {
     use super::*;
     use crate::app::{AppState, PanelSide};
-    use crate::state::{CreateFileState, CreateDirectoryState};
-    use std::path::PathBuf;
+    use crate::state::{CreateDirectoryState, CreateFileState};
     use crossterm::event::KeyCode;
+    use std::path::PathBuf;
 
     fn basic_app_state() -> AppState {
+        use crate::state::ConflictState;
+        use crate::state::CopyMoveState;
+        use crate::state::DeleteState;
+        use crate::state::DriveSelectState;
+        use crate::state::EmptyTrashState;
+        use crate::state::ErrorState;
         use crate::state::FileViewerState;
         use crate::state::HelpState;
-        use crate::state::RenameState;
-        use crate::state::DeleteState;
-        use crate::state::EmptyTrashState;
-        use crate::state::CopyMoveState;
-        use crate::state::ConflictState;
-        use crate::state::ErrorState;
         use crate::state::QuitConfirmationState;
-        use crate::state::DriveSelectState;
+        use crate::state::RenameState;
         use crate::tasks::TaskEvent;
         use tokio::sync::mpsc;
 
@@ -331,7 +331,6 @@ mod tests {
             viewer_cfg: crate::config::ViewerConfig::default(),
         }
     }
-
 
     #[test]
     fn test_handle_init_create_file_and_directory() {
@@ -373,6 +372,9 @@ mod tests {
         let ret = handle_create_directory_popup_event(KeyCode::Enter, &mut app);
         // Should not accept empty name
         assert!(!ret);
-        assert!(app.create_directory_popup.error.is_none() || app.create_directory_popup.new_name.is_empty());
+        assert!(
+            app.create_directory_popup.error.is_none()
+                || app.create_directory_popup.new_name.is_empty()
+        );
     }
 }

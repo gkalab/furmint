@@ -89,9 +89,7 @@ pub fn draw_conflict_popup(f: &mut ratatui::Frame, state: &ConflictState, palett
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ratatui::prelude::*;
     use ratatui::backend::TestBackend;
-    use ratatui::Frame;
     use std::path::PathBuf;
 
     #[test]
@@ -99,17 +97,19 @@ mod tests {
         // Setup test backend and Frame
         let backend = TestBackend::new(80, 24);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
-        terminal.draw(|f| {
-            let state = crate::state::ConflictState {
-                is_visible: true,
-                task_id: 42,
-                conflict_path: PathBuf::from("/tmp/existing.txt"),
-                conflict_type: crate::tasks::ConflictType::FileExists,
-            };
-            let palette = crate::theme::default_theme();
-            // Should not panic
-            draw_conflict_popup(f, &state, &palette);
-        }).unwrap();
+        terminal
+            .draw(|f| {
+                let state = crate::state::ConflictState {
+                    is_visible: true,
+                    task_id: 42,
+                    conflict_path: PathBuf::from("/tmp/existing.txt"),
+                    conflict_type: crate::tasks::ConflictType::FileExists,
+                };
+                let palette = crate::theme::default_theme();
+                // Should not panic
+                draw_conflict_popup(f, &state, &palette);
+            })
+            .unwrap();
     }
 
     #[test]
@@ -117,12 +117,13 @@ mod tests {
         // Setup test backend and Frame
         let backend = TestBackend::new(80, 24);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
-        terminal.draw(|f| {
-            let state = crate::state::ConflictState::default(); // is_visible = false
-            let palette = crate::theme::default_theme();
-            // Should just return, nothing rendered
-            draw_conflict_popup(f, &state, &palette);
-        }).unwrap();
+        terminal
+            .draw(|f| {
+                let state = crate::state::ConflictState::default(); // is_visible = false
+                let palette = crate::theme::default_theme();
+                // Should just return, nothing rendered
+                draw_conflict_popup(f, &state, &palette);
+            })
+            .unwrap();
     }
 }
-

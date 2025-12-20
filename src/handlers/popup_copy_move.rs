@@ -286,3 +286,212 @@ pub fn spawn_copy_move_task(app: &mut AppState) {
     // Store decision tx
     app.task_decision_txs.insert(id, decision_tx);
 }
+
+#[cfg(test)]
+mod popup_copy_move_unit_tests {
+    use super::*;
+
+    use crate::app::{AppState, PanelSide, Tab, TabManager};
+    use crate::fs_ops::FileEntry;
+    use crate::state::{CopyMoveAction, CopyMoveState};
+    use crossterm::event::KeyCode;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    // --- Helpers to build minimal AppState for popup tests ---
+
+    fn make_fileentry(name: &str, selected: bool, is_dir: bool) -> FileEntry {
+        FileEntry {
+            name: name.to_string(),
+            is_dir,
+            is_symlink: false,
+            size: None,
+            modified: None,
+            attributes: String::new(),
+            selected,
+        }
+    }
+
+    fn make_tab(path: &str, entries: Vec<FileEntry>, cursor: usize) -> Tab {
+        Tab {
+            current_dir: PathBuf::from(path),
+            entries,
+            cursor,
+            history: vec![],
+            history_index: 0,
+            error: None,
+            typed_buffer: String::new(),
+            last_type_time: None,
+            sort_column: crate::app::SortColumn::Name,
+            sort_direction: crate::app::SortDirection::Ascending,
+            scroll_offset: 0,
+        }
+    }
+
+    fn make_tab_manager(tab: Tab) -> TabManager {
+        TabManager {
+            tabs: vec![tab],
+            active_tab_index: 0,
+        }
+    }
+
+    fn minimal_state_with_entries(
+        active: PanelSide,
+        left_entries: Vec<FileEntry>,
+        right_entries: Vec<FileEntry>,
+        left_cursor: usize,
+        right_cursor: usize,
+    ) -> AppState {
+        AppState {
+            left: make_tab_manager(make_tab("/left", left_entries, left_cursor)),
+            right: make_tab_manager(make_tab("/right", right_entries, right_cursor)),
+            active,
+            // Popups and config fields as default/minimal:
+            file_viewer: Default::default(),
+            fuzzy_search: Default::default(),
+            rename_popup: Default::default(),
+            create_directory_popup: Default::default(),
+            delete_popup: Default::default(),
+            empty_trash_popup: Default::default(),
+            copy_move_popup: CopyMoveState::new(),
+            conflict_popup: Default::default(),
+            error_popup: Default::default(),
+            quit_confirmation: Default::default(),
+            task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
+            create_file_popup: Default::default(),
+            help_popup: Default::default(),
+            drive_select_popup: Default::default(),
+            task_decision_txs: HashMap::new(),
+            show_task_manager: false,
+            dir_history: Default::default(),
+            watcher: None,
+            input_polling_handle: None,
+            needs_redraw: false,
+            global: Default::default(),
+            editor_cfg: Default::default(),
+            viewer_cfg: Default::default(),
+        }
+    }
+
+    #[test]
+    fn test_init_copy_and_move_selects_correct_paths() {
+        // Left panel active, selected entry (not '..'), should populate paths
+        let left_entries = vec![
+            make_fileentry("A.txt", true, false),
+            make_fileentry("..", false, true),
+        ];
+        let right_entries = vec![make_fileentry("X", false, false)];
+        let mut app =
+            minimal_state_with_entries(PanelSide::Left, left_entries, right_entries.clone(), 0, 0);
+        handle_init_copy(&mut app);
+        assert_eq!(app.copy_move_popup.is_visible, true);
+        assert_eq!(app.copy_move_popup.action, CopyMoveAction::Copy);
+        assert!(app.copy_move_popup.source_paths[0].ends_with("A.txt"));
+
+        let left_entries = vec![
+            make_fileentry("B.txt", false, false),
+            make_fileentry("..", false, true),
+        ];
+        let mut app =
+            minimal_state_with_entries(PanelSide::Left, left_entries, right_entries.clone(), 0, 0);
+        handle_init_move(&mut app);
+        assert_eq!(app.copy_move_popup.action, CopyMoveAction::Move);
+    }
+
+    #[test]
+    fn test_init_copy_for_no_selection_uses_current_if_not_parent() {
+        let left_entries = vec![
+            make_fileentry("foo", false, false),
+            make_fileentry("..", false, true),
+        ];
+        // Cursor points to "foo"
+        let mut app = minimal_state_with_entries(PanelSide::Left, left_entries, vec![], 0, 0);
+        handle_init_copy(&mut app);
+        assert!(app.copy_move_popup.source_paths[0].ends_with("foo"));
+    }
+
+    #[test]
+    fn test_init_copy_for_parent_dir_does_nothing() {
+        let left_entries = vec![make_fileentry("..", false, true)];
+        // Cursor points to ".."
+        let mut app = minimal_state_with_entries(PanelSide::Left, left_entries, vec![], 0, 0);
+        handle_init_copy(&mut app);
+        assert!(!app.copy_move_popup.is_visible);
+        assert_eq!(app.copy_move_popup.source_paths.len(), 0);
+    }
+
+    #[test]
+    fn test_handle_copy_move_popup_event_char_and_edit() {
+        let left_entries = vec![make_fileentry("a", true, false)];
+        let mut app = minimal_state_with_entries(PanelSide::Left, left_entries, vec![], 0, 0);
+        handle_init_copy(&mut app);
+        app.copy_move_popup.destination_input.clear();
+        app.copy_move_popup.cursor_position = 0;
+        // Insert 'x'
+        handle_copy_move_popup_event(KeyCode::Char('x'), &mut app);
+        assert_eq!(app.copy_move_popup.destination_input, "x");
+        assert_eq!(app.copy_move_popup.cursor_position, 1);
+        // Insert 'y' at position 1
+        handle_copy_move_popup_event(KeyCode::Char('y'), &mut app);
+        assert_eq!(app.copy_move_popup.destination_input, "xy");
+        assert_eq!(app.copy_move_popup.cursor_position, 2);
+        // Backspace
+        handle_copy_move_popup_event(KeyCode::Backspace, &mut app);
+        assert_eq!(app.copy_move_popup.destination_input, "x");
+        assert_eq!(app.copy_move_popup.cursor_position, 1);
+        // Left
+        handle_copy_move_popup_event(KeyCode::Left, &mut app);
+        assert_eq!(app.copy_move_popup.cursor_position, 0);
+        // Delete (removes 'x')
+        handle_copy_move_popup_event(KeyCode::Delete, &mut app);
+        assert_eq!(app.copy_move_popup.destination_input, "");
+        assert_eq!(app.copy_move_popup.cursor_position, 0);
+    }
+
+    #[test]
+    fn test_handle_copy_move_popup_event_navigation_keys() {
+        let left_entries = vec![make_fileentry("a", true, false)];
+        let mut app = minimal_state_with_entries(PanelSide::Left, left_entries, vec![], 0, 0);
+        handle_init_copy(&mut app);
+        app.copy_move_popup.destination_input = "abcdef".to_string();
+        app.copy_move_popup.cursor_position = 3;
+        // Home
+        handle_copy_move_popup_event(KeyCode::Home, &mut app);
+        assert_eq!(app.copy_move_popup.cursor_position, 0);
+        // End
+        handle_copy_move_popup_event(KeyCode::End, &mut app);
+        assert_eq!(app.copy_move_popup.cursor_position, 6);
+        // Right at end (should stay)
+        handle_copy_move_popup_event(KeyCode::Right, &mut app);
+        assert_eq!(app.copy_move_popup.cursor_position, 6);
+    }
+
+    #[test]
+    fn test_handle_copy_move_popup_event_escape_resets_popup() {
+        let left_entries = vec![make_fileentry("a", true, false)];
+        let mut app = minimal_state_with_entries(PanelSide::Left, left_entries, vec![], 0, 0);
+        handle_init_copy(&mut app);
+        app.copy_move_popup.error = Some("some error".to_string());
+        assert!(app.copy_move_popup.is_visible);
+        handle_copy_move_popup_event(KeyCode::Esc, &mut app);
+        assert!(!app.copy_move_popup.is_visible);
+        assert!(app.copy_move_popup.error.is_none());
+    }
+
+    /*
+    // The logic for Enter and path/IO is tricky to unit test without patching/spying.
+    // We'll test that errors are set for same source/destination, by placing a file and using itself as dest.
+    #[test]
+    fn test_popup_error_for_same_source_and_destination() {
+        let left_entries = vec![make_fileentry("foo", true, false)];
+        let mut app = minimal_state_with_entries(PanelSide::Left, left_entries.clone(), vec![], 0, 0);
+        handle_init_copy(&mut app);
+        // Simulate dest input is identical to selected file
+        let src_path = app.copy_move_popup.source_paths[0].clone();
+        app.copy_move_popup.destination_input = src_path.to_string_lossy().to_string();
+        // Patch canonicalize to return itself
+
+        // (Cannot patch natively; this test will depend on real logic and file system. Alternative is to set up a dummy temp file, but
+        // for project purposes, verify the edge check works with temp dir)
+    }*/
+}
