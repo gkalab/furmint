@@ -189,7 +189,7 @@ pub fn spawn_copy_move_task(app: &mut AppState) {
         .task_manager
         .spawn_task(task_name, move |cancel, tx, id| async move {
             // Pre-calculation of total items (approximate)
-            let total_items = crate::handlers::file_ops::count_items(&paths);
+            let total_items = crate::handlers::file_ops::count_items(&paths).await;
             let processed_items = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
             // State for "Apply to all" decisions

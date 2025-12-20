@@ -49,18 +49,18 @@ impl FileSystem for StdFileSystem {
 }
 
 // Helper to count items recursively
-pub fn count_items(paths: &[std::path::PathBuf]) -> usize {
+pub async fn count_items(paths: &[std::path::PathBuf]) -> usize {
     let mut count = 0;
     for path in paths {
         count += 1; // Count the item itself
-        if path.is_dir()
-            && let Ok(entries) = std::fs::read_dir(path)
-        {
-            let mut children = Vec::new();
-            for entry in entries.flatten() {
-                children.push(entry.path());
+        if path.is_dir() {
+            if let Ok(mut entries) = tokio::fs::read_dir(path).await {
+                let mut children = Vec::new();
+                while let Ok(Some(entry)) = entries.next_entry().await {
+                    children.push(entry.path());
+                }
+                count += Box::pin(count_items(&children)).await;
             }
-            count += count_items(&children);
         }
     }
     count
@@ -297,14 +297,14 @@ mod tests {
     use std::fs::{self, File};
     use std::path::PathBuf;
 
-    #[test]
-    fn test_count_items_empty() {
+    #[tokio::test]
+    async fn test_count_items_empty() {
         let empty: Vec<PathBuf> = vec![];
-        assert_eq!(count_items(&empty), 0);
+        assert_eq!(count_items(&empty).await, 0);
     }
 
-    #[test]
-    fn test_count_items_files_and_dirs() {
+    #[tokio::test]
+    async fn test_count_items_files_and_dirs() {
         // Setup temp dir structure: tmpdir/ (file1, subdir/file2, subdir2/)
         let tmp_dir = tempfile::tempdir().unwrap();
         let file1 = tmp_dir.path().join("file1.txt");
@@ -322,7 +322,7 @@ mod tests {
             .map(|e| e.unwrap().path())
             .collect();
         // Should count: file1.txt, subdir, subdir2, file2.txt
-        assert_eq!(count_items(&root_entries), 4);
+        assert_eq!(count_items(&root_entries).await, 4);
     }
 }
 
