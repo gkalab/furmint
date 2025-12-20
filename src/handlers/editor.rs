@@ -193,3 +193,82 @@ pub async fn open_file_in_editor_with_env_handling(
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::{AppState, PanelSide, Tab, TabManager};
+    use crate::config::EditorConfig;
+    use crate::fs_ops::FileEntry;
+    use tokio::sync::mpsc::unbounded_channel;
+
+    #[tokio::test]
+    async fn test_handle_edit_invalid_command_sets_error() {
+        let (tx, _) = unbounded_channel();
+        let entry = FileEntry {
+            name: "file.txt".to_string(),
+            is_dir: false,
+            is_symlink: false,
+            size: Some(10),
+            modified: None,
+            attributes: String::new(),
+            selected: false,
+        };
+        let tab = Tab {
+            current_dir: std::path::PathBuf::from("/tmp"),
+            entries: vec![entry],
+            cursor: 0,
+            history: vec![],
+            history_index: 0,
+            error: None,
+            typed_buffer: String::new(),
+            last_type_time: None,
+            sort_column: crate::app::SortColumn::Name,
+            sort_direction: crate::app::SortDirection::Ascending,
+            scroll_offset: 0,
+        };
+        let mut app = AppState {
+            left: TabManager {
+                tabs: vec![tab.clone()],
+                active_tab_index: 0,
+            },
+            right: TabManager {
+                tabs: vec![tab],
+                active_tab_index: 0,
+            },
+            active: PanelSide::Left,
+            file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
+            fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
+            rename_popup: crate::state::RenameState::new(),
+            create_directory_popup: crate::state::CreateDirectoryState::new(),
+            delete_popup: crate::state::DeleteState::new(),
+            empty_trash_popup: crate::state::EmptyTrashState::new(),
+            copy_move_popup: crate::state::CopyMoveState::new(),
+            conflict_popup: crate::state::ConflictState::new(),
+            error_popup: crate::state::ErrorState::new(),
+            quit_confirmation: crate::state::QuitConfirmationState::new(),
+            task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
+            create_file_popup: crate::state::CreateFileState::new(),
+            help_popup: crate::state::HelpState::new(),
+            drive_select_popup: crate::state::DriveSelectState::new(),
+            task_decision_txs: std::collections::HashMap::new(),
+            show_task_manager: false,
+            dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
+            watcher: None,
+            input_polling_handle: None,
+            needs_redraw: false,
+            global: crate::config::GlobalConfig::default(),
+            editor_cfg: EditorConfig {
+                command: Some("".to_string()), // Invalid, empty command
+                in_terminal: Some(true),
+            },
+            viewer_cfg: crate::config::ViewerConfig::default(),
+        };
+        handle_edit(&mut app, tx).await;
+        let error = app.left.active_tab().error.clone();
+        assert!(
+            error.is_some(),
+            "Error should be set if invalid editor command"
+        );
+    }
+}
