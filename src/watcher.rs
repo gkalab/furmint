@@ -1,5 +1,5 @@
-use notify::{RecommendedWatcher, RecursiveMode};
-use notify_debouncer_full::{DebounceEventResult, Debouncer, NoCache, new_debouncer};
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+use notify_debouncer_full::{DebounceEventResult, Debouncer, FileIdMap, new_debouncer};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
@@ -11,7 +11,7 @@ pub enum WatcherEvent {
 }
 
 pub struct AppWatcher {
-    debouncer: Debouncer<RecommendedWatcher, NoCache>,
+    debouncer: Debouncer<RecommendedWatcher, FileIdMap>,
     pub watched_paths: Vec<PathBuf>,
 }
 
@@ -51,7 +51,12 @@ impl AppWatcher {
     pub fn watch(&mut self, path: &Path) -> anyhow::Result<()> {
         if !self.watched_paths.contains(&path.to_path_buf()) {
             // Watch non-recursive for current directory content
-            self.debouncer.watch(path, RecursiveMode::NonRecursive)?;
+            self.debouncer
+                .watcher()
+                .watch(path, RecursiveMode::NonRecursive)?;
+            self.debouncer
+                .cache()
+                .add_root(path, RecursiveMode::NonRecursive);
             self.watched_paths.push(path.to_path_buf());
         }
         Ok(())
@@ -59,12 +64,13 @@ impl AppWatcher {
 
     pub fn unwatch(&mut self, path: &Path) -> anyhow::Result<()> {
         if let Some(pos) = self.watched_paths.iter().position(|p| p == path) {
-            if let Err(e) = self.debouncer.unwatch(path) {
+            if let Err(e) = self.debouncer.watcher().unwatch(path) {
                 // Ignore "No watch was found" error as it might have been removed implicitly
                 if !e.to_string().contains("No watch was found") {
                     return Err(anyhow::anyhow!(e));
                 }
             }
+            self.debouncer.cache().remove_root(path);
             self.watched_paths.swap_remove(pos);
         }
         Ok(())
