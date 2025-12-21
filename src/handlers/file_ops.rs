@@ -213,7 +213,14 @@ pub fn recursive_op<'a>(
                                         decision_state.skip_all = true;
                                         perform = false;
                                     }
-                                    Some(crate::tasks::TaskDecision::Cancel) => return Ok(()),
+                                    Some(crate::tasks::TaskDecision::Cancel) => {
+                                        cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                                        let _ = ctx.tx.send(crate::tasks::TaskEvent::UpdateStatus(
+                                            ctx.id,
+                                            crate::tasks::TaskStatus::Cancelled,
+                                        ));
+                                        return Ok(());
+                                    }
                                     _ => perform = false, // Default skip or error
                                 }
                             }

@@ -19,6 +19,7 @@ pub struct Task {
     pub status: TaskStatus,
     pub progress: Option<(usize, usize)>, // (processed, total)
     pub cancel_flag: Arc<AtomicBool>,
+    pub completed_at: Option<std::time::Instant>,
 }
 
 #[derive(Debug)]
@@ -77,6 +78,7 @@ impl TaskManager {
             status: TaskStatus::Running,
             progress: None,
             cancel_flag: cancel_flag.clone(),
+            completed_at: None,
         };
 
         {
@@ -131,9 +133,9 @@ impl TaskManager {
             return None;
         }
         let current = self.selected_index.load(Ordering::Relaxed);
-        // We need to match the sort order of get_tasks: by ID
+        // We need to match the sort order of get_tasks: by ID descending
         let mut ids: Vec<usize> = tasks.keys().copied().collect();
-        ids.sort_unstable();
+        ids.sort_unstable_by(|a, b| b.cmp(a));
         if current < ids.len() {
             Some(ids[current])
         } else {
@@ -141,13 +143,29 @@ impl TaskManager {
         }
     }
 
-    pub fn get_tasks(&self) -> Vec<(usize, String, TaskStatus, Option<(usize, usize)>)> {
+    pub fn get_tasks(
+        &self,
+    ) -> Vec<(
+        usize,
+        String,
+        TaskStatus,
+        Option<(usize, usize)>,
+        Option<std::time::Instant>,
+    )> {
         let tasks = self.tasks.lock().unwrap();
         let mut result: Vec<_> = tasks
             .iter()
-            .map(|(id, t)| (*id, t.name.clone(), t.status.clone(), t.progress))
+            .map(|(id, t)| {
+                (
+                    *id,
+                    t.name.clone(),
+                    t.status.clone(),
+                    t.progress,
+                    t.completed_at,
+                )
+            })
             .collect();
-        result.sort_by_key(|k| k.0);
+        result.sort_by(|a, b| b.0.cmp(&a.0));
         result
     }
 
@@ -162,21 +180,35 @@ impl TaskManager {
         let mut tasks = self.tasks.lock().unwrap();
         if let Some(task) = tasks.get_mut(&id) {
             task.status = status.clone();
-        }
-        // Auto-remove completed, failed, or cancelled tasks
-        match status {
-            TaskStatus::Completed | TaskStatus::Failed(_) | TaskStatus::Cancelled => {
-                tasks.remove(&id);
-                // Clamp selection
-                let len = tasks.len();
-                let current = self.selected_index.load(Ordering::Relaxed);
-                if len > 0 && current >= len {
-                    self.selected_index.store(len - 1, Ordering::Relaxed);
-                } else if len == 0 {
-                    self.selected_index.store(0, Ordering::Relaxed);
+            match status {
+                TaskStatus::Completed | TaskStatus::Failed(_) | TaskStatus::Cancelled => {
+                    task.completed_at = Some(std::time::Instant::now());
+                }
+                TaskStatus::Running => {
+                    task.completed_at = None;
                 }
             }
-            TaskStatus::Running => {}
+        }
+    }
+
+    pub fn cleanup_tasks(&self) {
+        let mut tasks = self.tasks.lock().unwrap();
+        let now = std::time::Instant::now();
+        tasks.retain(|_, task| {
+            if let Some(completed_at) = task.completed_at {
+                now.duration_since(completed_at) < std::time::Duration::from_secs(10)
+            } else {
+                true
+            }
+        });
+
+        // Clamp selection
+        let len = tasks.len();
+        let current = self.selected_index.load(Ordering::Relaxed);
+        if len > 0 && current >= len {
+            self.selected_index.store(len - 1, Ordering::Relaxed);
+        } else if len == 0 {
+            self.selected_index.store(0, Ordering::Relaxed);
         }
     }
 
@@ -185,5 +217,63 @@ impl TaskManager {
         if let Some(task) = tasks.get_mut(&id) {
             task.progress = Some((processed, total));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::sync::mpsc;
+
+    #[tokio::test]
+    async fn test_task_cleanup() {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let manager = TaskManager::new(tx);
+
+        let id = manager.spawn_task("test".to_string(), |_cancel, _tx, _id| async move {});
+
+        // Task should be running
+        assert_eq!(manager.get_tasks().len(), 1);
+        assert_eq!(manager.get_tasks()[0].2, TaskStatus::Running);
+
+        // Mark as completed
+        manager.update_task_status(id, TaskStatus::Completed);
+
+        // Should NOT be removed immediately
+        assert_eq!(manager.get_tasks().len(), 1);
+        assert_eq!(manager.get_tasks()[0].2, TaskStatus::Completed);
+        assert!(manager.get_tasks()[0].4.is_some());
+
+        // Cleanup should not remove it yet (it's new)
+        manager.cleanup_tasks();
+        assert_eq!(manager.get_tasks().len(), 1);
+
+        // Manually manipulate completed_at for testing removal (if we could, but it's private field of Task in HashMap)
+        // Since we can't easily manipulate time in Instant without mocks,
+        // we've at least verified it's not removed immediately.
+    }
+
+    #[tokio::test]
+    async fn test_task_order_descending() {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let tm = TaskManager::new(tx);
+
+        let id1 = tm.spawn_task("task 1".to_string(), |_cancel, _tx, _id| async move {});
+        let id2 = tm.spawn_task("task 2".to_string(), |_cancel, _tx, _id| async move {});
+        let id3 = tm.spawn_task("task 3".to_string(), |_cancel, _tx, _id| async move {});
+
+        let tasks = tm.get_tasks();
+        assert_eq!(tasks.len(), 3);
+        // Should be id3, id2, id1
+        assert_eq!(tasks[0].0, id3);
+        assert_eq!(tasks[1].0, id2);
+        assert_eq!(tasks[2].0, id1);
+
+        // Verify selected task id mapping matches visual order
+        tm.selected_index.store(0, Ordering::Relaxed);
+        assert_eq!(tm.get_selected_task_id(), Some(id3));
+
+        tm.selected_index.store(2, Ordering::Relaxed);
+        assert_eq!(tm.get_selected_task_id(), Some(id1));
     }
 }

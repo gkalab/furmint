@@ -76,6 +76,8 @@ pub async fn run_event_loop(
     // Start input polling and store handle
     app.input_polling_handle = Some(spawn_input_polling(input_tx.clone()));
 
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+
     let mut should_exit = false;
 
     // Initial draw
@@ -127,6 +129,10 @@ pub async fn run_event_loop(
                             // Handle task events
                             Some(event) = task_rx.recv() => {
                                 handle_task_event(event, app);
+                                draw_ui(terminal, app, palette, &keyboard)?;
+                            }
+                            _ = interval.tick() => {
+                                app.task_manager.cleanup_tasks();
                                 draw_ui(terminal, app, palette, &keyboard)?;
                             }
                             else => break,

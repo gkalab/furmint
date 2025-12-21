@@ -56,8 +56,10 @@ pub(crate) fn handle_task_manager_event(code: KeyCode, app: &mut AppState) -> bo
         KeyCode::Char('x') => {
             if let Some(id) = app.task_manager.get_selected_task_id() {
                 app.task_manager.cancel_task(id);
-                app.task_manager
-                    .update_task_status(id, crate::tasks::TaskStatus::Cancelled);
+                // We don't update status here immediately, because the task itself
+                // will report Cancelled when it sees the cancel flag.
+                // However, if the task is already finished, this won't do anything.
+                // If it's running, it will eventually send UpdateStatus(Cancelled).
             }
         }
         _ => {}

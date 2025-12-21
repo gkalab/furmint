@@ -228,11 +228,7 @@ pub fn spawn_copy_move_task(app: &mut AppState) {
 
             for src in &paths {
                 if cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                    let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
-                        id,
-                        crate::tasks::TaskStatus::Cancelled,
-                    ));
-                    return;
+                    break;
                 }
 
                 let file_name = match src.file_name() {
@@ -271,7 +267,12 @@ pub fn spawn_copy_move_task(app: &mut AppState) {
                 }
             }
 
-            if failures.is_empty() {
+            if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
+                    id,
+                    crate::tasks::TaskStatus::Cancelled,
+                ));
+            } else if failures.is_empty() {
                 let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
                     id,
                     crate::tasks::TaskStatus::Completed,

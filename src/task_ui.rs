@@ -64,7 +64,7 @@ pub fn draw_task_manager(
         .add_modifier(Modifier::BOLD);
 
     let mut list_items = Vec::new();
-    for (idx, (id, name, status, progress)) in tasks.into_iter().enumerate() {
+    for (idx, (id, name, status, progress, _completed_at)) in tasks.into_iter().enumerate() {
         let status_str = match status {
             TaskStatus::Running => "Running",
             TaskStatus::Completed => "Completed",
