@@ -285,6 +285,120 @@ pub fn merge_global_config(
     })
 }
 
+pub fn validate_keyboard_config(config: &KeyboardConfig) -> Result<(), String> {
+    use std::collections::HashMap;
+    let mut keys_to_actions: HashMap<String, String> = HashMap::new();
+
+    let fields = [
+        ("new_file", &config.new_file),
+        ("quit", &config.quit),
+        ("back", &config.back),
+        ("forward", &config.forward),
+        ("enter_dir", &config.enter_dir),
+        ("up_dir", &config.up_dir),
+        ("edit_file", &config.edit_file),
+        ("new_tab", &config.new_tab),
+        ("tab_next", &config.tab_next),
+        ("tab_prev", &config.tab_prev),
+        ("tab_close", &config.tab_close),
+        ("search", &config.search),
+        ("sort_name", &config.sort_name),
+        ("sort_ext", &config.sort_ext),
+        ("sort_date", &config.sort_date),
+        ("sort_size", &config.sort_size),
+        ("copy_to", &config.copy_to),
+        ("move_to", &config.move_to),
+        ("rename", &config.rename),
+        ("delete", &config.delete),
+        ("delete_force", &config.delete_force),
+        ("empty_trash", &config.empty_trash),
+        ("tasks", &config.tasks),
+        ("select_all", &config.select_all),
+        ("new_dir", &config.new_dir),
+        ("open_terminal", &config.open_terminal),
+        ("help", &config.help),
+        ("change_drive_left", &config.change_drive_left),
+        ("change_drive_right", &config.change_drive_right),
+        ("toggle_console", &config.toggle_console),
+        ("swap_tabs", &config.swap_tabs),
+    ];
+
+    for (name, keys) in fields {
+        if let Some(keys) = keys {
+            for key in keys {
+                if let Some(other_action) = keys_to_actions.insert(key.clone(), name.to_string())
+                    && other_action != name
+                {
+                    return Err(format!(
+                        "Keybinding conflict: '{}' is assigned to both '{}' and '{}'",
+                        key, other_action, name
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub fn validate_editor_config(config: &EditorConfig) -> Result<(), String> {
+    if let Some(cmd) = &config.command {
+        if cmd.trim().is_empty() {
+            return Err("Editor command cannot be empty".to_string());
+        }
+        let first_part = cmd.split_whitespace().next().unwrap_or("");
+        let path = std::path::Path::new(first_part);
+        if path.is_absolute() && !path.exists() {
+            return Err(format!(
+                "Editor command path does not exist: {}",
+                first_part
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub fn validate_viewer_config(config: &ViewerConfig) -> Result<(), String> {
+    if let Some(cmd) = &config.command {
+        if cmd.trim().is_empty() {
+            return Err("Viewer command cannot be empty".to_string());
+        }
+        let first_part = cmd.split_whitespace().next().unwrap_or("");
+        let path = std::path::Path::new(first_part);
+        if path.is_absolute() && !path.exists() {
+            return Err(format!(
+                "Viewer command path does not exist: {}",
+                first_part
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub fn validate_global_config(config: &GlobalConfig) -> Result<(), String> {
+    let check_cmd = |cmd: &Option<String>, name: &str| -> Result<(), String> {
+        if let Some(c) = cmd {
+            if c.trim().is_empty() {
+                return Err(format!("Global {} command cannot be empty", name));
+            }
+            let first_part = c.split_whitespace().next().unwrap_or("");
+            let path = std::path::Path::new(first_part);
+            if path.is_absolute() && !path.exists() {
+                return Err(format!(
+                    "Global {} command path does not exist: {}",
+                    name, first_part
+                ));
+            }
+        }
+        Ok(())
+    };
+
+    check_cmd(&config.terminal, "terminal")?;
+    check_cmd(&config.editor, "editor")?;
+    check_cmd(&config.viewer, "viewer")?;
+    Ok(())
+}
+
 pub fn load_config() -> Result<(KeyboardConfig, GlobalConfig, EditorConfig, ViewerConfig), String> {
     let path = config_path().ok_or("Could not determine config directory")?;
     let default_keyboard = default_keyboard_config();
@@ -297,7 +411,7 @@ pub fn load_config() -> Result<(KeyboardConfig, GlobalConfig, EditorConfig, View
         command: None,
         in_terminal: Some(true),
     };
-    if path.exists() {
+    let (keyboard, global, editor, viewer) = if path.exists() {
         let content =
             fs::read_to_string(&path).map_err(|e| format!("Failed to read config file: {e}"))?;
         let user_config: AppConfig =
@@ -306,15 +420,22 @@ pub fn load_config() -> Result<(KeyboardConfig, GlobalConfig, EditorConfig, View
         let global = merge_global_config(&user_config.global, &default_global)?;
         let editor = user_config.editor.unwrap_or(default_editor);
         let viewer = user_config.viewer.unwrap_or(default_viewer);
-        Ok((keyboard, global, editor, viewer))
+        (keyboard, global, editor, viewer)
     } else {
-        Ok((
+        (
             default_keyboard,
             default_global,
             default_editor,
             default_viewer,
-        ))
-    }
+        )
+    };
+
+    validate_keyboard_config(&keyboard)?;
+    validate_global_config(&global)?;
+    validate_editor_config(&editor)?;
+    validate_viewer_config(&viewer)?;
+
+    Ok((keyboard, global, editor, viewer))
 }
 
 pub fn config_path() -> Option<PathBuf> {
@@ -414,5 +535,79 @@ mod tests {
         let global = default_global_config();
         assert!(keyboard.quit.is_some());
         assert!(global.theme.is_some());
+    }
+
+    #[test]
+    fn test_validate_keyboard_config_no_conflict() {
+        let config = default_keyboard_config();
+        assert!(validate_keyboard_config(&config).is_ok());
+    }
+
+    #[test]
+    fn test_validate_keyboard_config_conflict() {
+        let mut config = default_keyboard_config();
+        // Conflict: assign 'q' to both quit and new_file
+        config.quit = Some(vec!["q".to_string()]);
+        config.new_file = Some(vec!["q".to_string()]);
+        let result = validate_keyboard_config(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Keybinding conflict"));
+    }
+
+    #[test]
+    fn test_validate_keyboard_config_same_action_no_conflict() {
+        let mut config = default_keyboard_config();
+        // Same key twice for the same action is NOT a conflict (though redundant)
+        config.quit = Some(vec!["q".to_string(), "q".to_string()]);
+        assert!(validate_keyboard_config(&config).is_ok());
+    }
+
+    #[test]
+    fn test_validate_editor_viewer_config() {
+        let editor = EditorConfig {
+            command: Some("vim".to_string()),
+            in_terminal: Some(true),
+        };
+        assert!(validate_editor_config(&editor).is_ok());
+
+        let editor_empty = EditorConfig {
+            command: Some("".to_string()),
+            in_terminal: Some(true),
+        };
+        assert!(validate_editor_config(&editor_empty).is_err());
+
+        let editor_whitespace = EditorConfig {
+            command: Some("  ".to_string()),
+            in_terminal: Some(true),
+        };
+        assert!(validate_editor_config(&editor_whitespace).is_err());
+
+        let viewer = ViewerConfig {
+            command: Some("less".to_string()),
+            in_terminal: Some(true),
+        };
+        assert!(validate_viewer_config(&viewer).is_ok());
+
+        // Absolute path that does NOT exist
+        let editor_abs_no_exist = EditorConfig {
+            command: Some("/non/existent/path/to/editor".to_string()),
+            in_terminal: Some(true),
+        };
+        assert!(validate_editor_config(&editor_abs_no_exist).is_err());
+
+        // Absolute path that DOES exist
+        // /bin/sh or /bin/ls should exist on most Unix systems
+        let cmd = if cfg!(windows) {
+            "C:\\Windows\\System32\\cmd.exe"
+        } else {
+            "/bin/sh"
+        };
+        let editor_abs_exist = EditorConfig {
+            command: Some(cmd.to_string()),
+            in_terminal: Some(true),
+        };
+        if std::path::Path::new(cmd).exists() {
+            assert!(validate_editor_config(&editor_abs_exist).is_ok());
+        }
     }
 }
