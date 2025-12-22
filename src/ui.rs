@@ -345,7 +345,7 @@ pub fn draw_panel_status(
                 if let Some((_, _, status_task, _, _)) = last_finished {
                     let (text, task_fg) = match status_task {
                         crate::tasks::TaskStatus::Completed => {
-                            ("Task completed".to_string(), palette.green)
+                            ("".to_string(), palette.green) // no text for task completed status
                         }
                         crate::tasks::TaskStatus::Failed(e) => {
                             (format!("Task failed: {e}"), palette.red)
