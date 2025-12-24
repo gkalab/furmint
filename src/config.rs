@@ -71,14 +71,14 @@ pub fn default_keyboard_config() -> KeyboardConfig {
     KeyboardConfig {
         new_file: Some(vec!["Shift-F4".to_string()]),
         quit: Some(vec!["Ctrl-q".to_string()]),
-        back: Some(vec!["Alt-Left".to_string()]),
-        forward: Some(vec!["Alt-Right".to_string()]),
+        forward: Some(vec!["Shift-Right".to_string()]),
+        back: Some(vec!["Shift-Left".to_string()]),
         enter_dir: Some(vec!["Right".to_string()]),
         up_dir: Some(vec!["Backspace".to_string(), "Left".to_string()]),
         edit_file: Some(vec!["F4".to_string()]),
         new_tab: Some(vec!["Ctrl-t".to_string()]),
-        tab_next: Some(vec!["Ctrl-Right".to_string()]),
-        tab_prev: Some(vec!["Ctrl-Left".to_string()]),
+        tab_next: Some(vec!["Alt-Right".to_string()]),
+        tab_prev: Some(vec!["Alt-Left".to_string()]),
         tab_close: Some(vec!["Ctrl-w".to_string()]),
         search: Some(vec!["Ctrl-p".to_string()]),
         sort_name: Some(vec!["Ctrl-F2".to_string()]),
@@ -125,14 +125,14 @@ pub fn merge_keyboard_config(
             .as_ref()
             .and_then(|k| k.quit.clone())
             .or_else(|| default.quit.clone()),
-        back: user
-            .as_ref()
-            .and_then(|k| k.back.clone())
-            .or_else(|| default.back.clone()),
         forward: user
             .as_ref()
             .and_then(|k| k.forward.clone())
             .or_else(|| default.forward.clone()),
+        back: user
+            .as_ref()
+            .and_then(|k| k.back.clone())
+            .or_else(|| default.back.clone()),
         enter_dir: user
             .as_ref()
             .and_then(|k| k.enter_dir.clone())
@@ -292,8 +292,8 @@ pub fn validate_keyboard_config(config: &KeyboardConfig) -> Result<(), String> {
     let fields = [
         ("new_file", &config.new_file),
         ("quit", &config.quit),
-        ("back", &config.back),
         ("forward", &config.forward),
+        ("back", &config.back),
         ("enter_dir", &config.enter_dir),
         ("up_dir", &config.up_dir),
         ("edit_file", &config.edit_file),

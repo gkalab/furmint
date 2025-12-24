@@ -475,10 +475,11 @@ mod mock_fs_tests {
         assert!(fs.try_exists(&dest_root).await.unwrap());
         assert!(fs.try_exists(&dest_root.join("file1.txt")).await.unwrap());
         assert!(fs.try_exists(&dest_root.join("subdir")).await.unwrap());
-        assert!(fs
-            .try_exists(&dest_root.join("subdir").join("file2.txt"))
-            .await
-            .unwrap());
+        assert!(
+            fs.try_exists(&dest_root.join("subdir").join("file2.txt"))
+                .await
+                .unwrap()
+        );
     }
 
     #[tokio::test]
@@ -607,7 +608,7 @@ mod mock_fs_tests {
 
         assert!(res.is_ok());
         assert!(cancel.load(std::sync::atomic::Ordering::Relaxed));
-        
+
         // At most one file could have been processed (the one that triggered the conflict)
         // But since it returned on Cancel, no copy should have been performed for that file either.
         let copies = fs.copies.lock().await;

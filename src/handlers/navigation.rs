@@ -409,35 +409,69 @@ mod tests {
         let mut app = test_app(vec![]);
         app.left.active_tab_mut().current_dir = path.to_path_buf();
         // Manually list to populate entries
-        app.left.active_tab_mut().navigate_to(&path.to_path_buf()).unwrap();
+        app.left
+            .active_tab_mut()
+            .navigate_to(&path.to_path_buf())
+            .unwrap();
 
         // Find file and dir indices
-        let file_idx = app.left.active_tab().entries.iter().position(|e| e.name == "test_file").unwrap();
-        let dir_idx = app.left.active_tab().entries.iter().position(|e| e.name == "test_dir").unwrap();
+        let file_idx = app
+            .left
+            .active_tab()
+            .entries
+            .iter()
+            .position(|e| e.name == "test_file")
+            .unwrap();
+        let dir_idx = app
+            .left
+            .active_tab()
+            .entries
+            .iter()
+            .position(|e| e.name == "test_dir")
+            .unwrap();
 
         // Try to enter a file
         app.left.active_tab_mut().cursor = file_idx;
         let original_dir = app.left.active_tab().current_dir.clone();
         handle_enter_directory(&mut app);
-        assert_eq!(app.left.active_tab().current_dir, original_dir, "Should NOT enter a file");
+        assert_eq!(
+            app.left.active_tab().current_dir,
+            original_dir,
+            "Should NOT enter a file"
+        );
 
         // Try to enter a directory
         app.left.active_tab_mut().cursor = dir_idx;
         handle_enter_directory(&mut app);
-        assert_ne!(app.left.active_tab().current_dir, original_dir, "Should enter a directory");
+        assert_ne!(
+            app.left.active_tab().current_dir,
+            original_dir,
+            "Should enter a directory"
+        );
         assert!(app.left.active_tab().current_dir.ends_with("test_dir"));
 
         // Test handle_open_item on file (should stay in same dir as it spawns process)
-        app.left.active_tab_mut().navigate_to(&path.to_path_buf()).unwrap();
+        app.left
+            .active_tab_mut()
+            .navigate_to(&path.to_path_buf())
+            .unwrap();
         app.left.active_tab_mut().cursor = file_idx;
         let original_dir = app.left.active_tab().current_dir.clone();
         handle_open_item(&mut app);
-        assert_eq!(app.left.active_tab().current_dir, original_dir, "handle_open_item on file should not change directory");
+        assert_eq!(
+            app.left.active_tab().current_dir,
+            original_dir,
+            "handle_open_item on file should not change directory"
+        );
 
         // Test handle_open_item on directory (should enter)
         app.left.active_tab_mut().cursor = dir_idx;
         handle_open_item(&mut app);
-        assert_ne!(app.left.active_tab().current_dir, original_dir, "handle_open_item on directory should change directory");
+        assert_ne!(
+            app.left.active_tab().current_dir,
+            original_dir,
+            "handle_open_item on directory should change directory"
+        );
         assert!(app.left.active_tab().current_dir.ends_with("test_dir"));
     }
 }
