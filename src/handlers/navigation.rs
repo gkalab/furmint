@@ -474,4 +474,89 @@ mod tests {
         );
         assert!(app.left.active_tab().current_dir.ends_with("test_dir"));
     }
+
+    #[test]
+    fn test_handle_type_char() {
+        let entries = vec![
+            FileEntry {
+                name: "apple".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+            FileEntry {
+                name: "banana".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+        ];
+        let mut app = test_app(entries);
+
+        handle_type_char(&mut app, 'b');
+        assert_eq!(app.left.active_tab().cursor, 1);
+
+        // Test buffer reset (we can't easily wait 1s in unit test, but we can check it appends)
+        handle_type_char(&mut app, 'a');
+        // 'ba' doesn't match anything, so cursor should stay at 1 (previous match)
+        assert_eq!(app.left.active_tab().cursor, 1);
+
+        app.left.active_tab_mut().typed_buffer.clear();
+        handle_type_char(&mut app, 'a');
+        assert_eq!(app.left.active_tab().cursor, 0);
+    }
+
+    #[test]
+    fn test_handle_tab() {
+        let mut app = test_app(vec![]);
+        assert_eq!(app.active, PanelSide::Left);
+
+        handle_tab(&mut app);
+        assert_eq!(app.active, PanelSide::Right);
+
+        handle_tab(&mut app);
+        assert_eq!(app.active, PanelSide::Left);
+
+        // Test focusing file viewer
+        app.file_viewer.is_visible = true;
+        app.file_viewer.focused = false;
+        handle_tab(&mut app);
+        assert!(app.file_viewer.focused);
+    }
+
+    #[test]
+    fn test_handle_sort_and_toggle() {
+        let entries = vec![FileEntry {
+            name: "a".to_string(),
+            is_dir: false,
+            is_symlink: false,
+            size: None,
+            modified: None,
+            attributes: String::new(),
+            selected: false,
+        }];
+        let mut app = test_app(entries);
+
+        handle_toggle_selection(&mut app);
+        assert!(app.left.active_tab().entries[0].selected);
+
+        handle_sort(&mut app, crate::app::SortColumn::Size);
+        assert_eq!(app.left.active_tab().sort_column, crate::app::SortColumn::Size);
+    }
+
+    #[test]
+    fn test_handle_history_and_directory_up() {
+        // This test is limited because go_up/go_back require actual filesystem or complex mocking
+        // But we can at least call them to see they don't panic and cover the handler lines.
+        let mut app = test_app(vec![]);
+        handle_directory_up(&mut app);
+        handle_history_previous(&mut app);
+        handle_history_next(&mut app);
+    }
 }

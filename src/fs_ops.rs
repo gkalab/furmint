@@ -396,4 +396,70 @@ mod tests {
         assert_eq!(entries[0].name, "..");
         assert!(entries[0].is_dir);
     }
+
+    #[test]
+    fn test_get_attributes_unix() {
+        #[cfg(unix)]
+        {
+            let temp_dir = std::env::temp_dir();
+            let meta = std::fs::metadata(&temp_dir).unwrap();
+            let attrs = get_attributes(&meta, true);
+            assert_eq!(attrs.chars().next().unwrap(), 'd');
+            assert_eq!(attrs.len(), 10);
+        }
+    }
+
+    #[test]
+    fn test_is_executable() {
+        #[cfg(unix)]
+        {
+            use std::fs::{self, File};
+            use std::os::unix::fs::PermissionsExt;
+            let temp_dir = std::env::temp_dir();
+            let file_path = temp_dir.join("fm_test_exe");
+            {
+                let _ = File::create(&file_path).unwrap();
+            }
+            let mut perms = fs::metadata(&file_path).unwrap().permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&file_path, perms).unwrap();
+
+            let entry = FileEntry {
+                name: "fm_test_exe".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            };
+
+            assert!(is_executable(&file_path, &entry));
+
+            perms = fs::metadata(&file_path).unwrap().permissions();
+            perms.set_mode(0o644);
+            fs::set_permissions(&file_path, perms).unwrap();
+            assert!(!is_executable(&file_path, &entry));
+
+            fs::remove_file(&file_path).ok();
+        }
+    }
+
+    #[test]
+    fn test_create_directory() {
+        let temp_dir = std::env::temp_dir();
+        let new_dir = temp_dir.join("fm_test_create_dir");
+        if new_dir.exists() {
+            fs::remove_dir_all(&new_dir).ok();
+        }
+
+        let result = create_directory(&new_dir);
+        assert!(result.is_ok());
+        assert!(new_dir.exists());
+
+        let result_err = create_directory(&new_dir);
+        assert!(result_err.is_err());
+
+        fs::remove_dir_all(&new_dir).ok();
+    }
 }

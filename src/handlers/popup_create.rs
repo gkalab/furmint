@@ -363,4 +363,47 @@ mod tests {
                 || app.popups.create_directory.new_name.is_empty()
         );
     }
+
+    #[test]
+    fn test_handle_create_directory_navigation() {
+        let mut app = basic_app_state();
+        handle_init_create_directory(&mut app);
+        for c in "abcd".chars() {
+            handle_create_directory_event(KeyCode::Char(c), &mut app);
+        }
+        assert_eq!(app.popups.create_directory.cursor_position, 4);
+
+        handle_create_directory_event(KeyCode::Left, &mut app);
+        assert_eq!(app.popups.create_directory.cursor_position, 3);
+
+        handle_create_directory_event(KeyCode::Right, &mut app);
+        assert_eq!(app.popups.create_directory.cursor_position, 4);
+
+        handle_create_directory_event(KeyCode::Home, &mut app);
+        assert_eq!(app.popups.create_directory.cursor_position, 0);
+
+        handle_create_directory_event(KeyCode::End, &mut app);
+        assert_eq!(app.popups.create_directory.cursor_position, 4);
+
+        handle_create_directory_event(KeyCode::Left, &mut app); // at pos 3
+        handle_create_directory_event(KeyCode::Left, &mut app); // at pos 2
+        handle_create_directory_event(KeyCode::Delete, &mut app); // delete 'c'
+        assert_eq!(app.popups.create_directory.new_name, "abd");
+    }
+
+    #[tokio::test]
+    async fn test_handle_create_file_event() {
+        let mut app = basic_app_state();
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        handle_init_create_file(&mut app);
+
+        handle_create_file_event(KeyCode::Char('f'), &mut app, &tx).await;
+        assert_eq!(app.popups.create_file.input_value, "f");
+
+        handle_create_file_event(KeyCode::Backspace, &mut app, &tx).await;
+        assert_eq!(app.popups.create_file.input_value, "");
+
+        handle_create_file_event(KeyCode::Esc, &mut app, &tx).await;
+        assert!(!app.popups.create_file.is_visible);
+    }
 }

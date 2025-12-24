@@ -16,3 +16,5 @@ Cargo.lock
 
 # RustRover
 .idea
+
+coverage_report

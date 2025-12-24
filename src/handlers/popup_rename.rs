@@ -266,4 +266,53 @@ mod tests {
         handle_rename_event(KeyCode::Enter, &mut app);
         assert!(!app.popups.rename.is_visible);
     }
+
+    #[test]
+    fn test_rename_navigation() {
+        let mut app = test_app_with_entry("test.txt", false);
+        handle_init_rename(&mut app);
+        // Original name is test.txt, stem is test (len 4), cursor should be at 4
+        assert_eq!(app.popups.rename.cursor_position, 4);
+
+        handle_rename_event(KeyCode::Home, &mut app);
+        assert_eq!(app.popups.rename.cursor_position, 0);
+
+        handle_rename_event(KeyCode::End, &mut app);
+        assert_eq!(app.popups.rename.cursor_position, 8); // test.txt len
+
+        handle_rename_event(KeyCode::Left, &mut app);
+        assert_eq!(app.popups.rename.cursor_position, 7);
+
+        handle_rename_event(KeyCode::Delete, &mut app); // delete last 't'
+        assert_eq!(app.popups.rename.new_name, "test.tx");
+    }
+
+    #[test]
+    fn test_rename_overwrite_flow() {
+        use std::fs::File;
+        let temp_dir = std::env::temp_dir().join("rename_test");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let file1 = temp_dir.join("file1.txt");
+        let file2 = temp_dir.join("file2.txt");
+        File::create(&file1).unwrap();
+        File::create(&file2).unwrap();
+
+        let mut app = test_app_with_entry("file1.txt", false);
+        app.popups.rename.parent_dir = temp_dir.clone();
+        handle_init_rename(&mut app);
+
+        // Rename file1 to file2
+        app.popups.rename.new_name = "file2.txt".to_string();
+        app.popups.rename.cursor_position = 9;
+
+        handle_rename_event(KeyCode::Enter, &mut app);
+        assert!(app.popups.rename.show_overwrite_confirm);
+
+        handle_rename_event(KeyCode::Char('y'), &mut app);
+        // On Unix, rename is usually successful. If it fails it might be because of temp_dir issues.
+        // We check if the popup was reset, which happens on success.
+        assert!(!app.popups.rename.is_visible);
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
 }
