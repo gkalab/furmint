@@ -420,6 +420,264 @@ mod mock_fs_tests {
     }
 
     #[tokio::test]
+    async fn test_recursive_copy_nested() {
+        let fs = MockFileSystem::default();
+        let src_root = PathBuf::from("/src");
+        let dest_root = PathBuf::from("/dest");
+
+        // Hierarchy:
+        // /src/file1.txt
+        // /src/subdir/file2.txt
+
+        {
+            let mut files = fs.files.lock().await;
+            files.insert(src_root.clone(), FakeEntry { is_dir: true });
+            files.insert(src_root.join("file1.txt"), FakeEntry { is_dir: false });
+            files.insert(src_root.join("subdir"), FakeEntry { is_dir: true });
+            files.insert(
+                src_root.join("subdir").join("file2.txt"),
+                FakeEntry { is_dir: false },
+            );
+        }
+
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let (_dtx, drx_real) = mpsc::channel(1);
+        let processed = Arc::new(AtomicUsize::new(0));
+        let decision_rx = Arc::new(Mutex::new(drx_real));
+        let ctx = RecursiveOpContext {
+            tx: &tx,
+            id: 1,
+            total: 3,
+            processed: &processed,
+            decision_rx: &decision_rx,
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let mut decision_state = DecisionState {
+            overwrite_all: false,
+            skip_all: false,
+            last_update: std::time::Instant::now(),
+        };
+
+        let res = recursive_op(
+            &fs,
+            &src_root,
+            &dest_root,
+            crate::app::CopyMoveAction::Copy,
+            &cancel,
+            ctx,
+            &mut decision_state,
+        )
+        .await;
+
+        assert!(res.is_ok(), "Recursive copy failed: {:?}", res.err());
+
+        // Verify destination structure
+        assert!(fs.try_exists(&dest_root).await.unwrap());
+        assert!(fs.try_exists(&dest_root.join("file1.txt")).await.unwrap());
+        assert!(fs.try_exists(&dest_root.join("subdir")).await.unwrap());
+        assert!(fs
+            .try_exists(&dest_root.join("subdir").join("file2.txt"))
+            .await
+            .unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_recursive_copy_overwrite_all() {
+        let fs = MockFileSystem::default();
+        let src_root = PathBuf::from("/src");
+        let dest_root = PathBuf::from("/dest");
+
+        {
+            let mut files = fs.files.lock().await;
+            files.insert(src_root.clone(), FakeEntry { is_dir: true });
+            files.insert(src_root.join("f1.txt"), FakeEntry { is_dir: false });
+            files.insert(src_root.join("f2.txt"), FakeEntry { is_dir: false });
+
+            // f1 and f2 exist in dest
+            files.insert(dest_root.clone(), FakeEntry { is_dir: true });
+            files.insert(dest_root.join("f1.txt"), FakeEntry { is_dir: false });
+            files.insert(dest_root.join("f2.txt"), FakeEntry { is_dir: false });
+        }
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (dtx, drx_real) = mpsc::channel(1);
+        let processed = Arc::new(AtomicUsize::new(0));
+        let decision_rx = Arc::new(Mutex::new(drx_real));
+        let ctx = RecursiveOpContext {
+            tx: &tx,
+            id: 1,
+            total: 2,
+            processed: &processed,
+            decision_rx: &decision_rx,
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let mut decision_state = DecisionState {
+            overwrite_all: false,
+            skip_all: false,
+            last_update: std::time::Instant::now(),
+        };
+
+        // Decision task: send OverwriteAll on first conflict
+        tokio::spawn(async move {
+            if let Some(event) = rx.recv().await {
+                if let crate::tasks::TaskEvent::Conflict(_, _, _) = event {
+                    let _ = dtx.send(crate::tasks::TaskDecision::OverwriteAll).await;
+                }
+            }
+        });
+
+        let res = recursive_op(
+            &fs,
+            &src_root,
+            &dest_root,
+            crate::app::CopyMoveAction::Copy,
+            &cancel,
+            ctx,
+            &mut decision_state,
+        )
+        .await;
+
+        assert!(res.is_ok());
+        assert!(decision_state.overwrite_all);
+
+        let copies = fs.copies.lock().await;
+        assert!(copies.iter().any(|(_, d)| d == &dest_root.join("f1.txt")));
+        assert!(copies.iter().any(|(_, d)| d == &dest_root.join("f2.txt")));
+        // Check removed_files for f1 and f2 (overwritten files are removed before copy in the implementation)
+        let removed = fs.removed_files.lock().await;
+        assert!(removed.contains(&dest_root.join("f1.txt")));
+        assert!(removed.contains(&dest_root.join("f2.txt")));
+    }
+
+    #[tokio::test]
+    async fn test_recursive_copy_cancel() {
+        let fs = MockFileSystem::default();
+        let src_root = PathBuf::from("/src");
+        let dest_root = PathBuf::from("/dest");
+
+        {
+            let mut files = fs.files.lock().await;
+            files.insert(src_root.clone(), FakeEntry { is_dir: true });
+            files.insert(src_root.join("f1.txt"), FakeEntry { is_dir: false });
+            files.insert(src_root.join("f2.txt"), FakeEntry { is_dir: false });
+
+            // Both exist in dest to ensure conflict
+            files.insert(dest_root.clone(), FakeEntry { is_dir: true });
+            files.insert(dest_root.join("f1.txt"), FakeEntry { is_dir: false });
+            files.insert(dest_root.join("f2.txt"), FakeEntry { is_dir: false });
+        }
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (dtx, drx_real) = mpsc::channel(1);
+        let processed = Arc::new(AtomicUsize::new(0));
+        let decision_rx = Arc::new(Mutex::new(drx_real));
+        let ctx = RecursiveOpContext {
+            tx: &tx,
+            id: 1,
+            total: 2,
+            processed: &processed,
+            decision_rx: &decision_rx,
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let mut decision_state = DecisionState {
+            overwrite_all: false,
+            skip_all: false,
+            last_update: std::time::Instant::now(),
+        };
+
+        // Decision task: send Cancel on first conflict
+        tokio::spawn(async move {
+            if let Some(event) = rx.recv().await {
+                if let crate::tasks::TaskEvent::Conflict(_, _, _) = event {
+                    let _ = dtx.send(crate::tasks::TaskDecision::Cancel).await;
+                }
+            }
+        });
+
+        let res = recursive_op(
+            &fs,
+            &src_root,
+            &dest_root,
+            crate::app::CopyMoveAction::Copy,
+            &cancel,
+            ctx,
+            &mut decision_state,
+        )
+        .await;
+
+        assert!(res.is_ok());
+        assert!(cancel.load(std::sync::atomic::Ordering::Relaxed));
+        
+        // At most one file could have been processed (the one that triggered the conflict)
+        // But since it returned on Cancel, no copy should have been performed for that file either.
+        let copies = fs.copies.lock().await;
+        assert_eq!(copies.len(), 0, "No files should have been copied");
+    }
+
+    #[tokio::test]
+    async fn test_recursive_copy_skip_all() {
+        let fs = MockFileSystem::default();
+        let src_root = PathBuf::from("/src");
+        let dest_root = PathBuf::from("/dest");
+
+        {
+            let mut files = fs.files.lock().await;
+            files.insert(src_root.clone(), FakeEntry { is_dir: true });
+            files.insert(src_root.join("f1.txt"), FakeEntry { is_dir: false });
+            files.insert(src_root.join("f2.txt"), FakeEntry { is_dir: false });
+
+            // f1 exists in dest
+            files.insert(dest_root.clone(), FakeEntry { is_dir: true });
+            files.insert(dest_root.join("f1.txt"), FakeEntry { is_dir: false });
+        }
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (dtx, drx_real) = mpsc::channel(1);
+        let processed = Arc::new(AtomicUsize::new(0));
+        let decision_rx = Arc::new(Mutex::new(drx_real));
+        let ctx = RecursiveOpContext {
+            tx: &tx,
+            id: 1,
+            total: 2,
+            processed: &processed,
+            decision_rx: &decision_rx,
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let mut decision_state = DecisionState {
+            overwrite_all: false,
+            skip_all: false,
+            last_update: std::time::Instant::now(),
+        };
+
+        // Decision task
+        tokio::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                if let crate::tasks::TaskEvent::Conflict(_, _, _) = event {
+                    let _ = dtx.send(crate::tasks::TaskDecision::SkipAll).await;
+                }
+            }
+        });
+
+        let res = recursive_op(
+            &fs,
+            &src_root,
+            &dest_root,
+            crate::app::CopyMoveAction::Copy,
+            &cancel,
+            ctx,
+            &mut decision_state,
+        )
+        .await;
+
+        assert!(res.is_ok());
+        assert!(decision_state.skip_all);
+
+        let copies = fs.copies.lock().await;
+        assert!(!copies.iter().any(|(_, d)| d == &dest_root.join("f1.txt")));
+        assert!(copies.iter().any(|(_, d)| d == &dest_root.join("f2.txt")));
+    }
+
+    #[tokio::test]
     async fn test_mock_simple_move_conflict_overwrite() {
         let fs = MockFileSystem::default();
         let src = PathBuf::from("/src.txt");
