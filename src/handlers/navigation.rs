@@ -547,7 +547,10 @@ mod tests {
         assert!(app.left.active_tab().entries[0].selected);
 
         handle_sort(&mut app, crate::app::SortColumn::Size);
-        assert_eq!(app.left.active_tab().sort_column, crate::app::SortColumn::Size);
+        assert_eq!(
+            app.left.active_tab().sort_column,
+            crate::app::SortColumn::Size
+        );
     }
 
     #[test]

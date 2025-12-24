@@ -471,4 +471,76 @@ mod popup_copy_move_unit_tests {
         assert!(!app.popups.copy_move.is_visible);
         assert!(app.popups.copy_move.error.is_none());
     }
+
+    #[tokio::test]
+    async fn test_handle_copy_move_event_home_dir_expansion() {
+        let mut app = minimal_state_with_entries(PanelSide::Left, vec![], vec![], 0, 0);
+        app.popups.copy_move.is_visible = true;
+        app.popups.copy_move.destination_input = "~".to_string();
+
+        handle_copy_move_event(KeyCode::Enter, &mut app);
+
+        if let Some(base_dirs) = directories::BaseDirs::new() {
+            let home = base_dirs
+                .home_dir()
+                .canonicalize()
+                .unwrap_or_else(|_| base_dirs.home_dir().to_path_buf());
+            let _home_str = home.to_string_lossy().to_string();
+            // It resets on success, but we can check if it's not visible anymore
+            assert!(!app.popups.copy_move.is_visible);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_handle_copy_move_validation_same_path() {
+        let temp_dir = std::env::temp_dir().canonicalize().unwrap();
+        let file_path = temp_dir.join("test_file_copy_val.txt");
+        std::fs::File::create(&file_path).unwrap();
+
+        let mut app = minimal_state_with_entries(PanelSide::Left, vec![], vec![], 0, 0);
+        app.popups.copy_move.is_visible = true;
+        app.popups.copy_move.source_paths = vec![file_path.clone()];
+        app.popups.copy_move.destination_input = temp_dir.to_string_lossy().to_string();
+
+        handle_copy_move_event(KeyCode::Enter, &mut app);
+
+        assert!(app.popups.copy_move.error.is_some());
+        assert!(
+            app.popups
+                .copy_move
+                .error
+                .as_ref()
+                .unwrap()
+                .contains("same")
+        );
+
+        std::fs::remove_file(&file_path).ok();
+    }
+
+    #[tokio::test]
+    async fn test_handle_copy_move_validation_into_itself() {
+        let temp_dir = std::env::temp_dir().canonicalize().unwrap();
+        let src_dir = temp_dir.join("test_src_dir");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        let dest_dir = src_dir.join("test_dest_dir");
+
+        let mut app = minimal_state_with_entries(PanelSide::Left, vec![], vec![], 0, 0);
+        app.popups.copy_move.is_visible = true;
+        app.popups.copy_move.source_paths = vec![src_dir.clone()];
+        app.popups.copy_move.destination_input = dest_dir.to_string_lossy().to_string();
+
+        handle_copy_move_event(KeyCode::Enter, &mut app);
+
+        assert!(app.popups.copy_move.error.is_some());
+        assert!(
+            app.popups
+                .copy_move
+                .error
+                .as_ref()
+                .unwrap()
+                .contains("subdirectory of itself")
+        );
+
+        std::fs::remove_dir_all(&src_dir).ok();
+    }
 }

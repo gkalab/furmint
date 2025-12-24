@@ -272,8 +272,58 @@ mod tests {
         // Verify selected task id mapping matches visual order
         tm.selected_index.store(0, Ordering::Relaxed);
         assert_eq!(tm.get_selected_task_id(), Some(id3));
-
         tm.selected_index.store(2, Ordering::Relaxed);
         assert_eq!(tm.get_selected_task_id(), Some(id1));
+    }
+
+    #[tokio::test]
+    async fn test_task_selection_navigation() {
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let tm = TaskManager::new(tx);
+        tm.spawn_task("task1".to_string(), |_c, _tx, _id| async {});
+        tm.spawn_task("task2".to_string(), |_c, _tx, _id| async {});
+
+        assert_eq!(tm.selected_index.load(Ordering::Relaxed), 0);
+        tm.move_selection_down();
+        assert_eq!(tm.selected_index.load(Ordering::Relaxed), 1);
+        tm.move_selection_down(); // should clamp
+        assert_eq!(tm.selected_index.load(Ordering::Relaxed), 1);
+        tm.move_selection_up();
+        assert_eq!(tm.selected_index.load(Ordering::Relaxed), 0);
+        tm.move_selection_up(); // should clamp
+        assert_eq!(tm.selected_index.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn test_task_status_updates() {
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let tm = TaskManager::new(tx);
+        let id = tm.spawn_task("task1".to_string(), |_c, _tx, _id| async {});
+
+        tm.update_task_status(id, TaskStatus::Completed);
+        let tasks = tm.get_tasks();
+        assert!(matches!(tasks[0].2, TaskStatus::Completed));
+        assert!(tasks[0].4.is_some()); // completed_at should be set
+
+        tm.update_task_progress(id, 50, 100);
+        let tasks = tm.get_tasks();
+        assert_eq!(tasks[0].3, Some((50, 100)));
+    }
+
+    #[tokio::test]
+    async fn test_cancel_task() {
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let tm = TaskManager::new(tx);
+        let id = tm.spawn_task("task1".to_string(), |cancel, _tx, _id| async move {
+            while !cancel.load(Ordering::Relaxed) {
+                tokio::task::yield_now().await;
+            }
+        });
+
+        assert!(tm.has_running_tasks());
+        tm.cancel_task(id);
+        // We might need to wait a bit for the task to react, but cancel_task sets the flag
+        let tasks = tm.tasks.lock().unwrap();
+        assert!(tasks.get(&id).unwrap().cancel_flag.load(Ordering::Relaxed));
     }
 }

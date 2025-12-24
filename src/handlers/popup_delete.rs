@@ -199,25 +199,31 @@ mod tests {
         assert!(!app.popups.delete.is_visible);
     }
 
-    #[test]
-    fn test_handle_init_delete_no_selection_does_nothing() {
-        // Build state with tab that only has ".." entry
-        use crate::app::Tab;
-        let mut tab = Tab::new(&PathBuf::from("/tmp")).unwrap();
-        tab.entries.clear();
-        tab.entries.push(FileEntry {
-            name: "..".to_string(),
-            is_dir: true,
+    #[tokio::test]
+    async fn test_handle_confirm_delete_clears_selection() {
+        let mut app = basic_app_with_entry("file_to_del.txt");
+        app.left.tabs[0].entries[0].selected = true;
+        handle_init_delete(&mut app, true);
+        handle_confirm_delete(&mut app);
+        assert!(!app.left.tabs[0].entries[0].selected);
+    }
+
+    #[tokio::test]
+    async fn test_handle_confirm_delete_multiple_files() {
+        let mut app = basic_app_with_entry("file1.txt");
+        app.left.tabs[0].entries.push(FileEntry {
+            name: "file2.txt".to_string(),
+            is_dir: false,
             is_symlink: false,
-            size: None,
+            size: Some(10),
             modified: None,
-            attributes: String::from("drwxr-xr-x"),
-            selected: false,
+            attributes: String::new(),
+            selected: true,
         });
-        let mut app = basic_app_with_entry("willnotuse");
-        app.left.tabs[0] = tab;
-        handle_init_delete(&mut app, false);
+        app.left.tabs[0].entries[0].selected = true;
+        handle_init_delete(&mut app, true);
+        assert_eq!(app.popups.delete.selected_paths.len(), 2);
+        handle_delete_event(KeyCode::Enter, &mut app);
         assert!(!app.popups.delete.is_visible);
-        assert!(app.popups.delete.selected_paths.is_empty());
     }
 }

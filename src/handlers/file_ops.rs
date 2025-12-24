@@ -353,6 +353,8 @@ mod mock_fs_tests {
         files: Arc<Mutex<HashMap<PathBuf, FakeEntry>>>,
         copies: Arc<Mutex<Vec<(PathBuf, PathBuf)>>>,
         removed_files: Arc<Mutex<HashSet<PathBuf>>>,
+        fail_next_copy: Arc<Mutex<usize>>,
+        fail_next_create_dir: Arc<Mutex<usize>>,
     }
 
     #[async_trait]
@@ -371,6 +373,11 @@ mod mock_fs_tests {
                 .unwrap_or(false))
         }
         async fn create_dir_all(&self, path: &Path) -> anyhow::Result<()> {
+            let mut fail = self.fail_next_create_dir.lock().await;
+            if *fail > 0 {
+                *fail -= 1;
+                return Err(anyhow::anyhow!("Mock error creating directory"));
+            }
             self.files
                 .lock()
                 .await
@@ -401,6 +408,11 @@ mod mock_fs_tests {
             Ok(())
         }
         async fn copy(&self, src: &Path, dst: &Path) -> anyhow::Result<()> {
+            let mut fail = self.fail_next_copy.lock().await;
+            if *fail > 0 {
+                *fail -= 1;
+                return Err(anyhow::anyhow!("Mock error copying file"));
+            }
             let files = self.files.lock().await;
             if files.contains_key(src) {
                 drop(files);
@@ -735,6 +747,64 @@ mod mock_fs_tests {
         assert!(fs.files.lock().await.contains_key(&dst));
         // src remains for Copy
         assert!(fs.files.lock().await.contains_key(&src));
+    }
+
+    #[tokio::test]
+    async fn test_recursive_op_retry() {
+        let fs = MockFileSystem::default();
+        let src = PathBuf::from("/src.txt");
+        let dst = PathBuf::from("/dst.txt");
+        fs.files
+            .lock()
+            .await
+            .insert(src.clone(), FakeEntry { is_dir: false });
+
+        // First copy attempt fails, second succeeds
+        {
+            let mut fails = fs.fail_next_copy.lock().await;
+            *fails = 1;
+        }
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (decision_tx, decision_rx_real) = mpsc::channel(1);
+        let processed = Arc::new(AtomicUsize::new(0));
+        let decision_rx = Arc::new(Mutex::new(decision_rx_real));
+        let ctx = RecursiveOpContext {
+            tx: &tx,
+            id: 1,
+            total: 1,
+            processed: &processed,
+            decision_rx: &decision_rx,
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let mut decision_state = DecisionState {
+            overwrite_all: false,
+            skip_all: false,
+            last_update: std::time::Instant::now(),
+        };
+
+        // Spawn task to send retry decision
+        tokio::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                if let crate::tasks::TaskEvent::Error(_, _, _) = event {
+                    let _ = decision_tx.send(crate::tasks::TaskDecision::Retry).await;
+                }
+            }
+        });
+
+        let result = recursive_op(
+            &fs,
+            &src,
+            &dst,
+            crate::app::CopyMoveAction::Copy,
+            &cancel,
+            ctx,
+            &mut decision_state,
+        )
+        .await;
+
+        assert!(result.is_ok());
+        assert!(fs.files.lock().await.contains_key(&dst));
     }
 }
 
