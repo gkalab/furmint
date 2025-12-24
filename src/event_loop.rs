@@ -9,7 +9,7 @@ use crate::handlers::editor::handle_edit;
 use crate::handlers::file_viewer::handle_file_viewer_event;
 use crate::handlers::navigation::{
     handle_directory_up, handle_down, handle_end, handle_enter_directory, handle_history_next,
-    handle_history_previous, handle_home, handle_page_down, handle_page_up, handle_sort,
+    handle_history_previous, handle_home, handle_open_item, handle_page_down, handle_page_up, handle_sort,
     handle_tab, handle_toggle_selection, handle_type_char, handle_up, update_viewer_content,
 };
 use crate::handlers::popup_conflict::handle_conflict_event;
@@ -859,7 +859,7 @@ async fn handle_main_panel_event(
             (KeyCode::PageDown, _) => handle_page_down(app),
             (KeyCode::Home, _) => handle_home(app),
             (KeyCode::End, _) => handle_end(app),
-            (KeyCode::Enter, _) => handle_enter_directory(app),
+            (KeyCode::Enter, _) => handle_open_item(app),
             (KeyCode::Char(' '), KeyModifiers::NONE) => handle_toggle_selection(app),
             (KeyCode::Insert, _) => handle_toggle_selection(app),
             _ => {}
