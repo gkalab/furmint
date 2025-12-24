@@ -290,7 +290,7 @@ mod tests {
             typed_buffer: String::new(),
             last_type_time: None,
             sort_column: crate::app::SortColumn::Name,
-            sort_direction: crate::app::SortDirection::Ascending,
+            sort_direction: crate::app_state::tabs::SortDirection::Ascending,
             scroll_offset: 0,
         };
         AppState {
