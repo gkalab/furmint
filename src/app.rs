@@ -34,14 +34,14 @@ pub struct Tab {
 
 impl Tab {
     /// Create a new tab at the specified directory
-    pub fn new(path: &PathBuf) -> anyhow::Result<Self> {
-        let entries = crate::fs_ops::list_dir(path)?;
+    pub fn new(path: &std::path::Path) -> anyhow::Result<Self> {
+        let entries = crate::fs_ops::list_dir(&path.to_path_buf())?;
         let mut tab = Self {
-            current_dir: path.clone(),
+            current_dir: path.to_path_buf(),
             entries,
             cursor: 0,
             history: vec![HistoryEntry {
-                path: path.clone(),
+                path: path.to_path_buf(),
                 cursor: 0,
             }],
             history_index: 0,
@@ -380,9 +380,9 @@ pub struct TabManager {
 
 impl TabManager {
     /// Create a new `TabManager` with a single tab
-    pub fn new(initial_path: PathBuf) -> anyhow::Result<Self> {
+    pub fn new(initial_path: &std::path::Path) -> anyhow::Result<Self> {
         Ok(Self {
-            tabs: vec![Tab::new(&initial_path)?],
+            tabs: vec![Tab::new(initial_path)?],
             active_tab_index: 0,
         })
     }
@@ -424,14 +424,14 @@ impl TabManager {
     }
 
     /// Create a new tab at the specified directory with optional cursor position
-    pub fn new_tab(&mut self, path: PathBuf, cursor: Option<usize>) -> anyhow::Result<()> {
+    pub fn new_tab(&mut self, path: &std::path::Path, cursor: Option<usize>) -> anyhow::Result<()> {
         // Capture current sort settings
         let (sort_column, sort_direction) = {
             let active = self.active_tab();
             (active.sort_column, active.sort_direction)
         };
 
-        let mut new_tab = Tab::new(&path)?;
+        let mut new_tab = Tab::new(path)?;
 
         // Apply sort settings
         new_tab.sort_column = sort_column;
@@ -1013,14 +1013,14 @@ mod tests {
 
     #[test]
     fn test_new_tab_inherits_sort() {
-        let mut manager = TabManager::new(PathBuf::from("/tmp")).unwrap();
+        let mut manager = TabManager::new(&std::env::temp_dir()).unwrap();
 
         // Change sort on active tab
         manager.active_tab_mut().sort_column = SortColumn::Size;
         manager.active_tab_mut().sort_direction = SortDirection::Descending;
 
         // Create new tab
-        manager.new_tab(PathBuf::from("/tmp"), None).unwrap();
+        manager.new_tab(&std::env::temp_dir(), None).unwrap();
 
         // Check new tab (which is now active)
         let new_tab = manager.active_tab();

@@ -116,11 +116,10 @@ pub(crate) fn update_viewer_content(app: &mut AppState) {
         PanelSide::Right => &app.right,
     };
     let panel = tab_manager.active_tab();
-    if panel.entries.is_empty() {
+    let Some(entry) = panel.current_entry() else {
         app.file_viewer.content = vec![];
         return;
-    }
-    let entry = &panel.entries[panel.cursor];
+    };
     if entry.is_dir {
         app.file_viewer.content = vec!["Directory".to_string()];
     } else {
@@ -137,21 +136,21 @@ pub(crate) fn handle_enter_directory(app: &mut AppState) {
     };
     let panel = tab_manager.active_tab_mut();
 
-    if let Some(entry) = panel.current_entry().cloned() {
-        if entry.is_dir {
-            let new_dir = if entry.name == ".." {
-                panel.current_dir.parent().map(std::path::Path::to_path_buf)
-            } else {
-                Some(panel.current_dir.join(&entry.name))
-            };
+    if let Some(entry) = panel.current_entry().cloned()
+        && entry.is_dir
+    {
+        let new_dir = if entry.name == ".." {
+            panel.current_dir.parent().map(std::path::Path::to_path_buf)
+        } else {
+            Some(panel.current_dir.join(&entry.name))
+        };
 
-            if let Some(path) = new_dir {
-                if let Err(e) = panel.navigate_to(&path) {
-                    panel.error = Some(format!("Error: {e}"));
-                } else {
-                    app.dir_history.record_visit(&path);
-                    update_viewer_content(app);
-                }
+        if let Some(path) = new_dir {
+            if let Err(e) = panel.navigate_to(&path) {
+                panel.error = Some(format!("Error: {e}"));
+            } else {
+                app.dir_history.record_visit(&path);
+                update_viewer_content(app);
             }
         }
     }

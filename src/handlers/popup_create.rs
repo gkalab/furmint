@@ -208,19 +208,16 @@ pub async fn handle_create_file_event(
                 .create_new(true)
                 .write(true)
                 .open(&path_buf);
-            match create_result {
-                Ok(mut f) => {
-                    // file will be truncated, nothing to write; drop after this scope
-                    if let Err(e) = f.flush() {
-                        app.popups.create_file.error = Some(format!("Error writing file: {e}"));
-                        return false;
-                    }
-                    drop(f);
-                }
-                Err(e) => {
-                    app.popups.create_file.error = Some(format!("Failed to create file: {e}"));
+            if let Ok(mut f) = create_result {
+                // file will be truncated, nothing to write; drop after this scope
+                if let Err(e) = f.flush() {
+                    app.popups.create_file.error = Some(format!("Error writing file: {e}"));
                     return false;
                 }
+                drop(f);
+            } else if let Err(e) = create_result {
+                app.popups.create_file.error = Some(format!("Failed to create file: {e}"));
+                return false;
             }
             // Open in editor using environment helper
             let file_name_opt = path_buf
@@ -293,7 +290,7 @@ mod tests {
     use super::*;
     use crate::app::{AppState, PanelSide};
     use crossterm::event::KeyCode;
-    use std::path::PathBuf;
+    use std::path::Path;
 
     fn basic_app_state() -> AppState {
         use crate::state::FileViewerState;
@@ -303,8 +300,8 @@ mod tests {
         let (task_tx, _task_rx) = mpsc::unbounded_channel::<TaskEvent>();
 
         AppState {
-            left: crate::app::TabManager::new(PathBuf::from("/tmp")).unwrap(),
-            right: crate::app::TabManager::new(PathBuf::from("/tmp")).unwrap(),
+            left: crate::app::TabManager::new(Path::new("/tmp")).unwrap(),
+            right: crate::app::TabManager::new(Path::new("/tmp")).unwrap(),
             active: PanelSide::Left,
             file_viewer: FileViewerState::new(false, ""),
             fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),

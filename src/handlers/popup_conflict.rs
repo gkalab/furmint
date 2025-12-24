@@ -39,8 +39,8 @@ mod tests {
         let (task_tx, _task_rx) = mpsc::unbounded_channel::<TaskEvent>();
         let (dec_tx, dec_rx) = mpsc::channel(1);
         let mut app = AppState {
-            left: crate::app::TabManager::new(std::path::PathBuf::from("/tmp")).unwrap(),
-            right: crate::app::TabManager::new(std::path::PathBuf::from("/tmp")).unwrap(),
+            left: crate::app::TabManager::new(std::path::Path::new("/tmp")).unwrap(),
+            right: crate::app::TabManager::new(std::path::Path::new("/tmp")).unwrap(),
             active: crate::app::PanelSide::Left,
             file_viewer: FileViewerState::new(false, ""),
             fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),

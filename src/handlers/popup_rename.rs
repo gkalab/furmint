@@ -199,11 +199,11 @@ mod tests {
         tab.cursor = 0;
         AppState {
             left: {
-                let mut tm = crate::app::TabManager::new(PathBuf::from("/tmp")).unwrap();
+                let mut tm = crate::app::TabManager::new(std::path::Path::new("/tmp")).unwrap();
                 tm.tabs[0] = tab;
                 tm
             },
-            right: crate::app::TabManager::new(PathBuf::from("/tmp")).unwrap(),
+            right: crate::app::TabManager::new(std::path::Path::new("/tmp")).unwrap(),
             active: PanelSide::Left,
             file_viewer: crate::state::FileViewerState::new(false, ""),
             fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),

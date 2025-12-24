@@ -138,8 +138,8 @@ async fn run() -> Result<()> {
         crate::app::AppState::new(left, right, state.active_side, ctx)
     } else {
         crate::app::AppState::new(
-            crate::app::TabManager::new(cwd.clone())?,
-            crate::app::TabManager::new(cwd.clone())?,
+            crate::app::TabManager::new(&cwd)?,
+            crate::app::TabManager::new(&cwd)?,
             crate::app::PanelSide::Left,
             ctx,
         )

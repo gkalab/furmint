@@ -181,9 +181,8 @@ pub fn list_dir(path: &PathBuf) -> Result<Vec<FileEntry>> {
     for entry in fs::read_dir(path)? {
         let entry = entry?;
         let file_path = entry.path();
-        let meta = match fs::metadata(&file_path) {
-            Ok(m) => m,
-            Err(_) => continue,
+        let Ok(meta) = fs::metadata(&file_path) else {
+            continue;
         };
         entries.push(FileEntry::from_path(&file_path, &meta));
     }

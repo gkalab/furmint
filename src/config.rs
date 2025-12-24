@@ -113,156 +113,121 @@ pub fn default_global_config() -> GlobalConfig {
 }
 
 pub fn merge_keyboard_config(
-    user: &Option<KeyboardConfig>,
+    user: Option<&KeyboardConfig>,
     default: &KeyboardConfig,
 ) -> KeyboardConfig {
     KeyboardConfig {
         new_file: user
-            .as_ref()
             .and_then(|k| k.new_file.clone())
             .or_else(|| default.new_file.clone()),
         quit: user
-            .as_ref()
             .and_then(|k| k.quit.clone())
             .or_else(|| default.quit.clone()),
         forward: user
-            .as_ref()
             .and_then(|k| k.forward.clone())
             .or_else(|| default.forward.clone()),
         back: user
-            .as_ref()
             .and_then(|k| k.back.clone())
             .or_else(|| default.back.clone()),
         enter_dir: user
-            .as_ref()
             .and_then(|k| k.enter_dir.clone())
             .or_else(|| default.enter_dir.clone()),
         up_dir: user
-            .as_ref()
             .and_then(|k| k.up_dir.clone())
             .or_else(|| default.up_dir.clone()),
         edit_file: user
-            .as_ref()
             .and_then(|k| k.edit_file.clone())
             .or_else(|| default.edit_file.clone()),
         new_tab: user
-            .as_ref()
             .and_then(|k| k.new_tab.clone())
             .or_else(|| default.new_tab.clone()),
         tab_next: user
-            .as_ref()
             .and_then(|k| k.tab_next.clone())
             .or_else(|| default.tab_next.clone()),
         tab_prev: user
-            .as_ref()
             .and_then(|k| k.tab_prev.clone())
             .or_else(|| default.tab_prev.clone()),
         tab_close: user
-            .as_ref()
             .and_then(|k| k.tab_close.clone())
             .or_else(|| default.tab_close.clone()),
         search: user
-            .as_ref()
             .and_then(|k| k.search.clone())
             .or_else(|| default.search.clone()),
         sort_name: user
-            .as_ref()
             .and_then(|k| k.sort_name.clone())
             .or_else(|| default.sort_name.clone()),
         sort_ext: user
-            .as_ref()
             .and_then(|k| k.sort_ext.clone())
             .or_else(|| default.sort_ext.clone()),
         sort_date: user
-            .as_ref()
             .and_then(|k| k.sort_date.clone())
             .or_else(|| default.sort_date.clone()),
         sort_size: user
-            .as_ref()
             .and_then(|k| k.sort_size.clone())
             .or_else(|| default.sort_size.clone()),
         copy_to: user
-            .as_ref()
             .and_then(|k| k.copy_to.clone())
             .or_else(|| default.copy_to.clone()),
         move_to: user
-            .as_ref()
             .and_then(|k| k.move_to.clone())
             .or_else(|| default.move_to.clone()),
         rename: user
-            .as_ref()
             .and_then(|k| k.rename.clone())
             .or_else(|| default.rename.clone()),
         delete: user
-            .as_ref()
             .and_then(|k| k.delete.clone())
             .or_else(|| default.delete.clone()),
         delete_force: user
-            .as_ref()
             .and_then(|k| k.delete_force.clone())
             .or_else(|| default.delete_force.clone()),
         empty_trash: user
-            .as_ref()
             .and_then(|k| k.empty_trash.clone())
             .or_else(|| default.empty_trash.clone()),
         tasks: user
-            .as_ref()
             .and_then(|k| k.tasks.clone())
             .or_else(|| default.tasks.clone()),
         select_all: user
-            .as_ref()
             .and_then(|k| k.select_all.clone())
             .or_else(|| default.select_all.clone()),
         new_dir: user
-            .as_ref()
             .and_then(|k| k.new_dir.clone())
             .or_else(|| default.new_dir.clone()),
         open_terminal: user
-            .as_ref()
             .and_then(|k| k.open_terminal.clone())
             .or_else(|| default.open_terminal.clone()),
         help: user
-            .as_ref()
             .and_then(|k| k.help.clone())
             .or_else(|| default.help.clone()),
         change_drive_left: user
-            .as_ref()
             .and_then(|k| k.change_drive_left.clone())
             .or_else(|| default.change_drive_left.clone()),
         change_drive_right: user
-            .as_ref()
             .and_then(|k| k.change_drive_right.clone())
             .or_else(|| default.change_drive_right.clone()),
         toggle_console: user
-            .as_ref()
             .and_then(|k| k.toggle_console.clone())
             .or_else(|| default.toggle_console.clone()),
         swap_tabs: user
-            .as_ref()
             .and_then(|k| k.swap_tabs.clone())
             .or_else(|| default.swap_tabs.clone()),
     }
 }
 
 pub fn merge_global_config(
-    user: &Option<GlobalConfig>,
+    user: Option<&GlobalConfig>,
     default: &GlobalConfig,
 ) -> Result<GlobalConfig, String> {
     let theme = user
-        .as_ref()
         .and_then(|g| g.theme.clone())
         .or_else(|| default.theme.clone());
     let terminal = user
-        .as_ref()
         .and_then(|g| g.terminal.clone())
         .or_else(|| default.terminal.clone());
 
     let editor = user
-        .as_ref()
         .and_then(|g| g.editor.clone())
         .or_else(|| default.editor.clone());
     let viewer = user
-        .as_ref()
         .and_then(|g| g.viewer.clone())
         .or_else(|| default.viewer.clone());
 
@@ -330,8 +295,7 @@ pub fn validate_keyboard_config(config: &KeyboardConfig) -> Result<(), String> {
                     && other_action != name
                 {
                     return Err(format!(
-                        "Keybinding conflict: '{}' is assigned to both '{}' and '{}'",
-                        key, other_action, name
+                        "Keybinding conflict: '{key}' is assigned to both '{other_action}' and '{name}'"
                     ));
                 }
             }
@@ -349,10 +313,7 @@ pub fn validate_editor_config(config: &EditorConfig) -> Result<(), String> {
         let first_part = cmd.split_whitespace().next().unwrap_or("");
         let path = std::path::Path::new(first_part);
         if path.is_absolute() && !path.exists() {
-            return Err(format!(
-                "Editor command path does not exist: {}",
-                first_part
-            ));
+            return Err(format!("Editor command path does not exist: {first_part}"));
         }
     }
     Ok(())
@@ -366,10 +327,7 @@ pub fn validate_viewer_config(config: &ViewerConfig) -> Result<(), String> {
         let first_part = cmd.split_whitespace().next().unwrap_or("");
         let path = std::path::Path::new(first_part);
         if path.is_absolute() && !path.exists() {
-            return Err(format!(
-                "Viewer command path does not exist: {}",
-                first_part
-            ));
+            return Err(format!("Viewer command path does not exist: {first_part}"));
         }
     }
     Ok(())
@@ -379,14 +337,13 @@ pub fn validate_global_config(config: &GlobalConfig) -> Result<(), String> {
     let check_cmd = |cmd: &Option<String>, name: &str| -> Result<(), String> {
         if let Some(c) = cmd {
             if c.trim().is_empty() {
-                return Err(format!("Global {} command cannot be empty", name));
+                return Err(format!("Global {name} command cannot be empty"));
             }
             let first_part = c.split_whitespace().next().unwrap_or("");
             let path = std::path::Path::new(first_part);
             if path.is_absolute() && !path.exists() {
                 return Err(format!(
-                    "Global {} command path does not exist: {}",
-                    name, first_part
+                    "Global {name} command path does not exist: {first_part}"
                 ));
             }
         }
@@ -416,8 +373,8 @@ pub fn load_config() -> Result<(KeyboardConfig, GlobalConfig, EditorConfig, View
             fs::read_to_string(&path).map_err(|e| format!("Failed to read config file: {e}"))?;
         let user_config: AppConfig =
             toml::from_str(&content).map_err(|e| format!("Config file is invalid: {e}"))?;
-        let keyboard = merge_keyboard_config(&user_config.keyboard, &default_keyboard);
-        let global = merge_global_config(&user_config.global, &default_global)?;
+        let keyboard = merge_keyboard_config(user_config.keyboard.as_ref(), &default_keyboard);
+        let global = merge_global_config(user_config.global.as_ref(), &default_global)?;
         let editor = user_config.editor.unwrap_or(default_editor);
         let viewer = user_config.viewer.unwrap_or(default_viewer);
         (keyboard, global, editor, viewer)
@@ -487,7 +444,7 @@ mod tests {
             new_file: Some(vec!["default-key".to_string()]),
             ..KeyboardConfig::default()
         };
-        let merged = merge_keyboard_config(&user, &default);
+        let merged = merge_keyboard_config(user.as_ref(), &default);
         assert_eq!(merged.new_file, Some(vec!["user-key".to_string()]));
     }
 
@@ -498,7 +455,7 @@ mod tests {
             new_file: Some(vec!["default-key".to_string()]),
             ..KeyboardConfig::default()
         };
-        let merged = merge_keyboard_config(&user, &default);
+        let merged = merge_keyboard_config(user, &default);
         assert_eq!(merged.new_file, Some(vec!["default-key".to_string()]));
     }
 
@@ -512,7 +469,7 @@ mod tests {
             theme: Some("mariana".to_string()),
             ..GlobalConfig::default()
         };
-        let result = merge_global_config(&user, &default);
+        let result = merge_global_config(user.as_ref(), &default);
         assert!(result.is_err(), "Invalid theme should error");
     }
 
@@ -524,7 +481,7 @@ mod tests {
             ..GlobalConfig::default()
         });
         let default = GlobalConfig::default();
-        let result = merge_global_config(&user, &default);
+        let result = merge_global_config(user.as_ref(), &default);
         assert!(result.is_ok(), "Valid theme should not error");
         assert_eq!(result.unwrap().theme, Some(valid_theme));
     }

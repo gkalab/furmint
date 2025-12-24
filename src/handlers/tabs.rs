@@ -12,7 +12,7 @@ pub(crate) fn handle_new_tab(app: &mut AppState) {
     // Create new tab at the same directory as the current tab, preserving cursor position
     let current_dir = tab_manager.active_tab().current_dir.clone();
     let cursor_pos = tab_manager.active_tab().cursor;
-    if let Err(e) = tab_manager.new_tab(current_dir, Some(cursor_pos)) {
+    if let Err(e) = tab_manager.new_tab(&current_dir, Some(cursor_pos)) {
         tab_manager.active_tab_mut().error = Some(format!("Error creating tab: {e}"));
     }
 }

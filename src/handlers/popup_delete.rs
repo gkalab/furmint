@@ -119,7 +119,7 @@ mod tests {
     use crate::app::{AppState, PanelSide};
     use crate::fs_ops::FileEntry;
     use crossterm::event::KeyCode;
-    use std::path::PathBuf;
+    use std::path::Path;
 
     fn basic_app_with_entry(name: &str) -> AppState {
         use crate::state::FileViewerState;
@@ -127,7 +127,7 @@ mod tests {
         use tokio::sync::mpsc;
         let (task_tx, _task_rx) = mpsc::unbounded_channel::<TaskEvent>();
 
-        let mut tab = Tab::new(&PathBuf::from("/tmp")).unwrap();
+        let mut tab = Tab::new(Path::new("/tmp")).unwrap();
         tab.entries.clear();
         tab.entries.push(FileEntry {
             name: name.to_string(),
@@ -141,11 +141,11 @@ mod tests {
         tab.cursor = 0;
         AppState {
             left: {
-                let mut tm = crate::app::TabManager::new(PathBuf::from("/tmp")).unwrap();
+                let mut tm = crate::app::TabManager::new(Path::new("/tmp")).unwrap();
                 tm.tabs[0] = tab;
                 tm
             },
-            right: crate::app::TabManager::new(PathBuf::from("/tmp")).unwrap(),
+            right: crate::app::TabManager::new(Path::new("/tmp")).unwrap(),
             active: PanelSide::Left,
             file_viewer: FileViewerState::new(false, ""),
             fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
