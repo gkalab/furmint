@@ -49,18 +49,14 @@ impl FileSystem for StdFileSystem {
 }
 
 // Helper to count items recursively
-pub async fn count_items(paths: &[std::path::PathBuf]) -> usize {
+pub async fn count_items(fs: &dyn FileSystem, paths: &[std::path::PathBuf]) -> usize {
     let mut count = 0;
     for path in paths {
         count += 1; // Count the item itself
-        if path.is_dir()
-            && let Ok(mut entries) = tokio::fs::read_dir(path).await
+        if fs.is_dir(path).await.unwrap_or(false)
+            && let Ok(children) = fs.read_dir(path).await
         {
-            let mut children = Vec::new();
-            while let Ok(Some(entry)) = entries.next_entry().await {
-                children.push(entry.path());
-            }
-            count += Box::pin(count_items(&children)).await;
+            count += Box::pin(count_items(fs, &children)).await;
         }
     }
     count
@@ -131,7 +127,17 @@ pub fn recursive_op<'a>(
                     if action == crate::app::CopyMoveAction::Move {
                         let dest_exists = fs.try_exists(&dest).await.unwrap_or(false);
                         if !dest_exists && fs.rename(&src, &dest).await.is_ok() {
-                            {}
+                            // Successfully moved! Update progress and continue.
+                            // We need to count items because rename might have moved a whole directory.
+                            let count = count_items(fs, std::slice::from_ref(&dest)).await;
+                            let p = ctx
+                                .processed
+                                .fetch_add(count, std::sync::atomic::Ordering::Relaxed)
+                                + count;
+                            let _ = ctx.tx.send(crate::tasks::TaskEvent::UpdateProgress(
+                                ctx.id, p, ctx.total,
+                            ));
+                            continue;
                         }
                     }
 
@@ -307,7 +313,7 @@ mod tests {
     #[tokio::test]
     async fn test_count_items_empty() {
         let empty: Vec<PathBuf> = vec![];
-        assert_eq!(count_items(&empty).await, 0);
+        assert_eq!(count_items(&StdFileSystem, &empty).await, 0);
     }
 
     #[tokio::test]
@@ -329,7 +335,7 @@ mod tests {
             .map(|e| e.unwrap().path())
             .collect();
         // Should count: file1.txt, subdir, subdir2, file2.txt
-        assert_eq!(count_items(&root_entries).await, 4);
+        assert_eq!(count_items(&StdFileSystem, &root_entries).await, 4);
     }
 }
 
@@ -396,12 +402,29 @@ mod mock_fs_tests {
         }
         async fn rename(&self, src: &Path, dst: &Path) -> anyhow::Result<()> {
             let mut files = self.files.lock().await;
-            if let Some(entry) = files.remove(src) {
-                files.insert(dst.to_path_buf(), entry);
-                Ok(())
-            } else {
-                Err(anyhow::anyhow!("No such file/dir for rename"))
+            let mut to_move = Vec::new();
+            for k in files.keys() {
+                if k == src || k.starts_with(src) {
+                    to_move.push(k.clone());
+                }
             }
+            if to_move.is_empty() {
+                return Err(anyhow::anyhow!("No such file/dir for rename"));
+            }
+
+            // To avoid iterator invalidation or missing items, we collect first
+            let mut moved_entries = Vec::new();
+            for k in to_move {
+                if let Some(entry) = files.remove(&k) {
+                    let rel = k.strip_prefix(src).unwrap();
+                    let new_path = dst.join(rel);
+                    moved_entries.push((new_path, entry));
+                }
+            }
+            for (p, e) in moved_entries {
+                files.insert(p, e);
+            }
+            Ok(())
         }
         async fn remove_file(&self, path: &Path) -> anyhow::Result<()> {
             self.removed_files.lock().await.insert(path.to_path_buf());
@@ -532,10 +555,8 @@ mod mock_fs_tests {
 
         // Decision task: send OverwriteAll on first conflict
         tokio::spawn(async move {
-            if let Some(event) = rx.recv().await {
-                if let crate::tasks::TaskEvent::Conflict(_, _, _) = event {
-                    let _ = dtx.send(crate::tasks::TaskDecision::OverwriteAll).await;
-                }
+            if let Some(crate::tasks::TaskEvent::Conflict(_, _, _)) = rx.recv().await {
+                let _ = dtx.send(crate::tasks::TaskDecision::OverwriteAll).await;
             }
         });
 
@@ -600,10 +621,8 @@ mod mock_fs_tests {
 
         // Decision task: send Cancel on first conflict
         tokio::spawn(async move {
-            if let Some(event) = rx.recv().await {
-                if let crate::tasks::TaskEvent::Conflict(_, _, _) = event {
-                    let _ = dtx.send(crate::tasks::TaskDecision::Cancel).await;
-                }
+            if let Some(crate::tasks::TaskEvent::Conflict(_, _, _)) = rx.recv().await {
+                let _ = dtx.send(crate::tasks::TaskDecision::Cancel).await;
             }
         });
 
@@ -805,6 +824,127 @@ mod mock_fs_tests {
 
         assert!(result.is_ok());
         assert!(fs.files.lock().await.contains_key(&dst));
+    }
+
+    #[tokio::test]
+    async fn test_move_rename_optimization_no_conflict() {
+        let fs = MockFileSystem::default();
+        let src = PathBuf::from("/src.txt");
+        let dst = PathBuf::from("/dst.txt");
+        fs.files
+            .lock()
+            .await
+            .insert(src.clone(), FakeEntry { is_dir: false });
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (_dtx, drx_real) = mpsc::channel(1);
+        let processed = Arc::new(AtomicUsize::new(0));
+        let decision_rx = Arc::new(Mutex::new(drx_real));
+        let ctx = RecursiveOpContext {
+            tx: &tx,
+            id: 1,
+            total: 1,
+            processed: &processed,
+            decision_rx: &decision_rx,
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let mut decision_state = DecisionState {
+            overwrite_all: false,
+            skip_all: false,
+            last_update: std::time::Instant::now(),
+        };
+
+        // If it triggers a conflict, it will wait for decision and we didn't send one,
+        // but we can check the events.
+        let res = recursive_op(
+            &fs,
+            &src,
+            &dst,
+            crate::app::CopyMoveAction::Move,
+            &cancel,
+            ctx,
+            &mut decision_state,
+        );
+
+        // We wrap it in timeout to avoid hanging if the bug is present
+        let res = tokio::time::timeout(std::time::Duration::from_millis(500), res).await;
+
+        match res {
+            Ok(r) => assert!(r.is_ok(), "Operation failed: {:?}", r.err()),
+            Err(_) => {
+                // Check if there was a conflict event
+                if let Ok(crate::tasks::TaskEvent::Conflict(_, _, _)) = rx.try_recv() {
+                    panic!("BUG DETECTED: Conflict triggered for successful move!");
+                }
+                panic!("Operation timed out - likely waiting for conflict resolution!");
+            }
+        }
+
+        assert!(!fs.try_exists(&src).await.unwrap());
+        assert!(fs.try_exists(&dst).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_move_rename_optimization_directory() {
+        let fs = MockFileSystem::default();
+        let src_dir = PathBuf::from("/src_dir");
+        let dest_dir = PathBuf::from("/dest_dir");
+
+        {
+            let mut files = fs.files.lock().await;
+            files.insert(src_dir.clone(), FakeEntry { is_dir: true });
+            files.insert(src_dir.join("file1.txt"), FakeEntry { is_dir: false });
+            files.insert(src_dir.join("file2.txt"), FakeEntry { is_dir: false });
+        }
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (_dtx, drx_real) = mpsc::channel(1);
+        let processed = Arc::new(AtomicUsize::new(0));
+        let decision_rx = Arc::new(Mutex::new(drx_real));
+        let ctx = RecursiveOpContext {
+            tx: &tx,
+            id: 1,
+            total: 3, // dir + 2 files
+            processed: &processed,
+            decision_rx: &decision_rx,
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let mut decision_state = DecisionState {
+            overwrite_all: false,
+            skip_all: false,
+            last_update: std::time::Instant::now(),
+        };
+
+        let res = recursive_op(
+            &fs,
+            &src_dir,
+            &dest_dir,
+            crate::app::CopyMoveAction::Move,
+            &cancel,
+            ctx,
+            &mut decision_state,
+        )
+        .await;
+
+        assert!(res.is_ok());
+
+        // Verify progress update
+        let mut progress_events = 0;
+        let mut last_p = 0;
+        while let Ok(event) = rx.try_recv() {
+            if let crate::tasks::TaskEvent::UpdateProgress(_, p, _) = event {
+                progress_events += 1;
+                last_p = p;
+            }
+        }
+
+        assert_eq!(last_p, 3); // Should have updated progress by 3
+        assert!(progress_events >= 1);
+
+        assert!(!fs.try_exists(&src_dir).await.unwrap());
+        assert!(fs.try_exists(&dest_dir).await.unwrap());
+        assert!(fs.try_exists(&dest_dir.join("file1.txt")).await.unwrap());
+        assert!(fs.try_exists(&dest_dir.join("file2.txt")).await.unwrap());
     }
 }
 

@@ -139,7 +139,9 @@ mod tests {
         let p1 = dir1.path().to_path_buf();
         let p2 = dir2.path().to_path_buf();
         watcher.watch(&p1).unwrap();
-        watcher.update_watched_paths(&[p2.clone()]).unwrap();
+        watcher
+            .update_watched_paths(std::slice::from_ref(&p2))
+            .unwrap();
         assert!(!watcher.watched_paths.contains(&p1));
         assert!(watcher.watched_paths.contains(&p2));
     }

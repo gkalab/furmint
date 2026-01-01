@@ -192,7 +192,11 @@ pub fn spawn_copy_move_task(app: &mut AppState) {
         .task_manager
         .spawn_task(task_name, move |cancel, tx, id| async move {
             // Pre-calculation of total items (approximate)
-            let total_items = crate::handlers::file_ops::count_items(&paths).await;
+            let total_items = crate::handlers::file_ops::count_items(
+                &crate::handlers::file_ops::StdFileSystem,
+                &paths,
+            )
+            .await;
             let processed_items = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
             // State for "Apply to all" decisions
@@ -378,7 +382,7 @@ mod popup_copy_move_unit_tests {
         let mut app =
             minimal_state_with_entries(PanelSide::Left, left_entries, right_entries.clone(), 0, 0);
         handle_init_copy(&mut app);
-        assert_eq!(app.popups.copy_move.is_visible, true);
+        assert!(app.popups.copy_move.is_visible);
         assert_eq!(app.popups.copy_move.action, CopyMoveAction::Copy);
         assert!(app.popups.copy_move.source_paths[0].ends_with("A.txt"));
 
