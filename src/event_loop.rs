@@ -862,7 +862,10 @@ async fn handle_main_panel_event(
             (KeyCode::End, _) => handle_end(app),
             (KeyCode::Enter, _) => handle_open_item(app),
             (KeyCode::Char(' '), KeyModifiers::NONE) => handle_toggle_selection(app),
-            (KeyCode::Insert, _) => handle_toggle_selection(app),
+            (KeyCode::Insert, _) => {
+                handle_toggle_selection(app);
+                handle_down(app);
+            }
             _ => {}
         }
     }
@@ -1144,5 +1147,97 @@ mod tests {
         super::handle_watcher_event(event, &mut app);
         // Should not panic or change error field
         assert!(app.left.active_tab().error.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_handle_insert_moves_cursor_down() {
+        use crate::fs_ops::FileEntry;
+        let mut app = crate::app::AppState {
+            left: crate::app::TabManager {
+                tabs: vec![crate::app::Tab {
+                    current_dir: std::path::PathBuf::from("/mock"),
+                    entries: vec![
+                        FileEntry {
+                            name: "file1.txt".to_string(),
+                            is_dir: false,
+                            is_symlink: false,
+                            size: Some(10),
+                            modified: None,
+                            attributes: "".to_string(),
+                            selected: false,
+                        },
+                        FileEntry {
+                            name: "file2.txt".to_string(),
+                            is_dir: false,
+                            is_symlink: false,
+                            size: Some(10),
+                            modified: None,
+                            attributes: "".to_string(),
+                            selected: false,
+                        },
+                    ],
+                    cursor: 0,
+                    history: vec![],
+                    history_index: 0,
+                    error: None,
+                    typed_buffer: String::new(),
+                    last_type_time: None,
+                    sort_column: crate::app::SortColumn::Name,
+                    sort_direction: crate::app_state::tabs::SortDirection::Ascending,
+                    scroll_offset: 0,
+                }],
+                active_tab_index: 0,
+            },
+            right: crate::app::TabManager {
+                tabs: vec![crate::app::Tab {
+                    current_dir: std::path::PathBuf::from("/mock"),
+                    entries: vec![],
+                    cursor: 0,
+                    history: vec![],
+                    history_index: 0,
+                    error: None,
+                    typed_buffer: String::new(),
+                    last_type_time: None,
+                    sort_column: crate::app::SortColumn::Name,
+                    sort_direction: crate::app_state::tabs::SortDirection::Ascending,
+                    scroll_offset: 0,
+                }],
+                active_tab_index: 0,
+            },
+            active: crate::app::PanelSide::Left,
+            file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
+            fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
+            popups: crate::app::Popups::new(),
+            task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
+            task_decision_txs: std::collections::HashMap::new(),
+            show_task_manager: false,
+            dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
+            watcher: None,
+            input_polling_handle: None,
+            needs_redraw: false,
+            global: crate::config::GlobalConfig::default(),
+            editor_cfg: crate::config::EditorConfig::default(),
+            viewer_cfg: crate::config::ViewerConfig::default(),
+        };
+
+        let keyboard = KeyboardConfig::default();
+        let (input_tx, _) = tokio::sync::mpsc::unbounded_channel();
+
+        // Initial state: cursor at 0, file1 not selected
+        assert_eq!(app.left.active_tab().cursor, 0);
+        assert!(!app.left.active_tab().entries[0].selected);
+
+        handle_main_panel_event(
+            KeyCode::Insert,
+            KeyModifiers::NONE,
+            &mut app,
+            &keyboard,
+            input_tx,
+        )
+        .await;
+
+        // After Insert: file1 should be selected, cursor should be at 1
+        assert!(app.left.active_tab().entries[0].selected);
+        assert_eq!(app.left.active_tab().cursor, 1);
     }
 }
