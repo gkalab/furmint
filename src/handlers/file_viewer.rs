@@ -55,6 +55,38 @@ pub(crate) fn handle_file_viewer_event(code: KeyCode, app: &mut AppState) {
     }
 }
 
+pub async fn handle_external_viewer(app: &mut AppState) -> bool {
+    let viewer_cmd = app
+        .viewer_cfg
+        .command
+        .as_ref()
+        .or(app.global.viewer.as_ref())
+        .cloned();
+
+    if let Some(cmd_str) = viewer_cmd {
+        if let Some(entry) = app.active_tab().current_entry().cloned()
+            && !entry.is_dir
+        {
+            let file_path = app.active_tab().current_dir.join(&entry.name);
+            let in_terminal = app.viewer_cfg.in_terminal.unwrap_or(true);
+
+            if let Err(e) = crate::handlers::external::launch_external_program(
+                app,
+                &cmd_str,
+                file_path,
+                in_terminal,
+                "viewer",
+            )
+            .await
+            {
+                app.active_tab_mut().error = Some(e);
+            }
+        }
+        return true;
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

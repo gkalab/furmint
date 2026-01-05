@@ -5,71 +5,42 @@ use crossterm::event::Event as CrosstermEvent;
 use tokio::sync::mpsc::UnboundedSender;
 
 pub async fn handle_edit(app: &mut AppState, input_tx: UnboundedSender<CrosstermEvent>) {
-    let tab_manager = match app.active {
-        PanelSide::Left => &mut app.left,
-        PanelSide::Right => &mut app.right,
-    };
-    let entry = {
-        let panel = tab_manager.active_tab_mut();
-        panel.current_entry().cloned()
-    };
-    if let Some(entry) = entry
+    if let Some(entry) = app.active_tab().current_entry().cloned()
         && !entry.is_dir
     {
-        let file_path = {
-            let panel = tab_manager.active_tab_mut();
-            panel.current_dir.join(&entry.name)
-        };
+        let file_path = app.active_tab().current_dir.join(&entry.name);
+
         // Always use the new [editor] config
-        let editor_cfg = &app.editor_cfg;
-        let mut error_msg = None;
-        if let Some(cmd) = &editor_cfg.command {
-            let file_arg = file_path.to_string_lossy().to_string();
-            let (program, mut args) = crate::config::parse_command(cmd);
-            if program.is_empty() {
-                error_msg = Some("Invalid editor command".to_string());
-            } else {
-                args.push(file_arg);
-                if editor_cfg.in_terminal.unwrap_or(true) {
-                    let mut t_args = vec![program.clone()];
-                    t_args.extend(args.clone());
-                    if let Err(e) = crate::handlers::terminal::spawn_terminal(
-                        &tab_manager.active_tab().current_dir,
-                        app.global.terminal.clone(),
-                        t_args,
-                        true,
-                    ) {
-                        error_msg = Some(format!("Error launching editor: {e}"));
-                    }
-                } else {
-                    match std::process::Command::new(program)
-                        .args(&args)
-                        .stdin(std::process::Stdio::null())
-                        .stdout(std::process::Stdio::null())
-                        .stderr(std::process::Stdio::null())
-                        .spawn()
-                    {
-                        Ok(_) => (),
-                        Err(e) => {
-                            error_msg = Some(format!("Error launching editor: {e}"));
-                        }
-                    }
-                }
+        let (cmd, in_terminal) = {
+            let editor_cfg = &app.editor_cfg;
+            (
+                editor_cfg.command.clone(),
+                editor_cfg.in_terminal.unwrap_or(true),
+            )
+        };
+
+        if let Some(cmd_str) = cmd {
+            if let Err(e) = crate::handlers::external::launch_external_program(
+                app,
+                &cmd_str,
+                file_path.clone(),
+                in_terminal,
+                "editor",
+            )
+            .await
+            {
+                app.active_tab_mut().error = Some(e);
             }
-        } else {
-            // FALLBACK: use robust legacy handler for SSH/TTY friendliness
-            let entry_name = entry.name.clone();
-            let _result =
-                open_file_in_editor_with_env_handling(app, &file_path, Some(entry_name), &input_tx)
-                    .await;
-            // Real logic for handling error_msg if needed
+            return;
         }
-        if let Some(e) = error_msg {
-            let tab_manager = match app.active {
-                PanelSide::Left => &mut app.left,
-                PanelSide::Right => &mut app.right,
-            };
-            tab_manager.active_tab_mut().error = Some(e);
+
+        // FALLBACK: use robust legacy handler for SSH/TTY friendliness
+        let entry_name = entry.name.clone();
+        if let Err(e) =
+            open_file_in_editor_with_env_handling(app, &file_path, Some(entry_name), &input_tx)
+                .await
+        {
+            app.active_tab_mut().error = Some(format!("Error launching editor: {e}"));
         }
     }
 }

@@ -21,5 +21,6 @@ pub mod popup_create;
 pub mod popup_misc;
 
 pub mod editor;
+pub mod external;
 pub mod file_ops;
 pub mod terminal;

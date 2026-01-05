@@ -239,6 +239,32 @@ impl AppState {
             self.sync_watcher();
         }
     }
+
+    /// Returns a reference to the active tab manager
+    pub fn active_tab_manager(&self) -> &TabManager {
+        match self.active {
+            PanelSide::Left => &self.left,
+            PanelSide::Right => &self.right,
+        }
+    }
+
+    /// Returns a mutable reference to the active tab manager
+    pub fn active_tab_manager_mut(&mut self) -> &mut TabManager {
+        match self.active {
+            PanelSide::Left => &mut self.left,
+            PanelSide::Right => &mut self.right,
+        }
+    }
+
+    /// Returns a reference to the currently active tab
+    pub fn active_tab(&self) -> &Tab {
+        self.active_tab_manager().active_tab()
+    }
+
+    /// Returns a mutable reference to the currently active tab
+    pub fn active_tab_mut(&mut self) -> &mut Tab {
+        self.active_tab_manager_mut().active_tab_mut()
+    }
 }
 
 // Popup state structs moved to src/state/ module

@@ -29,13 +29,12 @@ use crate::handlers::popup_misc::{
 };
 use crate::handlers::popup_rename::{handle_init_rename, handle_rename_event};
 use crate::handlers::tabs::{handle_close_tab, handle_new_tab, handle_next_tab, handle_prev_tab};
-use crate::handlers::terminal::{handle_open_terminal, handle_toggle_console, spawn_terminal};
+use crate::handlers::terminal::{handle_open_terminal, handle_toggle_console};
 use crate::theme::ThemePalette;
 use crate::ui::{draw_panel, draw_panel_status};
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::prelude::*;
-use std::process::Stdio;
 
 pub fn spawn_input_polling(
     input_tx: tokio::sync::mpsc::UnboundedSender<crossterm::event::Event>,
@@ -475,63 +474,7 @@ pub async fn handle_event(
             }
 
             if code == KeyCode::F(3) && modifiers == KeyModifiers::NONE {
-                if let Some(viewer_cmd) = app
-                    .viewer_cfg
-                    .command
-                    .as_ref()
-                    .or(app.global.viewer.as_ref())
-                {
-                    let tab_manager = match app.active {
-                        PanelSide::Left => &app.left,
-                        PanelSide::Right => &app.right,
-                    };
-                    if let Some(entry) = tab_manager.active_tab().current_entry()
-                        && !entry.is_dir
-                    {
-                        let full_path = tab_manager.active_tab().current_dir.join(&entry.name);
-                        let file_arg = full_path.to_string_lossy().to_string();
-                        let mut args: Vec<String> = viewer_cmd
-                            .split_whitespace()
-                            .map(std::string::ToString::to_string)
-                            .collect();
-                        args.push(file_arg);
-                        let in_terminal = app.viewer_cfg.in_terminal.unwrap_or(true);
-                        if in_terminal {
-                            if let Err(e) = spawn_terminal(
-                                &tab_manager.active_tab().current_dir,
-                                app.global.terminal.clone(),
-                                args,
-                                true,
-                            ) {
-                                let tab_manager = match app.active {
-                                    PanelSide::Left => &mut app.left,
-                                    PanelSide::Right => &mut app.right,
-                                };
-                                tab_manager.active_tab_mut().error =
-                                    Some(format!("Error launching viewer: {e}"));
-                            }
-                        } else {
-                            // launch directly (background)
-                            match std::process::Command::new(&args[0])
-                                .args(&args[1..])
-                                .current_dir(&tab_manager.active_tab().current_dir)
-                                .stdin(Stdio::null())
-                                .stdout(Stdio::null())
-                                .stderr(Stdio::null())
-                                .spawn()
-                            {
-                                Ok(_) => {}
-                                Err(e) => {
-                                    let tab_manager = match app.active {
-                                        PanelSide::Left => &mut app.left,
-                                        PanelSide::Right => &mut app.right,
-                                    };
-                                    tab_manager.active_tab_mut().error =
-                                        Some(format!("Error launching viewer: {e}"));
-                                }
-                            }
-                        }
-                    }
+                if crate::handlers::file_viewer::handle_external_viewer(app).await {
                     return false;
                 }
                 app.file_viewer.is_visible = !app.file_viewer.is_visible;
