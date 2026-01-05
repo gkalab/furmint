@@ -305,6 +305,32 @@ pub fn validate_keyboard_config(config: &KeyboardConfig) -> Result<(), String> {
     Ok(())
 }
 
+/// Helper to check if a program exists, trying with common extensions if needed.
+fn check_program_exists(p: &str) -> Option<String> {
+    let path = std::path::Path::new(p);
+    if path.exists() {
+        return Some(p.to_string());
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let p_win = p.replace('/', "\\");
+        if std::path::Path::new(&p_win).exists() {
+            return Some(p_win);
+        }
+        for ext in [".exe", ".cmd", ".bat", ".com"] {
+            let with_ext = format!("{}{}", p, ext);
+            if std::path::Path::new(&with_ext).exists() {
+                return Some(with_ext);
+            }
+            let with_ext_win = with_ext.replace('/', "\\");
+            if std::path::Path::new(&with_ext_win).exists() {
+                return Some(with_ext_win);
+            }
+        }
+    }
+    None
+}
+
 /// Parses a command string into (program, args).
 /// Handles Windows paths with spaces by trying progressively longer prefixes.
 pub(crate) fn parse_command(cmd: &str) -> (String, Vec<String>) {
@@ -325,36 +351,10 @@ pub(crate) fn parse_command(cmd: &str) -> (String, Vec<String>) {
     if is_windows_abs && !trimmed.starts_with('"') && !trimmed.contains('\'') {
         let parts: Vec<String> = trimmed.split_whitespace().map(|s| s.to_string()).collect();
 
-        // Helper to check if a path exists, trying with common extensions
-        let check_exists = |p: &str| -> Option<String> {
-            let path = std::path::Path::new(p);
-            if path.exists() {
-                return Some(p.to_string());
-            }
-            #[cfg(target_os = "windows")]
-            {
-                let p_win = p.replace('/', "\\");
-                if std::path::Path::new(&p_win).exists() {
-                    return Some(p_win);
-                }
-                for ext in [".exe", ".cmd", ".bat", ".com"] {
-                    let with_ext = format!("{}{}", p, ext);
-                    if std::path::Path::new(&with_ext).exists() {
-                        return Some(with_ext);
-                    }
-                    let with_ext_win = with_ext.replace('/', "\\");
-                    if std::path::Path::new(&with_ext_win).exists() {
-                        return Some(with_ext_win);
-                    }
-                }
-            }
-            None
-        };
-
         // Try progressively longer prefixes (from longest to shortest)
         for i in (0..parts.len()).rev() {
             let candidate = parts[..=i].join(" ");
-            if let Some(existing) = check_exists(&candidate) {
+            if let Some(existing) = check_program_exists(&candidate) {
                 let args = parts[i + 1..].to_vec();
                 return (existing, args);
             }
@@ -391,15 +391,7 @@ pub fn validate_editor_config(config: &EditorConfig) -> Result<(), String> {
         }
         let (program, _) = parse_command(cmd);
         let path = std::path::Path::new(&program);
-        if path.is_absolute() && !path.exists() {
-            #[cfg(target_os = "windows")]
-            {
-                // Try with normalized slashes
-                if !std::path::Path::new(&program.replace('/', "\\")).exists() {
-                    return Err(format!("Editor command path does not exist: {program}"));
-                }
-            }
-            #[cfg(not(target_os = "windows"))]
+        if path.is_absolute() && check_program_exists(&program).is_none() {
             return Err(format!("Editor command path does not exist: {program}"));
         }
     }
@@ -413,14 +405,7 @@ pub fn validate_viewer_config(config: &ViewerConfig) -> Result<(), String> {
         }
         let (program, _) = parse_command(cmd);
         let path = std::path::Path::new(&program);
-        if path.is_absolute() && !path.exists() {
-            #[cfg(target_os = "windows")]
-            {
-                if !std::path::Path::new(&program.replace('/', "\\")).exists() {
-                    return Err(format!("Viewer command path does not exist: {program}"));
-                }
-            }
-            #[cfg(not(target_os = "windows"))]
+        if path.is_absolute() && check_program_exists(&program).is_none() {
             return Err(format!("Viewer command path does not exist: {program}"));
         }
     }
@@ -435,16 +420,7 @@ pub fn validate_global_config(config: &GlobalConfig) -> Result<(), String> {
             }
             let (program, _) = parse_command(c);
             let path = std::path::Path::new(&program);
-            if path.is_absolute() && !path.exists() {
-                #[cfg(target_os = "windows")]
-                {
-                    if !std::path::Path::new(&program.replace('/', "\\")).exists() {
-                        return Err(format!(
-                            "Global {name} command path does not exist: {program}"
-                        ));
-                    }
-                }
-                #[cfg(not(target_os = "windows"))]
+            if path.is_absolute() && check_program_exists(&program).is_none() {
                 return Err(format!(
                     "Global {name} command path does not exist: {program}"
                 ));
