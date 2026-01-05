@@ -4,16 +4,12 @@ use crate::app::AppState;
 use crossterm::event::KeyCode;
 
 pub fn handle_init_create_file(app: &mut AppState) {
-    let tab_manager = match app.active {
-        crate::app::PanelSide::Left => &app.left,
-        crate::app::PanelSide::Right => &app.right,
-    };
-    let panel = tab_manager.active_tab();
+    let parent_dir = app.active_tab().current_dir.clone();
     app.popups.create_file.is_visible = true;
     app.popups.create_file.input_value.clear();
     app.popups.create_file.cursor_position = 0;
     app.popups.create_file.error = None;
-    app.popups.create_file.parent_dir = panel.current_dir.clone();
+    app.popups.create_file.parent_dir = parent_dir;
 }
 
 pub fn handle_init_create_directory(app: &mut AppState) {
@@ -35,11 +31,7 @@ pub fn handle_create_directory_event(code: KeyCode, app: &mut AppState) -> bool 
                 return false;
             }
 
-            let tab_manager = match app.active {
-                crate::app::PanelSide::Left => &mut app.left,
-                crate::app::PanelSide::Right => &mut app.right,
-            };
-            let current_dir = &tab_manager.active_tab().current_dir;
+            let current_dir = app.active_tab().current_dir.clone();
             let new_path = current_dir.join(&new_name);
 
             match crate::fs_ops::create_directory(&new_path) {
@@ -47,19 +39,16 @@ pub fn handle_create_directory_event(code: KeyCode, app: &mut AppState) -> bool 
                     app.popups.create_directory.is_visible = false;
                     app.popups.create_directory.reset();
                     // Reload active tab
-                    if let Ok(entries) = crate::fs_ops::list_dir(current_dir) {
-                        tab_manager.active_tab_mut().entries = entries;
-                        tab_manager.active_tab_mut().sort_entries();
+                    if let Ok(entries) = crate::fs_ops::list_dir(&current_dir) {
+                        let panel = app.active_tab_mut();
+                        panel.entries = entries;
+                        panel.sort_entries();
 
                         // Try to select the new directory
                         if let Some(name) = new_path.file_name().and_then(|n| n.to_str())
-                            && let Some(idx) = tab_manager
-                                .active_tab()
-                                .entries
-                                .iter()
-                                .position(|e| e.name == name)
+                            && let Some(idx) = panel.entries.iter().position(|e| e.name == name)
                         {
-                            tab_manager.active_tab_mut().cursor = idx;
+                            panel.cursor = idx;
                         }
                     }
                 }

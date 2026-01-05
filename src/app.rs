@@ -265,6 +265,19 @@ impl AppState {
     pub fn active_tab_mut(&mut self) -> &mut Tab {
         self.active_tab_manager_mut().active_tab_mut()
     }
+
+    /// Returns a reference to the inactive tab manager
+    pub fn inactive_tab_manager(&self) -> &TabManager {
+        match self.active {
+            PanelSide::Left => &self.right,
+            PanelSide::Right => &self.left,
+        }
+    }
+
+    /// Returns a reference to the currently inactive tab
+    pub fn inactive_tab(&self) -> &Tab {
+        self.inactive_tab_manager().active_tab()
+    }
 }
 
 // Popup state structs moved to src/state/ module

@@ -18,11 +18,7 @@ pub(crate) fn handle_delete_event(code: KeyCode, app: &mut AppState) -> bool {
 }
 
 pub(crate) fn handle_init_delete(app: &mut AppState, permanent: bool) {
-    let tab_manager = match app.active {
-        crate::app::PanelSide::Left => &mut app.left,
-        crate::app::PanelSide::Right => &mut app.right,
-    };
-    let tab = tab_manager.active_tab();
+    let tab = app.active_tab();
     let mut selected: Vec<_> = tab
         .get_selected_entries()
         .iter()
@@ -103,11 +99,7 @@ pub(crate) fn handle_confirm_delete(app: &mut AppState) {
         });
 
     // Clear selection in active tab if deletion started
-    let tab_manager = match app.active {
-        crate::app::PanelSide::Left => &mut app.left,
-        crate::app::PanelSide::Right => &mut app.right,
-    };
-    for entry in &mut tab_manager.active_tab_mut().entries {
+    for entry in &mut app.active_tab_mut().entries {
         entry.selected = false;
     }
 }

@@ -1,13 +1,10 @@
 //! Tab management event handlers for new, next, previous, and close tab.
 
-use crate::app::{AppState, PanelSide};
+use crate::app::AppState;
 use crate::handlers::navigation::update_viewer_content;
 
 pub(crate) fn handle_new_tab(app: &mut AppState) {
-    let tab_manager = match app.active {
-        PanelSide::Left => &mut app.left,
-        PanelSide::Right => &mut app.right,
-    };
+    let tab_manager = app.active_tab_manager_mut();
 
     // Create new tab at the same directory as the current tab, preserving cursor position
     let current_dir = tab_manager.active_tab().current_dir.clone();
@@ -18,28 +15,19 @@ pub(crate) fn handle_new_tab(app: &mut AppState) {
 }
 
 pub(crate) fn handle_next_tab(app: &mut AppState) {
-    let tab_manager = match app.active {
-        PanelSide::Left => &mut app.left,
-        PanelSide::Right => &mut app.right,
-    };
+    let tab_manager = app.active_tab_manager_mut();
     tab_manager.next_tab();
     update_viewer_content(app);
 }
 
 pub(crate) fn handle_prev_tab(app: &mut AppState) {
-    let tab_manager = match app.active {
-        PanelSide::Left => &mut app.left,
-        PanelSide::Right => &mut app.right,
-    };
+    let tab_manager = app.active_tab_manager_mut();
     tab_manager.prev_tab();
     update_viewer_content(app);
 }
 
 pub(crate) fn handle_close_tab(app: &mut AppState) {
-    let tab_manager = match app.active {
-        PanelSide::Left => &mut app.left,
-        PanelSide::Right => &mut app.right,
-    };
+    let tab_manager = app.active_tab_manager_mut();
 
     let current_index = tab_manager.active_tab_index;
     if !tab_manager.close_tab(current_index) {

@@ -1,6 +1,6 @@
 //! Copy/move popup handler and spawning logic
 
-use crate::app::{AppState, PanelSide};
+use crate::app::AppState;
 use crossterm::event::KeyCode;
 
 pub fn handle_init_copy(app: &mut AppState) {
@@ -12,11 +12,7 @@ pub fn handle_init_move(app: &mut AppState) {
 }
 
 pub fn init_copy_move(app: &mut AppState, action: crate::app::CopyMoveAction) {
-    let tab_manager = match app.active {
-        PanelSide::Left => &mut app.left,
-        PanelSide::Right => &mut app.right,
-    };
-    let tab = tab_manager.active_tab();
+    let tab = app.active_tab();
     let selected: Vec<_> = tab
         .get_selected_entries()
         .iter()
@@ -42,10 +38,7 @@ pub fn init_copy_move(app: &mut AppState, action: crate::app::CopyMoveAction) {
     }
 
     // Get inactive panel path
-    let inactive_tab = match app.active {
-        PanelSide::Left => app.right.active_tab(),
-        PanelSide::Right => app.left.active_tab(),
-    };
+    let inactive_tab = app.inactive_tab();
     let dest = inactive_tab.current_dir.to_string_lossy().to_string();
 
     app.popups.copy_move.source_paths = paths;
@@ -82,10 +75,7 @@ pub fn handle_copy_move_event(code: KeyCode, app: &mut AppState) -> bool {
             } else if dest_path.is_absolute() {
                 dest_path
             } else {
-                match app.active {
-                    PanelSide::Left => app.left.active_tab().current_dir.join(&dest_path),
-                    PanelSide::Right => app.right.active_tab().current_dir.join(&dest_path),
-                }
+                app.active_tab().current_dir.join(&dest_path)
             };
             app.popups.copy_move.destination_input = dest_abs.to_string_lossy().to_string();
             for src in &app.popups.copy_move.source_paths {
@@ -174,10 +164,7 @@ pub fn spawn_copy_move_task(app: &mut AppState) {
 
     // Deselect files in active panel
     {
-        let entries = match app.active {
-            crate::app::PanelSide::Left => &mut app.left.active_tab_mut().entries,
-            crate::app::PanelSide::Right => &mut app.right.active_tab_mut().entries,
-        };
+        let entries = &mut app.active_tab_mut().entries;
         for entry in entries.iter_mut() {
             if entry.selected {
                 entry.selected = false;

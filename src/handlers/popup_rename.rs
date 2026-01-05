@@ -5,11 +5,7 @@ use crossterm::event::KeyCode;
 
 pub(crate) fn handle_init_rename(app: &mut AppState) {
     let (current_dir, entry) = {
-        let tab_manager = match app.active {
-            crate::app::PanelSide::Left => &app.left,
-            crate::app::PanelSide::Right => &app.right,
-        };
-        let panel = tab_manager.active_tab();
+        let panel = app.active_tab();
         (panel.current_dir.clone(), panel.current_entry().cloned())
     };
 
@@ -144,20 +140,13 @@ pub(crate) fn perform_rename(app: &mut AppState, overwrite: bool) {
 
     match result {
         Ok(()) => {
-            let tab_manager = match app.active {
-                crate::app::PanelSide::Left => &mut app.left,
-                crate::app::PanelSide::Right => &mut app.right,
-            };
-            let panel = tab_manager.active_tab_mut();
+            let new_name = app.popups.rename.new_name.clone();
+            let panel = app.active_tab_mut();
             match crate::fs_ops::list_dir(&panel.current_dir) {
                 Ok(entries) => {
                     panel.entries = entries;
                     panel.sort_entries();
-                    if let Some(idx) = panel
-                        .entries
-                        .iter()
-                        .position(|e| e.name == app.popups.rename.new_name)
-                    {
+                    if let Some(idx) = panel.entries.iter().position(|e| e.name == new_name) {
                         panel.cursor = idx;
                     }
                 }
@@ -167,11 +156,7 @@ pub(crate) fn perform_rename(app: &mut AppState, overwrite: bool) {
             }
         }
         Err(e) => {
-            let tab_manager = match app.active {
-                crate::app::PanelSide::Left => &mut app.left,
-                crate::app::PanelSide::Right => &mut app.right,
-            };
-            tab_manager.active_tab_mut().error = Some(format!("Error renaming: {e}"));
+            app.active_tab_mut().error = Some(format!("Error renaming: {e}"));
         }
     }
 }
