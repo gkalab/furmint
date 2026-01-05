@@ -25,7 +25,27 @@ pub async fn handle_edit(app: &mut AppState, input_tx: UnboundedSender<Crossterm
         let mut error_msg = None;
         if let Some(cmd) = &editor_cfg.command {
             let file_arg = file_path.to_string_lossy().to_string();
+            #[cfg(not(target_os = "windows"))]
             let parts = shell_words::split(cmd).unwrap_or_else(|_| vec![cmd.clone()]);
+            #[cfg(target_os = "windows")]
+            let parts = {
+                // On Windows, shell_words::split can mangle backslashes.
+                // If the command starts with a quote, try to extract the program path.
+                if cmd.starts_with('"') {
+                    if let Some(end) = cmd[1..].find('"') {
+                        let program = cmd[1..end + 1].to_string();
+                        let rest = &cmd[end + 2..];
+                        let mut p = vec![program];
+                        p.extend(rest.split_whitespace().map(|s| s.to_string()));
+                        p
+                    } else {
+                        vec![cmd.clone()]
+                    }
+                } else {
+                    cmd.split_whitespace().map(|s| s.to_string()).collect()
+                }
+            };
+
             if parts.is_empty() {
                 error_msg = Some("Invalid editor command".to_string());
             } else {
@@ -44,8 +64,20 @@ pub async fn handle_edit(app: &mut AppState, input_tx: UnboundedSender<Crossterm
                         error_msg = Some(format!("Error launching editor: {e}"));
                     }
                 } else {
-                    match std::process::Command::new(program)
-                        .args(&args)
+                    #[cfg(not(target_os = "windows"))]
+                    let mut process = std::process::Command::new(program);
+                    #[cfg(target_os = "windows")]
+                    let mut process = {
+                        let mut c = std::process::Command::new("cmd");
+                        c.arg("/C").arg("start").arg("").arg(program);
+                        c
+                    };
+
+                    args.iter().for_each(|arg| {
+                        process.arg(arg);
+                    });
+
+                    match process
                         .stdin(std::process::Stdio::null())
                         .stdout(std::process::Stdio::null())
                         .stderr(std::process::Stdio::null())
