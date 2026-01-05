@@ -305,88 +305,15 @@ pub fn validate_keyboard_config(config: &KeyboardConfig) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn split_command(cmd: &str) -> Vec<String> {
-    let trimmed = cmd.trim();
-    if trimmed.is_empty() {
-        return vec![];
-    }
-
-    // Handle unquoted Windows absolute paths
-    let looks_like_windows_abs = trimmed.len() > 2 && trimmed.get(1..2) == Some(":");
-    if looks_like_windows_abs && !trimmed.starts_with('"') && !trimmed.contains('\'') {
-        // 1. Exact existing path (with either slash)
-        if std::path::Path::new(trimmed).exists() {
-            return vec![trimmed.to_string()];
-        }
-        #[cfg(target_os = "windows")]
-        {
-            let alt = trimmed.replace('/', "\\");
-            if std::path::Path::new(&alt).exists() {
-                return vec![alt];
-            }
-            let alt2 = trimmed.replace('\\', "/");
-            if std::path::Path::new(&alt2).exists() {
-                return vec![alt2];
-            }
-        }
-
-        // 2. Prefix matching if spaces exist
-        if trimmed.contains(' ') {
-            let parts: Vec<String> = trimmed.split_whitespace().map(|s| s.to_string()).collect();
-            for i in (0..parts.len()).rev() {
-                let candidate = parts[..=i].join(" ");
-                let mut exists = std::path::Path::new(&candidate).exists();
-                #[cfg(target_os = "windows")]
-                if !exists {
-                    exists = std::path::Path::new(&candidate.replace('/', "\\")).exists();
-                }
-
-                if exists {
-                    let mut res = vec![candidate];
-                    res.extend(parts[i + 1..].iter().cloned());
-                    return res;
-                }
-            }
-
-            // 3. Fallback for unquoted absolute paths:
-            // If it doesn't have obvious argument markers, treat it as one string.
-            if !trimmed.contains(" -") && !trimmed.contains(" /") {
-                return vec![trimmed.to_string()];
-            }
-        }
-    }
-
-    // Default shell-like splitting
-    if let Ok(parts) = shell_words::split(trimmed) {
-        parts
-    } else {
-        trimmed.split_whitespace().map(|s| s.to_string()).collect()
-    }
-}
-
 pub fn validate_editor_config(config: &EditorConfig) -> Result<(), String> {
     if let Some(cmd) = &config.command {
         if cmd.trim().is_empty() {
             return Err("Editor command cannot be empty".to_string());
         }
-        let parts = split_command(cmd);
-        if let Some(first_part) = parts.first() {
-            let path = std::path::Path::new(first_part);
-            if path.is_absolute() && !path.exists() {
-                // On Windows, also try with forward/backward slashes swapped if it's absolute
-                #[cfg(target_os = "windows")]
-                {
-                    let alt_path = first_part.replace('/', "\\");
-                    let alt_path2 = first_part.replace('\\', "/");
-                    if !std::path::Path::new(&alt_path).exists()
-                        && !std::path::Path::new(&alt_path2).exists()
-                    {
-                        return Err(format!("Editor command path does not exist: {first_part}"));
-                    }
-                }
-                #[cfg(not(target_os = "windows"))]
-                return Err(format!("Editor command path does not exist: {first_part}"));
-            }
+        let first_part = cmd.split_whitespace().next().unwrap_or("");
+        let path = std::path::Path::new(first_part);
+        if path.is_absolute() && !path.exists() {
+            return Err(format!("Editor command path does not exist: {first_part}"));
         }
     }
     Ok(())
@@ -397,23 +324,10 @@ pub fn validate_viewer_config(config: &ViewerConfig) -> Result<(), String> {
         if cmd.trim().is_empty() {
             return Err("Viewer command cannot be empty".to_string());
         }
-        let parts = split_command(cmd);
-        if let Some(first_part) = parts.first() {
-            let path = std::path::Path::new(first_part);
-            if path.is_absolute() && !path.exists() {
-                #[cfg(target_os = "windows")]
-                {
-                    let alt_path = first_part.replace('/', "\\");
-                    let alt_path2 = first_part.replace('\\', "/");
-                    if !std::path::Path::new(&alt_path).exists()
-                        && !std::path::Path::new(&alt_path2).exists()
-                    {
-                        return Err(format!("Viewer command path does not exist: {first_part}"));
-                    }
-                }
-                #[cfg(not(target_os = "windows"))]
-                return Err(format!("Viewer command path does not exist: {first_part}"));
-            }
+        let first_part = cmd.split_whitespace().next().unwrap_or("");
+        let path = std::path::Path::new(first_part);
+        if path.is_absolute() && !path.exists() {
+            return Err(format!("Viewer command path does not exist: {first_part}"));
         }
     }
     Ok(())
@@ -425,27 +339,12 @@ pub fn validate_global_config(config: &GlobalConfig) -> Result<(), String> {
             if c.trim().is_empty() {
                 return Err(format!("Global {name} command cannot be empty"));
             }
-            let parts = split_command(c);
-            if let Some(first_part) = parts.first() {
-                let path = std::path::Path::new(first_part);
-                if path.is_absolute() && !path.exists() {
-                    #[cfg(target_os = "windows")]
-                    {
-                        let alt_path = first_part.replace('/', "\\");
-                        let alt_path2 = first_part.replace('\\', "/");
-                        if !std::path::Path::new(&alt_path).exists()
-                            && !std::path::Path::new(&alt_path2).exists()
-                        {
-                            return Err(format!(
-                                "Global {name} command path does not exist: {first_part}"
-                            ));
-                        }
-                    }
-                    #[cfg(not(target_os = "windows"))]
-                    return Err(format!(
-                        "Global {name} command path does not exist: {first_part}"
-                    ));
-                }
+            let first_part = c.split_whitespace().next().unwrap_or("");
+            let path = std::path::Path::new(first_part);
+            if path.is_absolute() && !path.exists() {
+                return Err(format!(
+                    "Global {name} command path does not exist: {first_part}"
+                ));
             }
         }
         Ok(())
@@ -667,24 +566,5 @@ mod tests {
         if std::path::Path::new(cmd).exists() {
             assert!(validate_editor_config(&editor_abs_exist).is_ok());
         }
-    }
-
-    #[test]
-    fn test_split_command() {
-        // Test simple command
-        assert_eq!(split_command("vim"), vec!["vim".to_string()]);
-        // Test command with args
-        assert_eq!(
-            split_command("vim -u NONE"),
-            vec!["vim".to_string(), "-u".to_string(), "NONE".to_string()]
-        );
-        // Test quoted path with spaces
-        assert_eq!(
-            split_command("\"C:/Program Files/vim.exe\" -v"),
-            vec!["C:/Program Files/vim.exe".to_string(), "-v".to_string()]
-        );
-        // Test unquoted path with spaces (new behavior: treats as one if absolute and no clear args)
-        let parts = split_command("C:/Program Files/vim.exe");
-        assert_eq!(parts, vec!["C:/Program Files/vim.exe".to_string()]);
     }
 }

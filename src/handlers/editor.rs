@@ -25,11 +25,7 @@ pub async fn handle_edit(app: &mut AppState, input_tx: UnboundedSender<Crossterm
         let mut error_msg = None;
         if let Some(cmd) = &editor_cfg.command {
             let file_arg = file_path.to_string_lossy().to_string();
-            #[cfg(not(target_os = "windows"))]
             let parts = shell_words::split(cmd).unwrap_or_else(|_| vec![cmd.clone()]);
-            #[cfg(target_os = "windows")]
-            let parts = crate::config::split_command(cmd);
-
             if parts.is_empty() {
                 error_msg = Some("Invalid editor command".to_string());
             } else {
@@ -48,20 +44,8 @@ pub async fn handle_edit(app: &mut AppState, input_tx: UnboundedSender<Crossterm
                         error_msg = Some(format!("Error launching editor: {e}"));
                     }
                 } else {
-                    #[cfg(not(target_os = "windows"))]
-                    let mut process = std::process::Command::new(program);
-                    #[cfg(target_os = "windows")]
-                    let mut process = {
-                        let mut c = std::process::Command::new("cmd");
-                        c.arg("/C").arg("start").arg("").arg(program);
-                        c
-                    };
-
-                    args.iter().for_each(|arg| {
-                        process.arg(arg);
-                    });
-
-                    match process
+                    match std::process::Command::new(program)
+                        .args(&args)
                         .stdin(std::process::Stdio::null())
                         .stdout(std::process::Stdio::null())
                         .stderr(std::process::Stdio::null())
