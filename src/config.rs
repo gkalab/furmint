@@ -307,6 +307,11 @@ pub fn validate_keyboard_config(config: &KeyboardConfig) -> Result<(), String> {
 
 pub(crate) fn split_command(cmd: &str) -> Vec<String> {
     let trimmed = cmd.trim();
+    if trimmed.is_empty() {
+        return vec![];
+    }
+
+    // If it exists as a whole, return it as a single part.
     if std::path::Path::new(trimmed).exists() {
         return vec![trimmed.to_string()];
     }
@@ -317,9 +322,32 @@ pub(crate) fn split_command(cmd: &str) -> Vec<String> {
         if std::path::Path::new(&alt).exists() {
             return vec![alt];
         }
-        let alt2 = trimmed.replace('\\', "/");
-        if std::path::Path::new(&alt2).exists() {
-            return vec![alt2];
+    }
+
+    // Progressive prefix check for unquoted Windows paths with spaces.
+    // E.g. "C:/Program Files/Editor/edit.exe --arg" -> ["C:/Program Files/Editor/edit.exe", "--arg"]
+    if trimmed.len() > 2
+        && trimmed.get(1..2) == Some(":")
+        && !trimmed.contains('"')
+        && !trimmed.contains('\'')
+        && trimmed.contains(' ')
+    {
+        let parts: Vec<&str> = trimmed.split(' ').collect();
+        // Try combinations from longest to shortest
+        for i in (1..parts.len()).rev() {
+            let candidate = parts[..=i].join(" ");
+            #[allow(unused_mut)]
+            let mut exists = std::path::Path::new(&candidate).exists();
+            #[cfg(target_os = "windows")]
+            if !exists {
+                exists = std::path::Path::new(&candidate.replace('/', "\\")).exists();
+            }
+
+            if exists {
+                let mut res = vec![candidate];
+                res.extend(parts[i + 1..].iter().map(|s| s.to_string()));
+                return res;
+            }
         }
     }
 
