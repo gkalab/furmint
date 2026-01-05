@@ -305,7 +305,24 @@ pub fn validate_keyboard_config(config: &KeyboardConfig) -> Result<(), String> {
     Ok(())
 }
 
-fn split_command(cmd: &str) -> Vec<String> {
+pub(crate) fn split_command(cmd: &str) -> Vec<String> {
+    let trimmed = cmd.trim();
+    if std::path::Path::new(trimmed).exists() {
+        return vec![trimmed.to_string()];
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let alt = trimmed.replace('/', "\\");
+        if std::path::Path::new(&alt).exists() {
+            return vec![alt];
+        }
+        let alt2 = trimmed.replace('\\', "/");
+        if std::path::Path::new(&alt2).exists() {
+            return vec![alt2];
+        }
+    }
+
     if let Ok(parts) = shell_words::split(cmd) {
         parts
     } else {
@@ -618,5 +635,28 @@ mod tests {
         if std::path::Path::new(cmd).exists() {
             assert!(validate_editor_config(&editor_abs_exist).is_ok());
         }
+    }
+
+    #[test]
+    fn test_split_command() {
+        // Test simple command
+        assert_eq!(split_command("vim"), vec!["vim".to_string()]);
+        // Test command with args
+        assert_eq!(
+            split_command("vim -u NONE"),
+            vec!["vim".to_string(), "-u".to_string(), "NONE".to_string()]
+        );
+        // Test quoted path with spaces
+        assert_eq!(
+            split_command("\"C:/Program Files/vim.exe\" -v"),
+            vec!["C:/Program Files/vim.exe".to_string(), "-v".to_string()]
+        );
+        // Test unquoted path with spaces (will split if not exists, which is true on Linux test env)
+        let parts = split_command("C:/Program Files/vim.exe");
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(
+            parts,
+            vec!["C:/Program".to_string(), "Files/vim.exe".to_string()]
+        );
     }
 }

@@ -28,23 +28,7 @@ pub async fn handle_edit(app: &mut AppState, input_tx: UnboundedSender<Crossterm
             #[cfg(not(target_os = "windows"))]
             let parts = shell_words::split(cmd).unwrap_or_else(|_| vec![cmd.clone()]);
             #[cfg(target_os = "windows")]
-            let parts = {
-                // On Windows, shell_words::split can mangle backslashes.
-                // If the command starts with a quote, try to extract the program path.
-                if cmd.starts_with('"') {
-                    if let Some(end) = cmd[1..].find('"') {
-                        let program = cmd[1..end + 1].to_string();
-                        let rest = &cmd[end + 2..];
-                        let mut p = vec![program];
-                        p.extend(rest.split_whitespace().map(|s| s.to_string()));
-                        p
-                    } else {
-                        vec![cmd.clone()]
-                    }
-                } else {
-                    cmd.split_whitespace().map(|s| s.to_string()).collect()
-                }
-            };
+            let parts = crate::config::split_command(cmd);
 
             if parts.is_empty() {
                 error_msg = Some("Invalid editor command".to_string());
