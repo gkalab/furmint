@@ -157,20 +157,18 @@ pub fn spawn_terminal(
     {
         if !args.is_empty() {
             let mut cmd = Command::new("cmd");
+            cmd.arg("/C").arg("start").arg("");
             if wrap_shell {
-                cmd.arg("/C").arg("start").arg("");
-                let mut line = args
-                    .iter()
-                    .map(|a| format!("\"{}\"", a.replace("\"", "\\\"")))
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                line = format!(
-                    "{} || (echo. & echo Command failed. Press any key to close... & pause > nul)",
-                    line
-                );
-                cmd.arg("cmd").arg("/k").arg(line);
+                // For wrap_shell, we use cmd /k so the window stays open on error.
+                // We pass 'cmd /k' as the program to 'start', and the actual command as args.
+                cmd.arg("cmd").arg("/k");
+                for arg in &args {
+                    cmd.arg(arg);
+                }
+                // Append pause-like behavior if possible, but cmd /k already stays open.
+                // If we want to specifically handle "Press any key to close",
+                // we'd need a more complex string, but for now cmd /k is safer.
             } else {
-                cmd.arg("/C").arg("start").arg("");
                 for arg in &args {
                     cmd.arg(arg);
                 }

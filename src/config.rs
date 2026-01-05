@@ -313,47 +313,61 @@ pub(crate) fn parse_command(cmd: &str) -> (String, Vec<String>) {
         return (String::new(), vec![]);
     }
 
-    // Check if it looks like a Windows absolute path (e.g., C:/... or C:\...)
-    let is_windows_abs_path = trimmed.len() > 2
-        && trimmed.chars().next().unwrap_or(' ').is_ascii_alphabetic()
-        && trimmed.get(1..2) == Some(":");
+    // Windows-specific path detection
+    let is_windows_abs = trimmed.len() > 2
+        && trimmed.get(1..2) == Some(":")
+        && trimmed
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_alphabetic())
+            .unwrap_or(false);
 
-    if is_windows_abs_path && !trimmed.starts_with('"') {
-        // Try the whole string first
-        if std::path::Path::new(trimmed).exists() {
-            return (trimmed.to_string(), vec![]);
-        }
-        #[cfg(target_os = "windows")]
-        {
-            let normalized = trimmed.replace('/', "\\");
-            if std::path::Path::new(&normalized).exists() {
-                return (normalized, vec![]);
+    if is_windows_abs && !trimmed.starts_with('"') && !trimmed.contains('\'') {
+        let parts: Vec<String> = trimmed.split_whitespace().map(|s| s.to_string()).collect();
+
+        // Helper to check if a path exists, trying with common extensions
+        let check_exists = |p: &str| -> Option<String> {
+            let path = std::path::Path::new(p);
+            if path.exists() {
+                return Some(p.to_string());
             }
-        }
+            #[cfg(target_os = "windows")]
+            {
+                let p_win = p.replace('/', "\\");
+                if std::path::Path::new(&p_win).exists() {
+                    return Some(p_win);
+                }
+                for ext in [".exe", ".cmd", ".bat", ".com"] {
+                    let with_ext = format!("{}{}", p, ext);
+                    if std::path::Path::new(&with_ext).exists() {
+                        return Some(with_ext);
+                    }
+                    let with_ext_win = with_ext.replace('/', "\\");
+                    if std::path::Path::new(&with_ext_win).exists() {
+                        return Some(with_ext_win);
+                    }
+                }
+            }
+            None
+        };
 
-        // Try progressively longer prefixes (split by whitespace)
-        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        // Try progressively longer prefixes (from longest to shortest)
         for i in (0..parts.len()).rev() {
             let candidate = parts[..=i].join(" ");
-            #[allow(unused_mut)]
-            let mut exists = std::path::Path::new(&candidate).exists();
-            #[cfg(target_os = "windows")]
-            if !exists {
-                exists = std::path::Path::new(&candidate.replace('/', "\\")).exists();
-            }
-            if exists {
-                let args: Vec<String> = parts[i + 1..].iter().map(|s| s.to_string()).collect();
-                return (candidate, args);
+            if let Some(existing) = check_exists(&candidate) {
+                let args = parts[i + 1..].to_vec();
+                return (existing, args);
             }
         }
 
-        // Fallback: if no prefix exists and there are no obvious args, treat as single path
+        // Fallback for unquoted absolute paths that aren't found on disk:
+        // if no clear argument markers are present, treat it as one string.
         if !trimmed.contains(" -") && !trimmed.contains(" /") {
             return (trimmed.to_string(), vec![]);
         }
     }
 
-    // Use shell_words for standard parsing (handles quotes etc.)
+    // Standard shell splitting
     if let Ok(parts) = shell_words::split(trimmed) {
         if parts.is_empty() {
             (String::new(), vec![])
@@ -361,15 +375,11 @@ pub(crate) fn parse_command(cmd: &str) -> (String, Vec<String>) {
             (parts[0].clone(), parts[1..].to_vec())
         }
     } else {
-        // Fallback: simple whitespace split
-        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        let parts: Vec<String> = trimmed.split_whitespace().map(|s| s.to_string()).collect();
         if parts.is_empty() {
             (String::new(), vec![])
         } else {
-            (
-                parts[0].to_string(),
-                parts[1..].iter().map(|s| s.to_string()).collect(),
-            )
+            (parts[0].clone(), parts[1..].to_vec())
         }
     }
 }
@@ -659,5 +669,38 @@ mod tests {
         if std::path::Path::new(cmd).exists() {
             assert!(validate_editor_config(&editor_abs_exist).is_ok());
         }
+    }
+
+    #[test]
+    fn test_parse_command() {
+        // Simple command
+        assert_eq!(parse_command("vim"), ("vim".to_string(), vec![]));
+
+        // Command with args
+        assert_eq!(
+            parse_command("vim -u NONE"),
+            (
+                "vim".to_string(),
+                vec!["-u".to_string(), "NONE".to_string()]
+            )
+        );
+
+        // Quoted path with spaces
+        assert_eq!(
+            parse_command("\"C:/Program Files/vim.exe\" -v"),
+            (
+                "C:/Program Files/vim.exe".to_string(),
+                vec!["-v".to_string()]
+            )
+        );
+
+        // Unquoted absolute path with spaces (split behavior when not exists and args present)
+        let (_prog, _args) = parse_command("C:/Program Files/Editor/edit.exe --arg");
+
+        // Let's test the conservative fallback specifically
+        assert_eq!(
+            parse_command("C:/Program Files/Alacritty/alacritty"),
+            ("C:/Program Files/Alacritty/alacritty".to_string(), vec![])
+        );
     }
 }
