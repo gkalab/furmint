@@ -311,52 +311,56 @@ pub(crate) fn split_command(cmd: &str) -> Vec<String> {
         return vec![];
     }
 
-    // If it exists as a whole, return it as a single part.
-    if std::path::Path::new(trimmed).exists() {
-        return vec![trimmed.to_string()];
-    }
+    // Handle unquoted Windows absolute paths
+    let looks_like_windows_abs = trimmed.len() > 2 && trimmed.get(1..2) == Some(":");
+    if looks_like_windows_abs && !trimmed.starts_with('"') && !trimmed.contains('\'') {
+        // 1. Exact existing path (with either slash)
+        if std::path::Path::new(trimmed).exists() {
+            return vec![trimmed.to_string()];
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let alt = trimmed.replace('/', "\\");
+            if std::path::Path::new(&alt).exists() {
+                return vec![alt];
+            }
+            let alt2 = trimmed.replace('\\', "/");
+            if std::path::Path::new(&alt2).exists() {
+                return vec![alt2];
+            }
+        }
 
-    #[cfg(target_os = "windows")]
-    {
-        let alt = trimmed.replace('/', "\\");
-        if std::path::Path::new(&alt).exists() {
-            return vec![alt];
+        // 2. Prefix matching if spaces exist
+        if trimmed.contains(' ') {
+            let parts: Vec<String> = trimmed.split_whitespace().map(|s| s.to_string()).collect();
+            for i in (0..parts.len()).rev() {
+                let candidate = parts[..=i].join(" ");
+                let mut exists = std::path::Path::new(&candidate).exists();
+                #[cfg(target_os = "windows")]
+                if !exists {
+                    exists = std::path::Path::new(&candidate.replace('/', "\\")).exists();
+                }
+
+                if exists {
+                    let mut res = vec![candidate];
+                    res.extend(parts[i + 1..].iter().cloned());
+                    return res;
+                }
+            }
+
+            // 3. Fallback for unquoted absolute paths:
+            // If it doesn't have obvious argument markers, treat it as one string.
+            if !trimmed.contains(" -") && !trimmed.contains(" /") {
+                return vec![trimmed.to_string()];
+            }
         }
     }
 
-    // Progressive prefix check for unquoted Windows paths with spaces.
-    // E.g. "C:/Program Files/Editor/edit.exe --arg" -> ["C:/Program Files/Editor/edit.exe", "--arg"]
-    if trimmed.len() > 2
-        && trimmed.get(1..2) == Some(":")
-        && !trimmed.contains('"')
-        && !trimmed.contains('\'')
-        && trimmed.contains(' ')
-    {
-        let parts: Vec<&str> = trimmed.split(' ').collect();
-        // Try combinations from longest to shortest
-        for i in (1..parts.len()).rev() {
-            let candidate = parts[..=i].join(" ");
-            #[allow(unused_mut)]
-            let mut exists = std::path::Path::new(&candidate).exists();
-            #[cfg(target_os = "windows")]
-            if !exists {
-                exists = std::path::Path::new(&candidate.replace('/', "\\")).exists();
-            }
-
-            if exists {
-                let mut res = vec![candidate];
-                res.extend(parts[i + 1..].iter().map(|s| s.to_string()));
-                return res;
-            }
-        }
-    }
-
-    if let Ok(parts) = shell_words::split(cmd) {
+    // Default shell-like splitting
+    if let Ok(parts) = shell_words::split(trimmed) {
         parts
     } else {
-        // Fallback for cases where shell_words fails, e.g. unclosed quotes
-        // Or simple whitespace split if it's not a shell-like command
-        cmd.split_whitespace().map(|s| s.to_string()).collect()
+        trimmed.split_whitespace().map(|s| s.to_string()).collect()
     }
 }
 
@@ -679,12 +683,8 @@ mod tests {
             split_command("\"C:/Program Files/vim.exe\" -v"),
             vec!["C:/Program Files/vim.exe".to_string(), "-v".to_string()]
         );
-        // Test unquoted path with spaces (will split if not exists, which is true on Linux test env)
+        // Test unquoted path with spaces (new behavior: treats as one if absolute and no clear args)
         let parts = split_command("C:/Program Files/vim.exe");
-        #[cfg(not(target_os = "windows"))]
-        assert_eq!(
-            parts,
-            vec!["C:/Program".to_string(), "Files/vim.exe".to_string()]
-        );
+        assert_eq!(parts, vec!["C:/Program Files/vim.exe".to_string()]);
     }
 }
