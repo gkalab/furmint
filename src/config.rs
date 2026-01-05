@@ -305,15 +305,92 @@ pub fn validate_keyboard_config(config: &KeyboardConfig) -> Result<(), String> {
     Ok(())
 }
 
+/// Parses a command string into (program, args).
+/// Handles Windows paths with spaces by trying progressively longer prefixes.
+pub(crate) fn parse_command(cmd: &str) -> (String, Vec<String>) {
+    let trimmed = cmd.trim();
+    if trimmed.is_empty() {
+        return (String::new(), vec![]);
+    }
+
+    // Check if it looks like a Windows absolute path (e.g., C:/... or C:\...)
+    let is_windows_abs_path = trimmed.len() > 2
+        && trimmed.chars().next().unwrap_or(' ').is_ascii_alphabetic()
+        && trimmed.get(1..2) == Some(":");
+
+    if is_windows_abs_path && !trimmed.starts_with('"') {
+        // Try the whole string first
+        if std::path::Path::new(trimmed).exists() {
+            return (trimmed.to_string(), vec![]);
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let normalized = trimmed.replace('/', "\\");
+            if std::path::Path::new(&normalized).exists() {
+                return (normalized, vec![]);
+            }
+        }
+
+        // Try progressively longer prefixes (split by whitespace)
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        for i in (0..parts.len()).rev() {
+            let candidate = parts[..=i].join(" ");
+            #[allow(unused_mut)]
+            let mut exists = std::path::Path::new(&candidate).exists();
+            #[cfg(target_os = "windows")]
+            if !exists {
+                exists = std::path::Path::new(&candidate.replace('/', "\\")).exists();
+            }
+            if exists {
+                let args: Vec<String> = parts[i + 1..].iter().map(|s| s.to_string()).collect();
+                return (candidate, args);
+            }
+        }
+
+        // Fallback: if no prefix exists and there are no obvious args, treat as single path
+        if !trimmed.contains(" -") && !trimmed.contains(" /") {
+            return (trimmed.to_string(), vec![]);
+        }
+    }
+
+    // Use shell_words for standard parsing (handles quotes etc.)
+    if let Ok(parts) = shell_words::split(trimmed) {
+        if parts.is_empty() {
+            (String::new(), vec![])
+        } else {
+            (parts[0].clone(), parts[1..].to_vec())
+        }
+    } else {
+        // Fallback: simple whitespace split
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        if parts.is_empty() {
+            (String::new(), vec![])
+        } else {
+            (
+                parts[0].to_string(),
+                parts[1..].iter().map(|s| s.to_string()).collect(),
+            )
+        }
+    }
+}
+
 pub fn validate_editor_config(config: &EditorConfig) -> Result<(), String> {
     if let Some(cmd) = &config.command {
         if cmd.trim().is_empty() {
             return Err("Editor command cannot be empty".to_string());
         }
-        let first_part = cmd.split_whitespace().next().unwrap_or("");
-        let path = std::path::Path::new(first_part);
+        let (program, _) = parse_command(cmd);
+        let path = std::path::Path::new(&program);
         if path.is_absolute() && !path.exists() {
-            return Err(format!("Editor command path does not exist: {first_part}"));
+            #[cfg(target_os = "windows")]
+            {
+                // Try with normalized slashes
+                if !std::path::Path::new(&program.replace('/', "\\")).exists() {
+                    return Err(format!("Editor command path does not exist: {program}"));
+                }
+            }
+            #[cfg(not(target_os = "windows"))]
+            return Err(format!("Editor command path does not exist: {program}"));
         }
     }
     Ok(())
@@ -324,10 +401,17 @@ pub fn validate_viewer_config(config: &ViewerConfig) -> Result<(), String> {
         if cmd.trim().is_empty() {
             return Err("Viewer command cannot be empty".to_string());
         }
-        let first_part = cmd.split_whitespace().next().unwrap_or("");
-        let path = std::path::Path::new(first_part);
+        let (program, _) = parse_command(cmd);
+        let path = std::path::Path::new(&program);
         if path.is_absolute() && !path.exists() {
-            return Err(format!("Viewer command path does not exist: {first_part}"));
+            #[cfg(target_os = "windows")]
+            {
+                if !std::path::Path::new(&program.replace('/', "\\")).exists() {
+                    return Err(format!("Viewer command path does not exist: {program}"));
+                }
+            }
+            #[cfg(not(target_os = "windows"))]
+            return Err(format!("Viewer command path does not exist: {program}"));
         }
     }
     Ok(())
@@ -339,11 +423,20 @@ pub fn validate_global_config(config: &GlobalConfig) -> Result<(), String> {
             if c.trim().is_empty() {
                 return Err(format!("Global {name} command cannot be empty"));
             }
-            let first_part = c.split_whitespace().next().unwrap_or("");
-            let path = std::path::Path::new(first_part);
+            let (program, _) = parse_command(c);
+            let path = std::path::Path::new(&program);
             if path.is_absolute() && !path.exists() {
+                #[cfg(target_os = "windows")]
+                {
+                    if !std::path::Path::new(&program.replace('/', "\\")).exists() {
+                        return Err(format!(
+                            "Global {name} command path does not exist: {program}"
+                        ));
+                    }
+                }
+                #[cfg(not(target_os = "windows"))]
                 return Err(format!(
-                    "Global {name} command path does not exist: {first_part}"
+                    "Global {name} command path does not exist: {program}"
                 ));
             }
         }

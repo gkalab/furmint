@@ -25,12 +25,10 @@ pub async fn handle_edit(app: &mut AppState, input_tx: UnboundedSender<Crossterm
         let mut error_msg = None;
         if let Some(cmd) = &editor_cfg.command {
             let file_arg = file_path.to_string_lossy().to_string();
-            let parts = shell_words::split(cmd).unwrap_or_else(|_| vec![cmd.clone()]);
-            if parts.is_empty() {
+            let (program, mut args) = crate::config::parse_command(cmd);
+            if program.is_empty() {
                 error_msg = Some("Invalid editor command".to_string());
             } else {
-                let program = &parts[0];
-                let mut args = parts[1..].to_vec();
                 args.push(file_arg);
                 if editor_cfg.in_terminal.unwrap_or(true) {
                     let mut t_args = vec![program.clone()];
