@@ -204,20 +204,32 @@ pub fn spawn_copy_move_task(app: &mut AppState) {
             let decision_rx = std::sync::Arc::new(tokio::sync::Mutex::new(decision_rx));
 
             // Ensure dest dir exists if multiple items or if treated as dir
-            let treat_as_dir = paths.len() > 1
-                || dest_path.is_dir()
-                || dest_str.ends_with(std::path::MAIN_SEPARATOR);
+            use crate::handlers::file_ops::FileSystem;
+
+            // Re-evaluate if destination is a directory using the correct filesystem
+            let dest_is_dir = dest_fs.is_dir(&dest_path).await.unwrap_or(false);
+            let dest_ends_with_slash = dest_str.ends_with(std::path::MAIN_SEPARATOR);
+
+            let treat_as_dir = paths.len() > 1 || dest_is_dir || dest_ends_with_slash;
 
             if treat_as_dir {
-                if let Err(e) = tokio::fs::create_dir_all(&dest_path).await {
-                    let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
-                        id,
-                        crate::tasks::TaskStatus::Failed(e.to_string()),
-                    ));
-                    return;
+                // We should ensure the directory exists on the destination filesystem
+                if !dest_fs.try_exists(&dest_path).await.unwrap_or(false) {
+                    if let Err(e) = dest_fs.create_dir_all(&dest_path).await {
+                        let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
+                            id,
+                            crate::tasks::TaskStatus::Failed(format!(
+                                "Failed to create destination directory: {}",
+                                e
+                            )),
+                        ));
+                        return;
+                    }
                 }
             } else if let Some(parent) = dest_path.parent() {
-                let _ = tokio::fs::create_dir_all(parent).await;
+                if !dest_fs.try_exists(parent).await.unwrap_or(false) {
+                    let _ = dest_fs.create_dir_all(parent).await;
+                }
             }
 
             let mut failures = Vec::new();
@@ -232,7 +244,9 @@ pub fn spawn_copy_move_task(app: &mut AppState) {
                     None => continue,
                 };
 
-                let target = if treat_as_dir {
+                // Re-check is_dir in case it was created above or existed
+                let is_dir_now = dest_fs.is_dir(&dest_path).await.unwrap_or(false);
+                let target = if treat_as_dir || is_dir_now {
                     dest_path.join(file_name)
                 } else {
                     dest_path.clone()
