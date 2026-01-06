@@ -908,7 +908,7 @@ mod mock_fs_tests {
             .insert(src.clone(), FakeEntry { is_dir: false });
 
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let (dtx, drx_real) = mpsc::channel(1);
+        let (_dtx, drx_real) = mpsc::channel(1);
         let processed = Arc::new(AtomicUsize::new(0));
         let decision_rx = Arc::new(Mutex::new(drx_real));
         let cancel = Arc::new(AtomicBool::new(false));
