@@ -19,6 +19,8 @@ mod handlers;
 mod help_ui;
 mod quit_ui;
 mod rename_ui;
+mod ssh_history;
+mod ssh_ui;
 mod state;
 mod task_ui;
 mod tasks;

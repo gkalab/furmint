@@ -59,6 +59,7 @@ mod tests {
             global: crate::config::GlobalConfig::default(),
             editor_cfg: crate::config::EditorConfig::default(),
             viewer_cfg: crate::config::ViewerConfig::default(),
+            ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
         };
         app.popups.conflict.is_visible = true;
         app.popups.conflict.task_id = task_id;

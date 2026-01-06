@@ -118,6 +118,7 @@ mod tests {
             global: crate::config::GlobalConfig::default(),
             editor_cfg: crate::config::EditorConfig::default(),
             viewer_cfg: crate::config::ViewerConfig::default(),
+            ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
         };
         // Populate content lines
         app.file_viewer.content = vec!["line".to_string(); file_lines];

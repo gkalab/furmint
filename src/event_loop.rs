@@ -28,6 +28,7 @@ use crate::handlers::popup_misc::{
     handle_quit_popup_event, handle_task_event, handle_task_manager_event,
 };
 use crate::handlers::popup_rename::{handle_init_rename, handle_rename_event};
+use crate::handlers::popup_ssh::{handle_ssh_connection_event, handle_ssh_password_event};
 use crate::handlers::tabs::{handle_close_tab, handle_new_tab, handle_next_tab, handle_prev_tab};
 use crate::handlers::terminal::{handle_open_terminal, handle_toggle_console};
 use crate::theme::ThemePalette;
@@ -351,7 +352,19 @@ fn draw_ui(
         crate::help_ui::draw_help_popup(f, app.popups.help.is_visible, keyboard, palette);
 
         // Draw drive selection popup
-        crate::drive_select_ui::draw_drive_select_popup(f, app, palette);
+        if app.popups.drive_select.is_visible {
+            crate::drive_select_ui::draw_drive_select_popup(f, app, palette);
+        }
+
+        // Draw SSH connection popup
+        if app.popups.ssh_connection.is_visible {
+            crate::ssh_ui::draw_ssh_connection_popup(f, app, palette);
+        }
+
+        // Draw SSH password popup
+        if app.popups.ssh_password.is_visible {
+            crate::ssh_ui::draw_ssh_password_popup(f, app, palette);
+        }
     })?;
     Ok(())
 }
@@ -466,6 +479,16 @@ pub async fn handle_event(
             // Handle conflict popup
             if app.popups.conflict.is_visible {
                 return handle_conflict_event(code, app).await;
+            }
+
+            // Handle SSH connection popup
+            if app.popups.ssh_connection.is_visible {
+                return handle_ssh_connection_event(app, code, modifiers);
+            }
+
+            // Handle SSH password popup
+            if app.popups.ssh_password.is_visible {
+                return handle_ssh_password_event(app, code, modifiers);
             }
 
             // Handle task manager
@@ -711,6 +734,14 @@ async fn handle_main_panel_event(
         return false;
     }
 
+    // Open SSH Connection
+    if let Some(keys) = &keyboard.open_ssh
+        && keys.contains(&shortcut)
+    {
+        crate::handlers::popup_ssh::handle_ssh_connection_init(app);
+        return false;
+    }
+
     // Open Terminal
     if let Some(keys) = &keyboard.open_terminal
         && keys.contains(&shortcut)
@@ -931,6 +962,7 @@ mod tests {
             global: crate::config::GlobalConfig::default(),
             editor_cfg: crate::config::EditorConfig::default(),
             viewer_cfg: crate::config::ViewerConfig::default(),
+            ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
         };
         let paths = vec![std::path::PathBuf::from("/mock")];
         let event = WatcherEvent::FileSystemChange(paths);
@@ -1001,6 +1033,7 @@ mod tests {
             global: crate::config::GlobalConfig::default(),
             editor_cfg: crate::config::EditorConfig::default(),
             viewer_cfg: crate::config::ViewerConfig::default(),
+            ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
         };
 
         // Note: we need to mock list_dir or ensure it returns what we expect.
@@ -1091,6 +1124,7 @@ mod tests {
             global: crate::config::GlobalConfig::default(),
             editor_cfg: crate::config::EditorConfig::default(),
             viewer_cfg: crate::config::ViewerConfig::default(),
+            ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
         };
         let event = WatcherEvent::Error("test error".to_string());
         super::handle_watcher_event(event, &mut app);
@@ -1169,6 +1203,7 @@ mod tests {
             global: crate::config::GlobalConfig::default(),
             editor_cfg: crate::config::EditorConfig::default(),
             viewer_cfg: crate::config::ViewerConfig::default(),
+            ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
         };
 
         let keyboard = KeyboardConfig::default();

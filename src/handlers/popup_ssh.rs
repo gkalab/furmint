@@ -1,0 +1,571 @@
+use crate::app::AppState;
+use crossterm::event::{KeyCode, KeyModifiers};
+use std::time::Instant;
+
+pub fn handle_ssh_connection_init(app: &mut AppState) {
+    app.popups.ssh_connection.is_visible = true;
+    app.popups.ssh_connection.error = None;
+    app.popups.ssh_connection.active_field = crate::state::ssh::SshField::ConnectionString;
+
+    // Clear fields on initialization
+    app.popups.ssh_connection.connection_string.clear();
+    app.popups.ssh_connection.name.clear();
+    app.popups.ssh_connection.port = "22".to_string();
+    app.popups.ssh_connection.selected_history_idx = if !app.ssh_history.connections.is_empty() {
+        Some(0)
+    } else {
+        None
+    };
+    app.popups.ssh_connection.cursor_position = 0;
+    app.popups.ssh_connection.search_query.clear();
+    app.popups.ssh_connection.last_key_time = None;
+}
+
+pub fn handle_ssh_connection_event(
+    app: &mut AppState,
+    code: KeyCode,
+    _modifiers: KeyModifiers,
+) -> bool {
+    use crate::state::ssh::SshField;
+
+    match code {
+        KeyCode::Esc => {
+            app.popups.ssh_connection.is_visible = false;
+        }
+        KeyCode::Tab => {
+            // Cycle fields
+            app.popups.ssh_connection.active_field = match app.popups.ssh_connection.active_field {
+                SshField::ConnectionString => SshField::Name,
+                SshField::Name => SshField::Port,
+                SshField::Port => SshField::History,
+                SshField::History => SshField::ConnectionString,
+            };
+            // Reset cursor position to end of field
+            reset_cursor(app);
+        }
+        KeyCode::BackTab => {
+            // Cycle fields backwards
+            app.popups.ssh_connection.active_field = match app.popups.ssh_connection.active_field {
+                SshField::ConnectionString => SshField::History,
+                SshField::Name => SshField::ConnectionString,
+                SshField::Port => SshField::Name,
+                SshField::History => SshField::Port,
+            };
+            reset_cursor(app);
+        }
+        KeyCode::Up => {
+            if app.popups.ssh_connection.active_field == SshField::History {
+                if let Some(idx) = app.popups.ssh_connection.selected_history_idx
+                    && idx > 0
+                {
+                    app.popups.ssh_connection.selected_history_idx = Some(idx - 1);
+                }
+            } else {
+                app.popups.ssh_connection.active_field =
+                    match app.popups.ssh_connection.active_field {
+                        SshField::ConnectionString => SshField::History,
+                        SshField::Name => SshField::ConnectionString,
+                        SshField::Port => SshField::Name,
+                        SshField::History => SshField::Port,
+                    };
+                reset_cursor(app);
+            }
+        }
+        KeyCode::Down => {
+            if app.popups.ssh_connection.active_field == SshField::History {
+                if let Some(idx) = app.popups.ssh_connection.selected_history_idx
+                    && idx + 1 < app.ssh_history.connections.len()
+                {
+                    app.popups.ssh_connection.selected_history_idx = Some(idx + 1);
+                } else if app.popups.ssh_connection.selected_history_idx.is_none()
+                    && !app.ssh_history.connections.is_empty()
+                {
+                    app.popups.ssh_connection.selected_history_idx = Some(0);
+                }
+            } else {
+                app.popups.ssh_connection.active_field =
+                    match app.popups.ssh_connection.active_field {
+                        SshField::ConnectionString => SshField::Name,
+                        SshField::Name => SshField::Port,
+                        SshField::Port => SshField::History,
+                        SshField::History => SshField::ConnectionString,
+                    };
+                reset_cursor(app);
+            }
+        }
+        KeyCode::PageUp => {
+            if app.popups.ssh_connection.active_field == SshField::History
+                && let Some(idx) = app.popups.ssh_connection.selected_history_idx
+            {
+                app.popups.ssh_connection.selected_history_idx = Some(idx.saturating_sub(5));
+            }
+        }
+        KeyCode::PageDown => {
+            if app.popups.ssh_connection.active_field == SshField::History
+                && let Some(idx) = app.popups.ssh_connection.selected_history_idx
+            {
+                let count = app.ssh_history.connections.len();
+                if count > 0 {
+                    app.popups.ssh_connection.selected_history_idx = Some((idx + 5).min(count - 1));
+                }
+            }
+        }
+        KeyCode::Left => {
+            if app.popups.ssh_connection.cursor_position > 0 {
+                app.popups.ssh_connection.cursor_position -= 1;
+            }
+        }
+        KeyCode::Right => {
+            let len = match app.popups.ssh_connection.active_field {
+                SshField::ConnectionString => app.popups.ssh_connection.connection_string.len(),
+                SshField::Name => app.popups.ssh_connection.name.len(),
+                SshField::Port => app.popups.ssh_connection.port.len(),
+                _ => 0,
+            };
+            if app.popups.ssh_connection.cursor_position < len {
+                app.popups.ssh_connection.cursor_position += 1;
+            }
+        }
+        KeyCode::Home => {
+            if app.popups.ssh_connection.active_field == SshField::History {
+                if !app.ssh_history.connections.is_empty() {
+                    app.popups.ssh_connection.selected_history_idx = Some(0);
+                }
+            } else {
+                app.popups.ssh_connection.cursor_position = 0;
+            }
+        }
+        KeyCode::End => {
+            if app.popups.ssh_connection.active_field == SshField::History {
+                let count = app.ssh_history.connections.len();
+                if count > 0 {
+                    app.popups.ssh_connection.selected_history_idx = Some(count - 1);
+                }
+            } else {
+                app.popups.ssh_connection.cursor_position =
+                    match app.popups.ssh_connection.active_field {
+                        SshField::ConnectionString => {
+                            app.popups.ssh_connection.connection_string.len()
+                        }
+                        SshField::Name => app.popups.ssh_connection.name.len(),
+                        SshField::Port => app.popups.ssh_connection.port.len(),
+                        _ => 0,
+                    };
+            }
+        }
+        KeyCode::Char(c) => match app.popups.ssh_connection.active_field {
+            SshField::ConnectionString => {
+                app.popups
+                    .ssh_connection
+                    .connection_string
+                    .insert(app.popups.ssh_connection.cursor_position, c);
+                app.popups.ssh_connection.cursor_position += 1;
+            }
+            SshField::Name => {
+                app.popups
+                    .ssh_connection
+                    .name
+                    .insert(app.popups.ssh_connection.cursor_position, c);
+                app.popups.ssh_connection.cursor_position += 1;
+            }
+            SshField::Port => {
+                if c.is_ascii_digit() {
+                    app.popups
+                        .ssh_connection
+                        .port
+                        .insert(app.popups.ssh_connection.cursor_position, c);
+                    app.popups.ssh_connection.cursor_position += 1;
+                }
+            }
+            SshField::History => {
+                handle_history_search(app, c);
+            }
+        },
+        KeyCode::Backspace => {
+            if app.popups.ssh_connection.cursor_position > 0 {
+                match app.popups.ssh_connection.active_field {
+                    SshField::ConnectionString => {
+                        app.popups
+                            .ssh_connection
+                            .connection_string
+                            .remove(app.popups.ssh_connection.cursor_position - 1);
+                        app.popups.ssh_connection.cursor_position -= 1;
+                    }
+                    SshField::Name => {
+                        app.popups
+                            .ssh_connection
+                            .name
+                            .remove(app.popups.ssh_connection.cursor_position - 1);
+                        app.popups.ssh_connection.cursor_position -= 1;
+                    }
+                    SshField::Port => {
+                        app.popups
+                            .ssh_connection
+                            .port
+                            .remove(app.popups.ssh_connection.cursor_position - 1);
+                        app.popups.ssh_connection.cursor_position -= 1;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        KeyCode::Delete => match app.popups.ssh_connection.active_field {
+            SshField::ConnectionString => {
+                if app.popups.ssh_connection.cursor_position
+                    < app.popups.ssh_connection.connection_string.len()
+                {
+                    app.popups
+                        .ssh_connection
+                        .connection_string
+                        .remove(app.popups.ssh_connection.cursor_position);
+                }
+            }
+            SshField::Name => {
+                if app.popups.ssh_connection.cursor_position < app.popups.ssh_connection.name.len()
+                {
+                    app.popups
+                        .ssh_connection
+                        .name
+                        .remove(app.popups.ssh_connection.cursor_position);
+                }
+            }
+            SshField::Port => {
+                if app.popups.ssh_connection.cursor_position < app.popups.ssh_connection.port.len()
+                {
+                    app.popups
+                        .ssh_connection
+                        .port
+                        .remove(app.popups.ssh_connection.cursor_position);
+                }
+            }
+            _ => {}
+        },
+        KeyCode::Enter => {
+            if app.popups.ssh_connection.active_field == SshField::History {
+                if let Some(idx) = app.popups.ssh_connection.selected_history_idx
+                    && let Some(info) = app.ssh_history.connections.get(idx)
+                {
+                    app.popups.ssh_connection.connection_string = info.connection_string.clone();
+                    app.popups.ssh_connection.name = info.name.clone().unwrap_or_default();
+                    app.popups.ssh_connection.port = info.port.to_string();
+                    app.popups.ssh_connection.cursor_position =
+                        app.popups.ssh_connection.connection_string.len();
+                    start_ssh_auth(app);
+                }
+            } else {
+                start_ssh_auth(app);
+            }
+        }
+        _ => {}
+    }
+    false
+}
+
+fn reset_cursor(app: &mut AppState) {
+    use crate::state::ssh::SshField;
+    app.popups.ssh_connection.cursor_position = match app.popups.ssh_connection.active_field {
+        SshField::ConnectionString => app.popups.ssh_connection.connection_string.len(),
+        SshField::Name => app.popups.ssh_connection.name.len(),
+        SshField::Port => app.popups.ssh_connection.port.len(),
+        SshField::History => 0,
+    };
+}
+
+fn handle_history_search(app: &mut AppState, c: char) {
+    let now = Instant::now();
+    if let Some(last) = app.popups.ssh_connection.last_key_time {
+        if now.duration_since(last).as_secs() >= 1 {
+            app.popups.ssh_connection.search_query.clear();
+        }
+    } else {
+        app.popups.ssh_connection.search_query.clear();
+    }
+
+    app.popups.ssh_connection.search_query.push(c);
+    app.popups.ssh_connection.last_key_time = Some(now);
+
+    let query = app.popups.ssh_connection.search_query.to_lowercase();
+    for (i, conn) in app.ssh_history.connections.iter().enumerate() {
+        let display = conn.display_string().to_lowercase();
+        if display.contains(&query) {
+            app.popups.ssh_connection.selected_history_idx = Some(i);
+            break;
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ParsedSsh {
+    user: String,
+    host: String,
+    path: Option<String>,
+}
+
+fn parse_connection_string(s: &str) -> Option<ParsedSsh> {
+    if s.is_empty() {
+        return None;
+    }
+
+    let mut remaining = s;
+    let mut user = "root".to_string();
+
+    // Parse user
+    if let Some(at_idx) = remaining.find('@') {
+        user = remaining[..at_idx].to_string();
+        remaining = &remaining[at_idx + 1..];
+    }
+
+    // Parse path (starts with :)
+    let mut path = None;
+    let mut host_part = remaining;
+
+    if let Some(colon_idx) = remaining.find(':') {
+        host_part = &remaining[..colon_idx];
+        let suffix = &remaining[colon_idx + 1..];
+
+        if !suffix.is_empty() {
+            path = Some(suffix.to_string());
+        }
+    }
+
+    if host_part.is_empty() {
+        return None;
+    }
+
+    Some(ParsedSsh {
+        user,
+        host: host_part.to_string(),
+        path,
+    })
+}
+
+fn start_ssh_auth(app: &mut AppState) {
+    let conn_str = app.popups.ssh_connection.connection_string.trim();
+    if conn_str.is_empty() {
+        app.popups.ssh_connection.error = Some("Connection string is required".to_string());
+        return;
+    }
+
+    let port_str = app.popups.ssh_connection.port.trim();
+    let port = match port_str.parse::<u16>() {
+        Ok(p) => p,
+        Err(_) => {
+            app.popups.ssh_connection.error = Some("Invalid port number".to_string());
+            return;
+        }
+    };
+
+    if let Some(parsed) = parse_connection_string(conn_str) {
+        let name = app.popups.ssh_connection.name.trim();
+        let name_opt = if name.is_empty() {
+            None
+        } else {
+            Some(name.to_string())
+        };
+
+        // Save to history
+        use crate::ssh_history::SshConnectionInfo;
+        app.ssh_history.add(SshConnectionInfo {
+            name: name_opt,
+            connection_string: conn_str.to_string(),
+            user: parsed.user.clone(),
+            host: parsed.host.clone(),
+            port,
+            path: parsed.path.clone(),
+        });
+
+        app.popups.ssh_connection.is_visible = false;
+        app.popups.ssh_password.is_visible = true;
+        app.popups.ssh_password.host = parsed.host;
+        app.popups.ssh_password.user = parsed.user;
+        app.popups.ssh_password.password.clear();
+    } else {
+        app.popups.ssh_connection.error = Some("Invalid connection string format".to_string());
+    }
+}
+
+pub fn handle_ssh_password_event(
+    app: &mut AppState,
+    code: KeyCode,
+    _modifiers: KeyModifiers,
+) -> bool {
+    match code {
+        KeyCode::Esc => {
+            app.popups.ssh_password.is_visible = false;
+            app.popups.ssh_connection.is_visible = true;
+        }
+        KeyCode::Char(c) => {
+            app.popups.ssh_password.password.push(c);
+        }
+        KeyCode::Backspace => {
+            app.popups.ssh_password.password.pop();
+        }
+        KeyCode::Enter => {
+            // Perform connection!
+            let host = app.popups.ssh_password.host.clone();
+            let user = app.popups.ssh_password.user.clone();
+            let _password = app.popups.ssh_password.password.clone();
+
+            app.popups.ssh_password.is_visible = false;
+
+            app.popups.error.is_visible = true;
+            app.popups.error.error_message =
+                format!("SFTP not yet implement for {}@{}", user, host);
+        }
+        _ => {}
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::{AppState, PanelSide};
+    use crate::config::GlobalConfig;
+    use crate::dir_history::DirectoryHistory;
+    use crate::state::FileViewerState;
+    use crate::state::ssh::SshField;
+    use crate::tasks::{TaskEvent, TaskManager};
+    use std::path::Path;
+    use tokio::sync::mpsc;
+
+    fn basic_app_state() -> AppState {
+        let (task_tx, _task_rx) = mpsc::unbounded_channel::<TaskEvent>();
+
+        AppState {
+            left: crate::app::TabManager::new(Path::new("/tmp")).unwrap(),
+            right: crate::app::TabManager::new(Path::new("/tmp")).unwrap(),
+            active: PanelSide::Left,
+            file_viewer: FileViewerState::new(false, ""),
+            fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
+            popups: crate::app::Popups::new(),
+            task_manager: TaskManager::new(task_tx),
+            task_decision_txs: Default::default(),
+            show_task_manager: false,
+            dir_history: DirectoryHistory::new().unwrap(),
+            watcher: None,
+            input_polling_handle: None,
+            needs_redraw: false,
+            global: GlobalConfig::default(),
+            editor_cfg: crate::config::EditorConfig::default(),
+            viewer_cfg: crate::config::ViewerConfig::default(),
+            ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
+        }
+    }
+
+    #[test]
+    fn test_parse_connection_string() {
+        let p = parse_connection_string("host").unwrap();
+        assert_eq!(p.user, "root");
+        assert_eq!(p.host, "host");
+        assert_eq!(p.path, None);
+
+        let p = parse_connection_string("user@host").unwrap();
+        assert_eq!(p.user, "user");
+        assert_eq!(p.host, "host");
+
+        let p = parse_connection_string("user@host:/path/to/dir").unwrap();
+        assert_eq!(p.path, Some("/path/to/dir".to_string()));
+
+        assert!(parse_connection_string("").is_none());
+    }
+
+    #[test]
+    fn test_ssh_field_cycling() {
+        let mut app = basic_app_state();
+        handle_ssh_connection_init(&mut app);
+
+        assert_eq!(
+            app.popups.ssh_connection.active_field,
+            SshField::ConnectionString
+        );
+
+        handle_ssh_connection_event(&mut app, KeyCode::Tab, KeyModifiers::NONE);
+        assert_eq!(app.popups.ssh_connection.active_field, SshField::Name);
+
+        handle_ssh_connection_event(&mut app, KeyCode::Tab, KeyModifiers::NONE);
+        assert_eq!(app.popups.ssh_connection.active_field, SshField::Port);
+
+        handle_ssh_connection_event(&mut app, KeyCode::Tab, KeyModifiers::NONE);
+        assert_eq!(app.popups.ssh_connection.active_field, SshField::History);
+
+        handle_ssh_connection_event(&mut app, KeyCode::Tab, KeyModifiers::NONE);
+        assert_eq!(
+            app.popups.ssh_connection.active_field,
+            SshField::ConnectionString
+        );
+
+        handle_ssh_connection_event(&mut app, KeyCode::BackTab, KeyModifiers::NONE);
+        assert_eq!(app.popups.ssh_connection.active_field, SshField::History);
+    }
+
+    #[test]
+    fn test_ssh_editing_cursor_movement() {
+        let mut app = basic_app_state();
+        handle_ssh_connection_init(&mut app);
+        app.popups.ssh_connection.connection_string = "root@host".to_string();
+        app.popups.ssh_connection.cursor_position = 9;
+
+        handle_ssh_connection_event(&mut app, KeyCode::Left, KeyModifiers::NONE);
+        assert_eq!(app.popups.ssh_connection.cursor_position, 8);
+
+        handle_ssh_connection_event(&mut app, KeyCode::Home, KeyModifiers::NONE);
+        assert_eq!(app.popups.ssh_connection.cursor_position, 0);
+
+        handle_ssh_connection_event(&mut app, KeyCode::End, KeyModifiers::NONE);
+        assert_eq!(app.popups.ssh_connection.cursor_position, 9);
+    }
+
+    #[test]
+    fn test_ssh_insert_delete() {
+        let mut app = basic_app_state();
+        handle_ssh_connection_init(&mut app);
+        app.popups.ssh_connection.connection_string = "host".to_string();
+        app.popups.ssh_connection.cursor_position = 0;
+
+        // Insert at start
+        handle_ssh_connection_event(&mut app, KeyCode::Char('a'), KeyModifiers::NONE);
+        assert_eq!(app.popups.ssh_connection.connection_string, "ahost");
+        assert_eq!(app.popups.ssh_connection.cursor_position, 1);
+
+        // Delete at position 1 (deletes 'h')
+        handle_ssh_connection_event(&mut app, KeyCode::Delete, KeyModifiers::NONE);
+        assert_eq!(app.popups.ssh_connection.connection_string, "aost");
+        assert_eq!(app.popups.ssh_connection.cursor_position, 1);
+
+        // Backspace (deletes 'a')
+        handle_ssh_connection_event(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
+        assert_eq!(app.popups.ssh_connection.connection_string, "ost");
+        assert_eq!(app.popups.ssh_connection.cursor_position, 0);
+    }
+
+    #[test]
+    fn test_history_search_reset() {
+        let mut app = basic_app_state();
+        handle_ssh_connection_init(&mut app);
+
+        use crate::ssh_history::SshConnectionInfo;
+        app.ssh_history.connections.push(SshConnectionInfo {
+            name: Some("Target".to_string()),
+            connection_string: "user@target".to_string(),
+            user: "user".to_string(),
+            host: "target".to_string(),
+            port: 22,
+            path: None,
+        });
+
+        app.popups.ssh_connection.active_field = SshField::History;
+
+        // Type 't'
+        handle_ssh_connection_event(&mut app, KeyCode::Char('t'), KeyModifiers::NONE);
+        assert_eq!(app.popups.ssh_connection.search_query, "t");
+        assert_eq!(app.popups.ssh_connection.selected_history_idx, Some(0));
+
+        // Wait is simulated by manually clearing or manipulating last_key_time
+        // but the core logic can be tested by making a second call with a past instant
+        app.popups.ssh_connection.last_key_time =
+            Some(Instant::now() - std::time::Duration::from_secs(2));
+        handle_history_search(&mut app, 'z');
+        assert_eq!(app.popups.ssh_connection.search_query, "z");
+    }
+}

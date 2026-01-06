@@ -185,6 +185,7 @@ swap_tabs = ["Ctrl-u"]
 help = ["F1"]
 change_drive_left = ["Alt-F1"]
 change_drive_right = ["Alt-F2"] 
+open_ssh ["Ctrl-n"]
 ```
 
 - For CLI editors (like `nvim`, `vim`, `nano`, `less`), set `in_terminal = true`.

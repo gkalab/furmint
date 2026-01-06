@@ -6,7 +6,7 @@ use std::path::PathBuf;
 pub use crate::state::{
     ConflictState, CopyMoveAction, CopyMoveState, CreateDirectoryState, CreateFileState,
     DeleteState, DriveSelectState, EmptyTrashState, ErrorState, FileViewerState, HelpState,
-    QuitConfirmationState, RenameState,
+    QuitConfirmationState, RenameState, SshConnectionState, SshPasswordState,
 };
 
 pub struct Popups {
@@ -21,6 +21,8 @@ pub struct Popups {
     pub create_file: CreateFileState,
     pub help: HelpState,
     pub drive_select: DriveSelectState,
+    pub ssh_connection: SshConnectionState,
+    pub ssh_password: SshPasswordState,
 }
 
 impl Popups {
@@ -37,6 +39,8 @@ impl Popups {
             create_file: CreateFileState::new(),
             help: HelpState::new(),
             drive_select: DriveSelectState::new(),
+            ssh_connection: SshConnectionState::new(),
+            ssh_password: SshPasswordState::new(),
         }
     }
 }
@@ -64,6 +68,7 @@ pub struct AppState {
     pub global: crate::config::GlobalConfig,
     pub editor_cfg: crate::config::EditorConfig,
     pub viewer_cfg: crate::config::ViewerConfig,
+    pub ssh_history: crate::ssh_history::SshConnectionHistory,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -116,6 +121,7 @@ impl AppState {
             global: ctx.global,
             editor_cfg: ctx.editor_cfg,
             viewer_cfg: ctx.viewer_cfg,
+            ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
         }
     }
 

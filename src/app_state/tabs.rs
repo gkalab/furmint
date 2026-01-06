@@ -138,21 +138,21 @@ impl Tab {
         }
     }
 
-    pub fn navigate_to(&mut self, path: &PathBuf) -> anyhow::Result<()> {
+    pub fn navigate_to(&mut self, path: &Path) -> anyhow::Result<()> {
         let entries = self.provider.list_dir(path)?;
         self.save_cursor_to_history();
 
         // Truncate forward history if we're navigating to a new place
         self.history.truncate(self.history_index + 1);
 
-        self.current_dir = path.clone();
+        self.current_dir = path.to_path_buf();
         self.entries = entries;
         self.cursor = 0;
         self.scroll_offset = 0;
         self.typed_buffer.clear();
 
         self.history.push(HistoryEntry {
-            path: path.clone(),
+            path: path.to_path_buf(),
             cursor: 0,
         });
         self.history_index = self.history.len() - 1;

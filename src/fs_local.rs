@@ -20,11 +20,11 @@ impl LocalFs {
 
 impl FileSystemProvider for LocalFs {
     fn list_dir(&self, path: &Path) -> Result<Vec<FileEntry>> {
-        fs_ops::list_dir(&path.to_path_buf())
+        fs_ops::list_dir(path)
     }
 
     fn create_dir(&self, path: &Path) -> Result<()> {
-        fs_ops::create_directory(&path.to_path_buf())
+        fs_ops::create_directory(path)
     }
 
     fn create_file(&self, path: &Path) -> Result<()> {

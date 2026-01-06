@@ -44,12 +44,11 @@ pub fn handle_create_directory_event(code: KeyCode, app: &mut AppState) -> bool 
                         let panel = app.active_tab_mut();
                         let entries = panel.provider.list_dir(&current_dir).ok();
                         let mut new_cursor = None;
-                        if let Some(entries) = &entries {
-                            if let Some(name) = new_path.file_name().and_then(|n| n.to_str())
-                                && let Some(idx) = entries.iter().position(|e| e.name == name)
-                            {
-                                new_cursor = Some(idx);
-                            }
+                        if let Some(entries) = &entries
+                            && let Some(name) = new_path.file_name().and_then(|n| n.to_str())
+                            && let Some(idx) = entries.iter().position(|e| e.name == name)
+                        {
+                            new_cursor = Some(idx);
                         }
                         (entries, new_cursor)
                     };
@@ -305,6 +304,7 @@ mod tests {
             global: crate::config::GlobalConfig::default(),
             editor_cfg: crate::config::EditorConfig::default(),
             viewer_cfg: crate::config::ViewerConfig::default(),
+            ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
         }
     }
 

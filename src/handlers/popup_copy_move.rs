@@ -355,9 +355,10 @@ mod popup_copy_move_unit_tests {
             watcher: None,
             input_polling_handle: None,
             needs_redraw: false,
-            global: Default::default(),
-            editor_cfg: Default::default(),
-            viewer_cfg: Default::default(),
+            global: crate::config::GlobalConfig::default(),
+            editor_cfg: crate::config::EditorConfig::default(),
+            viewer_cfg: crate::config::ViewerConfig::default(),
+            ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
         }
     }
 

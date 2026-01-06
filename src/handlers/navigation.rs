@@ -268,6 +268,7 @@ mod tests {
             global: GlobalConfig::default(),
             editor_cfg: crate::config::EditorConfig::default(),
             viewer_cfg: crate::config::ViewerConfig::default(),
+            ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
         }
     }
 
@@ -360,10 +361,7 @@ mod tests {
         let mut app = test_app(vec![]);
         app.left.active_tab_mut().current_dir = path.to_path_buf();
         // Manually list to populate entries
-        app.left
-            .active_tab_mut()
-            .navigate_to(&path.to_path_buf())
-            .unwrap();
+        app.left.active_tab_mut().navigate_to(path).unwrap();
 
         // Find file and dir indices
         let file_idx = app
@@ -402,10 +400,7 @@ mod tests {
         assert!(app.left.active_tab().current_dir.ends_with("test_dir"));
 
         // Test handle_open_item on file (should stay in same dir as it spawns process)
-        app.left
-            .active_tab_mut()
-            .navigate_to(&path.to_path_buf())
-            .unwrap();
+        app.left.active_tab_mut().navigate_to(path).unwrap();
         app.left.active_tab_mut().cursor = file_idx;
         let original_dir = app.left.active_tab().current_dir.clone();
         handle_open_item(&mut app);

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use chrono::{DateTime, Local};
 use std::fs::{self, Metadata};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 // Cross-platform: empties user trash. Returns number of deleted items, or error.
@@ -166,7 +166,7 @@ pub fn get_attributes(meta: &Metadata, is_dir: bool) -> String {
     }
 }
 
-pub fn list_dir(path: &PathBuf) -> Result<Vec<FileEntry>> {
+pub fn list_dir(path: &Path) -> Result<Vec<FileEntry>> {
     let mut entries = vec![];
     // Always add .. for going up
     entries.push(FileEntry {

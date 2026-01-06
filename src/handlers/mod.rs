@@ -19,6 +19,7 @@ pub mod popup_error;
 pub mod file_viewer;
 pub mod popup_create;
 pub mod popup_misc;
+pub mod popup_ssh;
 
 pub mod editor;
 pub mod external;

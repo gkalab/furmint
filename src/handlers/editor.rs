@@ -225,6 +225,7 @@ mod tests {
                 in_terminal: Some(true),
             },
             viewer_cfg: crate::config::ViewerConfig::default(),
+            ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
         };
         handle_edit(&mut app, tx).await;
         let error = app.left.active_tab().error.clone();
