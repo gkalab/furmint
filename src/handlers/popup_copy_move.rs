@@ -175,9 +175,14 @@ pub fn spawn_copy_move_task(app: &mut AppState) {
     // Create channel for decisions
     let (decision_tx, decision_rx) = tokio::sync::mpsc::channel(1);
 
+    let src_provider = app.active_tab().provider.clone();
+    let dest_provider = app.inactive_tab().provider.clone();
+
     let id = app
         .task_manager
         .spawn_task(task_name, move |cancel, tx, id| async move {
+            let src_fs = crate::handlers::file_ops::ProviderFileSystem(src_provider);
+            let dest_fs = crate::handlers::file_ops::ProviderFileSystem(dest_provider);
             // Pre-calculation of total items (approximate)
             let total_items = crate::handlers::file_ops::count_items(
                 &crate::handlers::file_ops::StdFileSystem,
@@ -241,9 +246,9 @@ pub fn spawn_copy_move_task(app: &mut AppState) {
                     processed: &processed_items,
                     decision_rx: &decision_rx,
                 };
-                let fs_impl = crate::handlers::file_ops::StdFileSystem;
                 let res = crate::handlers::file_ops::recursive_op(
-                    &fs_impl,
+                    &src_fs,
+                    &dest_fs,
                     src,
                     &target,
                     action,

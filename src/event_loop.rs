@@ -147,6 +147,11 @@ fn handle_watcher_event(event: crate::watcher::WatcherEvent, app: &mut AppState)
     match event {
         crate::watcher::WatcherEvent::FileSystemChange(paths) => {
             let handle_tab = |tab: &mut crate::app::Tab| {
+                // Watcher only supports local filesystem
+                if !tab.provider.is_local() {
+                    return;
+                }
+
                 // Check info about current directory
                 let current_exists = tab.current_dir.exists();
 

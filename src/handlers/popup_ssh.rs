@@ -1,5 +1,7 @@
 use crate::app::AppState;
+use crate::tasks::{SshContext, TaskEvent, TaskStatus};
 use crossterm::event::{KeyCode, KeyModifiers};
+use std::sync::Arc;
 use std::time::Instant;
 
 pub fn handle_ssh_connection_init(app: &mut AppState) {
@@ -404,17 +406,67 @@ pub fn handle_ssh_password_event(
             // Perform connection!
             let host = app.popups.ssh_password.host.clone();
             let user = app.popups.ssh_password.user.clone();
-            let _password = app.popups.ssh_password.password.clone();
+            let password = app.popups.ssh_password.password.clone();
+            let port = app.popups.ssh_connection.port.parse::<u16>().unwrap_or(22);
+            let target_path = parse_connection_string(&app.popups.ssh_connection.connection_string)
+                .and_then(|p| p.path);
 
             app.popups.ssh_password.is_visible = false;
-
-            app.popups.error.is_visible = true;
-            app.popups.error.error_message =
-                format!("SFTP not yet implement for {}@{}", user, host);
+            connect_ssh(app, user, host, port, password, target_path);
         }
         _ => {}
     }
     false
+}
+
+fn connect_ssh(
+    app: &mut AppState,
+    user: String,
+    host: String,
+    port: u16,
+    password: String,
+    target_path: Option<String>,
+) {
+    let name = format!("Connecting to {}@{}", user, host);
+    app.task_manager
+        .spawn_task(name, move |_cancel, tx, id| async move {
+            let result =
+                tokio::task::spawn_blocking(move || -> anyhow::Result<crate::fs_sftp::SftpFs> {
+                    use std::net::TcpStream;
+                    let tcp = TcpStream::connect(format!("{}:{}", host, port))?;
+                    let mut sess = ssh2::Session::new()?;
+                    sess.set_tcp_stream(tcp);
+                    sess.handshake()?;
+                    sess.userauth_password(&user, &password)?;
+                    if !sess.authenticated() {
+                        return Err(anyhow::anyhow!("Authentication failed"));
+                    }
+                    Ok(crate::fs_sftp::SftpFs::new(sess, host, user))
+                })
+                .await;
+
+            match result {
+                Ok(Ok(fs)) => {
+                    let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Completed));
+                    let _ = tx.send(TaskEvent::SshConnected(SshContext {
+                        provider: Arc::new(fs),
+                        path: target_path.map(std::path::PathBuf::from),
+                    }));
+                }
+                Ok(Err(e)) => {
+                    let _ = tx.send(TaskEvent::UpdateStatus(
+                        id,
+                        TaskStatus::Failed(e.to_string()),
+                    ));
+                }
+                Err(e) => {
+                    let _ = tx.send(TaskEvent::UpdateStatus(
+                        id,
+                        TaskStatus::Failed(format!("Task panicked: {}", e)),
+                    ));
+                }
+            }
+        });
 }
 
 #[cfg(test)]

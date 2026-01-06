@@ -161,6 +161,17 @@ impl Tab {
         Ok(())
     }
 
+    pub fn reload(&mut self) -> anyhow::Result<()> {
+        let entries = self.provider.list_dir(&self.current_dir)?;
+        self.entries = entries;
+        self.sort_entries();
+        // Adjust cursor if out of bounds
+        if self.cursor >= self.entries.len() {
+            self.cursor = self.entries.len().saturating_sub(1);
+        }
+        Ok(())
+    }
+
     pub fn go_up(&mut self) -> anyhow::Result<()> {
         if let Some(parent) = self.current_dir.parent() {
             let parent_path = parent.to_path_buf();

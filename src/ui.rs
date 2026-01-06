@@ -1,7 +1,7 @@
 use crate::app::{Tab, TabManager};
 use crate::fs_ops::{format_modified, format_size};
 use crate::theme::ThemePalette;
-use crate::ui_utils::{truncate_middle_with_ellipsis, truncate_path_with_ellipsis};
+use crate::ui_utils::truncate_middle_with_ellipsis;
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Cell, Row, Table, TableState};
 
@@ -148,7 +148,19 @@ pub fn draw_panel(
     };
 
     let title_width = area.width.saturating_sub(2) as usize;
-    let panel_title = truncate_path_with_ellipsis(&panel.current_dir, title_width);
+    let prefix = panel.provider.display_prefix();
+    let path_str = panel.current_dir.to_string_lossy();
+    let full_title = if prefix.is_empty() {
+        format!(" {} ", path_str)
+    } else {
+        format!(" {}:{} ", prefix, path_str)
+    };
+    // Truncate if necessary
+    let panel_title = if full_title.len() > title_width {
+        crate::ui_utils::truncate_path_with_ellipsis(&panel.current_dir, title_width)
+    } else {
+        full_title
+    };
     let block = Block::default()
         .borders(Borders::ALL)
         .title(panel_title)

@@ -11,6 +11,8 @@ pub trait FileSystem: Send + Sync {
     async fn rename(&self, src: &std::path::Path, dst: &std::path::Path) -> anyhow::Result<()>;
     async fn remove_file(&self, path: &std::path::Path) -> anyhow::Result<()>;
     async fn copy(&self, src: &std::path::Path, dst: &std::path::Path) -> anyhow::Result<()>;
+    async fn read_file(&self, path: &std::path::Path) -> anyhow::Result<Vec<u8>>;
+    async fn write_file(&self, path: &std::path::Path, data: &[u8]) -> anyhow::Result<()>;
 }
 
 pub struct StdFileSystem;
@@ -46,6 +48,76 @@ impl FileSystem for StdFileSystem {
             .map(|_| ())
             .map_err(anyhow::Error::from)
     }
+    async fn read_file(&self, path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
+        Ok(tokio::fs::read(path).await?)
+    }
+    async fn write_file(&self, path: &std::path::Path, data: &[u8]) -> anyhow::Result<()> {
+        Ok(tokio::fs::write(path, data).await?)
+    }
+}
+
+pub struct ProviderFileSystem(pub std::sync::Arc<dyn crate::fs_provider::FileSystemProvider>);
+
+#[async_trait]
+impl FileSystem for ProviderFileSystem {
+    async fn try_exists(&self, path: &std::path::Path) -> anyhow::Result<bool> {
+        let p = self.0.clone();
+        let path = path.to_path_buf();
+        Ok(tokio::task::spawn_blocking(move || p.exists(&path)).await?)
+    }
+    async fn is_dir(&self, path: &std::path::Path) -> anyhow::Result<bool> {
+        let p = self.0.clone();
+        let path = path.to_path_buf();
+        Ok(tokio::task::spawn_blocking(move || p.is_dir(&path)).await?)
+    }
+    async fn create_dir_all(&self, path: &std::path::Path) -> anyhow::Result<()> {
+        let p = self.0.clone();
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || p.create_dir(&path)).await??;
+        Ok(())
+    }
+    async fn read_dir(&self, path: &std::path::Path) -> anyhow::Result<Vec<std::path::PathBuf>> {
+        let p = self.0.clone();
+        let path_buf = path.to_path_buf();
+        let path_buf_clone = path_buf.clone();
+        let entries = tokio::task::spawn_blocking(move || p.list_dir(&path_buf)).await??;
+        Ok(entries
+            .into_iter()
+            .filter(|e| e.name != "..")
+            .map(|e| path_buf_clone.join(e.name))
+            .collect())
+    }
+    async fn rename(&self, src: &std::path::Path, dst: &std::path::Path) -> anyhow::Result<()> {
+        let p = self.0.clone();
+        let src = src.to_path_buf();
+        let dst = dst.to_path_buf();
+        tokio::task::spawn_blocking(move || p.rename(&src, &dst)).await??;
+        Ok(())
+    }
+    async fn remove_file(&self, path: &std::path::Path) -> anyhow::Result<()> {
+        let p = self.0.clone();
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || p.delete(&path, false)).await??;
+        Ok(())
+    }
+    async fn copy(&self, src: &std::path::Path, dst: &std::path::Path) -> anyhow::Result<()> {
+        // Core cross-provider copy logic
+        let data = self.read_file(src).await?;
+        self.write_file(dst, &data).await?;
+        Ok(())
+    }
+    async fn read_file(&self, path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
+        let p = self.0.clone();
+        let path = path.to_path_buf();
+        Ok(tokio::task::spawn_blocking(move || p.read_file(&path)).await??)
+    }
+    async fn write_file(&self, path: &std::path::Path, data: &[u8]) -> anyhow::Result<()> {
+        let p = self.0.clone();
+        let path = path.to_path_buf();
+        let data = data.to_vec();
+        tokio::task::spawn_blocking(move || p.write_file(&path, &data)).await??;
+        Ok(())
+    }
 }
 
 // Helper to count items recursively
@@ -53,10 +125,10 @@ pub async fn count_items(fs: &dyn FileSystem, paths: &[std::path::PathBuf]) -> u
     let mut count = 0;
     for path in paths {
         count += 1; // Count the item itself
-        if fs.is_dir(path).await.unwrap_or(false)
-            && let Ok(children) = fs.read_dir(path).await
-        {
-            count += Box::pin(count_items(fs, &children)).await;
+        if let Ok(true) = fs.is_dir(path).await {
+            if let Ok(children) = fs.read_dir(path).await {
+                count += Box::pin(count_items(fs, &children)).await;
+            }
         }
     }
     count
@@ -68,10 +140,6 @@ pub struct DecisionState {
     pub last_update: std::time::Instant,
 }
 
-// Recursive operation
-// Returns Result<(), String>
-// Recursive operation
-// Returns Result<(), String>
 // Recursive operation
 // Returns Result<(), String>
 // Iterative operation to avoid stack overflow
@@ -87,7 +155,8 @@ pub struct RecursiveOpContext<'a> {
 }
 
 pub fn recursive_op<'a>(
-    fs: &'a dyn FileSystem,
+    src_fs: &'a dyn FileSystem,
+    dest_fs: &'a dyn FileSystem,
     src: &'a std::path::Path,
     dest: &'a std::path::Path,
     action: crate::app::CopyMoveAction,
@@ -120,16 +189,16 @@ pub fn recursive_op<'a>(
             match item {
                 WorkItem::PostProcessDir { src } => {
                     // Remove empty directory after move
-                    let _ = tokio::fs::remove_dir(src).await;
+                    let _ = src_fs.remove_file(&src).await;
                 }
                 WorkItem::Process { src, dest } => {
-                    // Move optimization: Try rename first if it's a move operation
+                    // Move optimization: Try rename first if it's a move operation and same FS
+                    // We don't have a good way to check "same FS" yet, so we'll try rename and see if it fails.
                     if action == crate::app::CopyMoveAction::Move {
-                        let dest_exists = fs.try_exists(&dest).await.unwrap_or(false);
-                        if !dest_exists && fs.rename(&src, &dest).await.is_ok() {
+                        let dest_exists = dest_fs.try_exists(&dest).await.unwrap_or(false);
+                        if !dest_exists && src_fs.rename(&src, &dest).await.is_ok() {
                             // Successfully moved! Update progress and continue.
-                            // We need to count items because rename might have moved a whole directory.
-                            let count = count_items(fs, std::slice::from_ref(&dest)).await;
+                            let count = count_items(dest_fs, std::slice::from_ref(&dest)).await;
                             let p = ctx
                                 .processed
                                 .fetch_add(count, std::sync::atomic::Ordering::Relaxed)
@@ -141,18 +210,18 @@ pub fn recursive_op<'a>(
                         }
                     }
 
-                    if fs.is_dir(&src).await.unwrap_or(false) {
-                        let dest_exists = fs.try_exists(&dest).await.unwrap_or(false);
+                    if src_fs.is_dir(&src).await.unwrap_or(false) {
+                        let dest_exists = dest_fs.try_exists(&dest).await.unwrap_or(false);
 
                         if !dest_exists {
-                            if let Err(e) = fs.create_dir_all(&dest).await {
+                            if let Err(e) = dest_fs.create_dir_all(&dest).await {
                                 return Err(format!(
                                     "Failed to create directory {}: {}",
                                     dest.display(),
                                     e
                                 ));
                             }
-                        } else if !fs.is_dir(&dest).await.unwrap_or(true) {
+                        } else if !dest_fs.is_dir(&dest).await.unwrap_or(true) {
                             return Err(format!(
                                 "Destination {} exists and is not a directory",
                                 dest.display()
@@ -163,7 +232,7 @@ pub fn recursive_op<'a>(
                             stack.push(WorkItem::PostProcessDir { src: src.clone() });
                         }
 
-                        let children = match fs.read_dir(&src).await {
+                        let children = match src_fs.read_dir(&src).await {
                             Ok(v) => v,
                             Err(e) => {
                                 return Err(format!(
@@ -186,7 +255,7 @@ pub fn recursive_op<'a>(
                     } else {
                         // File handling
                         let mut perform = true;
-                        let dest_exists = fs.try_exists(&dest).await.unwrap_or(false);
+                        let dest_exists = dest_fs.try_exists(&dest).await.unwrap_or(false);
 
                         if dest_exists {
                             // Conflict resolution
@@ -204,8 +273,8 @@ pub fn recursive_op<'a>(
 
                                 // Wait for decision
                                 let mut decision = None;
-                                if let Some(rx) = ctx.decision_rx.try_lock().ok().as_mut() {
-                                    decision = rx.recv().await;
+                                if let Some(rx) = ctx.decision_rx.lock().await.recv().await {
+                                    decision = Some(rx);
                                 }
 
                                 match decision {
@@ -235,9 +304,23 @@ pub fn recursive_op<'a>(
                         if perform {
                             loop {
                                 if dest_exists {
-                                    let _ = fs.remove_file(&dest).await;
+                                    let _ = dest_fs.remove_file(&dest).await;
                                 }
-                                match fs.copy(&src, &dest).await {
+
+                                // If it's the same filesystem instance, use native copy
+                                let src_ptr = src_fs as *const dyn FileSystem as *const ();
+                                let dest_ptr = dest_fs as *const dyn FileSystem as *const ();
+
+                                let copy_res = if src_ptr == dest_ptr {
+                                    dest_fs.copy(&src, &dest).await
+                                } else {
+                                    match src_fs.read_file(&src).await {
+                                        Ok(data) => dest_fs.write_file(&dest, &data).await,
+                                        Err(e) => Err(e),
+                                    }
+                                };
+
+                                match copy_res {
                                     Ok(()) => break, // Success
                                     Err(e) => {
                                         if decision_state.skip_all {
@@ -249,10 +332,7 @@ pub fn recursive_op<'a>(
                                             src.display().to_string(),
                                             format!("Failed to copy to {}: {}", dest.display(), e),
                                         ));
-                                        let mut decision = None;
-                                        if let Some(rx) = ctx.decision_rx.try_lock().ok().as_mut() {
-                                            decision = rx.recv().await;
-                                        }
+                                        let decision = ctx.decision_rx.lock().await.recv().await;
                                         match decision {
                                             Some(crate::tasks::TaskDecision::Retry) => {}
                                             Some(crate::tasks::TaskDecision::Skip) => {
@@ -278,7 +358,7 @@ pub fn recursive_op<'a>(
                         }
 
                         if action == crate::app::CopyMoveAction::Move && perform {
-                            let _ = fs.remove_file(&src).await;
+                            let _ = src_fs.remove_file(&src).await;
                         }
 
                         // Update progress
@@ -452,6 +532,20 @@ mod mock_fs_tests {
                 Err(anyhow::anyhow!("Missing file for copy"))
             }
         }
+        async fn read_file(&self, path: &Path) -> anyhow::Result<Vec<u8>> {
+            if self.files.lock().await.contains_key(path) {
+                Ok(vec![]) // Fake empty content
+            } else {
+                Err(anyhow::anyhow!("File not found"))
+            }
+        }
+        async fn write_file(&self, path: &Path, _data: &[u8]) -> anyhow::Result<()> {
+            self.files
+                .lock()
+                .await
+                .insert(path.to_path_buf(), FakeEntry { is_dir: false });
+            Ok(())
+        }
     }
 
     #[tokio::test]
@@ -494,6 +588,7 @@ mod mock_fs_tests {
         };
 
         let res = recursive_op(
+            &fs,
             &fs,
             &src_root,
             &dest_root,
@@ -562,6 +657,7 @@ mod mock_fs_tests {
 
         let res = recursive_op(
             &fs,
+            &fs,
             &src_root,
             &dest_root,
             crate::app::CopyMoveAction::Copy,
@@ -628,6 +724,7 @@ mod mock_fs_tests {
 
         let res = recursive_op(
             &fs,
+            &fs,
             &src_root,
             &dest_root,
             crate::app::CopyMoveAction::Copy,
@@ -692,6 +789,7 @@ mod mock_fs_tests {
 
         let res = recursive_op(
             &fs,
+            &fs,
             &src_root,
             &dest_root,
             crate::app::CopyMoveAction::Copy,
@@ -753,6 +851,7 @@ mod mock_fs_tests {
         // Call operation
         let result = recursive_op(
             &fs,
+            &fs,
             &src,
             &dst,
             crate::app::CopyMoveAction::Copy,
@@ -813,6 +912,7 @@ mod mock_fs_tests {
 
         let result = recursive_op(
             &fs,
+            &fs,
             &src,
             &dst,
             crate::app::CopyMoveAction::Copy,
@@ -857,6 +957,7 @@ mod mock_fs_tests {
         // If it triggers a conflict, it will wait for decision and we didn't send one,
         // but we can check the events.
         let res = recursive_op(
+            &fs,
             &fs,
             &src,
             &dst,
@@ -916,6 +1017,7 @@ mod mock_fs_tests {
         };
 
         let res = recursive_op(
+            &fs,
             &fs,
             &src_dir,
             &dest_dir,

@@ -14,6 +14,7 @@ mod event_loop;
 pub mod fs_local;
 mod fs_ops;
 pub mod fs_provider;
+pub mod fs_sftp;
 mod fuzzy_search_ui;
 mod handlers;
 mod help_ui;

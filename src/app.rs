@@ -187,24 +187,23 @@ impl AppState {
 impl AppState {
     pub fn sync_watcher(&mut self) {
         if let Some(watcher) = &mut self.watcher {
-            let mut paths = std::collections::HashSet::new();
-
-            // Collect paths from all tabs in both panels
-            for tab in &self.left.tabs {
-                paths.insert(tab.current_dir.clone());
+            // Watch visible tabs
+            let mut paths = Vec::new();
+            if self.left.active_tab().provider.is_local() {
+                paths.push(self.left.active_tab().current_dir.clone());
             }
-            for tab in &self.right.tabs {
-                paths.insert(tab.current_dir.clone());
+            if self.right.active_tab().provider.is_local() {
+                paths.push(self.right.active_tab().current_dir.clone());
             }
-
-            // Convert to vector
-            let paths_vec: Vec<std::path::PathBuf> = paths.into_iter().collect();
-
-            if let Err(_e) = watcher.update_watched_paths(&paths_vec) {
-                // Log error or set it in active tab?
-                // For now just ignore or print to stderr
-            }
+            let _ = watcher.update_watched_paths(&paths);
         }
+    }
+
+    pub fn refresh_active_tabs(&mut self) {
+        // Reload both active tabs to show changes
+        let _ = self.left.active_tab_mut().reload();
+        let _ = self.right.active_tab_mut().reload();
+        self.needs_redraw = true;
     }
 
     pub fn spawn_empty_trash_task(&mut self) {
@@ -283,6 +282,28 @@ impl AppState {
     /// Returns a reference to the currently inactive tab
     pub fn inactive_tab(&self) -> &Tab {
         self.inactive_tab_manager().active_tab()
+    }
+
+    pub fn handle_ssh_connected(&mut self, ctx: crate::tasks::SshContext) {
+        let tab_manager = match self.active {
+            PanelSide::Left => &mut self.left,
+            PanelSide::Right => &mut self.right,
+        };
+
+        let path = ctx.path.unwrap_or_else(|| std::path::PathBuf::from("/"));
+        match Tab::with_provider(&path, ctx.provider) {
+            Ok(tab) => {
+                tab_manager.tabs.push(tab);
+                tab_manager.active_tab_index = tab_manager.tabs.len() - 1;
+            }
+            Err(e) => {
+                tab_manager.active_tab_mut().error = Some(format!("Failed to browse SFTP: {}", e));
+            }
+        }
+        self.needs_redraw = true;
+
+        // Sync watcher if needed (though SFTP won't be watched by local watcher)
+        self.sync_watcher();
     }
 }
 

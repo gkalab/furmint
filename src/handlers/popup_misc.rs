@@ -17,7 +17,10 @@ pub(crate) fn handle_quit_popup_event(code: KeyCode, app: &mut AppState) -> bool
 pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::AppState) {
     match event {
         crate::tasks::TaskEvent::UpdateStatus(id, status) => {
-            app.task_manager.update_task_status(id, status);
+            app.task_manager.update_task_status(id, status.clone());
+            if let crate::tasks::TaskStatus::Completed = status {
+                app.refresh_active_tabs();
+            }
         }
         crate::tasks::TaskEvent::UpdateProgress(id, p, t) => {
             app.task_manager.update_task_progress(id, p, t);
@@ -35,6 +38,9 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
             app.popups.error.error_path = path;
             app.popups.error.error_message = msg;
             app.popups.error.is_visible = true;
+        }
+        crate::tasks::TaskEvent::SshConnected(ctx) => {
+            app.handle_ssh_connected(ctx);
         }
     }
 }
