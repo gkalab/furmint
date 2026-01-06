@@ -152,7 +152,8 @@ async fn run() -> Result<()> {
     };
 
     // Record initial directory visit
-    app.dir_history.record_visit(&cwd);
+    let context_key = app.active_tab().provider.context_key();
+    app.dir_history.record_visit(&context_key, &cwd);
 
     // Initial sync of watcher
     app.sync_watcher();

@@ -17,7 +17,8 @@ pub struct DirEntry {
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct DirectoryHistory {
-    entries: HashMap<PathBuf, DirEntry>,
+    // Context -> Path -> Entry
+    entries: HashMap<String, HashMap<PathBuf, DirEntry>>,
     #[serde(skip)]
     cache_file: PathBuf,
 }
@@ -43,15 +44,17 @@ impl DirectoryHistory {
         Ok(cache_dir.join("dir_history.json"))
     }
 
-    /// Record a visit to a directory
-    pub fn record_visit(&mut self, path: &Path) {
+    /// Record a visit to a directory within a specific context
+    pub fn record_visit(&mut self, context: &str, path: &Path) {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
 
         let path = path.to_path_buf();
-        self.entries
+        let context_entries = self.entries.entry(context.to_string()).or_default();
+
+        context_entries
             .entry(path.clone())
             .and_modify(|e| {
                 e.visit_count += 1;
@@ -64,9 +67,13 @@ impl DirectoryHistory {
             });
     }
 
-    /// Get all directories sorted by score (frequency + recency)
-    pub fn get_sorted_dirs(&self) -> Vec<PathBuf> {
-        let mut entries: Vec<_> = self.entries.values().collect();
+    /// Get all directories sorted by score (frequency + recency) for a context
+    pub fn get_sorted_dirs(&self, context: &str) -> Vec<PathBuf> {
+        let Some(context_entries) = self.entries.get(context) else {
+            return Vec::new();
+        };
+
+        let mut entries: Vec<_> = context_entries.values().collect();
 
         // Sort by score: combination of visit count and recency
         entries.sort_by(|a, b| {
@@ -98,16 +105,23 @@ impl DirectoryHistory {
         (f64::from(entry.visit_count) * 2.0) + (recency_score * 10.0)
     }
 
-    /// Perform fuzzy search on directory paths
-    pub fn fuzzy_search(&self, query: &str) -> Vec<(PathBuf, i64)> {
+    /// Perform fuzzy search on directory paths within a context
+    pub fn fuzzy_search(&self, context: &str, query: &str) -> Vec<(PathBuf, i64)> {
         if query.is_empty() {
             // Return all directories sorted by score
-            return self.get_sorted_dirs().into_iter().map(|p| (p, 0)).collect();
+            return self
+                .get_sorted_dirs(context)
+                .into_iter()
+                .map(|p| (p, 0))
+                .collect();
         }
 
+        let Some(context_entries) = self.entries.get(context) else {
+            return Vec::new();
+        };
+
         let matcher = SkimMatcherV2::default();
-        let mut results: Vec<_> = self
-            .entries
+        let mut results: Vec<_> = context_entries
             .values()
             .filter_map(|entry| {
                 let path_str = entry.path.to_string_lossy();
@@ -142,8 +156,10 @@ impl DirectoryHistory {
         }
 
         let content = fs::read_to_string(&self.cache_file)?;
-        let loaded: DirectoryHistory = serde_json::from_str(&content)?;
-        self.entries = loaded.entries;
+        // If loading fails (e.g. old format), just start with empty history
+        if let Ok(loaded) = serde_json::from_str::<DirectoryHistory>(&content) {
+            self.entries = loaded.entries;
+        }
         Ok(())
     }
 
@@ -167,11 +183,30 @@ mod tests {
         };
 
         let path = PathBuf::from("/home/user");
-        history.record_visit(&path);
-        assert_eq!(history.entries.get(&path).unwrap().visit_count, 1);
+        history.record_visit("local", &path);
+        // Access via context map
+        assert_eq!(
+            history
+                .entries
+                .get("local")
+                .unwrap()
+                .get(&path)
+                .unwrap()
+                .visit_count,
+            1
+        );
 
-        history.record_visit(&path);
-        assert_eq!(history.entries.get(&path).unwrap().visit_count, 2);
+        history.record_visit("local", &path);
+        assert_eq!(
+            history
+                .entries
+                .get("local")
+                .unwrap()
+                .get(&path)
+                .unwrap()
+                .visit_count,
+            2
+        );
     }
 
     #[test]
@@ -181,11 +216,11 @@ mod tests {
             cache_file: PathBuf::from("/tmp/test.json"),
         };
 
-        history.record_visit(&PathBuf::from("/home/user"));
-        history.record_visit(&PathBuf::from("/usr/local"));
-        history.record_visit(&PathBuf::from("/var/log"));
+        history.record_visit("local", &PathBuf::from("/home/user"));
+        history.record_visit("local", &PathBuf::from("/usr/local"));
+        history.record_visit("local", &PathBuf::from("/var/log"));
 
-        let results = history.fuzzy_search("hm");
+        let results = history.fuzzy_search("local", "hm");
         assert!(!results.is_empty());
         assert!(
             results
@@ -203,17 +238,17 @@ mod tests {
         // path_a: visited 10 times (high score)
         let path_a = PathBuf::from("/home/user/documents");
         for _ in 0..10 {
-            history.record_visit(&path_a);
+            history.record_visit("local", &path_a);
         }
 
         // path_b: visited 1 time (low score)
         let path_b = PathBuf::from("/home/user/downloads");
-        history.record_visit(&path_b);
+        history.record_visit("local", &path_b);
 
         // search for "do" - both match
         // expected: path_a comes first because 10 visits > 1 visit
         // even if fuzzy match score is similar or identical for "do"
-        let results = history.fuzzy_search("do");
+        let results = history.fuzzy_search("local", "do");
 
         // Find positions of both paths
         let pos_a = results.iter().position(|(p, _)| p == &path_a);

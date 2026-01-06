@@ -116,7 +116,15 @@ pub(crate) fn handle_enter_directory(app: &mut AppState) {
             } else {
                 // Drop panel borrow before using app.dir_history
                 let path_clone = path.clone();
-                app.dir_history.record_visit(&path_clone);
+                let context_key = panel.provider.context_key();
+                // Ensure panel is not used after this point to allow mutable borrow of app.dir_history
+                // To be safe against borrow checker, we might need to restrict scope, but let's try direct insertion.
+                // Actually, if panel is still in scope, using app.dir_history is an error if panel borrows app.
+                // The previous code was:
+                // app.dir_history.record_visit(&path_clone);
+                // If that compiled (which it seemingly did), then NLL is working.
+
+                app.dir_history.record_visit(&context_key, &path_clone);
                 update_viewer_content(app);
             }
         }
@@ -178,32 +186,39 @@ pub(crate) fn handle_directory_up(app: &mut AppState) {
         .parent()
         .map(|p| p.to_path_buf());
 
+    let context_key = app.active_tab().provider.context_key();
+
     if let Some(path) = parent_path {
         if let Err(e) = app.active_tab_mut().go_up() {
             app.active_tab_mut().error = Some(format!("Error: {e}"));
         } else {
-            app.dir_history.record_visit(&path);
+            app.dir_history.record_visit(&context_key, &path);
             update_viewer_content(app);
         }
     }
 }
 
 pub(crate) fn handle_history_previous(app: &mut AppState) {
+    // Get context key before mutating mostly to be safe/consistent
+    let context_key = app.active_tab().provider.context_key();
+
     if let Err(e) = app.active_tab_mut().go_back() {
         app.active_tab_mut().error = Some(format!("Error: {e}"));
     } else {
         let current_dir = app.active_tab().current_dir.clone();
-        app.dir_history.record_visit(&current_dir);
+        app.dir_history.record_visit(&context_key, &current_dir);
         update_viewer_content(app);
     }
 }
 
 pub(crate) fn handle_history_next(app: &mut AppState) {
+    let context_key = app.active_tab().provider.context_key();
+
     if let Err(e) = app.active_tab_mut().go_forward() {
         app.active_tab_mut().error = Some(format!("Error: {e}"));
     } else {
         let current_dir = app.active_tab().current_dir.clone();
-        app.dir_history.record_visit(&current_dir);
+        app.dir_history.record_visit(&context_key, &current_dir);
         update_viewer_content(app);
     }
 }

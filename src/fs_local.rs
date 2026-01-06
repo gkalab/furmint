@@ -84,6 +84,10 @@ impl FileSystemProvider for LocalFs {
     fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
         Ok(fs::canonicalize(path)?)
     }
+
+    fn context_key(&self) -> String {
+        "local".to_string()
+    }
 }
 
 #[cfg(test)]

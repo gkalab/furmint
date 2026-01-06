@@ -71,4 +71,7 @@ pub trait FileSystemProvider: Send + Sync {
 
     /// Get the canonical/absolute path.
     fn canonicalize(&self, path: &Path) -> Result<std::path::PathBuf>;
+
+    /// Get a string identifying the context (e.g., "local", "user@host").
+    fn context_key(&self) -> String;
 }

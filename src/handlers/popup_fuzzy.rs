@@ -4,6 +4,8 @@ use crate::app::AppState;
 use crossterm::event::KeyCode;
 
 pub(crate) fn handle_fuzzy_search_event(code: KeyCode, app: &mut AppState) -> bool {
+    let context_key = app.active_tab().provider.context_key();
+
     match code {
         KeyCode::Esc => {
             app.fuzzy_search.is_visible = false;
@@ -18,7 +20,7 @@ pub(crate) fn handle_fuzzy_search_event(code: KeyCode, app: &mut AppState) -> bo
                 if let Err(e) = tab_manager.active_tab_mut().navigate_to(&selected_dir) {
                     tab_manager.active_tab_mut().error = Some(format!("Error: {e}"));
                 } else {
-                    app.dir_history.record_visit(&selected_dir);
+                    app.dir_history.record_visit(&context_key, &selected_dir);
                 }
             }
             app.fuzzy_search.is_visible = false;
@@ -38,14 +40,18 @@ pub(crate) fn handle_fuzzy_search_event(code: KeyCode, app: &mut AppState) -> bo
         }
         KeyCode::Backspace => {
             app.fuzzy_search.input.pop();
-            let results = app.dir_history.fuzzy_search(&app.fuzzy_search.input);
+            let results = app
+                .dir_history
+                .fuzzy_search(&context_key, &app.fuzzy_search.input);
             app.fuzzy_search.filtered_dirs = results.into_iter().map(|(p, _)| p).collect();
             app.fuzzy_search.selected_index = 0;
             app.fuzzy_search.scroll_offset = 0;
         }
         KeyCode::Char(c) => {
             app.fuzzy_search.input.push(c);
-            let results = app.dir_history.fuzzy_search(&app.fuzzy_search.input);
+            let results = app
+                .dir_history
+                .fuzzy_search(&context_key, &app.fuzzy_search.input);
             app.fuzzy_search.filtered_dirs = results.into_iter().map(|(p, _)| p).collect();
             app.fuzzy_search.selected_index = 0;
             app.fuzzy_search.scroll_offset = 0;

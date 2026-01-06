@@ -189,9 +189,16 @@ impl FileSystemProvider for SftpFs {
 
     fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
         self.with_sftp(|sftp| {
-            sftp.realpath(path)
-                .map_err(|e| anyhow!("Failed to canonicalize: {}", e))
+            let path = sftp
+                .realpath(path)
+                .map_err(|e| anyhow!("Failed to canonicalize path: {}", e))?;
+            Ok(path)
         })
+    }
+
+    fn context_key(&self) -> String {
+        // prefix is formatted as "[user@host]"
+        self.prefix.clone()
     }
 }
 
