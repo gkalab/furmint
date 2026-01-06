@@ -265,7 +265,7 @@ pub async fn handle_toggle_console(
 
     // 8. Refresh all tabs in both panels
     let refresh_tab = |tab: &mut crate::app::Tab| {
-        if let Ok(entries) = crate::fs_ops::list_dir(&tab.current_dir) {
+        if let Ok(entries) = tab.provider.list_dir(&tab.current_dir) {
             tab.entries = entries;
             tab.sort_entries();
         }

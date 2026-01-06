@@ -40,7 +40,11 @@ impl FileViewerState {
         }
     }
 
-    pub fn load_content(&mut self, path: PathBuf) {
+    pub fn load_content(
+        &mut self,
+        path: PathBuf,
+        provider: std::sync::Arc<dyn crate::fs_provider::FileSystemProvider>,
+    ) {
         self.path.clone_from(&path);
         self.scroll_offset = 0;
         self.horizontal_scroll_offset = 0;
@@ -53,7 +57,7 @@ impl FileViewerState {
             .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text());
         self.syntax_name = Some(syntax.name.clone());
 
-        match crate::fs_ops::read_file_content(&self.path, 10 * 1024 * 1024) {
+        match provider.read_file_content(&self.path, 10 * 1024 * 1024) {
             // 10MB limit
             Ok(content) => {
                 self.content = content.lines().map(String::from).collect();

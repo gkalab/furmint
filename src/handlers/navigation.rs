@@ -92,7 +92,8 @@ pub(crate) fn update_viewer_content(app: &mut AppState) {
         app.file_viewer.content = vec!["Directory".to_string()];
     } else {
         let full_path = panel.current_dir.join(&entry.name);
-        app.file_viewer.load_content(full_path);
+        let provider = panel.provider.clone();
+        app.file_viewer.load_content(full_path, provider);
     }
 }
 
@@ -223,12 +224,15 @@ mod tests {
     use crate::app::{AppState, PanelSide, Tab, TabManager};
     use crate::config::GlobalConfig;
     use crate::dir_history::DirectoryHistory;
+    use crate::fs_local::LocalFs;
     use crate::fs_ops::FileEntry;
     use crate::state::FileViewerState;
     use crate::tasks::TaskManager;
+    use std::sync::Arc;
 
     fn test_app(entries: Vec<FileEntry>) -> AppState {
         let tab = Tab {
+            provider: Arc::new(LocalFs::new()),
             current_dir: std::path::PathBuf::from("/tmp"),
             entries,
             cursor: 0,

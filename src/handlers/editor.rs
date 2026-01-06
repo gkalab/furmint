@@ -141,7 +141,7 @@ pub async fn open_file_in_editor_with_env_handling(
         PanelSide::Right => &mut app.right,
     };
     let panel = tab_manager.active_tab_mut();
-    if let Ok(entries) = crate::fs_ops::list_dir(&panel_current_dir) {
+    if let Ok(entries) = panel.provider.list_dir(&panel_current_dir) {
         panel.entries = entries;
         panel.sort_entries();
         if let Some(name) = filename_to_select {
@@ -168,7 +168,9 @@ mod tests {
     use super::*;
     use crate::app::{AppState, PanelSide, Tab, TabManager};
     use crate::config::EditorConfig;
+    use crate::fs_local::LocalFs;
     use crate::fs_ops::FileEntry;
+    use std::sync::Arc;
     use tokio::sync::mpsc::unbounded_channel;
 
     #[tokio::test]
@@ -184,6 +186,7 @@ mod tests {
             selected: false,
         };
         let tab = Tab {
+            provider: Arc::new(LocalFs::new()),
             current_dir: std::path::PathBuf::from("/tmp"),
             entries: vec![entry],
             cursor: 0,

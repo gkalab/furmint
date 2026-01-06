@@ -1,6 +1,9 @@
-use crate::fs_ops::{FileEntry, list_dir};
+use crate::fs_local::LocalFs;
+use crate::fs_ops::FileEntry;
+use crate::fs_provider::FileSystemProvider;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct HistoryEntry {
@@ -18,6 +21,7 @@ pub struct PersistentTab {
 
 #[derive(Clone)]
 pub struct Tab {
+    pub provider: Arc<dyn FileSystemProvider>,
     pub current_dir: PathBuf,
     pub entries: Vec<FileEntry>,
     pub cursor: usize,
@@ -34,10 +38,19 @@ pub struct Tab {
 }
 
 impl Tab {
-    /// Create a new tab at the specified directory
+    /// Create a new local tab at the specified directory
     pub fn new(path: &Path) -> anyhow::Result<Self> {
-        let entries = list_dir(&path.to_path_buf())?;
+        Self::with_provider(path, Arc::new(LocalFs::new()))
+    }
+
+    /// Create a new tab with a custom filesystem provider
+    pub fn with_provider(
+        path: &Path,
+        provider: Arc<dyn FileSystemProvider>,
+    ) -> anyhow::Result<Self> {
+        let entries = provider.list_dir(path)?;
         let mut tab = Self {
+            provider,
             current_dir: path.to_path_buf(),
             entries,
             cursor: 0,
@@ -126,7 +139,7 @@ impl Tab {
     }
 
     pub fn navigate_to(&mut self, path: &PathBuf) -> anyhow::Result<()> {
-        let entries = list_dir(path)?;
+        let entries = self.provider.list_dir(path)?;
         self.save_cursor_to_history();
 
         // Truncate forward history if we're navigating to a new place
@@ -173,7 +186,7 @@ impl Tab {
             self.history_index -= 1;
             let entry = self.history[self.history_index].clone();
             self.current_dir = entry.path.clone();
-            self.entries = list_dir(&entry.path)?;
+            self.entries = self.provider.list_dir(&entry.path)?;
             self.cursor = entry.cursor;
             self.scroll_offset = 0; // Will be adjusted by scroll_to_cursor if needed
             self.typed_buffer.clear();
@@ -188,7 +201,7 @@ impl Tab {
             self.history_index += 1;
             let entry = self.history[self.history_index].clone();
             self.current_dir = entry.path.clone();
-            self.entries = list_dir(&entry.path)?;
+            self.entries = self.provider.list_dir(&entry.path)?;
             self.cursor = entry.cursor;
             self.scroll_offset = 0;
             self.typed_buffer.clear();

@@ -195,43 +195,12 @@ pub fn list_dir(path: &PathBuf) -> Result<Vec<FileEntry>> {
     Ok(entries)
 }
 
-pub fn create_directory(path: &PathBuf) -> Result<()> {
+pub fn create_directory(path: &std::path::Path) -> anyhow::Result<()> {
     if path.exists() {
         return Err(anyhow::anyhow!("Directory already exists"));
     }
-    fs::create_dir_all(path)?;
+    std::fs::create_dir_all(path)?;
     Ok(())
-}
-
-pub fn read_file_content(path: &std::path::Path, limit: usize) -> anyhow::Result<String> {
-    use std::fs::File;
-    use std::io::Read;
-
-    let metadata = std::fs::metadata(path)?;
-    if metadata.len() > limit as u64 {
-        return Ok(format!(
-            "File too large to display (size: {}, limit: {})",
-            format_size(Some(metadata.len()), false, false),
-            format_size(Some(limit as u64), false, false)
-        ));
-    }
-
-    let file = File::open(path)?;
-    let mut buffer = Vec::new();
-    // Read up to limit + 1 to detect if it's exactly limit or more (though metadata check covers most cases)
-    file.take((limit + 1) as u64).read_to_end(&mut buffer)?;
-
-    // Check for binary content (null bytes in first 8KB)
-    let check_len = buffer.len().min(8192);
-    if buffer[..check_len].contains(&0) {
-        return Ok("Binary file detected".to_string());
-    }
-
-    // Try to convert to string
-    match String::from_utf8(buffer) {
-        Ok(s) => Ok(s),
-        Err(_) => Ok("File content is not valid UTF-8".to_string()),
-    }
 }
 
 pub fn format_size(size: Option<u64>, is_dir: bool, is_symlink: bool) -> String {
@@ -341,14 +310,17 @@ mod tests {
     }
 
     #[test]
-    fn test_read_file_content_valid() {
+    fn test_read_file_content() {
+        use crate::fs_local::LocalFs;
+        use crate::fs_provider::FileSystemProvider;
         use std::io::Write;
         let temp_dir = std::env::temp_dir();
         let test_file = temp_dir.join("fm_test_read.txt");
         let mut file = std::fs::File::create(&test_file).unwrap();
         file.write_all(b"Hello, World!").unwrap();
 
-        let result = read_file_content(&test_file, 1024);
+        let provider = LocalFs::new();
+        let result = provider.read_file_content(&test_file, 1024);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "Hello, World!");
 
@@ -357,13 +329,16 @@ mod tests {
 
     #[test]
     fn test_read_file_content_too_large() {
+        use crate::fs_local::LocalFs;
+        use crate::fs_provider::FileSystemProvider;
         use std::io::Write;
         let temp_dir = std::env::temp_dir();
         let test_file = temp_dir.join("fm_test_large.txt");
         let mut file = std::fs::File::create(&test_file).unwrap();
         file.write_all(&[b'a'; 100]).unwrap();
 
-        let result = read_file_content(&test_file, 50);
+        let provider = LocalFs::new();
+        let result = provider.read_file_content(&test_file, 50);
         assert!(result.is_ok());
         assert!(result.unwrap().contains("too large"));
 
@@ -372,13 +347,16 @@ mod tests {
 
     #[test]
     fn test_read_file_content_binary() {
+        use crate::fs_local::LocalFs;
+        use crate::fs_provider::FileSystemProvider;
         use std::io::Write;
         let temp_dir = std::env::temp_dir();
         let test_file = temp_dir.join("fm_test_binary.bin");
         let mut file = std::fs::File::create(&test_file).unwrap();
         file.write_all(&[0u8, 1, 2, 0, 3]).unwrap();
 
-        let result = read_file_content(&test_file, 1024);
+        let provider = LocalFs::new();
+        let result = provider.read_file_content(&test_file, 1024);
         assert!(result.is_ok());
         assert!(result.unwrap().contains("Binary"));
 

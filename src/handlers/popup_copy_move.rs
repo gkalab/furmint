@@ -287,11 +287,13 @@ mod popup_copy_move_unit_tests {
     use super::*;
 
     use crate::app::{AppState, PanelSide, Tab, TabManager};
+    use crate::fs_local::LocalFs;
     use crate::fs_ops::FileEntry;
     use crate::state::CopyMoveAction;
     use crossterm::event::KeyCode;
     use std::collections::HashMap;
     use std::path::PathBuf;
+    use std::sync::Arc;
 
     // --- Helpers to build minimal AppState for popup tests ---
 
@@ -309,6 +311,7 @@ mod popup_copy_move_unit_tests {
 
     fn make_tab(path: &str, entries: Vec<FileEntry>, cursor: usize) -> Tab {
         Tab {
+            provider: Arc::new(LocalFs::new()),
             current_dir: PathBuf::from(path),
             entries,
             cursor,

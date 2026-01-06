@@ -323,8 +323,10 @@ mod tests {
     }
     use super::*;
     use crate::app_state::tabs::{HistoryEntry, SortDirection};
+    use crate::fs_local::LocalFs;
     use crate::fs_ops::FileEntry;
     use std::path::PathBuf;
+    use std::sync::Arc;
 
     fn create_test_tab() -> Tab {
         let entries = vec![
@@ -367,6 +369,7 @@ mod tests {
         ];
 
         Tab {
+            provider: Arc::new(LocalFs::new()),
             current_dir: PathBuf::from("/tmp"),
             entries,
             cursor: 0,

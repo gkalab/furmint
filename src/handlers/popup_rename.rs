@@ -60,7 +60,7 @@ pub(crate) fn handle_rename_event(code: KeyCode, app: &mut AppState) -> bool {
                     .rename
                     .parent_dir
                     .join(&app.popups.rename.new_name);
-                if new_path.exists() {
+                if app.active_tab().provider.exists(&new_path) {
                     if app.popups.rename.is_dir {
                         app.popups.rename.error =
                             Some("Error: Target directory exists".to_string());
@@ -120,7 +120,7 @@ pub(crate) fn handle_rename_event(code: KeyCode, app: &mut AppState) -> bool {
     false
 }
 
-pub(crate) fn perform_rename(app: &mut AppState, overwrite: bool) {
+pub(crate) fn perform_rename(app: &mut AppState, _overwrite: bool) {
     let old_path = app
         .popups
         .rename
@@ -132,17 +132,14 @@ pub(crate) fn perform_rename(app: &mut AppState, overwrite: bool) {
         .parent_dir
         .join(&app.popups.rename.new_name);
 
-    let result = if overwrite && cfg!(target_os = "windows") && new_path.exists() {
-        std::fs::remove_file(&new_path).and_then(|()| std::fs::rename(&old_path, &new_path))
-    } else {
-        std::fs::rename(&old_path, &new_path)
-    };
+    let new_name = app.popups.rename.new_name.clone();
+    let panel = app.active_tab_mut();
+    let result = panel.provider.rename(&old_path, &new_path);
 
     match result {
         Ok(()) => {
-            let new_name = app.popups.rename.new_name.clone();
-            let panel = app.active_tab_mut();
-            match crate::fs_ops::list_dir(&panel.current_dir) {
+            // panel is already borrowed mutably
+            match panel.provider.list_dir(&panel.current_dir) {
                 Ok(entries) => {
                     panel.entries = entries;
                     panel.sort_entries();

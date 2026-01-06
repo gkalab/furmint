@@ -34,20 +34,31 @@ pub fn handle_create_directory_event(code: KeyCode, app: &mut AppState) -> bool 
             let current_dir = app.active_tab().current_dir.clone();
             let new_path = current_dir.join(&new_name);
 
-            match crate::fs_ops::create_directory(&new_path) {
+            let result = app.active_tab_mut().provider.create_dir(&new_path);
+            match result {
                 Ok(()) => {
                     app.popups.create_directory.is_visible = false;
                     app.popups.create_directory.reset();
                     // Reload active tab
-                    if let Ok(entries) = crate::fs_ops::list_dir(&current_dir) {
+                    let (entries, panel_cursor_update) = {
+                        let panel = app.active_tab_mut();
+                        let entries = panel.provider.list_dir(&current_dir).ok();
+                        let mut new_cursor = None;
+                        if let Some(entries) = &entries {
+                            if let Some(name) = new_path.file_name().and_then(|n| n.to_str())
+                                && let Some(idx) = entries.iter().position(|e| e.name == name)
+                            {
+                                new_cursor = Some(idx);
+                            }
+                        }
+                        (entries, new_cursor)
+                    };
+
+                    if let Some(entries) = entries {
                         let panel = app.active_tab_mut();
                         panel.entries = entries;
                         panel.sort_entries();
-
-                        // Try to select the new directory
-                        if let Some(name) = new_path.file_name().and_then(|n| n.to_str())
-                            && let Some(idx) = panel.entries.iter().position(|e| e.name == name)
-                        {
+                        if let Some(idx) = panel_cursor_update {
                             panel.cursor = idx;
                         }
                     }
@@ -139,7 +150,6 @@ pub async fn handle_create_file_event(
     app: &mut AppState,
     input_tx: &tokio::sync::mpsc::UnboundedSender<crossterm::event::Event>,
 ) -> bool {
-    use std::io::Write;
     use std::path::Path;
     match code {
         KeyCode::Esc => {
@@ -178,33 +188,23 @@ pub async fn handle_create_file_event(
                 }
             };
             // Disallow creating a directory and special names
+            let provider = app.active_tab().provider.clone();
             if path_buf.as_os_str().is_empty()
                 || input.ends_with('/')
                 || input.ends_with(std::path::MAIN_SEPARATOR)
-                || path_buf.is_dir()
+                || provider.is_dir(&path_buf)
             {
                 app.popups.create_file.error = Some("Invalid file name".to_string());
                 return false;
             }
             // File must not already exist
-            if path_buf.exists() {
+            if provider.exists(&path_buf) {
                 app.popups.create_file.error =
                     Some("A file with that name already exists".to_string());
                 return false;
             }
-            // Try to create empty file atomically
-            let create_result = std::fs::OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(&path_buf);
-            if let Ok(mut f) = create_result {
-                // file will be truncated, nothing to write; drop after this scope
-                if let Err(e) = f.flush() {
-                    app.popups.create_file.error = Some(format!("Error writing file: {e}"));
-                    return false;
-                }
-                drop(f);
-            } else if let Err(e) = create_result {
+            // Try to create empty file
+            if let Err(e) = provider.create_file(&path_buf) {
                 app.popups.create_file.error = Some(format!("Failed to create file: {e}"));
                 return false;
             }

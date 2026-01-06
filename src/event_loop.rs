@@ -180,7 +180,7 @@ fn handle_watcher_event(event: crate::watcher::WatcherEvent, app: &mut AppState)
                         .map(|e| e.name.clone())
                         .collect();
 
-                    if let Ok(entries) = crate::fs_ops::list_dir(&tab.current_dir) {
+                    if let Ok(entries) = tab.provider.list_dir(&tab.current_dir) {
                         tab.entries = entries;
 
                         // Restore selection
@@ -877,6 +877,7 @@ mod tests {
         let mut app = crate::app::AppState {
             left: crate::app::TabManager {
                 tabs: vec![crate::app::Tab {
+                    provider: std::sync::Arc::new(crate::fs_local::LocalFs::new()),
                     current_dir: std::path::PathBuf::from("/mock"),
                     entries: vec![crate::fs_ops::FileEntry {
                         name: "testfile.txt".to_string(),
@@ -901,6 +902,7 @@ mod tests {
             },
             right: crate::app::TabManager {
                 tabs: vec![crate::app::Tab {
+                    provider: std::sync::Arc::new(crate::fs_local::LocalFs::new()),
                     current_dir: std::path::PathBuf::from("/mock"),
                     entries: vec![],
                     cursor: 0,
@@ -945,6 +947,7 @@ mod tests {
         let mut app = crate::app::AppState {
             left: crate::app::TabManager {
                 tabs: vec![crate::app::Tab {
+                    provider: std::sync::Arc::new(crate::fs_local::LocalFs::new()),
                     current_dir: std::path::PathBuf::from("/mock"),
                     entries: vec![FileEntry {
                         name: "testfile.txt".to_string(),
@@ -969,6 +972,7 @@ mod tests {
             },
             right: crate::app::TabManager {
                 tabs: vec![crate::app::Tab {
+                    provider: std::sync::Arc::new(crate::fs_local::LocalFs::new()),
                     current_dir: std::path::PathBuf::from("/mock"),
                     entries: vec![],
                     cursor: 0,
@@ -1041,6 +1045,7 @@ mod tests {
         let mut app = crate::app::AppState {
             left: crate::app::TabManager {
                 tabs: vec![crate::app::Tab {
+                    provider: std::sync::Arc::new(crate::fs_local::LocalFs::new()),
                     current_dir: std::path::PathBuf::from("/mock"),
                     entries: vec![],
                     cursor: 0,
@@ -1057,6 +1062,7 @@ mod tests {
             },
             right: crate::app::TabManager {
                 tabs: vec![crate::app::Tab {
+                    provider: std::sync::Arc::new(crate::fs_local::LocalFs::new()),
                     current_dir: std::path::PathBuf::from("/mock"),
                     entries: vec![],
                     cursor: 0,
@@ -1098,6 +1104,7 @@ mod tests {
         let mut app = crate::app::AppState {
             left: crate::app::TabManager {
                 tabs: vec![crate::app::Tab {
+                    provider: std::sync::Arc::new(crate::fs_local::LocalFs::new()),
                     current_dir: std::path::PathBuf::from("/mock"),
                     entries: vec![
                         FileEntry {
@@ -1133,6 +1140,7 @@ mod tests {
             },
             right: crate::app::TabManager {
                 tabs: vec![crate::app::Tab {
+                    provider: std::sync::Arc::new(crate::fs_local::LocalFs::new()),
                     current_dir: std::path::PathBuf::from("/mock"),
                     entries: vec![],
                     cursor: 0,
