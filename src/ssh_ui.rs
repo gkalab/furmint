@@ -106,9 +106,12 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemeP
             let style = if app.popups.ssh_connection.selected_history_idx == Some(i)
                 && active_field == SshField::History
             {
-                Style::default()
-                    .bg(Color::from(palette.surface2))
-                    .fg(Color::from(palette.text))
+                let fg = if palette.is_dark {
+                    Color::from(palette.text)
+                } else {
+                    Color::from(palette.base)
+                };
+                Style::default().bg(Color::from(palette.surface2)).fg(fg)
             } else {
                 Style::default().fg(Color::from(palette.text))
             };
