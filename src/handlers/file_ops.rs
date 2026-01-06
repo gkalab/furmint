@@ -125,10 +125,10 @@ pub async fn count_items(fs: &dyn FileSystem, paths: &[std::path::PathBuf]) -> u
     let mut count = 0;
     for path in paths {
         count += 1; // Count the item itself
-        if let Ok(true) = fs.is_dir(path).await {
-            if let Ok(children) = fs.read_dir(path).await {
-                count += Box::pin(count_items(fs, &children)).await;
-            }
+        if let Ok(true) = fs.is_dir(path).await
+            && let Ok(children) = fs.read_dir(path).await
+        {
+            count += Box::pin(count_items(fs, &children)).await;
         }
     }
     count

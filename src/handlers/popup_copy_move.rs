@@ -214,22 +214,22 @@ pub fn spawn_copy_move_task(app: &mut AppState) {
 
             if treat_as_dir {
                 // We should ensure the directory exists on the destination filesystem
-                if !dest_fs.try_exists(&dest_path).await.unwrap_or(false) {
-                    if let Err(e) = dest_fs.create_dir_all(&dest_path).await {
-                        let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
-                            id,
-                            crate::tasks::TaskStatus::Failed(format!(
-                                "Failed to create destination directory: {}",
-                                e
-                            )),
-                        ));
-                        return;
-                    }
+                if !dest_fs.try_exists(&dest_path).await.unwrap_or(false)
+                    && let Err(e) = dest_fs.create_dir_all(&dest_path).await
+                {
+                    let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
+                        id,
+                        crate::tasks::TaskStatus::Failed(format!(
+                            "Failed to create destination directory: {}",
+                            e
+                        )),
+                    ));
+                    return;
                 }
-            } else if let Some(parent) = dest_path.parent() {
-                if !dest_fs.try_exists(parent).await.unwrap_or(false) {
-                    let _ = dest_fs.create_dir_all(parent).await;
-                }
+            } else if let Some(parent) = dest_path.parent()
+                && !dest_fs.try_exists(parent).await.unwrap_or(false)
+            {
+                let _ = dest_fs.create_dir_all(parent).await;
             }
 
             let mut failures = Vec::new();

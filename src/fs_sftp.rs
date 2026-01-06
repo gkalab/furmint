@@ -93,7 +93,7 @@ impl FileSystemProvider for SftpFs {
                 let size = if is_dir { None } else { stat.size };
                 let modified = stat
                     .mtime
-                    .map(|t| std::time::UNIX_EPOCH + std::time::Duration::from_secs(t as u64));
+                    .map(|t| std::time::UNIX_EPOCH + std::time::Duration::from_secs(t));
 
                 result.push(FileEntry {
                     name,
