@@ -145,6 +145,12 @@ pub struct DecisionState {
 // Iterative operation to avoid stack overflow
 // Returns Result<(), String>
 pub struct RecursiveOpContext<'a> {
+    pub src_fs: &'a dyn FileSystem,
+    pub dest_fs: &'a dyn FileSystem,
+    pub src: &'a std::path::Path,
+    pub dest: &'a std::path::Path,
+    pub action: crate::app::CopyMoveAction,
+    pub cancel: &'a std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub tx: &'a tokio::sync::mpsc::UnboundedSender<crate::tasks::TaskEvent>,
     pub id: usize,
     pub total: usize,
@@ -155,12 +161,6 @@ pub struct RecursiveOpContext<'a> {
 }
 
 pub fn recursive_op<'a>(
-    src_fs: &'a dyn FileSystem,
-    dest_fs: &'a dyn FileSystem,
-    src: &'a std::path::Path,
-    dest: &'a std::path::Path,
-    action: crate::app::CopyMoveAction,
-    cancel: &'a std::sync::Arc<std::sync::atomic::AtomicBool>,
     ctx: RecursiveOpContext<'a>,
     decision_state: &'a mut DecisionState,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>> {
@@ -177,28 +177,28 @@ pub fn recursive_op<'a>(
         }
 
         let mut stack = vec![WorkItem::Process {
-            src: src.to_path_buf(),
-            dest: dest.to_path_buf(),
+            src: ctx.src.to_path_buf(),
+            dest: ctx.dest.to_path_buf(),
         }];
 
         while let Some(item) = stack.pop() {
-            if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            if ctx.cancel.load(std::sync::atomic::Ordering::Relaxed) {
                 return Ok(()); // Cancelled
             }
 
             match item {
                 WorkItem::PostProcessDir { src } => {
                     // Remove empty directory after move
-                    let _ = src_fs.remove_file(&src).await;
+                    let _ = ctx.src_fs.remove_file(&src).await;
                 }
                 WorkItem::Process { src, dest } => {
                     // Move optimization: Try rename first if it's a move operation and same FS
                     // We don't have a good way to check "same FS" yet, so we'll try rename and see if it fails.
-                    if action == crate::app::CopyMoveAction::Move {
-                        let dest_exists = dest_fs.try_exists(&dest).await.unwrap_or(false);
-                        if !dest_exists && src_fs.rename(&src, &dest).await.is_ok() {
+                    if ctx.action == crate::app::CopyMoveAction::Move {
+                        let dest_exists = ctx.dest_fs.try_exists(&dest).await.unwrap_or(false);
+                        if !dest_exists && ctx.src_fs.rename(&src, &dest).await.is_ok() {
                             // Successfully moved! Update progress and continue.
-                            let count = count_items(dest_fs, std::slice::from_ref(&dest)).await;
+                            let count = count_items(ctx.dest_fs, std::slice::from_ref(&dest)).await;
                             let p = ctx
                                 .processed
                                 .fetch_add(count, std::sync::atomic::Ordering::Relaxed)
@@ -210,29 +210,29 @@ pub fn recursive_op<'a>(
                         }
                     }
 
-                    if src_fs.is_dir(&src).await.unwrap_or(false) {
-                        let dest_exists = dest_fs.try_exists(&dest).await.unwrap_or(false);
+                    if ctx.src_fs.is_dir(&src).await.unwrap_or(false) {
+                        let dest_exists = ctx.dest_fs.try_exists(&dest).await.unwrap_or(false);
 
                         if !dest_exists {
-                            if let Err(e) = dest_fs.create_dir_all(&dest).await {
+                            if let Err(e) = ctx.dest_fs.create_dir_all(&dest).await {
                                 return Err(format!(
                                     "Failed to create directory {}: {}",
                                     dest.display(),
                                     e
                                 ));
                             }
-                        } else if !dest_fs.is_dir(&dest).await.unwrap_or(true) {
+                        } else if !ctx.dest_fs.is_dir(&dest).await.unwrap_or(true) {
                             return Err(format!(
                                 "Destination {} exists and is not a directory",
                                 dest.display()
                             ));
                         }
 
-                        if action == crate::app::CopyMoveAction::Move {
+                        if ctx.action == crate::app::CopyMoveAction::Move {
                             stack.push(WorkItem::PostProcessDir { src: src.clone() });
                         }
 
-                        let children = match src_fs.read_dir(&src).await {
+                        let children = match ctx.src_fs.read_dir(&src).await {
                             Ok(v) => v,
                             Err(e) => {
                                 return Err(format!(
@@ -255,7 +255,7 @@ pub fn recursive_op<'a>(
                     } else {
                         // File handling
                         let mut perform = true;
-                        let dest_exists = dest_fs.try_exists(&dest).await.unwrap_or(false);
+                        let dest_exists = ctx.dest_fs.try_exists(&dest).await.unwrap_or(false);
 
                         if dest_exists {
                             // Conflict resolution
@@ -289,7 +289,8 @@ pub fn recursive_op<'a>(
                                         perform = false;
                                     }
                                     Some(crate::tasks::TaskDecision::Cancel) => {
-                                        cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                                        ctx.cancel
+                                            .store(true, std::sync::atomic::Ordering::Relaxed);
                                         let _ = ctx.tx.send(crate::tasks::TaskEvent::UpdateStatus(
                                             ctx.id,
                                             crate::tasks::TaskStatus::Cancelled,
@@ -304,18 +305,18 @@ pub fn recursive_op<'a>(
                         if perform {
                             loop {
                                 if dest_exists {
-                                    let _ = dest_fs.remove_file(&dest).await;
+                                    let _ = ctx.dest_fs.remove_file(&dest).await;
                                 }
 
                                 // If it's the same filesystem instance, use native copy
-                                let src_ptr = src_fs as *const dyn FileSystem as *const ();
-                                let dest_ptr = dest_fs as *const dyn FileSystem as *const ();
+                                let src_ptr = ctx.src_fs as *const dyn FileSystem as *const ();
+                                let dest_ptr = ctx.dest_fs as *const dyn FileSystem as *const ();
 
                                 let copy_res = if src_ptr == dest_ptr {
-                                    dest_fs.copy(&src, &dest).await
+                                    ctx.dest_fs.copy(&src, &dest).await
                                 } else {
-                                    match src_fs.read_file(&src).await {
-                                        Ok(data) => dest_fs.write_file(&dest, &data).await,
+                                    match ctx.src_fs.read_file(&src).await {
+                                        Ok(data) => ctx.dest_fs.write_file(&dest, &data).await,
                                         Err(e) => Err(e),
                                     }
                                 };
@@ -357,8 +358,8 @@ pub fn recursive_op<'a>(
                             }
                         }
 
-                        if action == crate::app::CopyMoveAction::Move && perform {
-                            let _ = src_fs.remove_file(&src).await;
+                        if ctx.action == crate::app::CopyMoveAction::Move && perform {
+                            let _ = ctx.src_fs.remove_file(&src).await;
                         }
 
                         // Update progress
@@ -573,31 +574,27 @@ mod mock_fs_tests {
         let (_dtx, drx_real) = mpsc::channel(1);
         let processed = Arc::new(AtomicUsize::new(0));
         let decision_rx = Arc::new(Mutex::new(drx_real));
+        let cancel = Arc::new(AtomicBool::new(false));
         let ctx = RecursiveOpContext {
+            src_fs: &fs,
+            dest_fs: &fs,
+            src: &src_root,
+            dest: &dest_root,
+            action: crate::app::CopyMoveAction::Copy,
+            cancel: &cancel,
             tx: &tx,
             id: 1,
             total: 3,
             processed: &processed,
             decision_rx: &decision_rx,
         };
-        let cancel = Arc::new(AtomicBool::new(false));
         let mut decision_state = DecisionState {
             overwrite_all: false,
             skip_all: false,
             last_update: std::time::Instant::now(),
         };
 
-        let res = recursive_op(
-            &fs,
-            &fs,
-            &src_root,
-            &dest_root,
-            crate::app::CopyMoveAction::Copy,
-            &cancel,
-            ctx,
-            &mut decision_state,
-        )
-        .await;
+        let res = recursive_op(ctx, &mut decision_state).await;
 
         assert!(res.is_ok(), "Recursive copy failed: {:?}", res.err());
 
@@ -635,13 +632,18 @@ mod mock_fs_tests {
         let processed = Arc::new(AtomicUsize::new(0));
         let decision_rx = Arc::new(Mutex::new(drx_real));
         let ctx = RecursiveOpContext {
+            src_fs: &fs,
+            dest_fs: &fs,
+            src: &src_root,
+            dest: &dest_root,
+            action: crate::app::CopyMoveAction::Copy,
+            cancel: &Arc::new(AtomicBool::new(false)),
             tx: &tx,
             id: 1,
             total: 2,
             processed: &processed,
             decision_rx: &decision_rx,
         };
-        let cancel = Arc::new(AtomicBool::new(false));
         let mut decision_state = DecisionState {
             overwrite_all: false,
             skip_all: false,
@@ -655,17 +657,7 @@ mod mock_fs_tests {
             }
         });
 
-        let res = recursive_op(
-            &fs,
-            &fs,
-            &src_root,
-            &dest_root,
-            crate::app::CopyMoveAction::Copy,
-            &cancel,
-            ctx,
-            &mut decision_state,
-        )
-        .await;
+        let res = recursive_op(ctx, &mut decision_state).await;
 
         assert!(res.is_ok());
         assert!(decision_state.overwrite_all);
@@ -702,13 +694,18 @@ mod mock_fs_tests {
         let processed = Arc::new(AtomicUsize::new(0));
         let decision_rx = Arc::new(Mutex::new(drx_real));
         let ctx = RecursiveOpContext {
+            src_fs: &fs,
+            dest_fs: &fs,
+            src: &src_root,
+            dest: &dest_root,
+            action: crate::app::CopyMoveAction::Copy,
+            cancel: &Arc::new(AtomicBool::new(false)),
             tx: &tx,
             id: 1,
             total: 2,
             processed: &processed,
             decision_rx: &decision_rx,
         };
-        let cancel = Arc::new(AtomicBool::new(false));
         let mut decision_state = DecisionState {
             overwrite_all: false,
             skip_all: false,
@@ -722,20 +719,9 @@ mod mock_fs_tests {
             }
         });
 
-        let res = recursive_op(
-            &fs,
-            &fs,
-            &src_root,
-            &dest_root,
-            crate::app::CopyMoveAction::Copy,
-            &cancel,
-            ctx,
-            &mut decision_state,
-        )
-        .await;
+        let res = recursive_op(ctx, &mut decision_state).await;
 
         assert!(res.is_ok());
-        assert!(cancel.load(std::sync::atomic::Ordering::Relaxed));
 
         // At most one file could have been processed (the one that triggered the conflict)
         // But since it returned on Cancel, no copy should have been performed for that file either.
@@ -765,13 +751,18 @@ mod mock_fs_tests {
         let processed = Arc::new(AtomicUsize::new(0));
         let decision_rx = Arc::new(Mutex::new(drx_real));
         let ctx = RecursiveOpContext {
+            src_fs: &fs,
+            dest_fs: &fs,
+            src: &src_root,
+            dest: &dest_root,
+            action: crate::app::CopyMoveAction::Copy,
+            cancel: &Arc::new(AtomicBool::new(false)),
             tx: &tx,
             id: 1,
             total: 2,
             processed: &processed,
             decision_rx: &decision_rx,
         };
-        let cancel = Arc::new(AtomicBool::new(false));
         let mut decision_state = DecisionState {
             overwrite_all: false,
             skip_all: false,
@@ -787,17 +778,7 @@ mod mock_fs_tests {
             }
         });
 
-        let res = recursive_op(
-            &fs,
-            &fs,
-            &src_root,
-            &dest_root,
-            crate::app::CopyMoveAction::Copy,
-            &cancel,
-            ctx,
-            &mut decision_state,
-        )
-        .await;
+        let res = recursive_op(ctx, &mut decision_state).await;
 
         assert!(res.is_ok());
         assert!(decision_state.skip_all);
@@ -826,13 +807,18 @@ mod mock_fs_tests {
         let processed = Arc::new(AtomicUsize::new(0));
         let decision_rx = Arc::new(Mutex::new(decision_rx_real));
         let ctx = RecursiveOpContext {
+            src_fs: &fs,
+            dest_fs: &fs,
+            src: &src,
+            dest: &dst,
+            action: crate::app::CopyMoveAction::Copy,
+            cancel: &Arc::new(AtomicBool::new(false)),
             tx: &tx,
             id: 1,
             total: 1,
             processed: &processed,
             decision_rx: &decision_rx,
         };
-        let cancel = Arc::new(AtomicBool::new(false));
         let mut decision_state = DecisionState {
             overwrite_all: false,
             skip_all: false,
@@ -849,17 +835,7 @@ mod mock_fs_tests {
             }
         });
         // Call operation
-        let result = recursive_op(
-            &fs,
-            &fs,
-            &src,
-            &dst,
-            crate::app::CopyMoveAction::Copy,
-            &cancel,
-            ctx,
-            &mut decision_state,
-        )
-        .await;
+        let result = recursive_op(ctx, &mut decision_state).await;
         assert!(result.is_ok());
         // dst must exist
         assert!(fs.files.lock().await.contains_key(&dst));
@@ -888,13 +864,18 @@ mod mock_fs_tests {
         let processed = Arc::new(AtomicUsize::new(0));
         let decision_rx = Arc::new(Mutex::new(decision_rx_real));
         let ctx = RecursiveOpContext {
+            src_fs: &fs,
+            dest_fs: &fs,
+            src: &src,
+            dest: &dst,
+            action: crate::app::CopyMoveAction::Copy,
+            cancel: &Arc::new(AtomicBool::new(false)),
             tx: &tx,
             id: 1,
             total: 1,
             processed: &processed,
             decision_rx: &decision_rx,
         };
-        let cancel = Arc::new(AtomicBool::new(false));
         let mut decision_state = DecisionState {
             overwrite_all: false,
             skip_all: false,
@@ -910,17 +891,7 @@ mod mock_fs_tests {
             }
         });
 
-        let result = recursive_op(
-            &fs,
-            &fs,
-            &src,
-            &dst,
-            crate::app::CopyMoveAction::Copy,
-            &cancel,
-            ctx,
-            &mut decision_state,
-        )
-        .await;
+        let result = recursive_op(ctx, &mut decision_state).await;
 
         assert!(result.is_ok());
         assert!(fs.files.lock().await.contains_key(&dst));
@@ -937,17 +908,23 @@ mod mock_fs_tests {
             .insert(src.clone(), FakeEntry { is_dir: false });
 
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let (_dtx, drx_real) = mpsc::channel(1);
+        let (dtx, drx_real) = mpsc::channel(1);
         let processed = Arc::new(AtomicUsize::new(0));
         let decision_rx = Arc::new(Mutex::new(drx_real));
+        let cancel = Arc::new(AtomicBool::new(false));
         let ctx = RecursiveOpContext {
+            src_fs: &fs,
+            dest_fs: &fs,
+            src: &src,
+            dest: &dst,
+            action: crate::app::CopyMoveAction::Move,
+            cancel: &cancel,
             tx: &tx,
             id: 1,
-            total: 1,
+            total: 2,
             processed: &processed,
             decision_rx: &decision_rx,
         };
-        let cancel = Arc::new(AtomicBool::new(false));
         let mut decision_state = DecisionState {
             overwrite_all: false,
             skip_all: false,
@@ -956,16 +933,7 @@ mod mock_fs_tests {
 
         // If it triggers a conflict, it will wait for decision and we didn't send one,
         // but we can check the events.
-        let res = recursive_op(
-            &fs,
-            &fs,
-            &src,
-            &dst,
-            crate::app::CopyMoveAction::Move,
-            &cancel,
-            ctx,
-            &mut decision_state,
-        );
+        let res = recursive_op(ctx, &mut decision_state);
 
         // We wrap it in timeout to avoid hanging if the bug is present
         let res = tokio::time::timeout(std::time::Duration::from_millis(500), res).await;
@@ -1003,30 +971,25 @@ mod mock_fs_tests {
         let processed = Arc::new(AtomicUsize::new(0));
         let decision_rx = Arc::new(Mutex::new(drx_real));
         let ctx = RecursiveOpContext {
+            src_fs: &fs,
+            dest_fs: &fs,
+            src: &src_dir,
+            dest: &dest_dir,
+            action: crate::app::CopyMoveAction::Move,
+            cancel: &Arc::new(AtomicBool::new(false)),
             tx: &tx,
             id: 1,
-            total: 3, // dir + 2 files
+            total: 2,
             processed: &processed,
             decision_rx: &decision_rx,
         };
-        let cancel = Arc::new(AtomicBool::new(false));
         let mut decision_state = DecisionState {
             overwrite_all: false,
             skip_all: false,
             last_update: std::time::Instant::now(),
         };
 
-        let res = recursive_op(
-            &fs,
-            &fs,
-            &src_dir,
-            &dest_dir,
-            crate::app::CopyMoveAction::Move,
-            &cancel,
-            ctx,
-            &mut decision_state,
-        )
-        .await;
+        let res = recursive_op(ctx, &mut decision_state).await;
 
         assert!(res.is_ok());
 
