@@ -127,34 +127,8 @@ impl AppState {
 
     pub fn save_state(&self) -> anyhow::Result<()> {
         let state = PersistentState {
-            left: PersistentPanel {
-                tabs: self
-                    .left
-                    .tabs
-                    .iter()
-                    .map(|t| PersistentTab {
-                        path: t.current_dir.clone(),
-                        cursor: t.cursor,
-                        sort_column: t.sort_column,
-                        sort_direction: t.sort_direction,
-                    })
-                    .collect(),
-                active_tab_index: self.left.active_tab_index,
-            },
-            right: PersistentPanel {
-                tabs: self
-                    .right
-                    .tabs
-                    .iter()
-                    .map(|t| PersistentTab {
-                        path: t.current_dir.clone(),
-                        cursor: t.cursor,
-                        sort_column: t.sort_column,
-                        sort_direction: t.sort_direction,
-                    })
-                    .collect(),
-                active_tab_index: self.right.active_tab_index,
-            },
+            left: self.left.to_persistent(),
+            right: self.right.to_persistent(),
             active_side: self.active,
         };
 

@@ -40,6 +40,14 @@ impl SftpFs {
     }
 }
 
+impl Drop for SftpFs {
+    fn drop(&mut self) {
+        if let Ok(session) = self.session.lock() {
+            let _ = session.disconnect(None, "Application exiting or tab closed", None);
+        }
+    }
+}
+
 impl FileSystemProvider for SftpFs {
     fn list_dir(&self, path: &Path) -> Result<Vec<FileEntry>> {
         self.with_sftp(|sftp| {

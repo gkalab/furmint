@@ -82,6 +82,15 @@ impl Tab {
         Ok(tab)
     }
 
+    pub fn to_persistent(&self) -> PersistentTab {
+        PersistentTab {
+            path: self.current_dir.clone(),
+            cursor: self.cursor,
+            sort_column: self.sort_column,
+            sort_direction: self.sort_direction,
+        }
+    }
+
     /// Returns the currently selected entry, if any.
     pub fn current_entry(&self) -> Option<&FileEntry> {
         self.entries.get(self.cursor)
@@ -428,6 +437,49 @@ impl TabManager {
             tabs,
             active_tab_index,
         })
+    }
+
+    pub fn to_persistent(&self) -> crate::app::PersistentPanel {
+        let tabs: Vec<PersistentTab> = self
+            .tabs
+            .iter()
+            .filter(|t| t.provider.context_key() == "local")
+            .map(|t| t.to_persistent())
+            .collect();
+
+        // If all tabs were remote, ensure we save at least one local tab (CWD or Home)
+        // logic handled by loader if empty?
+        // Loader: if p.tabs is empty, it adds CWD new tab.
+        // So we can just return the filtered list.
+
+        // However, we need to adjust active_tab_index if it pointed to a remote tab.
+        // If we filter, indices shift.
+        // Simple strategy: save the index of the first local tab that was active, or 0.
+        // Or if the active tab was local, map its index.
+
+        let active_tab_opt = self.tabs.get(self.active_tab_index);
+        let active_is_local = active_tab_opt
+            .map(|t| t.provider.context_key() == "local")
+            .unwrap_or(false);
+
+        // Recalculate new active index
+        let new_active_index = if active_is_local {
+            // Count how many local tabs were before it
+            self.tabs
+                .iter()
+                .take(self.active_tab_index)
+                .filter(|t| t.provider.context_key() == "local")
+                .count()
+        } else {
+            // If active was remote, just default to 0 (last active local, or first)
+            // Ideally we'd like the nearest local tab, but 0 is safe.
+            0
+        };
+
+        crate::app::PersistentPanel {
+            tabs,
+            active_tab_index: new_active_index,
+        }
     }
 
     pub fn active_tab(&self) -> &Tab {
