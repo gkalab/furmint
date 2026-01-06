@@ -15,7 +15,7 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemeP
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .title("SSH Connection")
-            .border_style(Style::default().fg(Color::from(palette.subtext)))
+            .border_style(Style::default().fg(Color::from(palette.blue)))
             .bg(Color::from(palette.base)),
         popup_area,
     );
@@ -41,12 +41,14 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemeP
         Style::default().fg(Color::from(palette.subtext))
     };
     f.render_widget(
-        Paragraph::new(app.popups.ssh_connection.connection_string.as_str()).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title("Connection String (user@host[:/path])")
-                .border_style(conn_style),
-        ),
+        Paragraph::new(app.popups.ssh_connection.connection_string.as_str())
+            .style(Style::default().fg(Color::from(palette.text)))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Connection String (user@host[:/path])")
+                    .border_style(conn_style),
+            ),
         chunks[0],
     );
 
@@ -57,12 +59,14 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemeP
         Style::default().fg(Color::from(palette.subtext))
     };
     f.render_widget(
-        Paragraph::new(app.popups.ssh_connection.name.as_str()).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title("Name")
-                .border_style(name_style),
-        ),
+        Paragraph::new(app.popups.ssh_connection.name.as_str())
+            .style(Style::default().fg(Color::from(palette.text)))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Name")
+                    .border_style(name_style),
+            ),
         chunks[1],
     );
 
@@ -73,12 +77,14 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemeP
         Style::default().fg(Color::from(palette.subtext))
     };
     f.render_widget(
-        Paragraph::new(app.popups.ssh_connection.port.as_str()).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title("Port")
-                .border_style(port_style),
-        ),
+        Paragraph::new(app.popups.ssh_connection.port.as_str())
+            .style(Style::default().fg(Color::from(palette.text)))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Port")
+                    .border_style(port_style),
+            ),
         chunks[2],
     );
 
@@ -104,7 +110,7 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemeP
                     .bg(Color::from(palette.surface2))
                     .fg(Color::from(palette.text))
             } else {
-                Style::default()
+                Style::default().fg(Color::from(palette.text))
             };
             ListItem::new(conn.display_string()).style(style)
         })
@@ -188,7 +194,7 @@ pub fn draw_ssh_password_popup(f: &mut Frame, app: &AppState, palette: &ThemePal
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .title("SSH Password")
-            .border_style(Style::default().fg(Color::from(palette.subtext)))
+            .border_style(Style::default().fg(Color::from(palette.blue)))
             .bg(Color::from(palette.base)),
         popup_area,
     );
@@ -206,17 +212,20 @@ pub fn draw_ssh_password_popup(f: &mut Frame, app: &AppState, palette: &ThemePal
         Paragraph::new(format!(
             "Password for {}@{}",
             app.popups.ssh_password.user, app.popups.ssh_password.host
-        )),
+        ))
+        .style(Style::default().fg(Color::from(palette.text))),
         chunks[0],
     );
 
     let password_mask: String = "*".repeat(app.popups.ssh_password.password.len());
     f.render_widget(
-        Paragraph::new(password_mask.as_str()).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::from(palette.blue))),
-        ),
+        Paragraph::new(password_mask.as_str())
+            .style(Style::default().fg(Color::from(palette.text)))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::from(palette.blue))),
+            ),
         chunks[1],
     );
 
