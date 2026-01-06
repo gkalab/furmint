@@ -15,6 +15,8 @@ pub struct SftpFs {
 impl SftpFs {
     pub fn new(session: Session, host: String, user: String) -> Self {
         let prefix = format!("[{}@{}]", user, host);
+        // Enable keep-alive every 10 seconds
+        session.set_keepalive(true, 10);
         Self {
             session: Mutex::new(session),
             _host: host,
