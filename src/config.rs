@@ -630,8 +630,13 @@ mod tests {
         assert!(validate_viewer_config(&viewer).is_ok());
 
         // Absolute path that does NOT exist
+        let abs_no_exist = if cfg!(windows) {
+            "C:\\non\\existent\\path\\to\\editor"
+        } else {
+            "/non/existent/path/to/editor"
+        };
         let editor_abs_no_exist = EditorConfig {
-            command: Some("/non/existent/path/to/editor".to_string()),
+            command: Some(abs_no_exist.to_string()),
             in_terminal: Some(true),
         };
         assert!(validate_editor_config(&editor_abs_no_exist).is_err());
@@ -680,8 +685,11 @@ mod tests {
 
         // Let's test the conservative fallback specifically
         assert_eq!(
-            parse_command("C:/Program Files/Alacritty/alacritty"),
-            ("C:/Program Files/Alacritty/alacritty".to_string(), vec![])
+            parse_command("C:/This/Path/Definitely/Does/Not/Exist/my_editor"),
+            (
+                "C:/This/Path/Definitely/Does/Not/Exist/my_editor".to_string(),
+                vec![]
+            )
         );
     }
 }
