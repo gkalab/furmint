@@ -46,6 +46,7 @@ pub(crate) fn handle_init_delete(app: &mut AppState, permanent: bool) {
 pub(crate) fn handle_confirm_delete(app: &mut AppState) {
     let paths = app.popups.delete.selected_paths.clone();
     let is_permanent = app.popups.delete.is_permanent;
+    let provider = app.active_tab().provider.clone();
 
     let name = if is_permanent {
         format!("Deleting {} items permanently", paths.len())
@@ -66,16 +67,24 @@ pub(crate) fn handle_confirm_delete(app: &mut AppState) {
                     ));
                     return;
                 }
+
+                let path_buf = path.clone();
+                let provider_clone = provider.clone();
+
                 let result = if is_permanent {
-                    if path.is_dir() {
-                        std::fs::remove_dir_all(path)
-                    } else {
-                        std::fs::remove_file(path)
-                    }
-                    .map_err(|e| e.to_string())
+                    tokio::task::spawn_blocking(move || provider_clone.delete(&path_buf, true))
+                        .await
+                        .unwrap_or_else(|e| Err(anyhow::anyhow!("Task join error: {}", e)))
+                        .map_err(|e| e.to_string())
                 } else {
-                    trash::delete(path).map_err(|e| e.to_string())
+                    tokio::task::spawn_blocking(move || {
+                        trash::delete(&path_buf).map_err(|e| anyhow::anyhow!(e))
+                    })
+                    .await
+                    .unwrap_or_else(|e| Err(anyhow::anyhow!("Task join error: {}", e)))
+                    .map_err(|e| e.to_string())
                 };
+
                 match result {
                     Ok(()) => success += 1,
                     Err(e) => failures.push(format!("{}: {}", path.display(), e)),
