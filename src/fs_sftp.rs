@@ -379,6 +379,7 @@ mod tests {
         fail_read: bool,
         fail_stat: bool,
         fail_realpath: bool,
+        #[allow(dead_code)] // Not exercised, present for future write tests
         fail_setstat: bool,
         stat_is_dir: bool,
         stat_is_symlink: bool,
@@ -503,6 +504,7 @@ mod tests {
                 self.realpath_value.clone().unwrap_or("/real".to_string()),
             ))
         }
+        #[allow(dead_code)]
         fn setstat(
             &self,
             _path: &std::path::Path,
@@ -598,11 +600,13 @@ mod tests {
             .map_err(|e| anyhow::anyhow!("{}", e))
         }
 
+        #[allow(dead_code)]
         fn get_permissions(&self, path: &std::path::Path) -> Option<u32> {
             self.with_sftp(|sftp| Ok(sftp.stat(path).ok().and_then(|stat| Some(stat.perms))))
                 .unwrap_or(None)
         }
 
+        #[allow(dead_code)]
         fn set_permissions(&self, path: &std::path::Path, mode: u32) -> bool {
             self.with_sftp(|sftp| {
                 Ok(sftp

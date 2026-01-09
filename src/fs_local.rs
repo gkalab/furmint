@@ -177,7 +177,7 @@ mod tests {
             assert!(perms.is_some());
             // Permissions should be valid Unix permission bits (0-0o777)
             let mode = perms.unwrap();
-            assert!(mode >= 0 && mode <= 0o777);
+            assert!(mode <= 0o777);
         }
 
         #[cfg(not(unix))]
@@ -226,7 +226,7 @@ mod tests {
             let metadata = std::fs::metadata(&test_file).unwrap();
             let actual_perms = metadata.permissions().mode() & 0o777;
             // At minimum, the permissions should have changed or stayed the same due to umask
-            assert!(actual_perms >= 0 && actual_perms <= 0o777);
+            assert!(actual_perms <= 0o777);
         }
 
         #[cfg(not(unix))]

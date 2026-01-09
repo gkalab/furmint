@@ -684,7 +684,7 @@ mod mock_fs_tests {
         async fn write_file_with_permissions(
             &self,
             path: &Path,
-            data: &[u8],
+            _data: &[u8],
             _mode: Option<u32>,
         ) -> anyhow::Result<()> {
             self.files
