@@ -456,6 +456,13 @@ fn reconnect_ssh(app: &mut AppState, session_id: String, password: String) {
                     }));
                 }
                 Err(e) => {
+                    // Check if it's an authentication failure
+                    if e.to_string().contains("Authentication failed") {
+                        let _ = tx.send(TaskEvent::SshReconnectFailed(
+                            old_session_id.clone(),
+                            "Authentication failed - password may have changed".to_string(),
+                        ));
+                    }
                     let _ = tx.send(TaskEvent::UpdateStatus(
                         id,
                         TaskStatus::Failed(format!("Reconnection failed: {}", e)),
@@ -711,6 +718,20 @@ mod tests {
     }
 }
 
+fn show_password_popup_for_reconnect(
+    app: &mut AppState,
+    session: &crate::ssh_manager::SessionState,
+    error: Option<String>,
+) {
+    app.popups.ssh_password.is_visible = true;
+    app.popups.ssh_password.session_id = session.session_id.clone();
+    app.popups.ssh_password.host = session.host.clone();
+    app.popups.ssh_password.user = session.user.clone();
+    app.popups.ssh_password.error = error;
+    app.popups.ssh_password.password.clear();
+    app.popups.ssh_password.cursor_position = 0;
+}
+
 pub fn handle_reconnect_ssh(app: &mut AppState) {
     let active_tab = app.active_tab();
     let provider = &active_tab.provider;
@@ -727,12 +748,51 @@ pub fn handle_reconnect_ssh(app: &mut AppState) {
         .find(|s| format!("[{}@{}]", s.user, s.host) == context_key);
 
     if let Some(session) = session {
-        app.popups.ssh_password.is_visible = true;
-        app.popups.ssh_password.session_id = session.session_id.clone();
-        app.popups.ssh_password.host = session.host.clone();
-        app.popups.ssh_password.user = session.user.clone();
-        app.popups.ssh_password.error = None;
-        app.popups.ssh_password.password.clear();
-        app.popups.ssh_password.cursor_position = 0;
+        // Check if we have a cached password
+        if let Some(cached_password) = app.ssh_manager.get_cached_password(&session.session_id) {
+            // Try to reconnect with cached password
+            let ssh_manager = app.ssh_manager.clone();
+            let current_dir = app.active_tab().current_dir.clone();
+            let session_id = session.session_id.clone();
+            let password_for_cache = cached_password.clone();
+
+            app.task_manager.spawn_task(
+                "Reconnecting SSH session".to_string(),
+                move |_cancel, tx, id| async move {
+                    let result =
+                        ssh_manager.reconnect_session(&session_id, cached_password, |_op| async {
+                            Ok(())
+                        });
+
+                    match result.await {
+                        Ok((new_session_id, fs)) => {
+                            ssh_manager.clear_password(&session_id);
+                            ssh_manager.cache_password(&new_session_id, password_for_cache);
+                            let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Completed));
+                            let _ = tx.send(TaskEvent::SshReconnected(SshContext {
+                                provider: Arc::new(fs),
+                                path: Some(current_dir),
+                            }));
+                        }
+                        Err(e) => {
+                            // Check if it's an authentication failure
+                            if e.to_string().contains("Authentication failed") {
+                                let _ = tx.send(TaskEvent::SshReconnectFailed(
+                                    session_id.clone(),
+                                    e.to_string(),
+                                ));
+                            }
+                            let _ = tx.send(TaskEvent::UpdateStatus(
+                                id,
+                                TaskStatus::Failed(format!("Reconnection failed: {}", e)),
+                            ));
+                        }
+                    }
+                },
+            );
+        } else {
+            // No cached password, show popup immediately
+            show_password_popup_for_reconnect(app, session, None);
+        }
     }
 }

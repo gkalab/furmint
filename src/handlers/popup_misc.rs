@@ -45,6 +45,19 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
         crate::tasks::TaskEvent::SshReconnected(ctx) => {
             app.handle_ssh_reconnected(ctx);
         }
+        crate::tasks::TaskEvent::SshReconnectFailed(session_id, error) => {
+            // Find the session and show password popup with error message
+            let sessions = app.ssh_manager.get_all_sessions();
+            if let Some(session) = sessions.iter().find(|s| s.session_id == session_id) {
+                app.popups.ssh_password.is_visible = true;
+                app.popups.ssh_password.session_id = session.session_id.clone();
+                app.popups.ssh_password.host = session.host.clone();
+                app.popups.ssh_password.user = session.user.clone();
+                app.popups.ssh_password.error = Some(error);
+                app.popups.ssh_password.password.clear();
+                app.popups.ssh_password.cursor_position = 0;
+            }
+        }
     }
 }
 

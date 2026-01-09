@@ -30,6 +30,7 @@ pub enum TaskEvent {
     Error(usize, String, String), // id, path, error_message
     SshConnected(SshContext),
     SshReconnected(SshContext),
+    SshReconnectFailed(String, String), // session_id, error_message
 }
 
 #[derive(Clone)]
