@@ -37,6 +37,19 @@ impl SftpFs {
             .map_err(|e| anyhow!("Failed to open SFTP channel: {}", e))?;
         f(&sftp)
     }
+
+    fn normalize_path(&self, path: &Path) -> PathBuf {
+        let mut s = path.to_string_lossy().replace('\\', "/");
+        // Ensure starts with /
+        if !s.starts_with('/') {
+            s = format!("/{}", s);
+        }
+        // Remove double slashes
+        while s.contains("//") {
+            s = s.replace("//", "/");
+        }
+        PathBuf::from(s)
+    }
 }
 
 impl Drop for SftpFs {
@@ -50,11 +63,12 @@ impl Drop for SftpFs {
 impl FileSystemProvider for SftpFs {
     fn list_dir(&self, path: &Path) -> Result<Vec<FileEntry>> {
         self.with_sftp(|sftp| {
-            let entries = match sftp.readdir(path) {
+            let normalized_path = self.normalize_path(path);
+            let entries = match sftp.readdir(&normalized_path) {
                 Ok(e) => e,
                 Err(_) => {
                     // Try to canonicalize and read again (handle symlinks or weird paths)
-                    let real_path = sftp.realpath(path).map_err(|e| {
+                    let real_path = sftp.realpath(&normalized_path).map_err(|e| {
                         anyhow!("Failed to read directory (and realpath failed): {}", e)
                     })?;
                     sftp.readdir(&real_path)
@@ -111,14 +125,14 @@ impl FileSystemProvider for SftpFs {
 
     fn create_dir(&self, path: &Path) -> Result<()> {
         self.with_sftp(|sftp| {
-            sftp.mkdir(path, 0o755)
+            sftp.mkdir(self.normalize_path(path).as_path(), 0o755)
                 .map_err(|e| anyhow!("Failed to create directory: {}", e))
         })
     }
 
     fn create_file(&self, path: &Path) -> Result<()> {
         self.with_sftp(|sftp| {
-            sftp.create(path)
+            sftp.create(self.normalize_path(path).as_path())
                 .map_err(|e| anyhow!("Failed to create file: {}", e))?;
             Ok(())
         })
@@ -126,20 +140,21 @@ impl FileSystemProvider for SftpFs {
 
     fn delete(&self, path: &Path, recursive: bool) -> Result<()> {
         self.with_sftp(|sftp| {
+            let normalized_path = self.normalize_path(path);
             let stat = sftp
-                .stat(path)
+                .stat(&normalized_path)
                 .map_err(|e| anyhow!("Failed to stat path: {}", e))?;
 
             if stat.is_dir() {
                 if recursive {
                     // SFTP doesn't have recursive delete, we must do it manually
-                    Self::delete_recursive_internal(sftp, path)?;
+                    Self::delete_recursive_internal(sftp, &normalized_path)?;
                 } else {
-                    sftp.rmdir(path)
+                    sftp.rmdir(&normalized_path)
                         .map_err(|e| anyhow!("Failed to remove directory: {}", e))?;
                 }
             } else {
-                sftp.unlink(path)
+                sftp.unlink(&normalized_path)
                     .map_err(|e| anyhow!("Failed to remove file: {}", e))?;
             }
             Ok(())
@@ -148,8 +163,12 @@ impl FileSystemProvider for SftpFs {
 
     fn rename(&self, from: &Path, to: &Path) -> Result<()> {
         self.with_sftp(|sftp| {
-            sftp.rename(from, to, None)
-                .map_err(|e| anyhow!("Failed to rename: {}", e))
+            sftp.rename(
+                self.normalize_path(from).as_path(),
+                self.normalize_path(to).as_path(),
+                None,
+            )
+            .map_err(|e| anyhow!("Failed to rename: {}", e))
         })
     }
 
@@ -157,7 +176,7 @@ impl FileSystemProvider for SftpFs {
         self.with_sftp(|sftp| {
             use std::io::Read;
             let mut file = sftp
-                .open(path)
+                .open(self.normalize_path(path))
                 .map_err(|e| anyhow!("Failed to open file: {}", e))?;
             let mut buffer = Vec::new();
             file.read_to_end(&mut buffer)
@@ -170,7 +189,7 @@ impl FileSystemProvider for SftpFs {
         self.with_sftp(|sftp| {
             use std::io::Write;
             let mut file = sftp
-                .create(path)
+                .create(self.normalize_path(path).as_path())
                 .map_err(|e| anyhow!("Failed to create file: {}", e))?;
             file.write_all(data)
                 .map_err(|e| anyhow!("Failed to write file: {}", e))?;
@@ -204,19 +223,24 @@ impl FileSystemProvider for SftpFs {
     }
 
     fn exists(&self, path: &Path) -> bool {
-        self.with_sftp(|sftp| Ok(sftp.stat(path).is_ok()))
+        self.with_sftp(|sftp| Ok(sftp.stat(self.normalize_path(path).as_path()).is_ok()))
             .unwrap_or(false)
     }
 
     fn is_dir(&self, path: &Path) -> bool {
-        self.with_sftp(|sftp| Ok(sftp.stat(path).map(|s| s.is_dir()).unwrap_or(false)))
-            .unwrap_or(false)
+        self.with_sftp(|sftp| {
+            Ok(sftp
+                .stat(self.normalize_path(path).as_path())
+                .map(|s| s.is_dir())
+                .unwrap_or(false))
+        })
+        .unwrap_or(false)
     }
 
     fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
         self.with_sftp(|sftp| {
             let path = sftp
-                .realpath(path)
+                .realpath(&self.normalize_path(path))
                 .map_err(|e| anyhow!("Failed to canonicalize path: {}", e))?;
             Ok(path)
         })
@@ -225,7 +249,7 @@ impl FileSystemProvider for SftpFs {
     fn get_permissions(&self, path: &Path) -> Option<u32> {
         self.with_sftp(|sftp| {
             Ok(sftp
-                .stat(path)
+                .stat(self.normalize_path(path).as_path())
                 .ok()
                 .and_then(|stat| stat.perm.map(|p| p & 0o777)))
         })
@@ -235,7 +259,8 @@ impl FileSystemProvider for SftpFs {
     fn set_permissions(&self, path: &Path, mode: u32) -> bool {
         // Try SFTP setstat with real path
         self.with_sftp(|sftp| {
-            let real_path = sftp.realpath(path).unwrap_or_else(|_| path.to_path_buf());
+            let normalized_path = self.normalize_path(path);
+            let real_path = sftp.realpath(&normalized_path).unwrap_or(normalized_path);
             sftp.setstat(
                 &real_path,
                 FileStat {

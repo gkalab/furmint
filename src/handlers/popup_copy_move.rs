@@ -2,6 +2,7 @@
 
 use crate::app::AppState;
 use crossterm::event::KeyCode;
+use std::path::PathBuf;
 
 pub fn handle_init_copy(app: &mut AppState) {
     init_copy_move(app, crate::app::CopyMoveAction::Copy);
@@ -247,7 +248,14 @@ pub fn spawn_copy_move_task(app: &mut AppState) {
                 // Re-check is_dir in case it was created above or existed
                 let is_dir_now = dest_fs.is_dir(&dest_path).await.unwrap_or(false);
                 let target = if treat_as_dir || is_dir_now {
-                    dest_path.join(file_name)
+                    if dest_fs.0.is_local() {
+                        dest_path.join(file_name)
+                    } else {
+                        // For remote, use string join to avoid Windows PathBuf join issues
+                        let base = dest_str.trim_end_matches('/');
+                        let fname = file_name.to_string_lossy();
+                        PathBuf::from(format!("{}/{}", base, fname))
+                    }
                 } else {
                     dest_path.clone()
                 };
