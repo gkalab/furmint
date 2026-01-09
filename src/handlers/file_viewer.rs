@@ -56,12 +56,7 @@ pub(crate) fn handle_file_viewer_event(code: KeyCode, app: &mut AppState) {
 }
 
 pub async fn handle_external_viewer(app: &mut AppState) -> bool {
-    let viewer_cmd = app
-        .viewer_cfg
-        .command
-        .as_ref()
-        .or(app.global.viewer.as_ref())
-        .cloned();
+    let viewer_cmd = app.viewer_cfg.command.as_ref().cloned();
 
     if let Some(cmd_str) = viewer_cmd {
         if let Some(entry) = app.active_tab().current_entry().cloned()
@@ -109,6 +104,7 @@ mod tests {
             fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
             popups: crate::app::Popups::new(),
             task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
+            ssh_manager: std::sync::Arc::new(crate::ssh_manager::SshManager::default()),
             task_decision_txs: std::collections::HashMap::new(),
             show_task_manager: false,
             dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),

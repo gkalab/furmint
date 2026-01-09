@@ -60,6 +60,7 @@ mod tests {
             editor_cfg: crate::config::EditorConfig::default(),
             viewer_cfg: crate::config::ViewerConfig::default(),
             ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
+            ssh_manager: std::sync::Arc::new(crate::ssh_manager::SshManager::default()),
         };
         app.popups.conflict.is_visible = true;
         app.popups.conflict.task_id = task_id;

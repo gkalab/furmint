@@ -364,6 +364,7 @@ mod popup_copy_move_unit_tests {
             fuzzy_search: Default::default(),
             popups: crate::app::Popups::new(),
             task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
+            ssh_manager: std::sync::Arc::new(crate::ssh_manager::SshManager::default()),
             task_decision_txs: HashMap::new(),
             show_task_manager: false,
             dir_history: Default::default(),

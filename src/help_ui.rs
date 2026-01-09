@@ -67,6 +67,13 @@ pub fn draw_help_popup(
                 ("Quit", &keyboard.quit),
             ],
         ),
+        (
+            "SSH",
+            vec![
+                ("New Connection", &keyboard.open_ssh),
+                ("Reconnect", &keyboard.reconnect_ssh),
+            ],
+        ),
     ];
 
     let mut rows = Vec::new();

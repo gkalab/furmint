@@ -394,29 +394,76 @@ pub fn handle_ssh_password_event(
     match code {
         KeyCode::Esc => {
             app.popups.ssh_password.is_visible = false;
-            app.popups.ssh_connection.is_visible = true;
+            if !app.popups.ssh_connection.connection_string.is_empty() {
+                app.popups.ssh_connection.is_visible = true;
+            }
         }
         KeyCode::Char(c) => {
             app.popups.ssh_password.password.push(c);
+            app.popups.ssh_password.cursor_position += 1;
         }
         KeyCode::Backspace => {
-            app.popups.ssh_password.password.pop();
+            if !app.popups.ssh_password.password.is_empty() {
+                app.popups.ssh_password.password.pop();
+                app.popups.ssh_password.cursor_position =
+                    app.popups.ssh_password.cursor_position.saturating_sub(1);
+            }
         }
         KeyCode::Enter => {
-            // Perform connection!
-            let host = app.popups.ssh_password.host.clone();
-            let user = app.popups.ssh_password.user.clone();
             let password = app.popups.ssh_password.password.clone();
-            let port = app.popups.ssh_connection.port.parse::<u16>().unwrap_or(22);
-            let target_path = parse_connection_string(&app.popups.ssh_connection.connection_string)
-                .and_then(|p| p.path);
+            let session_id = app.popups.ssh_password.session_id.clone();
 
             app.popups.ssh_password.is_visible = false;
-            connect_ssh(app, user, host, port, password, target_path);
+
+            if !session_id.is_empty() {
+                reconnect_ssh(app, session_id, password);
+            } else {
+                let host = app.popups.ssh_password.host.clone();
+                let user = app.popups.ssh_password.user.clone();
+                let port = app.popups.ssh_connection.port.parse::<u16>().unwrap_or(22);
+                let target_path =
+                    parse_connection_string(&app.popups.ssh_connection.connection_string)
+                        .and_then(|p| p.path);
+
+                connect_ssh(app, user, host, port, password, target_path);
+            }
         }
         _ => {}
     }
     false
+}
+
+fn reconnect_ssh(app: &mut AppState, session_id: String, password: String) {
+    let ssh_manager = app.ssh_manager.clone();
+    let current_dir = app.active_tab().current_dir.clone();
+    let old_session_id = session_id.clone();
+    let password_for_cache = password.clone();
+
+    app.task_manager.spawn_task(
+        "Reconnecting SSH session".to_string(),
+        move |_cancel, tx, id| async move {
+            let result =
+                ssh_manager.reconnect_session(&session_id, password, |_op| async { Ok(()) });
+
+            match result.await {
+                Ok((new_session_id, fs)) => {
+                    ssh_manager.clear_password(&old_session_id);
+                    ssh_manager.cache_password(&new_session_id, password_for_cache);
+                    let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Completed));
+                    let _ = tx.send(TaskEvent::SshReconnected(SshContext {
+                        provider: Arc::new(fs),
+                        path: Some(current_dir),
+                    }));
+                }
+                Err(e) => {
+                    let _ = tx.send(TaskEvent::UpdateStatus(
+                        id,
+                        TaskStatus::Failed(format!("Reconnection failed: {}", e)),
+                    ));
+                }
+            }
+        },
+    );
 }
 
 fn connect_ssh(
@@ -428,41 +475,38 @@ fn connect_ssh(
     target_path: Option<String>,
 ) {
     let name = format!("Connecting to {}@{}", user, host);
+    let ssh_manager = app.ssh_manager.clone();
+    let target_path_clone = target_path.clone();
+    let host_for_reg = host.clone();
+    let user_for_reg = user.clone();
+    let password_for_cache = password.clone();
+
     app.task_manager
         .spawn_task(name, move |_cancel, tx, id| async move {
-            let result =
-                tokio::task::spawn_blocking(move || -> anyhow::Result<crate::fs_sftp::SftpFs> {
-                    use std::net::TcpStream;
-                    let tcp = TcpStream::connect(format!("{}:{}", host, port))?;
-                    let mut sess = ssh2::Session::new()?;
-                    sess.set_tcp_stream(tcp);
-                    sess.handshake()?;
-                    sess.userauth_password(&user, &password)?;
-                    if !sess.authenticated() {
-                        return Err(anyhow::anyhow!("Authentication failed"));
-                    }
-                    Ok(crate::fs_sftp::SftpFs::new(sess, host, user))
-                })
+            let result = ssh_manager
+                .connect_ssh(host, port, user, password, target_path_clone)
                 .await;
 
             match result {
-                Ok(Ok(fs)) => {
+                Ok((session_id, fs)) => {
+                    ssh_manager.cache_password(&session_id, password_for_cache);
+                    ssh_manager.register_session(
+                        session_id.clone(),
+                        host_for_reg,
+                        port,
+                        user_for_reg,
+                        target_path.clone(),
+                    );
                     let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Completed));
                     let _ = tx.send(TaskEvent::SshConnected(SshContext {
                         provider: Arc::new(fs),
                         path: target_path.map(std::path::PathBuf::from),
                     }));
                 }
-                Ok(Err(e)) => {
-                    let _ = tx.send(TaskEvent::UpdateStatus(
-                        id,
-                        TaskStatus::Failed(e.to_string()),
-                    ));
-                }
                 Err(e) => {
                     let _ = tx.send(TaskEvent::UpdateStatus(
                         id,
-                        TaskStatus::Failed(format!("Task panicked: {}", e)),
+                        TaskStatus::Failed(e.to_string()),
                     ));
                 }
             }
@@ -492,6 +536,7 @@ mod tests {
             fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
             popups: crate::app::Popups::new(),
             task_manager: TaskManager::new(task_tx),
+            ssh_manager: std::sync::Arc::new(crate::ssh_manager::SshManager::default()),
             task_decision_txs: Default::default(),
             show_task_manager: false,
             dir_history: DirectoryHistory::new().unwrap(),
@@ -619,5 +664,75 @@ mod tests {
             Some(Instant::now() - std::time::Duration::from_secs(2));
         handle_history_search(&mut app, 'z');
         assert_eq!(app.popups.ssh_connection.search_query, "z");
+    }
+
+    #[test]
+    fn test_handle_reconnect_ssh_no_op_for_local() {
+        let mut app = basic_app_state();
+        handle_reconnect_ssh(&mut app);
+        assert!(!app.popups.ssh_password.is_visible);
+    }
+
+    #[test]
+    fn test_handle_reconnect_ssh_sets_up_password_prompt() {
+        use crate::fs_sftp::SftpFs;
+        use ssh2::Session;
+
+        let mut app = basic_app_state();
+
+        // Create a mock SftpFs with mock session BEFORE registering session
+        // This is important because handle_reconnect_ssh uses active_tab() at the start
+        let mock_session = Session::new().unwrap();
+        let sftp_fs = SftpFs::new(
+            mock_session,
+            "example.com".to_string(),
+            "testuser".to_string(),
+        );
+
+        // Replace the provider for left tab FIRST
+        app.left.active_tab_mut().provider = std::sync::Arc::new(sftp_fs);
+
+        // Register a mock SSH session AFTER setting up provider
+        app.ssh_manager.register_session(
+            "test_session".to_string(),
+            "example.com".to_string(),
+            22,
+            "testuser".to_string(),
+            Some("/remote/path".to_string()),
+        );
+
+        handle_reconnect_ssh(&mut app);
+
+        assert!(app.popups.ssh_password.is_visible);
+        assert_eq!(app.popups.ssh_password.session_id, "test_session");
+        assert_eq!(app.popups.ssh_password.host, "example.com");
+        assert_eq!(app.popups.ssh_password.user, "testuser");
+        assert!(app.popups.ssh_password.password.is_empty());
+    }
+}
+
+pub fn handle_reconnect_ssh(app: &mut AppState) {
+    let active_tab = app.active_tab();
+    let provider = &active_tab.provider;
+
+    if provider.is_local() {
+        return;
+    }
+
+    let context_key = provider.context_key();
+
+    let sessions = app.ssh_manager.get_all_sessions();
+    let session = sessions
+        .iter()
+        .find(|s| format!("[{}@{}]", s.user, s.host) == context_key);
+
+    if let Some(session) = session {
+        app.popups.ssh_password.is_visible = true;
+        app.popups.ssh_password.session_id = session.session_id.clone();
+        app.popups.ssh_password.host = session.host.clone();
+        app.popups.ssh_password.user = session.user.clone();
+        app.popups.ssh_password.error = None;
+        app.popups.ssh_password.password.clear();
+        app.popups.ssh_password.cursor_position = 0;
     }
 }

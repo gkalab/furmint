@@ -29,6 +29,7 @@ pub enum TaskEvent {
     Conflict(usize, std::path::PathBuf, ConflictType),
     Error(usize, String, String), // id, path, error_message
     SshConnected(SshContext),
+    SshReconnected(SshContext),
 }
 
 #[derive(Clone)]

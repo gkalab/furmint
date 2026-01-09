@@ -274,6 +274,7 @@ mod tests {
             fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
             popups: crate::app::Popups::new(),
             task_manager: TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
+            ssh_manager: std::sync::Arc::new(crate::ssh_manager::SshManager::default()),
             task_decision_txs: std::collections::HashMap::new(),
             show_task_manager: false,
             dir_history: DirectoryHistory::new().unwrap(),

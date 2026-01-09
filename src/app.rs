@@ -53,6 +53,7 @@ pub struct AppState {
     pub fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState,
     pub popups: Popups,
     pub task_manager: crate::tasks::TaskManager,
+    pub ssh_manager: std::sync::Arc<crate::ssh_manager::SshManager>,
 
     // Channels to communicate decisions back to tasks
     pub task_decision_txs:
@@ -89,6 +90,7 @@ pub struct AppConfigContext<'a> {
     pub global: crate::config::GlobalConfig,
     pub editor_cfg: crate::config::EditorConfig,
     pub viewer_cfg: crate::config::ViewerConfig,
+    pub ssh_cfg: crate::config::SshConfig,
     pub dir_history: crate::dir_history::DirectoryHistory,
     pub watcher: Option<crate::watcher::AppWatcher>,
     pub task_manager: crate::tasks::TaskManager,
@@ -112,6 +114,11 @@ impl AppState {
             fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
             popups: crate::app::Popups::new(),
             task_manager: ctx.task_manager,
+            // Wire up ssh manager with task event channel so it can emit SshConnected events
+            ssh_manager: std::sync::Arc::new(crate::ssh_manager::SshManager::new(
+                None,
+                Some(&ctx.ssh_cfg),
+            )),
             task_decision_txs: std::collections::HashMap::new(),
             show_task_manager: false,
             dir_history: ctx.dir_history,
@@ -171,6 +178,10 @@ impl AppState {
             }
             let _ = watcher.update_watched_paths(&paths);
         }
+    }
+
+    pub fn cleanup_sensitive_data(&mut self) {
+        self.ssh_manager.clear_all_passwords();
     }
 
     pub fn refresh_active_tabs(&mut self) {
@@ -274,6 +285,24 @@ impl AppState {
                 tab_manager.active_tab_mut().error = Some(format!("Failed to browse SFTP: {}", e));
             }
         }
+        self.needs_redraw = true;
+
+        // Sync watcher if needed (though SFTP won't be watched by local watcher)
+        self.sync_watcher();
+    }
+
+    pub fn handle_ssh_reconnected(&mut self, ctx: crate::tasks::SshContext) {
+        let tab = self.active_tab_mut();
+        let path = ctx.path.unwrap_or_else(|| std::path::PathBuf::from("/"));
+
+        // Replace the provider
+        tab.provider = ctx.provider;
+
+        // Navigate to the preserved directory
+        if let Err(e) = tab.navigate_to(&path) {
+            tab.error = Some(format!("Failed to navigate to {}: {}", path.display(), e));
+        }
+
         self.needs_redraw = true;
 
         // Sync watcher if needed (though SFTP won't be watched by local watcher)

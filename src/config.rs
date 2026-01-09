@@ -37,6 +37,7 @@ pub struct KeyboardConfig {
     pub toggle_console: Option<Vec<String>>,
     pub swap_tabs: Option<Vec<String>>,
     pub open_ssh: Option<Vec<String>>,
+    pub reconnect_ssh: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -52,11 +53,16 @@ pub struct ViewerConfig {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct SshConfig {
+    pub keepalive_interval: Option<u32>,
+    pub read_timeout_secs: Option<u64>,
+    pub watchdog_secs: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct GlobalConfig {
     pub theme: Option<String>,
     pub terminal: Option<String>,
-    pub editor: Option<String>, // deprecated: string fallback, prefer [editor]
-    pub viewer: Option<String>, // deprecated: string fallback, prefer [viewer]
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -65,6 +71,7 @@ pub struct AppConfig {
     pub keyboard: Option<KeyboardConfig>,
     pub editor: Option<EditorConfig>,
     pub viewer: Option<ViewerConfig>,
+    pub ssh: Option<SshConfig>,
 }
 
 // Default key bindings
@@ -102,6 +109,7 @@ pub fn default_keyboard_config() -> KeyboardConfig {
         toggle_console: Some(vec!["Ctrl-o".to_string()]),
         swap_tabs: Some(vec!["Ctrl-u".to_string()]),
         open_ssh: Some(vec!["Ctrl-n".to_string()]),
+        reconnect_ssh: Some(vec!["Ctrl-r".to_string()]),
     }
 }
 
@@ -109,8 +117,6 @@ pub fn default_global_config() -> GlobalConfig {
     GlobalConfig {
         theme: Some("mariana".to_string()),
         terminal: None,
-        editor: None,
-        viewer: None,
     }
 }
 
@@ -215,6 +221,9 @@ pub fn merge_keyboard_config(
         open_ssh: user
             .and_then(|k| k.open_ssh.clone())
             .or_else(|| default.open_ssh.clone()),
+        reconnect_ssh: user
+            .and_then(|k| k.reconnect_ssh.clone())
+            .or_else(|| default.reconnect_ssh.clone()),
     }
 }
 
@@ -229,13 +238,6 @@ pub fn merge_global_config(
         .and_then(|g| g.terminal.clone())
         .or_else(|| default.terminal.clone());
 
-    let editor = user
-        .and_then(|g| g.editor.clone())
-        .or_else(|| default.editor.clone());
-    let viewer = user
-        .and_then(|g| g.viewer.clone())
-        .or_else(|| default.viewer.clone());
-
     // Validate theme name
     if let Some(ref n) = theme
         && !crate::theme::THEME_NAMES.contains(&n.as_str())
@@ -247,12 +249,7 @@ pub fn merge_global_config(
         ));
     }
 
-    Ok(GlobalConfig {
-        theme,
-        terminal,
-        editor,
-        viewer,
-    })
+    Ok(GlobalConfig { theme, terminal })
 }
 
 pub fn validate_keyboard_config(config: &KeyboardConfig) -> Result<(), String> {
@@ -291,6 +288,8 @@ pub fn validate_keyboard_config(config: &KeyboardConfig) -> Result<(), String> {
         ("change_drive_right", &config.change_drive_right),
         ("toggle_console", &config.toggle_console),
         ("swap_tabs", &config.swap_tabs),
+        ("open_ssh", &config.open_ssh),
+        ("reconnect_ssh", &config.reconnect_ssh),
     ];
 
     for (name, keys) in fields {
@@ -417,6 +416,54 @@ pub fn validate_viewer_config(config: &ViewerConfig) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_ssh_config(config: &SshConfig) -> Result<(), String> {
+    if let Some(keepalive) = config.keepalive_interval {
+        if keepalive == 0 {
+            return Err("SSH keepalive_interval must be greater than 0".to_string());
+        }
+        if keepalive > 3600 {
+            return Err(
+                "SSH keepalive_interval must be less than or equal to 3600 seconds (1 hour)"
+                    .to_string(),
+            );
+        }
+    }
+
+    if let Some(timeout) = config.read_timeout_secs {
+        if timeout == 0 {
+            return Err("SSH read_timeout_secs must be greater than 0".to_string());
+        }
+        if timeout > 3600 {
+            return Err(
+                "SSH read_timeout_secs must be less than or equal to 3600 seconds (1 hour)"
+                    .to_string(),
+            );
+        }
+    }
+
+    if let Some(watchdog) = config.watchdog_secs {
+        if watchdog == 0 {
+            return Err("SSH watchdog_secs must be greater than 0".to_string());
+        }
+        if watchdog > 3600 {
+            return Err(
+                "SSH watchdog_secs must be less than or equal to 3600 seconds (1 hour)".to_string(),
+            );
+        }
+    }
+
+    if let (Some(timeout), Some(watchdog)) = (config.read_timeout_secs, config.watchdog_secs)
+        && timeout > watchdog
+    {
+        return Err(format!(
+            "SSH read_timeout_secs ({}) must be less than or equal to watchdog_secs ({})",
+            timeout, watchdog
+        ));
+    }
+
+    Ok(())
+}
+
 pub fn validate_global_config(config: &GlobalConfig) -> Result<(), String> {
     let check_cmd = |cmd: &Option<String>, name: &str| -> Result<(), String> {
         if let Some(c) = cmd {
@@ -435,12 +482,19 @@ pub fn validate_global_config(config: &GlobalConfig) -> Result<(), String> {
     };
 
     check_cmd(&config.terminal, "terminal")?;
-    check_cmd(&config.editor, "editor")?;
-    check_cmd(&config.viewer, "viewer")?;
     Ok(())
 }
 
-pub fn load_config() -> Result<(KeyboardConfig, GlobalConfig, EditorConfig, ViewerConfig), String> {
+pub fn load_config() -> Result<
+    (
+        KeyboardConfig,
+        GlobalConfig,
+        EditorConfig,
+        ViewerConfig,
+        SshConfig,
+    ),
+    String,
+> {
     let path = config_path().ok_or("Could not determine config directory")?;
     let default_keyboard = default_keyboard_config();
     let default_global = default_global_config();
@@ -452,7 +506,12 @@ pub fn load_config() -> Result<(KeyboardConfig, GlobalConfig, EditorConfig, View
         command: None,
         in_terminal: Some(true),
     };
-    let (keyboard, global, editor, viewer) = if path.exists() {
+    let default_ssh = SshConfig {
+        keepalive_interval: Some(10),
+        read_timeout_secs: Some(15),
+        watchdog_secs: Some(30),
+    };
+    let (keyboard, global, editor, viewer, ssh) = if path.exists() {
         let content =
             fs::read_to_string(&path).map_err(|e| format!("Failed to read config file: {e}"))?;
         let user_config: AppConfig =
@@ -461,13 +520,15 @@ pub fn load_config() -> Result<(KeyboardConfig, GlobalConfig, EditorConfig, View
         let global = merge_global_config(user_config.global.as_ref(), &default_global)?;
         let editor = user_config.editor.unwrap_or(default_editor);
         let viewer = user_config.viewer.unwrap_or(default_viewer);
-        (keyboard, global, editor, viewer)
+        let ssh = user_config.ssh.unwrap_or(default_ssh);
+        (keyboard, global, editor, viewer, ssh)
     } else {
         (
             default_keyboard,
             default_global,
             default_editor,
             default_viewer,
+            default_ssh,
         )
     };
 
@@ -475,8 +536,9 @@ pub fn load_config() -> Result<(KeyboardConfig, GlobalConfig, EditorConfig, View
     validate_global_config(&global)?;
     validate_editor_config(&editor)?;
     validate_viewer_config(&viewer)?;
+    validate_ssh_config(&ssh)?;
 
-    Ok((keyboard, global, editor, viewer))
+    Ok((keyboard, global, editor, viewer, ssh))
 }
 
 pub fn config_path() -> Option<PathBuf> {
@@ -498,6 +560,7 @@ pub fn create_default_config() -> Result<PathBuf, String> {
         keyboard: Some(default_keyboard_config()),
         editor: Some(EditorConfig::default()),
         viewer: Some(ViewerConfig::default()),
+        ssh: Some(SshConfig::default()),
     };
 
     let toml_content = toml::to_string_pretty(&default_config)
@@ -691,5 +754,115 @@ mod tests {
                 vec![]
             )
         );
+    }
+
+    #[test]
+    fn test_validate_ssh_config_valid() {
+        let config = SshConfig {
+            keepalive_interval: Some(10),
+            read_timeout_secs: Some(15),
+            watchdog_secs: Some(30),
+        };
+        assert!(validate_ssh_config(&config).is_ok());
+    }
+
+    #[test]
+    fn test_validate_ssh_config_invalid_keepalive_zero() {
+        let config = SshConfig {
+            keepalive_interval: Some(0),
+            read_timeout_secs: Some(15),
+            watchdog_secs: Some(30),
+        };
+        let result = validate_ssh_config(&config);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .contains("keepalive_interval must be greater than 0")
+        );
+    }
+
+    #[test]
+    fn test_validate_ssh_config_invalid_keepalive_too_large() {
+        let config = SshConfig {
+            keepalive_interval: Some(4000),
+            read_timeout_secs: Some(15),
+            watchdog_secs: Some(30),
+        };
+        let result = validate_ssh_config(&config);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .contains("keepalive_interval must be less than or equal to 3600")
+        );
+    }
+
+    #[test]
+    fn test_validate_ssh_config_invalid_timeout_zero() {
+        let config = SshConfig {
+            keepalive_interval: Some(10),
+            read_timeout_secs: Some(0),
+            watchdog_secs: Some(30),
+        };
+        let result = validate_ssh_config(&config);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .contains("read_timeout_secs must be greater than 0")
+        );
+    }
+
+    #[test]
+    fn test_validate_ssh_config_invalid_watchdog_zero() {
+        let config = SshConfig {
+            keepalive_interval: Some(10),
+            read_timeout_secs: Some(15),
+            watchdog_secs: Some(0),
+        };
+        let result = validate_ssh_config(&config);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .contains("watchdog_secs must be greater than 0")
+        );
+    }
+
+    #[test]
+    fn test_validate_ssh_config_timeout_greater_than_watchdog() {
+        let config = SshConfig {
+            keepalive_interval: Some(10),
+            read_timeout_secs: Some(60),
+            watchdog_secs: Some(30),
+        };
+        let result = validate_ssh_config(&config);
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().contains(
+                "read_timeout_secs (60) must be less than or equal to watchdog_secs (30)"
+            )
+        );
+    }
+
+    #[test]
+    fn test_validate_ssh_config_none_values() {
+        let config = SshConfig {
+            keepalive_interval: None,
+            read_timeout_secs: None,
+            watchdog_secs: None,
+        };
+        assert!(validate_ssh_config(&config).is_ok());
+    }
+
+    #[test]
+    fn test_validate_ssh_config_partial_values() {
+        let config = SshConfig {
+            keepalive_interval: Some(10),
+            read_timeout_secs: None,
+            watchdog_secs: None,
+        };
+        assert!(validate_ssh_config(&config).is_ok());
     }
 }

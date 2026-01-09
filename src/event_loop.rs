@@ -748,6 +748,14 @@ async fn handle_main_panel_event(
         return false;
     }
 
+    // Reconnect SSH
+    if let Some(keys) = &keyboard.reconnect_ssh
+        && keys.contains(&shortcut)
+    {
+        crate::handlers::popup_ssh::handle_reconnect_ssh(app);
+        return false;
+    }
+
     // Open Terminal
     if let Some(keys) = &keyboard.open_terminal
         && keys.contains(&shortcut)
@@ -959,6 +967,7 @@ mod tests {
             fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
             popups: crate::app::Popups::new(),
             task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
+            ssh_manager: std::sync::Arc::new(crate::ssh_manager::SshManager::default()),
             task_decision_txs: std::collections::HashMap::new(),
             show_task_manager: false,
             dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
@@ -1030,6 +1039,7 @@ mod tests {
             fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
             popups: crate::app::Popups::new(),
             task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
+            ssh_manager: std::sync::Arc::new(crate::ssh_manager::SshManager::default()),
             task_decision_txs: std::collections::HashMap::new(),
             show_task_manager: false,
             dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
@@ -1121,6 +1131,7 @@ mod tests {
             fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
             popups: crate::app::Popups::new(),
             task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
+            ssh_manager: std::sync::Arc::new(crate::ssh_manager::SshManager::default()),
             task_decision_txs: std::collections::HashMap::new(),
             show_task_manager: false,
             dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
@@ -1200,6 +1211,7 @@ mod tests {
             fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
             popups: crate::app::Popups::new(),
             task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
+            ssh_manager: std::sync::Arc::new(crate::ssh_manager::SshManager::default()),
             task_decision_txs: std::collections::HashMap::new(),
             show_task_manager: false,
             dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),

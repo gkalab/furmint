@@ -15,8 +15,7 @@ pub struct SftpFs {
 impl SftpFs {
     pub fn new(session: Session, host: String, user: String) -> Self {
         let prefix = format!("[{}@{}]", user, host);
-        // Enable keep-alive every 10 seconds
-        session.set_keepalive(true, 10);
+
         Self {
             session: Mutex::new(session),
             _host: host,
@@ -266,7 +265,7 @@ fn format_permissions(perm: Option<u32>) -> String {
 #[cfg(test)]
 mod tests {
     use super::format_permissions;
-    use anyhow::{Result, anyhow};
+    use anyhow::Result;
     use std::sync::Mutex;
 
     #[test]
@@ -319,7 +318,7 @@ mod tests {
         fn readdir(
             &self,
             _path: &std::path::Path,
-        ) -> std::result::Result<Vec<(std::path::PathBuf, MockFileStat)>, String> {
+        ) -> std::result::Result<Vec<(std::path::PathBuf, TestFileStat)>, String> {
             if self.fail_list {
                 return Err("fail_list".to_string());
             }
@@ -329,7 +328,7 @@ mod tests {
                 .map(|(name, perms)| {
                     (
                         std::path::PathBuf::from(name),
-                        MockFileStat {
+                        TestFileStat {
                             perms: *perms,
                             is_dir: *perms == 0o040_000,
                             is_symlink: *perms == 0o120_000,
@@ -383,11 +382,11 @@ mod tests {
             }
             Ok(MockFile)
         }
-        fn stat(&self, _path: &std::path::Path) -> std::result::Result<MockFileStat, String> {
+        fn stat(&self, _path: &std::path::Path) -> std::result::Result<TestFileStat, String> {
             if self.fail_stat {
                 return Err("fail_stat".to_string());
             }
-            Ok(MockFileStat {
+            Ok(TestFileStat {
                 perms: 0,
                 is_dir: self.stat_is_dir,
                 is_symlink: self.stat_is_symlink,
@@ -406,6 +405,9 @@ mod tests {
                 self.realpath_value.clone().unwrap_or("/real".to_string()),
             ))
         }
+        fn sftp(&self) -> std::result::Result<&MockSftp, String> {
+            Ok(self)
+        }
     }
     struct MockFile;
     impl std::io::Read for MockFile {
@@ -422,7 +424,7 @@ mod tests {
         }
     }
     #[derive(Default)]
-    struct MockFileStat {
+    struct TestFileStat {
         #[allow(dead_code)]
         // Not all fields used in each test, some present for stat struct completeness
         perms: u32,
@@ -443,49 +445,49 @@ mod tests {
     }
     impl TestFs {
         #[allow(dead_code)] // Used only in direct test harnessing in this test module
-        fn with_sftp<F, R>(&self, f: F) -> Result<R>
+        fn with_sftp<F, R>(&self, f: F) -> Result<R, String>
         where
-            F: FnOnce(&MockSftp) -> Result<R>,
+            F: FnOnce(&MockSftp) -> Result<R, String>,
         {
             let session = self
                 .session
                 .lock()
-                .map_err(|_| anyhow!("Session mutex poisoned"))?;
-            f(&session)
+                .map_err(|e| format!("Session mutex poisoned: {}", e))?;
+            let sftp = session.sftp()?;
+            f(&sftp)
         }
 
         // Adapters for trait logic
         fn list_dir(&self) -> Result<Vec<String>> {
             self.with_sftp(|sftp| {
-                let entries = sftp
-                    .readdir(&std::path::PathBuf::from("/"))
-                    .map_err(anyhow::Error::msg)?;
+                let entries = sftp.readdir(&std::path::PathBuf::from("/"))?;
                 Ok(entries
                     .iter()
                     .map(|(p, _s)| p.to_string_lossy().into_owned())
                     .collect())
             })
+            .map_err(|e| anyhow::anyhow!("{}", e))
         }
         fn create_dir(&self) -> Result<()> {
             self.with_sftp(|sftp| {
-                sftp.mkdir(&std::path::PathBuf::from("/tmp"), 0o755)
-                    .map_err(anyhow::Error::msg)?;
+                sftp.mkdir(&std::path::PathBuf::from("/tmp"), 0o755)?;
                 Ok(())
             })
+            .map_err(|e| anyhow::anyhow!("{}", e))
         }
         fn create_file(&self) -> Result<()> {
             self.with_sftp(|sftp| {
-                sftp.create(&std::path::PathBuf::from("/tmp/file"))
-                    .map_err(anyhow::Error::msg)?;
+                sftp.create(&std::path::PathBuf::from("/tmp/file"))?;
                 Ok(())
             })
+            .map_err(|e| anyhow::anyhow!("{}", e))
         }
         fn delete_file(&self) -> Result<()> {
             self.with_sftp(|sftp| {
-                sftp.unlink(&std::path::PathBuf::from("/tmp/file"))
-                    .map_err(anyhow::Error::msg)?;
+                sftp.unlink(&std::path::PathBuf::from("/tmp/file"))?;
                 Ok(())
             })
+            .map_err(|e| anyhow::anyhow!("{}", e))
         }
         fn rename_file(&self) -> Result<()> {
             self.with_sftp(|sftp| {
@@ -493,22 +495,17 @@ mod tests {
                     &std::path::PathBuf::from("/a"),
                     &std::path::PathBuf::from("/b"),
                     None,
-                )
-                .map_err(anyhow::Error::msg)?;
+                )?;
                 Ok(())
             })
+            .map_err(|e| anyhow::anyhow!("{}", e))
         }
         fn canonicalize(&self) -> Result<std::path::PathBuf> {
-            self.with_sftp(|sftp| {
-                sftp.realpath(&std::path::PathBuf::from("/x"))
-                    .map_err(anyhow::Error::msg)
-            })
+            self.with_sftp(|sftp| sftp.realpath(&std::path::PathBuf::from("/x")))
+                .map_err(|e| anyhow::anyhow!("{}", e))
         }
-        fn stat(&self) -> Result<MockFileStat> {
-            self.with_sftp(|sftp| {
-                sftp.stat(&std::path::PathBuf::from("/z"))
-                    .map_err(anyhow::Error::msg)
-            })
+        fn stat(&self) -> Result<TestFileStat, String> {
+            self.with_sftp(|sftp| sftp.stat(&std::path::PathBuf::from("/z")))
         }
     }
 

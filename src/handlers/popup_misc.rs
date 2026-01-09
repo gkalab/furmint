@@ -42,6 +42,9 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
         crate::tasks::TaskEvent::SshConnected(ctx) => {
             app.handle_ssh_connected(ctx);
         }
+        crate::tasks::TaskEvent::SshReconnected(ctx) => {
+            app.handle_ssh_reconnected(ctx);
+        }
     }
 }
 

@@ -21,6 +21,7 @@ mod help_ui;
 mod quit_ui;
 mod rename_ui;
 mod ssh_history;
+mod ssh_manager;
 mod ssh_ui;
 mod state;
 mod task_ui;
@@ -95,7 +96,7 @@ async fn run() -> Result<()> {
         ratatui::Terminal::new(ratatui::backend::CrosstermBackend::new(std::io::stdout()))?;
 
     // Load config
-    let (keyboard, global_config, editor_cfg, viewer_cfg) =
+    let (keyboard, global_config, editor_cfg, viewer_cfg, ssh_cfg) =
         load_config().map_err(anyhow::Error::msg)?;
 
     // Select theme
@@ -123,7 +124,7 @@ async fn run() -> Result<()> {
 
     // Initialize task manager channel
     let (task_tx, mut task_rx) = tokio::sync::mpsc::unbounded_channel();
-    let task_manager = crate::tasks::TaskManager::new(task_tx);
+    let task_manager = crate::tasks::TaskManager::new(task_tx.clone());
 
     let persistent_state = crate::app::AppState::load_state().ok().flatten();
 
@@ -132,6 +133,7 @@ async fn run() -> Result<()> {
         global: global_config,
         editor_cfg,
         viewer_cfg,
+        ssh_cfg,
         dir_history,
         watcher,
         task_manager,
@@ -173,6 +175,9 @@ async fn run() -> Result<()> {
 
     // Save app state on exit
     let _ = app.save_state();
+
+    // Clear sensitive data (passwords) before exit
+    app.cleanup_sensitive_data();
 
     Ok(())
 }

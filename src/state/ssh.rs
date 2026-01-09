@@ -39,8 +39,11 @@ impl SshConnectionState {
 pub struct SshPasswordState {
     pub is_visible: bool,
     pub password: String,
-    pub host: String, // Context info to show in popup
+    pub host: String,
     pub user: String,
+    pub session_id: String,
+    pub error: Option<String>,
+    pub cursor_position: usize,
 }
 
 impl SshPasswordState {
@@ -50,6 +53,9 @@ impl SshPasswordState {
             password: String::new(),
             host: String::new(),
             user: String::new(),
+            session_id: String::new(),
+            error: None,
+            cursor_position: 0,
         }
     }
 }
