@@ -71,12 +71,18 @@ pub fn handle_copy_move_event(code: KeyCode, app: &mut AppState) -> bool {
             } else {
                 std::path::PathBuf::from(dest_input)
             };
-            let dest_abs = if let Ok(p) = dest_path.canonicalize() {
-                p
-            } else if dest_path.is_absolute() {
-                dest_path
+            let dest_provider = app.inactive_tab().provider.clone();
+            let dest_abs = if dest_provider.is_local() {
+                if let Ok(p) = dest_path.canonicalize() {
+                    p
+                } else if dest_path.is_absolute() {
+                    dest_path
+                } else {
+                    app.active_tab().current_dir.join(&dest_path)
+                }
             } else {
-                app.active_tab().current_dir.join(&dest_path)
+                // For remote, treat as absolute Unix path
+                dest_path
             };
             app.popups.copy_move.destination_input = dest_abs.to_string_lossy().to_string();
             for src in &app.popups.copy_move.source_paths {
