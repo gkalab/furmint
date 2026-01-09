@@ -34,6 +34,21 @@ pub trait FileSystemProvider: Send + Sync {
     /// Write data to a file.
     fn write_file(&self, path: &Path, data: &[u8]) -> Result<()>;
 
+    /// Write data to a file with specific permissions (Unix mode).
+    /// Default implementation calls write_file and then set_permissions.
+    fn write_file_with_permissions(
+        &self,
+        path: &Path,
+        data: &[u8],
+        mode: Option<u32>,
+    ) -> Result<()> {
+        self.write_file(path, data)?;
+        if let Some(mode) = mode {
+            let _ = self.set_permissions(path, mode);
+        }
+        Ok(())
+    }
+
     /// Read file content as a string, with a size limit and binary detection.
     /// Default implementation uses read_file.
     fn read_file_content(&self, path: &Path, limit: usize) -> Result<String> {
@@ -71,6 +86,14 @@ pub trait FileSystemProvider: Send + Sync {
 
     /// Get the canonical/absolute path.
     fn canonicalize(&self, path: &Path) -> Result<std::path::PathBuf>;
+
+    /// Get file permissions as a Unix mode (e.g., 0o755).
+    /// Returns None if not supported or file doesn't exist.
+    fn get_permissions(&self, path: &Path) -> Option<u32>;
+
+    /// Set file permissions using a Unix mode (e.g., 0o755).
+    /// Returns true if successful, false if not supported.
+    fn set_permissions(&self, path: &Path, mode: u32) -> bool;
 
     /// Get a string identifying the context (e.g., "local", "user@host").
     fn context_key(&self) -> String;

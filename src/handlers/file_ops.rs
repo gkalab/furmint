@@ -13,6 +13,14 @@ pub trait FileSystem: Send + Sync {
     async fn copy(&self, src: &std::path::Path, dst: &std::path::Path) -> anyhow::Result<()>;
     async fn read_file(&self, path: &std::path::Path) -> anyhow::Result<Vec<u8>>;
     async fn write_file(&self, path: &std::path::Path, data: &[u8]) -> anyhow::Result<()>;
+    async fn get_permissions(&self, path: &std::path::Path) -> Option<u32>;
+    async fn write_file_with_permissions(
+        &self,
+        path: &std::path::Path,
+        data: &[u8],
+        mode: Option<u32>,
+    ) -> anyhow::Result<()>;
+    fn context_key(&self) -> String;
 }
 
 pub struct StdFileSystem;
@@ -52,7 +60,50 @@ impl FileSystem for StdFileSystem {
         Ok(tokio::fs::read(path).await?)
     }
     async fn write_file(&self, path: &std::path::Path, data: &[u8]) -> anyhow::Result<()> {
-        Ok(tokio::fs::write(path, data).await?)
+        tokio::fs::write(path, data).await?;
+        Ok(())
+    }
+
+    async fn get_permissions(&self, path: &std::path::Path) -> Option<u32> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            tokio::fs::metadata(path)
+                .await
+                .ok()
+                .map(|m| m.permissions().mode() & 0o777)
+        }
+        #[cfg(not(unix))]
+        {
+            None
+        }
+    }
+
+    async fn write_file_with_permissions(
+        &self,
+        path: &std::path::Path,
+        data: &[u8],
+        mode: Option<u32>,
+    ) -> anyhow::Result<()> {
+        tokio::fs::write(path, data).await?;
+        if let Some(mode_val) = mode {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if let Ok(metadata) = tokio::fs::metadata(path).await {
+                    let current_mode = metadata.permissions().mode();
+                    let new_mode = (current_mode & !0o777) | (mode_val & 0o777);
+                    let mut perms = metadata.permissions();
+                    perms.set_mode(new_mode);
+                    tokio::fs::set_permissions(path, perms).await?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn context_key(&self) -> String {
+        "std_local".to_string()
     }
 }
 
@@ -103,7 +154,23 @@ impl FileSystem for ProviderFileSystem {
     async fn copy(&self, src: &std::path::Path, dst: &std::path::Path) -> anyhow::Result<()> {
         // Core cross-provider copy logic
         let data = self.read_file(src).await?;
-        self.write_file(dst, &data).await?;
+
+        // Preserve permissions if the destination provider supports it
+        let src_perms = self.0.get_permissions(src);
+
+        // Try to write with permissions if supported, otherwise write normally and set afterwards
+        if let Some(mode) = src_perms {
+            let dst_clone = dst.to_path_buf();
+            let data_clone = data.clone();
+            let provider = self.0.clone();
+            tokio::task::spawn_blocking(move || {
+                provider.write_file_with_permissions(&dst_clone, &data_clone, Some(mode))
+            })
+            .await??;
+        } else {
+            self.write_file(dst, &data).await?;
+        }
+
         Ok(())
     }
     async fn read_file(&self, path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
@@ -117,6 +184,32 @@ impl FileSystem for ProviderFileSystem {
         let data = data.to_vec();
         tokio::task::spawn_blocking(move || p.write_file(&path, &data)).await??;
         Ok(())
+    }
+
+    async fn get_permissions(&self, path: &std::path::Path) -> Option<u32> {
+        let p = self.0.clone();
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || p.get_permissions(&path))
+            .await
+            .unwrap_or(None)
+    }
+
+    async fn write_file_with_permissions(
+        &self,
+        path: &std::path::Path,
+        data: &[u8],
+        mode: Option<u32>,
+    ) -> anyhow::Result<()> {
+        let p = self.0.clone();
+        let path = path.to_path_buf();
+        let data = data.to_vec();
+        tokio::task::spawn_blocking(move || p.write_file_with_permissions(&path, &data, mode))
+            .await??;
+        Ok(())
+    }
+
+    fn context_key(&self) -> String {
+        self.0.context_key()
     }
 }
 
@@ -308,15 +401,19 @@ pub fn recursive_op<'a>(
                                     let _ = ctx.dest_fs.remove_file(&dest).await;
                                 }
 
-                                // If it's the same filesystem instance, use native copy
-                                let src_ptr = ctx.src_fs as *const dyn FileSystem as *const ();
-                                let dest_ptr = ctx.dest_fs as *const dyn FileSystem as *const ();
-
-                                let copy_res = if src_ptr == dest_ptr {
+                                // Check if it's the same filesystem type
+                                let same_fs = ctx.src_fs.context_key() == ctx.dest_fs.context_key();
+                                let copy_res = if same_fs {
                                     ctx.dest_fs.copy(&src, &dest).await
                                 } else {
                                     match ctx.src_fs.read_file(&src).await {
-                                        Ok(data) => ctx.dest_fs.write_file(&dest, &data).await,
+                                        Ok(data) => {
+                                            // For cross-filesystem copies, preserve permissions
+                                            let perms = ctx.src_fs.get_permissions(&src).await;
+                                            ctx.dest_fs
+                                                .write_file_with_permissions(&dest, &data, perms)
+                                                .await
+                                        }
                                         Err(e) => Err(e),
                                     }
                                 };
@@ -417,6 +514,38 @@ mod tests {
             .collect();
         // Should count: file1.txt, subdir, subdir2, file2.txt
         assert_eq!(count_items(&StdFileSystem, &root_entries).await, 4);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_copy_preserves_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let src_file = tmp_dir.path().join("source.txt");
+        let dst_file = tmp_dir.path().join("destination.txt");
+
+        // Create source file with specific permissions
+        {
+            std::fs::write(&src_file, b"test content").unwrap();
+            // Set executable permissions
+            std::process::Command::new("chmod")
+                .args(&["755", &src_file.to_string_lossy()])
+                .status()
+                .unwrap();
+        }
+
+        // Verify source has correct permissions
+        let src_perms = std::fs::metadata(&src_file).unwrap().permissions().mode() & 0o777;
+        assert_eq!(src_perms, 0o755);
+
+        // Copy the file
+        StdFileSystem.copy(&src_file, &dst_file).await.unwrap();
+
+        // Verify destination file exists and has same permissions
+        assert!(dst_file.exists());
+        let dst_perms = std::fs::metadata(&dst_file).unwrap().permissions().mode() & 0o777;
+        assert_eq!(dst_perms, 0o755, "Expected 0o755, got 0{:o}", dst_perms);
     }
 }
 
@@ -546,6 +675,27 @@ mod mock_fs_tests {
                 .await
                 .insert(path.to_path_buf(), FakeEntry { is_dir: false });
             Ok(())
+        }
+
+        async fn get_permissions(&self, _path: &Path) -> Option<u32> {
+            Some(0o644) // Mock permissions
+        }
+
+        async fn write_file_with_permissions(
+            &self,
+            path: &Path,
+            data: &[u8],
+            _mode: Option<u32>,
+        ) -> anyhow::Result<()> {
+            self.files
+                .lock()
+                .await
+                .insert(path.to_path_buf(), FakeEntry { is_dir: false });
+            Ok(())
+        }
+
+        fn context_key(&self) -> String {
+            "mock".to_string()
         }
     }
 

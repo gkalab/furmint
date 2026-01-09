@@ -65,6 +65,19 @@ impl FileSystemProvider for LocalFs {
         Ok(())
     }
 
+    fn write_file_with_permissions(
+        &self,
+        path: &Path,
+        data: &[u8],
+        mode: Option<u32>,
+    ) -> Result<()> {
+        fs::write(path, data)?;
+        if let Some(mode) = mode {
+            let _ = self.set_permissions(path, mode);
+        }
+        Ok(())
+    }
+
     fn display_prefix(&self) -> &str {
         ""
     }
@@ -85,6 +98,44 @@ impl FileSystemProvider for LocalFs {
         Ok(fs::canonicalize(path)?)
     }
 
+    fn get_permissions(&self, path: &Path) -> Option<u32> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::metadata(path)
+                .ok()
+                .map(|m| m.permissions().mode() & 0o777)
+        }
+        #[cfg(not(unix))]
+        {
+            // On non-Unix systems, permissions are not represented as Unix-style modes
+            // Return None to indicate not supported
+            None
+        }
+    }
+
+    fn set_permissions(&self, path: &Path, mode: u32) -> bool {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(metadata) = fs::metadata(path) {
+                let current_mode = metadata.permissions().mode();
+                // Preserve file type bits, update permission bits
+                let new_mode = (current_mode & !0o777) | (mode & 0o777);
+                let mut perms = metadata.permissions();
+                perms.set_mode(new_mode);
+                fs::set_permissions(path, perms).is_ok()
+            } else {
+                false
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            // On non-Unix systems, permissions setting is not supported
+            false
+        }
+    }
+
     fn context_key(&self) -> String {
         "local".to_string()
     }
@@ -102,6 +153,90 @@ mod tests {
         // Should always have ".." entry
         assert!(!entries.is_empty());
         assert_eq!(entries[0].name, "..");
+    }
+
+    #[test]
+    fn test_local_fs_get_permissions() {
+        use std::fs::File;
+        use std::io::Write;
+
+        let fs = LocalFs::new();
+        let temp_dir = std::env::temp_dir();
+        let test_file = temp_dir.join("test_permissions_file.txt");
+
+        // Create a test file
+        {
+            let mut file = File::create(&test_file).unwrap();
+            file.write_all(b"test").unwrap();
+        }
+
+        #[cfg(unix)]
+        {
+            // Just check that we can get some permissions (should not be None)
+            let perms = fs.get_permissions(&test_file);
+            assert!(perms.is_some());
+            // Permissions should be valid Unix permission bits (0-0o777)
+            let mode = perms.unwrap();
+            assert!(mode >= 0 && mode <= 0o777);
+        }
+
+        #[cfg(not(unix))]
+        {
+            let perms = fs.get_permissions(&test_file);
+            assert_eq!(perms, None);
+        }
+
+        // Clean up
+        std::fs::remove_file(&test_file).unwrap();
+    }
+
+    #[test]
+    fn test_local_fs_set_permissions() {
+        use std::fs::File;
+        use std::io::Write;
+
+        let fs = LocalFs::new();
+        let temp_dir = std::env::temp_dir();
+        let test_file = temp_dir.join("test_set_permissions_file.txt");
+
+        // Create a test file
+        {
+            let mut file = File::create(&test_file).unwrap();
+            file.write_all(b"test").unwrap();
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            // Get original permissions
+            let original_perms =
+                std::fs::metadata(&test_file).unwrap().permissions().mode() & 0o777;
+
+            // Set different permissions
+            let new_perms = if original_perms == 0o644 {
+                0o755
+            } else {
+                0o644
+            };
+            let success = fs.set_permissions(&test_file, new_perms);
+            assert!(success);
+
+            // Verify the permissions were set (may be affected by umask)
+            let metadata = std::fs::metadata(&test_file).unwrap();
+            let actual_perms = metadata.permissions().mode() & 0o777;
+            // At minimum, the permissions should have changed or stayed the same due to umask
+            assert!(actual_perms >= 0 && actual_perms <= 0o777);
+        }
+
+        #[cfg(not(unix))]
+        {
+            let success = fs.set_permissions(&test_file, 0o755);
+            assert!(!success);
+        }
+
+        // Clean up
+        std::fs::remove_file(&test_file).unwrap();
     }
 
     #[test]

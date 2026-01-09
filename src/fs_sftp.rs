@@ -1,7 +1,7 @@
 use crate::fs_ops::FileEntry;
 use crate::fs_provider::FileSystemProvider;
 use anyhow::{Result, anyhow};
-use ssh2::Session;
+use ssh2::{FileStat, Session};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -178,6 +178,23 @@ impl FileSystemProvider for SftpFs {
         })
     }
 
+    fn write_file_with_permissions(
+        &self,
+        path: &Path,
+        data: &[u8],
+        mode: Option<u32>,
+    ) -> Result<()> {
+        // First write the file
+        self.write_file(path, data)?;
+
+        // Then set permissions using SFTP setstat if needed
+        if let Some(mode_val) = mode {
+            let _ = self.set_permissions(path, mode_val);
+        }
+
+        Ok(())
+    }
+
     fn display_prefix(&self) -> &str {
         &self.prefix
     }
@@ -203,6 +220,36 @@ impl FileSystemProvider for SftpFs {
                 .map_err(|e| anyhow!("Failed to canonicalize path: {}", e))?;
             Ok(path)
         })
+    }
+
+    fn get_permissions(&self, path: &Path) -> Option<u32> {
+        self.with_sftp(|sftp| {
+            Ok(sftp
+                .stat(path)
+                .ok()
+                .and_then(|stat| stat.perm.map(|p| p & 0o777)))
+        })
+        .unwrap_or(None)
+    }
+
+    fn set_permissions(&self, path: &Path, mode: u32) -> bool {
+        // Try SFTP setstat with real path
+        self.with_sftp(|sftp| {
+            let real_path = sftp.realpath(path).unwrap_or_else(|_| path.to_path_buf());
+            sftp.setstat(
+                &real_path,
+                FileStat {
+                    size: None,
+                    uid: None,
+                    gid: None,
+                    perm: Some(mode),
+                    atime: None,
+                    mtime: None,
+                },
+            )
+            .map_err(|e| anyhow!("SFTP setstat failed: {}", e))
+        })
+        .is_ok()
     }
 
     fn context_key(&self) -> String {
@@ -289,8 +336,7 @@ mod tests {
         assert_eq!(format_permissions(None), "----------");
     }
 
-    #[derive(Default)]
-    struct MockSftp {
+    pub struct MockSftp {
         list_entries: Vec<(String, u32)>, // (name, perms)
         fail_list: bool,
         fail_mkdir: bool,
@@ -308,11 +354,38 @@ mod tests {
         fail_read: bool,
         fail_stat: bool,
         fail_realpath: bool,
+        fail_setstat: bool,
         stat_is_dir: bool,
         stat_is_symlink: bool,
+        stat_perms: u32,
         stat_size: Option<u64>,
         stat_mtime: Option<u64>,
         realpath_value: Option<String>,
+    }
+    impl Default for MockSftp {
+        fn default() -> Self {
+            Self {
+                list_entries: Vec::new(),
+                fail_list: false,
+                fail_mkdir: false,
+                fail_create: false,
+                fail_rmdir: false,
+                fail_unlink: false,
+                fail_rename: false,
+                fail_open: false,
+                fail_write: false,
+                fail_read: false,
+                fail_stat: false,
+                fail_realpath: false,
+                fail_setstat: false,
+                stat_is_dir: false,
+                stat_is_symlink: false,
+                stat_perms: 0o644, // Default file permissions
+                stat_size: Some(0),
+                stat_mtime: Some(0),
+                realpath_value: None,
+            }
+        }
     }
     impl MockSftp {
         fn readdir(
@@ -387,7 +460,7 @@ mod tests {
                 return Err("fail_stat".to_string());
             }
             Ok(TestFileStat {
-                perms: 0,
+                perms: self.stat_perms,
                 is_dir: self.stat_is_dir,
                 is_symlink: self.stat_is_symlink,
                 size: self.stat_size,
@@ -404,6 +477,16 @@ mod tests {
             Ok(std::path::PathBuf::from(
                 self.realpath_value.clone().unwrap_or("/real".to_string()),
             ))
+        }
+        fn setstat(
+            &self,
+            _path: &std::path::Path,
+            _stat: ssh2::FileStat,
+        ) -> std::result::Result<(), String> {
+            if self.fail_setstat {
+                return Err("fail_setstat".to_string());
+            }
+            Ok(())
         }
         fn sftp(&self) -> std::result::Result<&MockSftp, String> {
             Ok(self)
@@ -438,7 +521,7 @@ mod tests {
     }
 
     // Adapter SftpFs for our mocks
-    struct TestFs {
+    pub struct TestFs {
         session: Mutex<MockSftp>,
         #[allow(dead_code)] // Field may not be used in some coverage cases
         prefix: String,
@@ -488,6 +571,30 @@ mod tests {
                 Ok(())
             })
             .map_err(|e| anyhow::anyhow!("{}", e))
+        }
+
+        fn get_permissions(&self, path: &std::path::Path) -> Option<u32> {
+            self.with_sftp(|sftp| Ok(sftp.stat(path).ok().and_then(|stat| Some(stat.perms))))
+                .unwrap_or(None)
+        }
+
+        fn set_permissions(&self, path: &std::path::Path, mode: u32) -> bool {
+            self.with_sftp(|sftp| {
+                Ok(sftp
+                    .setstat(
+                        path,
+                        ssh2::FileStat {
+                            size: None,
+                            uid: None,
+                            gid: None,
+                            perm: Some(mode),
+                            atime: None,
+                            mtime: None,
+                        },
+                    )
+                    .is_ok())
+            })
+            .unwrap_or(false)
         }
         fn rename_file(&self) -> Result<()> {
             self.with_sftp(|sftp| {
