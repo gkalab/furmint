@@ -9,9 +9,9 @@ use std::env;
 /// Helper function to create a lighter shade of red for inactive borders
 fn lighten_red(red: crate::theme::Rgb) -> crate::theme::Rgb {
     crate::theme::Rgb::new(
-        ((red.r as u16 * 3) / 2).min(255) as u8,
-        ((red.g as u16 * 3) / 2).min(255) as u8,
-        ((red.b as u16 * 3) / 2).min(255) as u8,
+        ((red.r as u16 + 255) / 2) as u8,
+        ((red.g as u16 + 255) / 2) as u8,
+        ((red.b as u16 + 255) / 2) as u8,
     )
 }
 
