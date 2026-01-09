@@ -4,6 +4,16 @@ use crate::theme::ThemePalette;
 use crate::ui_utils::truncate_middle_with_ellipsis;
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Cell, Row, Table, TableState};
+use std::env;
+
+/// Helper function to create a lighter shade of red for inactive borders
+fn lighten_red(red: crate::theme::Rgb) -> crate::theme::Rgb {
+    crate::theme::Rgb::new(
+        ((red.r as u16 * 3) / 2).min(255) as u8,
+        ((red.g as u16 * 3) / 2).min(255) as u8,
+        ((red.b as u16 * 3) / 2).min(255) as u8,
+    )
+}
 
 /// Draw the tab bar for a panel
 pub fn draw_tab_bar(
@@ -141,7 +151,17 @@ pub fn draw_panel(
             ])
         });
 
-    let border_color = if active {
+    // Determine if the current tab user is root
+    let system_user = env::var("USER").unwrap_or_default();
+    let is_root = panel.provider.display_prefix().starts_with("[root@")
+        || (panel.provider.display_prefix().is_empty() && system_user == "root");
+
+    let border_color = if is_root && active {
+        Color::Rgb(palette.red.r, palette.red.g, palette.red.b)
+    } else if is_root && !active {
+        let light_red = lighten_red(palette.red);
+        Color::Rgb(light_red.r, light_red.g, light_red.b)
+    } else if active {
         Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b)
     } else {
         Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b)
@@ -205,11 +225,6 @@ pub fn draw_panel(
 
     // Draw selection markers over the left border
     let yellow_color = Color::Rgb(palette.yellow.r, palette.yellow.g, palette.yellow.b);
-    let border_color = if active {
-        Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b)
-    } else {
-        Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b)
-    };
 
     for (idx, entry) in panel
         .entries
