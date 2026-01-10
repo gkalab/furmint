@@ -370,6 +370,9 @@ fn draw_ui(
         if app.popups.ssh_password.is_visible {
             crate::ssh_ui::draw_ssh_password_popup(f, app, palette);
         }
+
+        // Draw remote edit confirmation popup
+        crate::remote_edit_ui::draw_remote_edit_popup(f, &app.popups.remote_edit, palette);
     })?;
     Ok(())
 }
@@ -406,6 +409,7 @@ pub async fn handle_event(
                 && !app.popups.error.is_visible
                 && !app.popups.help.is_visible
                 && !app.popups.drive_select.is_visible
+                && !app.popups.remote_edit.is_visible
                 && !app.show_task_manager
             {
                 if app.task_manager.has_running_tasks() {
@@ -494,6 +498,11 @@ pub async fn handle_event(
             // Handle SSH password popup
             if app.popups.ssh_password.is_visible {
                 return handle_ssh_password_event(app, code, modifiers);
+            }
+
+            // Handle remote edit confirmation popup
+            if app.popups.remote_edit.is_visible {
+                return crate::handlers::editor::handle_remote_edit_event(code, app).await;
             }
 
             // Handle task manager

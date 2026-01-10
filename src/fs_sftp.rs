@@ -175,9 +175,10 @@ impl FileSystemProvider for SftpFs {
     fn read_file(&self, path: &Path) -> Result<Vec<u8>> {
         self.with_sftp(|sftp| {
             use std::io::Read;
+            let normalized = self.normalize_path(path);
             let mut file = sftp
-                .open(self.normalize_path(path))
-                .map_err(|e| anyhow!("Failed to open file: {}", e))?;
+                .open(&normalized)
+                .map_err(|_| anyhow!("Failed to open file: {:?}", normalized))?;
             let mut buffer = Vec::new();
             file.read_to_end(&mut buffer)
                 .map_err(|e| anyhow!("Failed to read file: {}", e))?;

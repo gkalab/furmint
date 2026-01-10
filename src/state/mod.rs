@@ -12,6 +12,7 @@ mod error;
 mod file_viewer;
 mod help;
 mod quit;
+mod remote_edit;
 mod rename;
 pub mod ssh;
 
@@ -26,5 +27,6 @@ pub use error::ErrorState;
 pub use file_viewer::FileViewerState;
 pub use help::HelpState;
 pub use quit::QuitConfirmationState;
+pub use remote_edit::RemoteEditState;
 pub use rename::RenameState;
 pub use ssh::{SshConnectionState, SshPasswordState};

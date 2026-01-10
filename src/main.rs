@@ -19,6 +19,7 @@ mod fuzzy_search_ui;
 mod handlers;
 mod help_ui;
 mod quit_ui;
+mod remote_edit_ui;
 mod rename_ui;
 mod ssh_history;
 mod ssh_manager;

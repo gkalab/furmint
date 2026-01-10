@@ -6,7 +6,7 @@ use std::path::PathBuf;
 pub use crate::state::{
     ConflictState, CopyMoveAction, CopyMoveState, CreateDirectoryState, CreateFileState,
     DeleteState, DriveSelectState, EmptyTrashState, ErrorState, FileViewerState, HelpState,
-    QuitConfirmationState, RenameState, SshConnectionState, SshPasswordState,
+    QuitConfirmationState, RemoteEditState, RenameState, SshConnectionState, SshPasswordState,
 };
 
 pub struct Popups {
@@ -23,6 +23,7 @@ pub struct Popups {
     pub drive_select: DriveSelectState,
     pub ssh_connection: SshConnectionState,
     pub ssh_password: SshPasswordState,
+    pub remote_edit: RemoteEditState,
 }
 
 impl Popups {
@@ -41,6 +42,7 @@ impl Popups {
             drive_select: DriveSelectState::new(),
             ssh_connection: SshConnectionState::new(),
             ssh_password: SshPasswordState::new(),
+            remote_edit: RemoteEditState::new(),
         }
     }
 }
