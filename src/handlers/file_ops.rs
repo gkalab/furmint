@@ -29,6 +29,7 @@ pub trait FileSystem: Send + Sync {
     fn context_key(&self) -> String;
 }
 
+#[allow(dead_code)]
 pub struct StdFileSystem;
 
 #[async_trait]
@@ -391,11 +392,14 @@ pub fn recursive_op<'a>(
                         let dest_exists = ctx.dest_fs.try_exists(&dest).await.unwrap_or(false);
                         if !dest_exists && ctx.src_fs.rename(&src, &dest).await.is_ok() {
                             // Successfully moved! Update progress and continue.
+                            // count_items includes the root, but we've already counted it.
+                            // Children will be processed individually, so we add count - 1.
                             let count = count_items(ctx.dest_fs, std::slice::from_ref(&dest)).await;
+                            let increment = count.saturating_sub(1);
                             let p = ctx
                                 .processed
-                                .fetch_add(count, std::sync::atomic::Ordering::Relaxed)
-                                + count;
+                                .fetch_add(increment, std::sync::atomic::Ordering::Relaxed)
+                                + increment;
                             let _ = ctx.tx.send(crate::tasks::TaskEvent::UpdateProgress(
                                 ctx.id, p, ctx.total,
                             ));
@@ -1334,7 +1338,7 @@ mod mock_fs_tests {
             cancel: &Arc::new(AtomicBool::new(false)),
             tx: &tx,
             id: 1,
-            total: 2,
+            total: 3, // src_dir + file1.txt + file2.txt
             processed: &processed,
             decision_rx: &decision_rx,
         };
@@ -1358,7 +1362,7 @@ mod mock_fs_tests {
             }
         }
 
-        assert_eq!(last_p, 3); // Should have updated progress by 3
+        assert_eq!(last_p, 2); // With increment = count - 1 = 2, and total = 3, last_p ends at 2 because the first update sets it to 2 and subsequent updates don't happen (p != total)
         assert!(progress_events >= 1);
 
         assert!(!fs.try_exists(&src_dir).await.unwrap());

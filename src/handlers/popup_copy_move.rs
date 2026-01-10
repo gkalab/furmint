@@ -190,12 +190,8 @@ pub fn spawn_copy_move_task(app: &mut AppState) {
         .spawn_task(task_name, move |cancel, tx, id| async move {
             let src_fs = crate::handlers::file_ops::ProviderFileSystem(src_provider);
             let dest_fs = crate::handlers::file_ops::ProviderFileSystem(dest_provider);
-            // Pre-calculation of total items (approximate)
-            let total_items = crate::handlers::file_ops::count_items(
-                &crate::handlers::file_ops::StdFileSystem,
-                &paths,
-            )
-            .await;
+            // Pre-calculation of total items using the source filesystem
+            let total_items = crate::handlers::file_ops::count_items(&src_fs, &paths).await;
             let processed_items = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
             // State for "Apply to all" decisions
