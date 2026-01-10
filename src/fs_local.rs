@@ -120,7 +120,6 @@ impl FileSystemProvider for LocalFs {
             use std::os::unix::fs::PermissionsExt;
             if let Ok(metadata) = fs::metadata(path) {
                 let current_mode = metadata.permissions().mode();
-                // Preserve file type bits, update permission bits
                 let new_mode = (current_mode & !0o777) | (mode & 0o777);
                 let mut perms = metadata.permissions();
                 perms.set_mode(new_mode);
@@ -131,7 +130,56 @@ impl FileSystemProvider for LocalFs {
         }
         #[cfg(not(unix))]
         {
-            // On non-Unix systems, permissions setting is not supported
+            false
+        }
+    }
+
+    fn get_modified_time(&self, path: &Path) -> Option<std::time::SystemTime> {
+        fs::metadata(path).ok().and_then(|m| m.modified().ok())
+    }
+
+    fn set_modified_time(&self, path: &Path, mtime: std::time::SystemTime) -> bool {
+        let duration = match mtime.duration_since(std::time::UNIX_EPOCH) {
+            Ok(d) => d,
+            Err(_) => return false,
+        };
+        let sec = duration.as_secs() as libc::time_t;
+        let nsec = duration.subsec_nanos() as libc::c_long;
+
+        #[cfg(unix)]
+        {
+            let path_cstr = match std::ffi::CString::new(path.to_string_lossy().as_bytes()) {
+                Ok(c) => c,
+                Err(_) => return false,
+            };
+            unsafe {
+                let result = libc::utimensat(
+                    libc::AT_FDCWD,
+                    path_cstr.as_ptr(),
+                    [
+                        libc::timespec {
+                            tv_sec: 0,
+                            tv_nsec: libc::UTIME_OMIT,
+                        },
+                        libc::timespec {
+                            tv_sec: sec,
+                            tv_nsec: nsec,
+                        },
+                    ]
+                    .as_ptr(),
+                    0,
+                );
+                result == 0
+            }
+        }
+        #[cfg(windows)]
+        {
+            use std::fs::FileTimes;
+            let ft = FileTimes::new().set_modified(mtime);
+            std::fs::set_file_times(path, ft).is_ok()
+        }
+        #[cfg(not(unix))]
+        {
             false
         }
     }

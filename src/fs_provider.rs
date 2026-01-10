@@ -95,6 +95,10 @@ pub trait FileSystemProvider: Send + Sync {
     /// Returns true if successful, false if not supported.
     fn set_permissions(&self, path: &Path, mode: u32) -> bool;
 
+    fn get_modified_time(&self, path: &Path) -> Option<std::time::SystemTime>;
+
+    fn set_modified_time(&self, path: &Path, mtime: std::time::SystemTime) -> bool;
+
     /// Get a string identifying the context (e.g., "local", "user@host").
     fn context_key(&self) -> String;
 }

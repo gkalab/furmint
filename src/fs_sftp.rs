@@ -257,7 +257,6 @@ impl FileSystemProvider for SftpFs {
     }
 
     fn set_permissions(&self, path: &Path, mode: u32) -> bool {
-        // Try SFTP setstat with real path
         self.with_sftp(|sftp| {
             let normalized_path = self.normalize_path(path);
             let real_path = sftp.realpath(&normalized_path).unwrap_or(normalized_path);
@@ -273,6 +272,44 @@ impl FileSystemProvider for SftpFs {
                 },
             )
             .map_err(|e| anyhow!("SFTP setstat failed: {}", e))
+        })
+        .is_ok()
+    }
+
+    fn get_modified_time(&self, path: &Path) -> Option<std::time::SystemTime> {
+        self.with_sftp(|sftp| {
+            Ok(sftp
+                .stat(self.normalize_path(path).as_path())
+                .ok()
+                .and_then(|stat| {
+                    stat.mtime
+                        .map(|t| std::time::UNIX_EPOCH + std::time::Duration::from_secs(t))
+                }))
+        })
+        .unwrap_or(None)
+    }
+
+    fn set_modified_time(&self, path: &Path, mtime: std::time::SystemTime) -> bool {
+        let duration = match mtime.duration_since(std::time::UNIX_EPOCH).ok() {
+            Some(d) => d.as_secs(),
+            None => return false,
+        };
+
+        self.with_sftp(|sftp| {
+            let normalized_path = self.normalize_path(path);
+            let real_path = sftp.realpath(&normalized_path).unwrap_or(normalized_path);
+            sftp.setstat(
+                &real_path,
+                FileStat {
+                    size: None,
+                    uid: None,
+                    gid: None,
+                    perm: None,
+                    atime: None,
+                    mtime: Some(duration),
+                },
+            )
+            .map_err(|e| anyhow!("SFTP setstat for mtime failed: {}", e))
         })
         .is_ok()
     }

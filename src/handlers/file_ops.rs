@@ -14,6 +14,12 @@ pub trait FileSystem: Send + Sync {
     async fn read_file(&self, path: &std::path::Path) -> anyhow::Result<Vec<u8>>;
     async fn write_file(&self, path: &std::path::Path, data: &[u8]) -> anyhow::Result<()>;
     async fn get_permissions(&self, path: &std::path::Path) -> Option<u32>;
+    async fn get_modified_time(&self, path: &std::path::Path) -> Option<std::time::SystemTime>;
+    async fn set_modified_time(
+        &self,
+        path: &std::path::Path,
+        mtime: std::time::SystemTime,
+    ) -> anyhow::Result<()>;
     async fn write_file_with_permissions(
         &self,
         path: &std::path::Path,
@@ -51,10 +57,18 @@ impl FileSystem for StdFileSystem {
         Ok(tokio::fs::remove_file(path).await?)
     }
     async fn copy(&self, src: &std::path::Path, dst: &std::path::Path) -> anyhow::Result<()> {
+        let mtime = tokio::fs::metadata(src)
+            .await
+            .ok()
+            .and_then(|m| m.modified().ok());
         tokio::fs::copy(src, dst)
             .await
             .map(|_| ())
-            .map_err(anyhow::Error::from)
+            .map_err(anyhow::Error::from)?;
+        if let Some(mt) = mtime {
+            let _ = self.set_modified_time(dst, mt).await;
+        }
+        Ok(())
     }
     async fn read_file(&self, path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
         Ok(tokio::fs::read(path).await?)
@@ -77,6 +91,66 @@ impl FileSystem for StdFileSystem {
         {
             None
         }
+    }
+
+    async fn get_modified_time(&self, path: &std::path::Path) -> Option<std::time::SystemTime> {
+        tokio::fs::metadata(path)
+            .await
+            .ok()
+            .and_then(|m| m.modified().ok())
+    }
+
+    async fn set_modified_time(
+        &self,
+        path: &std::path::Path,
+        mtime: std::time::SystemTime,
+    ) -> anyhow::Result<()> {
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || {
+            let duration = mtime
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|_| std::io::Error::other("invalid mtime"))?;
+            let sec = duration.as_secs() as libc::time_t;
+            let nsec = duration.subsec_nanos() as libc::c_long;
+
+            #[cfg(unix)]
+            {
+                let path_cstr =
+                    std::ffi::CString::new(path.to_string_lossy().as_bytes()).map_err(|_| {
+                        std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid path")
+                    })?;
+                let result = unsafe {
+                    libc::utimensat(
+                        libc::AT_FDCWD,
+                        path_cstr.as_ptr(),
+                        [
+                            libc::timespec {
+                                tv_sec: 0,
+                                tv_nsec: libc::UTIME_OMIT,
+                            },
+                            libc::timespec {
+                                tv_sec: sec,
+                                tv_nsec: nsec,
+                            },
+                        ]
+                        .as_ptr(),
+                        0,
+                    )
+                };
+                if result != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+            }
+            #[cfg(windows)]
+            {
+                use std::fs::FileTimes;
+                let ft = FileTimes::new().set_modified(mtime);
+                std::fs::set_file_times(&path, ft)?;
+            }
+            Ok::<(), std::io::Error>(())
+        })
+        .await??;
+        Ok(())
     }
 
     async fn write_file_with_permissions(
@@ -192,6 +266,32 @@ impl FileSystem for ProviderFileSystem {
         tokio::task::spawn_blocking(move || p.get_permissions(&path))
             .await
             .unwrap_or(None)
+    }
+
+    async fn get_modified_time(&self, path: &std::path::Path) -> Option<std::time::SystemTime> {
+        let p = self.0.clone();
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || p.get_modified_time(&path))
+            .await
+            .ok()
+            .flatten()
+    }
+
+    async fn set_modified_time(
+        &self,
+        path: &std::path::Path,
+        mtime: std::time::SystemTime,
+    ) -> anyhow::Result<()> {
+        let p = self.0.clone();
+        let path = path.to_path_buf();
+        let success = tokio::task::spawn_blocking(move || p.set_modified_time(&path, mtime))
+            .await
+            .unwrap_or(false);
+        if success {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Failed to set modified time"))
+        }
     }
 
     async fn write_file_with_permissions(
@@ -419,7 +519,15 @@ pub fn recursive_op<'a>(
                                 };
 
                                 match copy_res {
-                                    Ok(()) => break, // Success
+                                    Ok(()) => {
+                                        if let Some(mtime) =
+                                            ctx.src_fs.get_modified_time(&src).await
+                                        {
+                                            let _ =
+                                                ctx.dest_fs.set_modified_time(&dest, mtime).await;
+                                        }
+                                        break;
+                                    }
                                     Err(e) => {
                                         if decision_state.skip_all {
                                             perform = false;
@@ -546,6 +654,91 @@ mod tests {
         assert!(dst_file.exists());
         let dst_perms = std::fs::metadata(&dst_file).unwrap().permissions().mode() & 0o777;
         assert_eq!(dst_perms, 0o755, "Expected 0o755, got 0{:o}", dst_perms);
+    }
+
+    #[tokio::test]
+    async fn test_copy_preserves_modified_time() {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let src_file = tmp_dir.path().join("source.txt");
+        let dst_file = tmp_dir.path().join("destination.txt");
+
+        std::fs::write(&src_file, b"test content").unwrap();
+
+        let past_time = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1609459200);
+        StdFileSystem
+            .set_modified_time(&src_file, past_time)
+            .await
+            .unwrap();
+
+        let src_mtime = StdFileSystem.get_modified_time(&src_file).await;
+        assert!(src_mtime.is_some());
+
+        StdFileSystem.copy(&src_file, &dst_file).await.unwrap();
+
+        assert!(dst_file.exists());
+        let dst_mtime = StdFileSystem.get_modified_time(&dst_file).await;
+
+        if let Some(dst_mtime) = dst_mtime {
+            let diff = dst_mtime.duration_since(past_time).unwrap();
+            assert!(
+                diff.as_secs() < 2,
+                "Timestamp not preserved within 2 seconds"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_set_modified_time() {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let test_file = tmp_dir.path().join("test_mtime.txt");
+
+        std::fs::write(&test_file, b"test").unwrap();
+
+        let past_time = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1609459200);
+        let result = StdFileSystem.set_modified_time(&test_file, past_time).await;
+        assert!(result.is_ok());
+
+        let mtime = StdFileSystem.get_modified_time(&test_file).await;
+        assert!(mtime.is_some());
+
+        if let Some(mtime) = mtime {
+            let diff = mtime.duration_since(past_time).unwrap();
+            assert!(diff.as_secs() < 2, "Modified time not set correctly");
+        }
+
+        let content = std::fs::read(&test_file).unwrap();
+        assert_eq!(
+            content, b"test",
+            "File content should be preserved after set_modified_time"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_copy_preserves_content_and_modified_time() {
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let src_file = tmp_dir.path().join("source.txt");
+        let dst_file = tmp_dir.path().join("destination.txt");
+
+        let original_content = b"Hello, World! This is a test file with some content.";
+        std::fs::write(&src_file, original_content).unwrap();
+
+        let past_time = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1609459200);
+        StdFileSystem
+            .set_modified_time(&src_file, past_time)
+            .await
+            .unwrap();
+
+        StdFileSystem.copy(&src_file, &dst_file).await.unwrap();
+
+        let dst_content = std::fs::read(&dst_file).unwrap();
+        assert_eq!(
+            dst_content, original_content,
+            "Copied file content should match source"
+        );
+
+        let dst_mtime = StdFileSystem.get_modified_time(&dst_file).await.unwrap();
+        let diff = dst_mtime.duration_since(past_time).unwrap();
+        assert!(diff.as_secs() < 2, "Timestamp should be preserved");
     }
 }
 
@@ -679,6 +872,18 @@ mod mock_fs_tests {
 
         async fn get_permissions(&self, _path: &Path) -> Option<u32> {
             Some(0o644) // Mock permissions
+        }
+
+        async fn get_modified_time(&self, _path: &Path) -> Option<std::time::SystemTime> {
+            Some(std::time::SystemTime::UNIX_EPOCH)
+        }
+
+        async fn set_modified_time(
+            &self,
+            _path: &Path,
+            _mtime: std::time::SystemTime,
+        ) -> anyhow::Result<()> {
+            Ok(())
         }
 
         async fn write_file_with_permissions(
