@@ -319,6 +319,17 @@ impl FileSystemProvider for SftpFs {
         // prefix is formatted as "[user@host]"
         self.prefix.clone()
     }
+
+    fn display_path(&self, path: &Path) -> String {
+        let mut s = path.to_string_lossy().replace('\\', "/");
+        if !s.starts_with('/') {
+            s = format!("/{}", s);
+        }
+        while s.contains("//") {
+            s = s.replace("//", "/");
+        }
+        s
+    }
 }
 
 impl SftpFs {

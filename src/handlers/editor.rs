@@ -612,6 +612,10 @@ mod tests {
         fn context_key(&self) -> String {
             "mock".to_string()
         }
+
+        fn display_path(&self, path: &std::path::Path) -> String {
+            path.to_string_lossy().to_string()
+        }
     }
 
     fn create_test_app() -> AppState {

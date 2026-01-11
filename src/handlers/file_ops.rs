@@ -750,7 +750,6 @@ mod tests {
 mod mock_fs_tests {
     use super::*;
     use async_trait::async_trait;
-    use filetime::FileTime;
     use std::collections::{HashMap, HashSet};
     use std::path::{Path, PathBuf};
     use std::sync::Arc;

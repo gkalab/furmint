@@ -190,6 +190,10 @@ impl FileSystemProvider for LocalFs {
     fn context_key(&self) -> String {
         "local".to_string()
     }
+
+    fn display_path(&self, path: &Path) -> String {
+        path.to_string_lossy().to_string()
+    }
 }
 
 #[cfg(test)]

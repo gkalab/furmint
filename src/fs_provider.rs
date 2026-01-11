@@ -101,4 +101,9 @@ pub trait FileSystemProvider: Send + Sync {
 
     /// Get a string identifying the context (e.g., "local", "user@host").
     fn context_key(&self) -> String;
+
+    /// Get a display-friendly path string.
+    /// For local filesystems: uses native separators.
+    /// For remote filesystems (SFTP): normalizes to forward slashes.
+    fn display_path(&self, path: &Path) -> String;
 }

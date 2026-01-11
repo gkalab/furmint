@@ -165,7 +165,7 @@ pub fn draw_panel(
 
     let title_width = area.width.saturating_sub(2) as usize;
     let prefix = panel.provider.display_prefix();
-    let path_str = panel.current_dir.to_string_lossy();
+    let path_str = panel.provider.display_path(&panel.current_dir);
     let full_title = if prefix.is_empty() {
         format!(" {} ", path_str)
     } else {
