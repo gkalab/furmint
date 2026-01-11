@@ -144,8 +144,9 @@ impl FileSystem for StdFileSystem {
             }
             #[cfg(windows)]
             {
+                use filetime::FileTime;
                 let ft = FileTime::from_system_time(mtime);
-                filetime::set_file_times(&path, None, Some(ft))?;
+                filetime::set_file_mtime(&path, ft)?;
             }
             Ok::<(), std::io::Error>(())
         })

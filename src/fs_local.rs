@@ -176,7 +176,7 @@ impl FileSystemProvider for LocalFs {
         {
             use filetime::FileTime;
             let ft = FileTime::from_system_time(mtime);
-            filetime::set_file_times(path, None, Some(ft)).is_ok()
+            filetime::set_file_mtime(path, ft).is_ok()
         }
         #[cfg(not(unix))]
         {
