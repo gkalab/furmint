@@ -414,6 +414,7 @@ pub async fn handle_remote_edit_event(code: crossterm::event::KeyCode, app: &mut
 }
 
 #[cfg(test)]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::app::{AppState, PanelSide, Tab, TabManager};
@@ -484,5 +485,400 @@ mod tests {
             error.is_some(),
             "Error should be set if invalid editor command"
         );
+    }
+
+    struct MockFileSystem {
+        write_count: std::sync::atomic::AtomicUsize,
+        write_data: std::sync::Mutex<Option<Vec<u8>>>,
+        write_error: std::sync::atomic::AtomicBool,
+        permissions_result: std::sync::Mutex<Option<u32>>,
+    }
+
+    impl MockFileSystem {
+        fn new() -> Self {
+            Self {
+                write_count: std::sync::atomic::AtomicUsize::new(0),
+                write_data: std::sync::Mutex::new(None),
+                write_error: std::sync::atomic::AtomicBool::new(false),
+                permissions_result: std::sync::Mutex::new(Some(0o644)),
+            }
+        }
+    }
+
+    impl crate::fs_provider::FileSystemProvider for MockFileSystem {
+        fn is_local(&self) -> bool {
+            false
+        }
+
+        fn display_prefix(&self) -> &str {
+            "mock://"
+        }
+
+        fn list_dir(&self, _path: &std::path::Path) -> anyhow::Result<Vec<FileEntry>> {
+            Ok(vec![])
+        }
+
+        fn read_file(&self, _path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
+            Ok(b"original content".to_vec())
+        }
+
+        fn write_file(&self, _path: &std::path::Path, data: &[u8]) -> anyhow::Result<()> {
+            self.write_count
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            *self.write_data.lock().unwrap() = Some(data.to_vec());
+            if self.write_error.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(anyhow::anyhow!("Mock write error"));
+            }
+            Ok(())
+        }
+
+        fn write_file_with_permissions(
+            &self,
+            path: &std::path::Path,
+            data: &[u8],
+            _mode: Option<u32>,
+        ) -> anyhow::Result<()> {
+            self.write_file(path, data)
+        }
+
+        fn create_dir(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn create_file(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn delete(&self, _path: &std::path::Path, _recursive: bool) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn rename(&self, _from: &std::path::Path, _to: &std::path::Path) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        fn read_file_content(
+            &self,
+            path: &std::path::Path,
+            limit: usize,
+        ) -> anyhow::Result<String> {
+            let buffer = self.read_file(path)?;
+            if buffer.len() > limit {
+                return Ok(format!(
+                    "File too large to display (size: {}, limit: {})",
+                    crate::fs_ops::format_size(Some(buffer.len() as u64), false, false),
+                    crate::fs_ops::format_size(Some(limit as u64), false, false)
+                ));
+            }
+            if buffer[..buffer.len().min(8192)].contains(&0) {
+                return Ok("Binary file detected".to_string());
+            }
+            Ok(String::from_utf8_lossy(&buffer).to_string())
+        }
+
+        fn exists(&self, _path: &std::path::Path) -> bool {
+            true
+        }
+
+        fn is_dir(&self, _path: &std::path::Path) -> bool {
+            false
+        }
+
+        fn canonicalize(&self, path: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
+            Ok(path.to_path_buf())
+        }
+
+        fn get_modified_time(&self, _path: &std::path::Path) -> Option<std::time::SystemTime> {
+            None
+        }
+
+        fn set_modified_time(
+            &self,
+            _path: &std::path::Path,
+            _mtime: std::time::SystemTime,
+        ) -> bool {
+            true
+        }
+
+        fn get_permissions(&self, _path: &std::path::Path) -> Option<u32> {
+            *self.permissions_result.lock().unwrap()
+        }
+
+        fn set_permissions(&self, _path: &std::path::Path, _mode: u32) -> bool {
+            true
+        }
+
+        fn context_key(&self) -> String {
+            "mock".to_string()
+        }
+    }
+
+    fn create_test_app() -> AppState {
+        AppState {
+            left: TabManager::new(std::path::Path::new("/tmp")).unwrap(),
+            right: TabManager::new(std::path::Path::new("/tmp")).unwrap(),
+            active: PanelSide::Left,
+            file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
+            fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
+            popups: crate::app::Popups::new(),
+            task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
+            ssh_manager: Arc::new(crate::ssh_manager::SshManager::default()),
+            task_decision_txs: std::collections::HashMap::new(),
+            show_task_manager: false,
+            dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
+            watcher: None,
+            input_polling_handle: None,
+            needs_redraw: false,
+            global: crate::config::GlobalConfig::default(),
+            editor_cfg: EditorConfig::default(),
+            viewer_cfg: crate::config::ViewerConfig::default(),
+            ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_handle_remote_edit_event_cancel() {
+        let mut app = create_test_app();
+
+        let temp_path = std::env::temp_dir().join("test_edit_cancel.txt");
+        tokio::fs::write(&temp_path, b"test content").await.unwrap();
+
+        let mock_fs = Arc::new(MockFileSystem::new());
+        app.popups.remote_edit = crate::state::RemoteEditState {
+            is_visible: true,
+            temp_path: temp_path.clone(),
+            remote_path: std::path::PathBuf::from("/remote/test.txt"),
+            filename: "test.txt".to_string(),
+            provider: mock_fs,
+            original_checksum: md5::compute(b"test content").0,
+        };
+
+        let result = handle_remote_edit_event(crossterm::event::KeyCode::Esc, &mut app).await;
+
+        assert!(!result);
+        assert!(!app.popups.remote_edit.is_visible);
+        assert!(!temp_path.exists());
+    }
+
+    #[tokio::test]
+    async fn test_handle_remote_edit_event_no_changes() {
+        let mut app = create_test_app();
+
+        let temp_path = std::env::temp_dir().join("test_edit_unchanged.txt");
+        let content = b"unchanged content";
+        tokio::fs::write(&temp_path, content).await.unwrap();
+
+        let mock_fs = Arc::new(MockFileSystem::new());
+        let original_checksum = md5::compute(content).0;
+        app.popups.remote_edit = crate::state::RemoteEditState {
+            is_visible: true,
+            temp_path: temp_path.clone(),
+            remote_path: std::path::PathBuf::from("/remote/test.txt"),
+            filename: "test.txt".to_string(),
+            provider: mock_fs.clone(),
+            original_checksum,
+        };
+
+        let result = handle_remote_edit_event(crossterm::event::KeyCode::Char('O'), &mut app).await;
+
+        assert!(!result);
+        assert!(!app.popups.remote_edit.is_visible);
+        assert_eq!(
+            mock_fs
+                .write_count
+                .load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+        assert!(temp_path.exists());
+        tokio::fs::remove_file(&temp_path).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_handle_remote_edit_event_with_changes() {
+        let mut app = create_test_app();
+
+        let temp_path = std::env::temp_dir().join("test_edit_changed.txt");
+        let original_content = b"original content";
+        let changed_content = b"modified content";
+        tokio::fs::write(&temp_path, changed_content).await.unwrap();
+
+        let mock_fs = Arc::new(MockFileSystem::new());
+        let original_checksum = md5::compute(original_content).0;
+        app.popups.remote_edit = crate::state::RemoteEditState {
+            is_visible: true,
+            temp_path: temp_path.clone(),
+            remote_path: std::path::PathBuf::from("/remote/test.txt"),
+            filename: "test.txt".to_string(),
+            provider: mock_fs.clone(),
+            original_checksum,
+        };
+
+        let result = handle_remote_edit_event(crossterm::event::KeyCode::Enter, &mut app).await;
+
+        assert!(!result);
+        assert!(!app.popups.remote_edit.is_visible);
+        assert_eq!(
+            mock_fs
+                .write_count
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+        let written_data = mock_fs.write_data.lock().unwrap().clone().unwrap();
+        assert_eq!(written_data, changed_content);
+        assert!(!temp_path.exists());
+    }
+
+    #[tokio::test]
+    async fn test_spawn_editor_no_wait_empty_command() {
+        let result = spawn_editor_no_wait(None, std::path::Path::new("/tmp/test.txt"));
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("No editor command")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_spawn_editor_no_wait_invalid_command() {
+        let result = spawn_editor_no_wait(Some(""), std::path::Path::new("/tmp/test.txt"));
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_checksum_comparison_unchanged() {
+        let content = b"test content for checksum";
+        let checksum = md5::compute(content);
+        let same_content = b"test content for checksum";
+        let same_checksum = md5::compute(same_content);
+
+        assert_eq!(checksum.0, same_checksum.0);
+    }
+
+    #[tokio::test]
+    async fn test_checksum_comparison_changed() {
+        let content1 = b"original content";
+        let content2 = b"modified content";
+        let checksum1 = md5::compute(content1);
+        let checksum2 = md5::compute(content2);
+
+        assert_ne!(checksum1.0, checksum2.0);
+    }
+
+    #[tokio::test]
+    async fn test_checksum_empty_content() {
+        let empty = b"";
+        let checksum = md5::compute(empty);
+        let empty_checksum = md5::compute(b"");
+        assert_eq!(checksum.0, empty_checksum.0);
+    }
+
+    #[tokio::test]
+    async fn test_upload_edited_file_success() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_path = temp_dir.path().join("test_upload.txt");
+        let remote_path = std::path::PathBuf::from("/remote/test.txt");
+        let content = b"uploaded content";
+
+        tokio::fs::write(&temp_path, content).await.unwrap();
+
+        let mock_fs = Arc::new(MockFileSystem::new());
+        upload_edited_file(&temp_path, &remote_path, mock_fs.clone(), content)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            mock_fs
+                .write_count
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+        let written_data = mock_fs.write_data.lock().unwrap().clone().unwrap();
+        assert_eq!(written_data, content);
+        assert!(!temp_path.exists());
+    }
+
+    #[tokio::test]
+    async fn test_upload_edited_file_with_permissions() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_path = temp_dir.path().join("test_upload_perms.txt");
+        let remote_path = std::path::PathBuf::from("/remote/test.txt");
+        let content = b"content with perms";
+
+        tokio::fs::write(&temp_path, content).await.unwrap();
+
+        let mock_fs = Arc::new(MockFileSystem::new());
+        mock_fs.permissions_result.lock().unwrap().replace(0o755);
+
+        upload_edited_file(&temp_path, &remote_path, mock_fs.clone(), content)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            mock_fs
+                .write_count
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn test_upload_edited_file_failure() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let temp_path = temp_dir.path().join("test_upload_fail.txt");
+        let remote_path = std::path::PathBuf::from("/remote/test.txt");
+        let content = b"content";
+
+        tokio::fs::write(&temp_path, content).await.unwrap();
+
+        let mock_fs = Arc::new(MockFileSystem::new());
+        mock_fs
+            .write_error
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+
+        let result = upload_edited_file(&temp_path, &remote_path, mock_fs.clone(), content).await;
+
+        assert!(result.is_err());
+        assert!(temp_path.exists());
+        tokio::fs::remove_file(&temp_path).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_spawn_editor_no_wait_valid_command() {
+        let result = spawn_editor_no_wait(Some("true"), std::path::Path::new("/tmp/test.txt"));
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_handle_remote_edit_event_write_error_sets_error() {
+        let mut app = create_test_app();
+
+        let temp_path = std::env::temp_dir().join("test_edit_write_error.txt");
+        let original_content = b"original content";
+        let changed_content = b"modified content";
+        tokio::fs::write(&temp_path, changed_content).await.unwrap();
+
+        let mock_fs = Arc::new(MockFileSystem::new());
+        mock_fs
+            .write_error
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let original_checksum = md5::compute(original_content).0;
+        app.popups.remote_edit = crate::state::RemoteEditState {
+            is_visible: true,
+            temp_path: temp_path.clone(),
+            remote_path: std::path::PathBuf::from("/remote/test.txt"),
+            filename: "test.txt".to_string(),
+            provider: mock_fs.clone(),
+            original_checksum,
+        };
+
+        let result = handle_remote_edit_event(crossterm::event::KeyCode::Enter, &mut app).await;
+
+        assert!(!result);
+        assert!(!app.popups.remote_edit.is_visible);
+        assert!(app.left.active_tab().error.is_some());
+        assert!(temp_path.exists());
+        tokio::fs::remove_file(&temp_path).await.unwrap();
     }
 }
