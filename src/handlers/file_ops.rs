@@ -144,9 +144,8 @@ impl FileSystem for StdFileSystem {
             }
             #[cfg(windows)]
             {
-                use std::fs::FileTimes;
-                let ft = FileTimes::new().set_modified(mtime);
-                std::fs::set_file_times(&path, ft)?;
+                let ft = FileTime::from_system_time(mtime);
+                filetime::set_file_times(&path, None, Some(ft))?;
             }
             Ok::<(), std::io::Error>(())
         })
@@ -750,6 +749,7 @@ mod tests {
 mod mock_fs_tests {
     use super::*;
     use async_trait::async_trait;
+    use filetime::FileTime;
     use std::collections::{HashMap, HashSet};
     use std::path::{Path, PathBuf};
     use std::sync::Arc;

@@ -174,9 +174,9 @@ impl FileSystemProvider for LocalFs {
         }
         #[cfg(windows)]
         {
-            use std::fs::FileTimes;
-            let ft = FileTimes::new().set_modified(mtime);
-            std::fs::set_file_times(path, ft).is_ok()
+            use filetime::FileTime;
+            let ft = FileTime::from_system_time(mtime);
+            filetime::set_file_times(path, None, Some(ft)).is_ok()
         }
         #[cfg(not(unix))]
         {
