@@ -458,16 +458,16 @@ pub async fn handle_event(
 
             // Handle rename popup
             if app.popups.rename.is_visible {
-                return handle_rename_event(code, app);
+                return handle_rename_event(code, modifiers, app);
             }
 
             // Handle create directory popup
             if app.popups.create_directory.is_visible {
-                return handle_create_directory_event(code, app);
+                return handle_create_directory_event(code, modifiers, app);
             }
 
             if app.popups.create_file.is_visible {
-                return handle_create_file_event(code, app, &input_tx).await;
+                return handle_create_file_event(code, modifiers, app, &input_tx).await;
             }
 
             // Handle delete popup
@@ -477,7 +477,7 @@ pub async fn handle_event(
 
             // Handle copy/move popup
             if app.popups.copy_move.is_visible {
-                return handle_copy_move_event(code, app);
+                return handle_copy_move_event(code, modifiers, app);
             }
 
             // Handle drive selection popup

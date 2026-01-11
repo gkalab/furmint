@@ -21,6 +21,7 @@ pub mod popup_create;
 pub mod popup_misc;
 pub mod popup_ssh;
 
+pub mod clipboard_utils;
 pub mod editor;
 pub mod external;
 pub mod file_ops;

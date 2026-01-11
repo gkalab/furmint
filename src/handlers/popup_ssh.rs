@@ -1,4 +1,5 @@
 use crate::app::AppState;
+use crate::handlers::clipboard_utils::{get_clipboard_content, insert_text_at_cursor};
 use crate::tasks::{SshContext, TaskEvent, TaskStatus};
 use crossterm::event::{KeyCode, KeyModifiers};
 use std::sync::Arc;
@@ -26,7 +27,7 @@ pub fn handle_ssh_connection_init(app: &mut AppState) {
 pub fn handle_ssh_connection_event(
     app: &mut AppState,
     code: KeyCode,
-    _modifiers: KeyModifiers,
+    modifiers: KeyModifiers,
 ) -> bool {
     use crate::state::ssh::SshField;
 
@@ -153,6 +154,36 @@ pub fn handle_ssh_connection_event(
                         SshField::Port => app.popups.ssh_connection.port.len(),
                         _ => 0,
                     };
+            }
+        }
+        KeyCode::Char('v') if modifiers.contains(KeyModifiers::CONTROL) => {
+            if let Some(content) = get_clipboard_content() {
+                match app.popups.ssh_connection.active_field {
+                    SshField::ConnectionString => {
+                        insert_text_at_cursor(
+                            &mut app.popups.ssh_connection.connection_string,
+                            &mut app.popups.ssh_connection.cursor_position,
+                            &content,
+                        );
+                    }
+                    SshField::Name => {
+                        insert_text_at_cursor(
+                            &mut app.popups.ssh_connection.name,
+                            &mut app.popups.ssh_connection.cursor_position,
+                            &content,
+                        );
+                    }
+                    SshField::Port => {
+                        let sanitized: String =
+                            content.chars().filter(|c| c.is_ascii_digit()).collect();
+                        insert_text_at_cursor(
+                            &mut app.popups.ssh_connection.port,
+                            &mut app.popups.ssh_connection.cursor_position,
+                            &sanitized,
+                        );
+                    }
+                    _ => {}
+                }
             }
         }
         KeyCode::Char(c) => match app.popups.ssh_connection.active_field {
@@ -408,7 +439,7 @@ fn start_ssh_auth(app: &mut AppState) {
 pub fn handle_ssh_password_event(
     app: &mut AppState,
     code: KeyCode,
-    _modifiers: KeyModifiers,
+    modifiers: KeyModifiers,
 ) -> bool {
     match code {
         KeyCode::Esc => {
@@ -447,6 +478,15 @@ pub fn handle_ssh_password_event(
                     password,
                     target_path,
                     connection_name,
+                );
+            }
+        }
+        KeyCode::Char('v') if modifiers.contains(KeyModifiers::CONTROL) => {
+            if let Some(content) = get_clipboard_content() {
+                insert_text_at_cursor(
+                    &mut app.popups.ssh_password.password,
+                    &mut app.popups.ssh_password.cursor_position,
+                    &content,
                 );
             }
         }
