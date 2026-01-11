@@ -172,15 +172,18 @@ impl FileSystemProvider for LocalFs {
                 result == 0
             }
         }
-        #[cfg(windows)]
-        {
-            use filetime::FileTime;
-            let ft = FileTime::from_system_time(mtime);
-            filetime::set_file_mtime(path, ft).is_ok()
-        }
         #[cfg(not(unix))]
         {
-            false
+            #[cfg(windows)]
+            {
+                use filetime::FileTime;
+                let ft = FileTime::from_system_time(mtime);
+                filetime::set_file_mtime(path, ft).is_ok()
+            }
+            #[cfg(not(windows))]
+            {
+                false
+            }
         }
     }
 
