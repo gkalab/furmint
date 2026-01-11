@@ -137,7 +137,7 @@ pub(crate) fn handle_open_item(app: &mut AppState) {
     if let Some(entry) = entry_opt {
         if entry.is_dir {
             handle_enter_directory(app);
-        } else {
+        } else if app.active_tab().provider.is_local() {
             let (full_path, current_dir) = {
                 let panel = app.active_tab();
                 (
@@ -148,7 +148,6 @@ pub(crate) fn handle_open_item(app: &mut AppState) {
             let is_exe = crate::fs_ops::is_executable(&full_path, &entry);
 
             if is_exe {
-                // Launch executable in the default terminal
                 let configured_terminal = app.global.terminal.clone();
                 if let Err(e) = crate::handlers::terminal::spawn_terminal(
                     &current_dir,
