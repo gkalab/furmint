@@ -179,63 +179,71 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemeP
 
 pub fn draw_ssh_password_popup(f: &mut Frame, app: &AppState, palette: &ThemePalette) {
     let area = f.area();
-    // Use a fixed-height layout if possible, or a tighter percentage.
-    // Let's try Centered with fixed height logic.
-    let popup_width = 40;
-    let popup_height = 8;
+    let popup_width = 50;
+    let popup_height = 3;
+    let popup_x = (area.width.saturating_sub(popup_width)) / 2;
+    let popup_y = (area.height.saturating_sub(popup_height)) / 2;
 
-    let x = (area.width.saturating_sub(popup_width * area.width / 100)) / 2;
-    // Manual centered rect calculation for better control
-    let w = (area.width * popup_width) / 100;
-    let h = popup_height.min(area.height.saturating_sub(2));
-    let y = (area.height.saturating_sub(h)) / 2;
-    let popup_area = Rect::new(x, y, w, h);
+    let popup_area = Rect {
+        x: popup_x,
+        y: popup_y,
+        width: popup_width,
+        height: popup_height,
+    };
 
     f.render_widget(Clear, popup_area);
-    f.render_widget(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .title("SSH Password")
-            .border_style(Style::default().fg(Color::from(palette.blue)))
-            .bg(Color::from(palette.base)),
-        popup_area,
+
+    let title = format!(
+        "SSH Password for {}@{}",
+        app.popups.ssh_password.user, app.popups.ssh_password.host
     );
 
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .margin(1) // Smaller margin
-        .constraints([
-            Constraint::Length(1), // Label
-            Constraint::Length(3), // Input
-        ])
-        .split(popup_area);
+    let bg_color = Color::from(palette.base);
+    let border_color = Color::from(palette.blue);
+    let text_color = Color::from(palette.text);
 
-    f.render_widget(
-        Paragraph::new(format!(
-            "Password for {}@{}",
-            app.popups.ssh_password.user, app.popups.ssh_password.host
-        ))
-        .style(Style::default().fg(Color::from(palette.text))),
-        chunks[0],
-    );
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .title(title.as_str())
+        .border_style(Style::default().fg(border_color))
+        .style(Style::default().bg(bg_color));
 
+    f.render_widget(block, popup_area);
+
+    let inner_area = popup_area.inner(Margin {
+        vertical: 1,
+        horizontal: 1,
+    });
+
+    let input_width = inner_area.width as usize;
     let password_mask: String = "*".repeat(app.popups.ssh_password.password.len());
-    f.render_widget(
-        Paragraph::new(password_mask.as_str())
-            .style(Style::default().fg(Color::from(palette.text)))
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::from(palette.blue))),
-            ),
-        chunks[1],
-    );
+    let cursor_pos = app.popups.ssh_password.cursor_position;
 
-    f.set_cursor_position(Position::new(
-        chunks[1].x + password_mask.len() as u16 + 1,
-        chunks[1].y + 1,
-    ));
+    let scroll_offset = if cursor_pos < input_width {
+        0
+    } else {
+        cursor_pos - input_width + 1
+    };
+
+    let display_text: String = password_mask
+        .chars()
+        .skip(scroll_offset)
+        .take(input_width)
+        .collect();
+
+    let paragraph =
+        Paragraph::new(display_text.as_str()).style(Style::default().fg(text_color).bg(bg_color));
+
+    f.render_widget(paragraph, inner_area);
+
+    let cursor_visual_offset = cursor_pos.saturating_sub(scroll_offset);
+    if cursor_visual_offset < input_width {
+        f.set_cursor_position(Position::new(
+            inner_area.x + cursor_visual_offset as u16,
+            inner_area.y,
+        ));
+    }
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {

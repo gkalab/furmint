@@ -381,6 +381,7 @@ fn start_ssh_auth(app: &mut AppState) {
         app.popups.ssh_password.host = parsed.host;
         app.popups.ssh_password.user = parsed.user;
         app.popups.ssh_password.password.clear();
+        app.popups.ssh_password.cursor_position = 0;
     } else {
         app.popups.ssh_connection.error = Some("Invalid connection string format".to_string());
     }
@@ -396,17 +397,6 @@ pub fn handle_ssh_password_event(
             app.popups.ssh_password.is_visible = false;
             if !app.popups.ssh_connection.connection_string.is_empty() {
                 app.popups.ssh_connection.is_visible = true;
-            }
-        }
-        KeyCode::Char(c) => {
-            app.popups.ssh_password.password.push(c);
-            app.popups.ssh_password.cursor_position += 1;
-        }
-        KeyCode::Backspace => {
-            if !app.popups.ssh_password.password.is_empty() {
-                app.popups.ssh_password.password.pop();
-                app.popups.ssh_password.cursor_position =
-                    app.popups.ssh_password.cursor_position.saturating_sub(1);
             }
         }
         KeyCode::Enter => {
@@ -441,6 +431,44 @@ pub fn handle_ssh_password_event(
                     connection_name,
                 );
             }
+        }
+        KeyCode::Char(c) => {
+            let pos = app.popups.ssh_password.cursor_position;
+            let password = &mut app.popups.ssh_password.password;
+            if pos <= password.len() {
+                password.insert(pos, c);
+                app.popups.ssh_password.cursor_position += 1;
+            }
+        }
+        KeyCode::Backspace => {
+            if app.popups.ssh_password.cursor_position > 0 {
+                let pos = app.popups.ssh_password.cursor_position;
+                app.popups.ssh_password.password.remove(pos - 1);
+                app.popups.ssh_password.cursor_position -= 1;
+            }
+        }
+        KeyCode::Delete => {
+            let pos = app.popups.ssh_password.cursor_position;
+            let password_len = app.popups.ssh_password.password.len();
+            if pos < password_len {
+                app.popups.ssh_password.password.remove(pos);
+            }
+        }
+        KeyCode::Left => {
+            if app.popups.ssh_password.cursor_position > 0 {
+                app.popups.ssh_password.cursor_position -= 1;
+            }
+        }
+        KeyCode::Right => {
+            if app.popups.ssh_password.cursor_position < app.popups.ssh_password.password.len() {
+                app.popups.ssh_password.cursor_position += 1;
+            }
+        }
+        KeyCode::Home => {
+            app.popups.ssh_password.cursor_position = 0;
+        }
+        KeyCode::End => {
+            app.popups.ssh_password.cursor_position = app.popups.ssh_password.password.len();
         }
         _ => {}
     }
