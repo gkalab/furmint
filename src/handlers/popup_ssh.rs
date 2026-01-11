@@ -425,7 +425,21 @@ pub fn handle_ssh_password_event(
                     parse_connection_string(&app.popups.ssh_connection.connection_string)
                         .and_then(|p| p.path);
 
-                connect_ssh(app, user, host, port, password, target_path);
+                let connection_name = if app.popups.ssh_connection.name.is_empty() {
+                    None
+                } else {
+                    Some(app.popups.ssh_connection.name.clone())
+                };
+
+                connect_ssh(
+                    app,
+                    user,
+                    host,
+                    port,
+                    password,
+                    target_path,
+                    connection_name,
+                );
             }
         }
         _ => {}
@@ -438,6 +452,7 @@ fn reconnect_ssh(app: &mut AppState, session_id: String, password: String) {
     let current_dir = app.active_tab().current_dir.clone();
     let old_session_id = session_id.clone();
     let password_for_cache = password.clone();
+    let connection_name = app.active_tab().custom_title.clone();
 
     app.task_manager.spawn_task(
         "Reconnecting SSH session".to_string(),
@@ -453,6 +468,7 @@ fn reconnect_ssh(app: &mut AppState, session_id: String, password: String) {
                     let _ = tx.send(TaskEvent::SshReconnected(SshContext {
                         provider: Arc::new(fs),
                         path: Some(current_dir),
+                        name: connection_name,
                     }));
                 }
                 Err(e) => {
@@ -480,6 +496,7 @@ fn connect_ssh(
     port: u16,
     password: String,
     target_path: Option<String>,
+    connection_name: Option<String>,
 ) {
     let name = format!("Connecting to {}@{}", user, host);
     let ssh_manager = app.ssh_manager.clone();
@@ -487,6 +504,7 @@ fn connect_ssh(
     let host_for_reg = host.clone();
     let user_for_reg = user.clone();
     let password_for_cache = password.clone();
+    let connection_name_clone = connection_name.clone();
 
     app.task_manager
         .spawn_task(name, move |_cancel, tx, id| async move {
@@ -508,6 +526,7 @@ fn connect_ssh(
                     let _ = tx.send(TaskEvent::SshConnected(SshContext {
                         provider: Arc::new(fs),
                         path: target_path.map(std::path::PathBuf::from),
+                        name: connection_name_clone,
                     }));
                 }
                 Err(e) => {
@@ -755,6 +774,7 @@ pub fn handle_reconnect_ssh(app: &mut AppState) {
             let current_dir = app.active_tab().current_dir.clone();
             let session_id = session.session_id.clone();
             let password_for_cache = cached_password.clone();
+            let connection_name = app.active_tab().custom_title.clone();
 
             app.task_manager.spawn_task(
                 "Reconnecting SSH session".to_string(),
@@ -772,6 +792,7 @@ pub fn handle_reconnect_ssh(app: &mut AppState) {
                             let _ = tx.send(TaskEvent::SshReconnected(SshContext {
                                 provider: Arc::new(fs),
                                 path: Some(current_dir),
+                                name: connection_name,
                             }));
                         }
                         Err(e) => {

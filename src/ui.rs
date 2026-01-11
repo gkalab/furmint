@@ -31,12 +31,8 @@ pub fn draw_tab_bar(
     let tab_count = tab_manager.tabs.len();
 
     for (idx, tab) in tab_manager.tabs.iter().enumerate() {
-        // Get the last component of the path
-        let tab_title = tab
-            .current_dir
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("/");
+        // Get the tab title (custom_title if set, otherwise last component of path)
+        let tab_title = tab.title();
 
         // Truncate if too long (max 15 chars)
         let truncated_title = if tab_title.len() > 15 {

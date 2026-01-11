@@ -348,6 +348,7 @@ mod popup_copy_move_unit_tests {
             sort_column: crate::app::SortColumn::Name,
             sort_direction: crate::app_state::tabs::SortDirection::Ascending,
             scroll_offset: 0,
+            custom_title: None,
         }
     }
 

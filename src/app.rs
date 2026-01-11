@@ -278,8 +278,10 @@ impl AppState {
         };
 
         let path = ctx.path.unwrap_or_else(|| std::path::PathBuf::from("/"));
+        let connection_name = ctx.name;
         match Tab::with_provider(&path, ctx.provider) {
-            Ok(tab) => {
+            Ok(mut tab) => {
+                tab.custom_title = connection_name;
                 tab_manager.tabs.push(tab);
                 tab_manager.active_tab_index = tab_manager.tabs.len() - 1;
             }
@@ -416,6 +418,7 @@ mod tests {
             sort_column: SortColumn::Name,
             sort_direction: SortDirection::Ascending,
             scroll_offset: 0,
+            custom_title: None,
         }
     }
 

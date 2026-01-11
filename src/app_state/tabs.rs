@@ -35,6 +35,8 @@ pub struct Tab {
     pub sort_column: SortColumn,
     pub sort_direction: SortDirection,
     pub scroll_offset: usize,
+    // Custom tab title (e.g., SSH connection name)
+    pub custom_title: Option<String>,
 }
 
 impl Tab {
@@ -65,6 +67,7 @@ impl Tab {
             sort_column: SortColumn::Name,
             sort_direction: SortDirection::Ascending,
             scroll_offset: 0,
+            custom_title: None,
         };
         tab.sort_entries();
         Ok(tab)
@@ -94,6 +97,18 @@ impl Tab {
     /// Returns the currently selected entry, if any.
     pub fn current_entry(&self) -> Option<&FileEntry> {
         self.entries.get(self.cursor)
+    }
+
+    /// Returns the tab title - custom_title if set, otherwise last component of path
+    pub fn title(&self) -> &str {
+        if let Some(ref custom) = self.custom_title {
+            custom
+        } else {
+            self.current_dir
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("/")
+        }
     }
 
     /// Move cursor up by one.

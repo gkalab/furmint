@@ -37,12 +37,14 @@ pub enum TaskEvent {
 pub struct SshContext {
     pub provider: Arc<dyn crate::fs_provider::FileSystemProvider>,
     pub path: Option<std::path::PathBuf>,
+    pub name: Option<String>,
 }
 
 impl std::fmt::Debug for SshContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SshContext")
             .field("path", &self.path)
+            .field("name", &self.name)
             .finish()
     }
 }
