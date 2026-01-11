@@ -58,6 +58,16 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
                 app.popups.ssh_password.cursor_position = 0;
             }
         }
+        crate::tasks::TaskEvent::SshAuthFailed(host, user, error) => {
+            // Re-open password popup for failed authentication
+            app.popups.ssh_password.is_visible = true;
+            app.popups.ssh_password.session_id.clear();
+            app.popups.ssh_password.host = host;
+            app.popups.ssh_password.user = user;
+            app.popups.ssh_password.error = Some(error);
+            app.popups.ssh_password.password.clear();
+            app.popups.ssh_password.cursor_position = 0;
+        }
     }
 }
 

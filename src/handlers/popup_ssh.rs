@@ -368,7 +368,7 @@ fn start_ssh_auth(app: &mut AppState) {
         // Save to history
         use crate::ssh_history::SshConnectionInfo;
         app.ssh_history.add(SshConnectionInfo {
-            name: name_opt,
+            name: name_opt.clone(),
             connection_string: conn_str.to_string(),
             user: parsed.user.clone(),
             host: parsed.host.clone(),
@@ -376,12 +376,30 @@ fn start_ssh_auth(app: &mut AppState) {
             path: parsed.path.clone(),
         });
 
+        // Check if SSH keys are available for password-less authentication
+        let has_keys = app.ssh_manager.has_ssh_keys_for_user(&parsed.user);
+
         app.popups.ssh_connection.is_visible = false;
-        app.popups.ssh_password.is_visible = true;
-        app.popups.ssh_password.host = parsed.host;
-        app.popups.ssh_password.user = parsed.user;
-        app.popups.ssh_password.password.clear();
-        app.popups.ssh_password.cursor_position = 0;
+
+        if has_keys {
+            // Skip password popup and connect directly with empty password
+            connect_ssh(
+                app,
+                parsed.user,
+                parsed.host,
+                port,
+                String::new(),
+                parsed.path,
+                name_opt,
+            );
+        } else {
+            // Show password popup
+            app.popups.ssh_password.is_visible = true;
+            app.popups.ssh_password.host = parsed.host;
+            app.popups.ssh_password.user = parsed.user;
+            app.popups.ssh_password.password.clear();
+            app.popups.ssh_password.cursor_position = 0;
+        }
     } else {
         app.popups.ssh_connection.error = Some("Invalid connection string format".to_string());
     }
@@ -500,17 +518,25 @@ fn reconnect_ssh(app: &mut AppState, session_id: String, password: String) {
                     }));
                 }
                 Err(e) => {
-                    // Check if it's an authentication failure
-                    if e.to_string().contains("Authentication failed") {
+                    let error_msg = e.to_string();
+                    if error_msg.contains("Authentication failed")
+                        || error_msg.contains("authenticate")
+                    {
+                        // Send both: complete the task AND show the password popup
+                        let _ = tx.send(TaskEvent::UpdateStatus(
+                            id,
+                            TaskStatus::Failed(format!("Reconnection failed: {}", error_msg)),
+                        ));
                         let _ = tx.send(TaskEvent::SshReconnectFailed(
                             old_session_id.clone(),
-                            "Authentication failed - password may have changed".to_string(),
+                            error_msg,
+                        ));
+                    } else {
+                        let _ = tx.send(TaskEvent::UpdateStatus(
+                            id,
+                            TaskStatus::Failed(format!("Reconnection failed: {}", e)),
                         ));
                     }
-                    let _ = tx.send(TaskEvent::UpdateStatus(
-                        id,
-                        TaskStatus::Failed(format!("Reconnection failed: {}", e)),
-                    ));
                 }
             }
         },
@@ -558,10 +584,23 @@ fn connect_ssh(
                     }));
                 }
                 Err(e) => {
-                    let _ = tx.send(TaskEvent::UpdateStatus(
-                        id,
-                        TaskStatus::Failed(e.to_string()),
-                    ));
+                    let error_msg = e.to_string();
+                    if error_msg.contains("Authentication failed")
+                        || error_msg.contains("authenticate")
+                    {
+                        // Send both: complete the task AND show the password popup
+                        let _ = tx.send(TaskEvent::UpdateStatus(
+                            id,
+                            TaskStatus::Failed(error_msg.clone()),
+                        ));
+                        let _ = tx.send(TaskEvent::SshAuthFailed(
+                            host_for_reg.clone(),
+                            user_for_reg.clone(),
+                            error_msg,
+                        ));
+                    } else {
+                        let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Failed(error_msg)));
+                    }
                 }
             }
         });

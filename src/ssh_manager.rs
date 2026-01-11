@@ -93,6 +93,49 @@ impl SshManager {
         s
     }
 
+    /// Check if SSH keys are available for the given user
+    pub fn has_ssh_keys_for_user(&self, _user: &str) -> bool {
+        let home = std::env::home_dir().unwrap_or_else(|| PathBuf::from("/root"));
+        let ssh_dir = home.join(".ssh");
+
+        if !ssh_dir.exists() || !ssh_dir.is_dir() {
+            return false;
+        }
+
+        // Check for common SSH key files
+        let key_files = [
+            "id_rsa",
+            "id_ed25519",
+            "id_ecdsa",
+            "id_ecdsa_sk",
+            "id_ed25519_sk",
+            "id_rsa_sk",
+        ];
+
+        for key_file in &key_files {
+            let private_key = ssh_dir.join(key_file);
+
+            // Check if private key exists and is readable
+            if private_key.exists()
+                && private_key.is_file()
+                && let Ok(metadata) = private_key.metadata()
+            {
+                // Check that it's not world-readable (permissions check)
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    if metadata.permissions().mode() & 0o077 != 0 {
+                        // Key has loose permissions, might still work but warn
+                        continue;
+                    }
+                }
+                return true;
+            }
+        }
+
+        false
+    }
+
     pub fn session_dir(&self, session_id: &str) -> PathBuf {
         let mut p = self.base_dir.clone();
         p.push("ssh");
