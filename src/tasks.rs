@@ -31,7 +31,7 @@ pub enum TaskEvent {
     SshConnected(SshContext),
     SshReconnected(SshContext),
     SshReconnectFailed(String, String), // session_id, error_message
-    SshAuthFailed(String, String, String), // host, user, error_message
+    SshError(String, String, crate::ssh_manager::SshError), // host, user, error
 }
 
 #[derive(Clone)]

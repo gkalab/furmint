@@ -390,13 +390,8 @@ fn start_ssh_auth(app: &mut AppState) {
 
     if let Some(parsed) = parse_connection_string(conn_str) {
         let name = app.popups.ssh_connection.name.trim();
-        let name_opt = if name.is_empty() {
-            None
-        } else {
-            Some(name.to_string())
-        };
+        let name_opt = (!name.is_empty()).then(|| name.to_string());
 
-        // Save to history
         use crate::ssh_history::SshConnectionInfo;
         app.ssh_history.add(SshConnectionInfo {
             name: name_opt.clone(),
@@ -407,30 +402,46 @@ fn start_ssh_auth(app: &mut AppState) {
             path: parsed.path.clone(),
         });
 
-        // Check if SSH keys are available for password-less authentication
-        let has_keys = app.ssh_manager.has_ssh_keys_for_user(&parsed.user);
-
         app.popups.ssh_connection.is_visible = false;
 
-        if has_keys {
-            // Skip password popup and connect directly with empty password
-            connect_ssh(
-                app,
-                parsed.user,
-                parsed.host,
-                port,
-                String::new(),
-                parsed.path,
-                name_opt,
-            );
-        } else {
-            // Show password popup
-            app.popups.ssh_password.is_visible = true;
-            app.popups.ssh_password.host = parsed.host;
-            app.popups.ssh_password.user = parsed.user;
-            app.popups.ssh_password.password.clear();
-            app.popups.ssh_password.cursor_position = 0;
-        }
+        let task_title = format!("Connecting to {}@{}", parsed.user, parsed.host);
+        let ssh_manager = app.ssh_manager.clone();
+        let host = parsed.host.clone();
+        let user = parsed.user.clone();
+        let path = parsed.path.clone();
+        let connection_name = name_opt;
+
+        app.task_manager
+            .spawn_task(task_title, move |_cancel, tx, id| async move {
+                let result = ssh_manager
+                    .try_connect_with_keys(parsed.host, port, parsed.user)
+                    .await;
+
+                match result {
+                    Ok((session_id, fs)) => {
+                        ssh_manager.cache_password(&session_id, String::new());
+                        ssh_manager.register_session(
+                            session_id.clone(),
+                            host.clone(),
+                            port,
+                            user.clone(),
+                            path.clone(),
+                        );
+
+                        let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Completed));
+                        let _ = tx.send(TaskEvent::SshConnected(SshContext {
+                            provider: Arc::new(fs),
+                            path: path.map(std::path::PathBuf::from),
+                            name: connection_name,
+                        }));
+                    }
+
+                    Err(e) => {
+                        let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Completed));
+                        let _ = tx.send(TaskEvent::SshError(host, user, e));
+                    }
+                }
+            });
     } else {
         app.popups.ssh_connection.error = Some("Invalid connection string format".to_string());
     }
@@ -558,25 +569,14 @@ fn reconnect_ssh(app: &mut AppState, session_id: String, password: String) {
                     }));
                 }
                 Err(e) => {
-                    let error_msg = e.to_string();
-                    if error_msg.contains("Authentication failed")
-                        || error_msg.contains("authenticate")
-                    {
-                        // Send both: complete the task AND show the password popup
-                        let _ = tx.send(TaskEvent::UpdateStatus(
-                            id,
-                            TaskStatus::Failed(format!("Reconnection failed: {}", error_msg)),
-                        ));
-                        let _ = tx.send(TaskEvent::SshReconnectFailed(
-                            old_session_id.clone(),
-                            error_msg,
-                        ));
-                    } else {
-                        let _ = tx.send(TaskEvent::UpdateStatus(
-                            id,
-                            TaskStatus::Failed(format!("Reconnection failed: {}", e)),
-                        ));
-                    }
+                    let _ = tx.send(TaskEvent::UpdateStatus(
+                        id,
+                        TaskStatus::Failed(format!("Reconnection failed: {}", e)),
+                    ));
+                    let _ = tx.send(TaskEvent::SshReconnectFailed(
+                        old_session_id.clone(),
+                        e.to_string(),
+                    ));
                 }
             }
         },
@@ -624,23 +624,11 @@ fn connect_ssh(
                     }));
                 }
                 Err(e) => {
-                    let error_msg = e.to_string();
-                    if error_msg.contains("Authentication failed")
-                        || error_msg.contains("authenticate")
-                    {
-                        // Send both: complete the task AND show the password popup
-                        let _ = tx.send(TaskEvent::UpdateStatus(
-                            id,
-                            TaskStatus::Failed(error_msg.clone()),
-                        ));
-                        let _ = tx.send(TaskEvent::SshAuthFailed(
-                            host_for_reg.clone(),
-                            user_for_reg.clone(),
-                            error_msg,
-                        ));
-                    } else {
-                        let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Failed(error_msg)));
-                    }
+                    let _ = tx.send(TaskEvent::UpdateStatus(
+                        id,
+                        TaskStatus::Failed(e.to_string()),
+                    ));
+                    let _ = tx.send(TaskEvent::SshError(host_for_reg, user_for_reg, e));
                 }
             }
         });

@@ -32,6 +32,83 @@ pub enum SshManagerError {
     HardKill,
 }
 
+#[derive(Debug)]
+pub enum NetworkError {
+    ConnectionRefused,
+    ConnectionTimedOut,
+    HostUnreachable,
+    NoRoute,
+    InvalidAddress,
+    Other(String),
+}
+
+impl From<std::io::Error> for NetworkError {
+    fn from(e: std::io::Error) -> Self {
+        use std::io::ErrorKind::*;
+
+        match e.kind() {
+            ConnectionRefused => NetworkError::ConnectionRefused,
+            TimedOut => NetworkError::ConnectionTimedOut,
+            NotConnected | AddrNotAvailable => NetworkError::InvalidAddress,
+            AddrInUse | BrokenPipe | ConnectionReset => NetworkError::Other(e.to_string()),
+            NetworkUnreachable => NetworkError::NoRoute,
+            HostUnreachable => NetworkError::HostUnreachable,
+            _ => NetworkError::Other(e.to_string()),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum AuthError {
+    KeyAuthFailed,
+    PasswordAuthFailed,
+    NoAuthMethodsAvailable,
+    AgentError(String),
+}
+
+#[derive(Debug)]
+pub enum SshError {
+    Network(NetworkError),
+    Auth(AuthError),
+    InvalidInput(String),
+    Internal(String),
+}
+
+impl std::fmt::Display for SshError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SshError::Network(e) => write!(f, "Network error: {}", e),
+            SshError::Auth(e) => write!(f, "Authentication error: {}", e),
+            SshError::InvalidInput(s) => write!(f, "Invalid input: {}", s),
+            SshError::Internal(s) => write!(f, "Internal error: {}", s),
+        }
+    }
+}
+
+impl std::fmt::Display for NetworkError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NetworkError::ConnectionRefused => write!(f, "Connection refused"),
+            NetworkError::ConnectionTimedOut => write!(f, "Connection timed out"),
+            NetworkError::HostUnreachable => write!(f, "Host unreachable"),
+            NetworkError::NoRoute => write!(f, "No route to host"),
+            NetworkError::InvalidAddress => write!(f, "Invalid address"),
+            NetworkError::Other(s) => write!(f, "{}", s),
+        }
+    }
+}
+
+impl std::fmt::Display for AuthError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AuthError::KeyAuthFailed => write!(f, "Key authentication failed"),
+            AuthError::PasswordAuthFailed => write!(f, "Password authentication failed"),
+            AuthError::NoAuthMethodsAvailable => write!(f, "No authentication methods available"),
+            AuthError::AgentError(s) => write!(f, "Agent error: {}", s),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct SshManager {
     base_dir: PathBuf,
@@ -93,47 +170,93 @@ impl SshManager {
         s
     }
 
-    /// Check if SSH keys are available for the given user
-    pub fn has_ssh_keys_for_user(&self, _user: &str) -> bool {
-        let home = std::env::home_dir().unwrap_or_else(|| PathBuf::from("/root"));
-        let ssh_dir = home.join(".ssh");
+    pub async fn try_connect_with_keys(
+        &self,
+        host: String,
+        port: u16,
+        user: String,
+    ) -> Result<(String, crate::fs_sftp::SftpFs), SshError> {
+        let grace = Duration::from_secs(self.read_timeout_secs);
+        let hard = Duration::from_secs(self.watchdog_secs);
+        let keepalive = self.keepalive_interval;
+        let session_id = self.generate_session_id(&host, port);
 
-        if !ssh_dir.exists() || !ssh_dir.is_dir() {
-            return false;
-        }
+        self.spawn_blocking_with_watchdog(
+            move || -> Result<(String, crate::fs_sftp::SftpFs), SshError> {
+                use std::net::TcpStream;
+                let tcp = TcpStream::connect(format!("{}:{}", host, port))
+                    .map_err(|e| SshError::Network(e.into()))?;
+                let mut sess =
+                    ssh2::Session::new().map_err(|e| SshError::Internal(e.to_string()))?;
+                sess.set_tcp_stream(tcp);
+                sess.handshake()
+                    .map_err(|e| SshError::Network(NetworkError::Other(e.to_string())))?;
 
-        // Check for common SSH key files
-        let key_files = [
-            "id_rsa",
-            "id_ed25519",
-            "id_ecdsa",
-            "id_ecdsa_sk",
-            "id_ed25519_sk",
-            "id_rsa_sk",
-        ];
+                let agent_result = sess.agent();
+                let mut agent_connected = false;
+                let mut agent_identity_count = 0;
 
-        for key_file in &key_files {
-            let private_key = ssh_dir.join(key_file);
-
-            // Check if private key exists and is readable
-            if private_key.exists()
-                && private_key.is_file()
-                && let Ok(metadata) = private_key.metadata()
-            {
-                // Check that it's not world-readable (permissions check)
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    if metadata.permissions().mode() & 0o077 != 0 {
-                        // Key has loose permissions, might still work but warn
-                        continue;
+                if let Ok(mut agent) = agent_result {
+                    agent_connected = agent.connect().is_ok();
+                    if agent_connected
+                        && agent.list_identities().is_ok()
+                        && let Ok(identities) = agent.identities()
+                    {
+                        agent_identity_count = identities.len();
+                        for identity in identities {
+                            if agent.userauth(&user, &identity).is_ok() && sess.authenticated() {
+                                sess.set_keepalive(true, keepalive);
+                                let fs =
+                                    crate::fs_sftp::SftpFs::new(sess, host.clone(), user.clone());
+                                return Ok((session_id.clone(), fs));
+                            }
+                        }
                     }
                 }
-                return true;
-            }
+
+                let keys = Self::find_default_ssh_keys();
+                if keys.is_empty() && agent_identity_count == 0 {
+                    return Err(SshError::Auth(AuthError::NoAuthMethodsAvailable));
+                }
+
+                for key in keys {
+                    if sess.userauth_pubkey_file(&user, None, &key, None).is_ok()
+                        && sess.authenticated()
+                    {
+                        sess.set_keepalive(true, keepalive);
+                        let fs = crate::fs_sftp::SftpFs::new(sess, host.clone(), user.clone());
+                        return Ok((session_id.clone(), fs));
+                    }
+                }
+
+                if agent_connected && agent_identity_count > 0 {
+                    Err(SshError::Auth(AuthError::AgentError(
+                        "Agent authentication failed".to_string(),
+                    )))
+                } else {
+                    Err(SshError::Auth(AuthError::KeyAuthFailed))
+                }
+            },
+            grace,
+            hard,
+        )
+        .await
+        .map_err(|e| SshError::Internal(format!("Connection error: {:?}", e)))?
+    }
+
+    fn find_default_ssh_keys() -> Vec<PathBuf> {
+        let home = std::env::home_dir().unwrap_or_else(|| PathBuf::from("/root"));
+        let ssh_dir = home.join(".ssh");
+        if !ssh_dir.exists() || !ssh_dir.is_dir() {
+            return Vec::new();
         }
 
-        false
+        let key_files = ["id_ed25519", "id_rsa", "id_ecdsa"];
+        key_files
+            .iter()
+            .filter(|&f| ssh_dir.join(f).exists())
+            .map(|f| ssh_dir.join(f))
+            .collect()
     }
 
     pub fn session_dir(&self, session_id: &str) -> PathBuf {
@@ -236,29 +359,31 @@ impl SshManager {
         user: String,
         password: String,
         _target_path: Option<String>,
-    ) -> Result<(String, crate::fs_sftp::SftpFs), anyhow::Error> {
+    ) -> Result<(String, crate::fs_sftp::SftpFs), SshError> {
         let session_id = self.generate_session_id(&host, port);
 
         let grace = Duration::from_secs(self.read_timeout_secs);
         let hard = Duration::from_secs(self.watchdog_secs);
 
-        // Clone values needed by the blocking closure to avoid borrowing self
         let keepalive = self.keepalive_interval;
         let host_clone = host.clone();
         let user_clone = user.clone();
 
         self.spawn_blocking_with_watchdog(
-            move || -> anyhow::Result<(String, crate::fs_sftp::SftpFs)> {
+            move || -> Result<(String, crate::fs_sftp::SftpFs), SshError> {
                 use std::net::TcpStream;
-                let tcp = TcpStream::connect(format!("{}:{}", host_clone, port))?;
-                let mut sess = ssh2::Session::new()?;
+                let tcp = TcpStream::connect(format!("{}:{}", host_clone, port))
+                    .map_err(|e| SshError::Network(e.into()))?;
+                let mut sess =
+                    ssh2::Session::new().map_err(|e| SshError::Internal(e.to_string()))?;
                 sess.set_tcp_stream(tcp);
-                sess.handshake()?;
-                sess.userauth_password(&user_clone, &password)?;
+                sess.handshake()
+                    .map_err(|e| SshError::Network(NetworkError::Other(e.to_string())))?;
+                sess.userauth_password(&user_clone, &password)
+                    .map_err(|_| SshError::Auth(AuthError::PasswordAuthFailed))?;
                 if !sess.authenticated() {
-                    return Err(anyhow::anyhow!("Authentication failed"));
+                    return Err(SshError::Auth(AuthError::PasswordAuthFailed));
                 }
-                // Set keepalive interval
                 sess.set_keepalive(true, keepalive);
                 let fs = crate::fs_sftp::SftpFs::new(sess, host_clone, user_clone);
                 Ok((session_id.clone(), fs))
@@ -267,7 +392,7 @@ impl SshManager {
             hard,
         )
         .await
-        .map_err(|e| anyhow::anyhow!("Connection failed: {:?}", e))?
+        .map_err(|e| SshError::Internal(format!("Connection failed: {:?}", e)))?
     }
 
     pub fn register_session(
@@ -352,16 +477,15 @@ impl SshManager {
         session_id: &str,
         password: String,
         mut executor: F,
-    ) -> Result<(String, crate::fs_sftp::SftpFs), anyhow::Error>
+    ) -> Result<(String, crate::fs_sftp::SftpFs), SshError>
     where
         F: FnMut(Operation) -> Fut,
         Fut: std::future::Future<Output = Result<(), anyhow::Error>>,
     {
-        let session = self
-            .get_session(session_id)
-            .ok_or_else(|| anyhow::anyhow!("Session {} not found for reconnection", session_id))?;
+        let session = self.get_session(session_id).ok_or_else(|| {
+            SshError::InvalidInput(format!("Session {} not found for reconnection", session_id))
+        })?;
 
-        // Attempt reconnection with backoff - limit attempts for manual reconnect
         let (new_session_id, fs) = self
             .reconnect_with_backoff(
                 session.host.clone(),
@@ -369,14 +493,14 @@ impl SshManager {
                 session.user.clone(),
                 password,
                 session.target_path.clone(),
-                Some(3), // Limit manual reconnect attempts
+                Some(3),
             )
             .await?;
 
-        // Replay queued operations
-        self.replay_queue(&new_session_id, &mut executor).await?;
+        self.replay_queue(&new_session_id, &mut executor)
+            .await
+            .map_err(|e| SshError::Internal(e.to_string()))?;
 
-        // Update session tracking
         self.unregister_session(session_id);
         self.register_session(
             new_session_id.clone(),
@@ -397,7 +521,7 @@ impl SshManager {
         password: String,
         target_path: Option<String>,
         max_attempts: Option<u32>,
-    ) -> Result<(String, crate::fs_sftp::SftpFs), anyhow::Error> {
+    ) -> Result<(String, crate::fs_sftp::SftpFs), SshError> {
         let mut attempt = 1u32;
         let max_attempts = max_attempts.unwrap_or(u32::MAX);
 
@@ -413,14 +537,13 @@ impl SshManager {
                 .await
             {
                 Ok(result) => return Ok(result),
-                Err(e) => {
-                    if attempt >= max_attempts {
-                        return Err(anyhow::anyhow!(
-                            "Reconnection failed after {} attempts: {}",
-                            attempt,
-                            e
-                        ));
-                    }
+                Err(e) if attempt >= max_attempts => {
+                    return Err(SshError::Internal(format!(
+                        "Reconnection failed after {} attempts: {}",
+                        attempt, e
+                    )));
+                }
+                Err(_) => {
                     let delay = self.compute_backoff(attempt);
                     tokio::time::sleep(delay).await;
                     attempt += 1;
