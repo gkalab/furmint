@@ -239,8 +239,12 @@ pub async fn handle_toggle_console(
     let result = tokio::task::spawn_blocking({
         let dir = panel_current_dir.clone();
         move || {
+            #[cfg(target_os = "windows")]
+            let shell = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string());
+            #[cfg(not(target_os = "windows"))]
             let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".to_string());
-            Command::new(shell).current_dir(dir).status()
+
+            Command::new(&shell).current_dir(dir).status()
         }
     })
     .await;
