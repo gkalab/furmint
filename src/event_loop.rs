@@ -8,10 +8,10 @@ use crate::config::KeyboardConfig;
 use crate::handlers::editor::handle_edit;
 use crate::handlers::file_viewer::handle_file_viewer_event;
 use crate::handlers::navigation::{
-    handle_directory_up, handle_down, handle_end, handle_enter_directory, handle_history_next,
-    handle_history_previous, handle_home, handle_open_item, handle_page_down, handle_page_up,
-    handle_sort, handle_tab, handle_toggle_selection, handle_type_char, handle_up,
-    update_viewer_content,
+    handle_directory_up, handle_down, handle_down_search, handle_end, handle_enter_directory,
+    handle_history_next, handle_history_previous, handle_home, handle_open_item, handle_page_down,
+    handle_page_up, handle_sort, handle_tab, handle_toggle_selection, handle_type_char, handle_up,
+    handle_up_search, reset_expired_search, reset_search, update_viewer_content,
 };
 use crate::handlers::popup_conflict::handle_conflict_event;
 use crate::handlers::popup_copy_move::{
@@ -134,6 +134,8 @@ pub async fn run_event_loop(
                             }
                             _ = interval.tick() => {
                                 app.task_manager.cleanup_tasks();
+                                // Reset search if timeout has expired
+                                reset_expired_search(app);
                                 draw_ui(terminal, app, palette, &keyboard)?;
                             }
                             else => break,
@@ -841,23 +843,60 @@ async fn handle_main_panel_event(
     if let (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) = (code, modifiers) {
         handle_type_char(app, c);
     } else {
-        // Clear buffer for any non-letter key
         let tab_manager = match app.active {
             PanelSide::Left => &mut app.left,
             PanelSide::Right => &mut app.right,
         };
         let panel = tab_manager.active_tab_mut();
-        panel.typed_buffer.clear();
-        panel.last_type_time = None;
+        // Check if search is active (within 1 second timeout)
+        let search_active = !panel.typed_buffer.is_empty()
+            && panel.last_type_time.is_some_and(|t| {
+                std::time::Instant::now().duration_since(t) <= std::time::Duration::from_secs(1)
+            });
         match (code, modifiers) {
             (KeyCode::Tab, KeyModifiers::NONE) => handle_tab(app),
-            (KeyCode::Up, _) => handle_up(app),
-            (KeyCode::Down, _) => handle_down(app),
-            (KeyCode::PageUp, _) => handle_page_up(app),
-            (KeyCode::PageDown, _) => handle_page_down(app),
-            (KeyCode::Home, _) => handle_home(app),
-            (KeyCode::End, _) => handle_end(app),
+            (KeyCode::Up, _) => {
+                if search_active {
+                    handle_up_search(app);
+                } else {
+                    // Reset search if it was active but timed out
+                    if !panel.typed_buffer.is_empty() {
+                        reset_search(app);
+                    }
+                    handle_up(app);
+                }
+            }
+            (KeyCode::Down, _) => {
+                if search_active {
+                    handle_down_search(app);
+                } else {
+                    // Reset search if it was active but timed out
+                    if !panel.typed_buffer.is_empty() {
+                        reset_search(app);
+                    }
+                    handle_down(app);
+                }
+            }
+            (KeyCode::PageUp, _) => {
+                reset_search(app);
+                handle_page_up(app);
+            }
+            (KeyCode::PageDown, _) => {
+                reset_search(app);
+                handle_page_down(app);
+            }
+            (KeyCode::Home, _) => {
+                reset_search(app);
+                handle_home(app);
+            }
+            (KeyCode::End, _) => {
+                reset_search(app);
+                handle_end(app);
+            }
             (KeyCode::Enter, _) => handle_open_item(app),
+            (KeyCode::Esc, _) => {
+                reset_search(app);
+            }
             (KeyCode::Char(' '), KeyModifiers::NONE) => handle_toggle_selection(app),
             (KeyCode::Insert, _) => {
                 handle_toggle_selection(app);
@@ -948,6 +987,8 @@ mod tests {
                     error: None,
                     typed_buffer: String::new(),
                     last_type_time: None,
+                    matching_indices: Vec::new(),
+                    search_position: 0,
                     sort_column: crate::app::SortColumn::Name,
                     sort_direction: crate::app_state::tabs::SortDirection::Ascending,
                     scroll_offset: 0,
@@ -966,6 +1007,8 @@ mod tests {
                     error: None,
                     typed_buffer: String::new(),
                     last_type_time: None,
+                    matching_indices: Vec::new(),
+                    search_position: 0,
                     sort_column: crate::app::SortColumn::Name,
                     sort_direction: crate::app_state::tabs::SortDirection::Ascending,
                     scroll_offset: 0,
@@ -1022,6 +1065,8 @@ mod tests {
                     error: None,
                     typed_buffer: String::new(),
                     last_type_time: None,
+                    matching_indices: Vec::new(),
+                    search_position: 0,
                     sort_column: crate::app::SortColumn::Name,
                     sort_direction: crate::app_state::tabs::SortDirection::Ascending,
                     scroll_offset: 0,
@@ -1040,6 +1085,8 @@ mod tests {
                     error: None,
                     typed_buffer: String::new(),
                     last_type_time: None,
+                    matching_indices: Vec::new(),
+                    search_position: 0,
                     sort_column: crate::app::SortColumn::Name,
                     sort_direction: crate::app_state::tabs::SortDirection::Ascending,
                     scroll_offset: 0,
@@ -1116,6 +1163,8 @@ mod tests {
                     error: None,
                     typed_buffer: String::new(),
                     last_type_time: None,
+                    matching_indices: Vec::new(),
+                    search_position: 0,
                     sort_column: crate::app::SortColumn::Name,
                     sort_direction: crate::app_state::tabs::SortDirection::Ascending,
                     scroll_offset: 0,
@@ -1134,6 +1183,8 @@ mod tests {
                     error: None,
                     typed_buffer: String::new(),
                     last_type_time: None,
+                    matching_indices: Vec::new(),
+                    search_position: 0,
                     sort_column: crate::app::SortColumn::Name,
                     sort_direction: crate::app_state::tabs::SortDirection::Ascending,
                     scroll_offset: 0,
@@ -1198,6 +1249,8 @@ mod tests {
                     error: None,
                     typed_buffer: String::new(),
                     last_type_time: None,
+                    matching_indices: Vec::new(),
+                    search_position: 0,
                     sort_column: crate::app::SortColumn::Name,
                     sort_direction: crate::app_state::tabs::SortDirection::Ascending,
                     scroll_offset: 0,
@@ -1216,6 +1269,8 @@ mod tests {
                     error: None,
                     typed_buffer: String::new(),
                     last_type_time: None,
+                    matching_indices: Vec::new(),
+                    search_position: 0,
                     sort_column: crate::app::SortColumn::Name,
                     sort_direction: crate::app_state::tabs::SortDirection::Ascending,
                     scroll_offset: 0,

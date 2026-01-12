@@ -294,6 +294,12 @@ pub fn draw_panel_status(
 
     let status = if !error.is_empty() {
         error.to_string()
+    } else if !panel.typed_buffer.is_empty() {
+        format!(
+            "{} | {} matches",
+            panel.typed_buffer,
+            panel.matching_indices.len()
+        )
     } else if selected_count > 0 {
         format!("{file_count} files, {dir_count} dirs | {selected_count} selected")
     } else {
@@ -301,7 +307,11 @@ pub fn draw_panel_status(
     };
     // Use the same background as file/directory rows (surface1)
     let fg = if error.is_empty() {
-        Color::Rgb(palette.text.r, palette.text.g, palette.text.b)
+        if !panel.typed_buffer.is_empty() {
+            Color::Rgb(palette.yellow.r, palette.yellow.g, palette.yellow.b)
+        } else {
+            Color::Rgb(palette.text.r, palette.text.g, palette.text.b)
+        }
     } else {
         Color::Rgb(palette.red.r, palette.red.g, palette.red.b)
     };

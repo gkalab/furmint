@@ -54,15 +54,79 @@ pub(crate) fn handle_type_char(app: &mut AppState, c: char) {
     panel.typed_buffer.push(c);
     panel.last_type_time = Some(now);
     let typed = panel.typed_buffer.to_lowercase();
-    // Find first entry whose name starts with typed
-    if let Some((idx, _)) = panel
+    // Find all entries whose name starts with typed
+    panel.matching_indices = panel
         .entries
         .iter()
         .enumerate()
-        .find(|(_, entry)| entry.name.to_lowercase().starts_with(&typed))
-    {
+        .filter(|(_, entry)| entry.name.to_lowercase().starts_with(&typed))
+        .map(|(idx, _)| idx)
+        .collect();
+    // Select first match
+    if let Some(&idx) = panel.matching_indices.first() {
         panel.cursor = idx;
-        update_viewer_content(app);
+        panel.search_position = 0;
+    }
+    update_viewer_content(app);
+}
+
+/// Handle Up arrow during active search - move to previous match (wraps)
+pub(crate) fn handle_up_search(app: &mut AppState) {
+    let panel = app.active_tab_mut();
+    // Restart timer
+    panel.last_type_time = Some(std::time::Instant::now());
+    // If only one match or no matches, do nothing
+    if panel.matching_indices.len() <= 1 {
+        return;
+    }
+    // Decrement position with wrap-around
+    if panel.search_position == 0 {
+        panel.search_position = panel.matching_indices.len() - 1;
+    } else {
+        panel.search_position -= 1;
+    }
+    // Move cursor to the matched index
+    panel.cursor = panel.matching_indices[panel.search_position];
+    update_viewer_content(app);
+}
+
+/// Handle Down arrow during active search - move to next match (wraps)
+pub(crate) fn handle_down_search(app: &mut AppState) {
+    let panel = app.active_tab_mut();
+    // Restart timer
+    panel.last_type_time = Some(std::time::Instant::now());
+    // If only one match or no matches, do nothing
+    if panel.matching_indices.len() <= 1 {
+        return;
+    }
+    // Increment position with wrap-around
+    panel.search_position = (panel.search_position + 1) % panel.matching_indices.len();
+    // Move cursor to the matched index
+    panel.cursor = panel.matching_indices[panel.search_position];
+    update_viewer_content(app);
+}
+
+/// Reset search state (called on Esc or timeout)
+pub(crate) fn reset_search(app: &mut AppState) {
+    let panel = app.active_tab_mut();
+    panel.typed_buffer.clear();
+    panel.matching_indices.clear();
+    panel.search_position = 0;
+    panel.last_type_time = None;
+}
+
+/// Reset search state if timeout has expired (called periodically and for navigation keys)
+pub(crate) fn reset_expired_search(app: &mut AppState) {
+    let panel = app.active_tab_mut();
+    if !panel.typed_buffer.is_empty()
+        && panel.last_type_time.is_some_and(|t| {
+            std::time::Instant::now().duration_since(t) > std::time::Duration::from_secs(1)
+        })
+    {
+        panel.typed_buffer.clear();
+        panel.matching_indices.clear();
+        panel.search_position = 0;
+        panel.last_type_time = None;
     }
 }
 
@@ -250,6 +314,8 @@ mod tests {
             error: None,
             typed_buffer: String::new(),
             last_type_time: None,
+            matching_indices: Vec::new(),
+            search_position: 0,
             sort_column: crate::app::SortColumn::Name,
             sort_direction: crate::app_state::tabs::SortDirection::Ascending,
             scroll_offset: 0,
@@ -518,5 +584,402 @@ mod tests {
         handle_directory_up(&mut app);
         handle_history_previous(&mut app);
         handle_history_next(&mut app);
+    }
+
+    #[test]
+    fn test_handle_type_char_populates_matching_indices() {
+        let entries = vec![
+            FileEntry {
+                name: "ab".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+            FileEntry {
+                name: "abcd".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+            FileEntry {
+                name: "abce".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+            FileEntry {
+                name: "ace".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+        ];
+        let mut app = test_app(entries);
+
+        handle_type_char(&mut app, 'a');
+        handle_type_char(&mut app, 'b');
+
+        // Should have 3 matches: ab, abcd, abce
+        assert_eq!(app.left.active_tab().matching_indices.len(), 3);
+        assert_eq!(app.left.active_tab().search_position, 0);
+        // First match (ab) should be selected
+        assert_eq!(app.left.active_tab().cursor, 0);
+    }
+
+    #[test]
+    fn test_search_navigation_multiple_matches() {
+        let entries = vec![
+            FileEntry {
+                name: "ab".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+            FileEntry {
+                name: "abcd".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+            FileEntry {
+                name: "abce".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+            FileEntry {
+                name: "ace".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+        ];
+        let mut app = test_app(entries);
+
+        // Type 'a', 'b' -> cursor on 'ab' (index 0)
+        handle_type_char(&mut app, 'a');
+        handle_type_char(&mut app, 'b');
+        assert_eq!(app.left.active_tab().cursor, 0);
+        assert_eq!(app.left.active_tab().search_position, 0);
+
+        // Down -> cursor on 'abcd' (index 1)
+        handle_down_search(&mut app);
+        assert_eq!(app.left.active_tab().cursor, 1);
+        assert_eq!(app.left.active_tab().search_position, 1);
+
+        // Down -> cursor on 'abce' (index 2)
+        handle_down_search(&mut app);
+        assert_eq!(app.left.active_tab().cursor, 2);
+        assert_eq!(app.left.active_tab().search_position, 2);
+
+        // Up -> cursor back on 'abcd' (index 1)
+        handle_up_search(&mut app);
+        assert_eq!(app.left.active_tab().cursor, 1);
+        assert_eq!(app.left.active_tab().search_position, 1);
+
+        // Up -> cursor on 'ab' (index 0)
+        handle_up_search(&mut app);
+        assert_eq!(app.left.active_tab().cursor, 0);
+        assert_eq!(app.left.active_tab().search_position, 0);
+
+        // Up -> wraps to 'abce' (index 2)
+        handle_up_search(&mut app);
+        assert_eq!(app.left.active_tab().cursor, 2);
+        assert_eq!(app.left.active_tab().search_position, 2);
+    }
+
+    #[test]
+    fn test_search_navigation_wrap_around() {
+        let entries = vec![
+            FileEntry {
+                name: "aaa".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+            FileEntry {
+                name: "aab".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+            FileEntry {
+                name: "aac".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+        ];
+        let mut app = test_app(entries);
+
+        handle_type_char(&mut app, 'a');
+        handle_type_char(&mut app, 'a');
+
+        // At first match (aaa)
+        assert_eq!(app.left.active_tab().cursor, 0);
+        assert_eq!(app.left.active_tab().search_position, 0);
+
+        // Down twice to get to last match (aac)
+        handle_down_search(&mut app);
+        handle_down_search(&mut app);
+        assert_eq!(app.left.active_tab().cursor, 2);
+        assert_eq!(app.left.active_tab().search_position, 2);
+
+        // Down again wraps to first (aaa)
+        handle_down_search(&mut app);
+        assert_eq!(app.left.active_tab().cursor, 0);
+        assert_eq!(app.left.active_tab().search_position, 0);
+    }
+
+    #[test]
+    fn test_search_single_match_ignores_arrows() {
+        let entries = vec![
+            FileEntry {
+                name: "xyz".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+            FileEntry {
+                name: "abc".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+        ];
+        let mut app = test_app(entries);
+
+        handle_type_char(&mut app, 'x');
+
+        assert_eq!(app.left.active_tab().cursor, 0);
+        assert_eq!(app.left.active_tab().matching_indices.len(), 1);
+        assert_eq!(app.left.active_tab().search_position, 0);
+
+        // Down -> stays on 'xyz'
+        handle_down_search(&mut app);
+        assert_eq!(app.left.active_tab().cursor, 0);
+
+        // Up -> stays on 'xyz'
+        handle_up_search(&mut app);
+        assert_eq!(app.left.active_tab().cursor, 0);
+    }
+
+    #[test]
+    fn test_esc_resets_search() {
+        let entries = vec![
+            FileEntry {
+                name: "apple".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+            FileEntry {
+                name: "banana".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+        ];
+        let mut app = test_app(entries);
+
+        handle_type_char(&mut app, 'b');
+        assert_eq!(app.left.active_tab().cursor, 1);
+        assert!(!app.left.active_tab().typed_buffer.is_empty());
+
+        reset_search(&mut app);
+
+        assert!(app.left.active_tab().typed_buffer.is_empty());
+        assert!(app.left.active_tab().matching_indices.is_empty());
+        assert_eq!(app.left.active_tab().search_position, 0);
+        assert!(app.left.active_tab().last_type_time.is_none());
+    }
+
+    #[test]
+    fn test_search_restarts_timer() {
+        let entries = vec![
+            FileEntry {
+                name: "ab".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+            FileEntry {
+                name: "abcd".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+            FileEntry {
+                name: "abce".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+        ];
+        let mut app = test_app(entries);
+
+        handle_type_char(&mut app, 'a');
+        handle_type_char(&mut app, 'b');
+
+        let first_type_time = app.left.active_tab().last_type_time;
+
+        // Navigate down (should restart timer)
+        handle_down_search(&mut app);
+
+        let second_type_time = app.left.active_tab().last_type_time;
+        assert!(second_type_time > first_type_time);
+    }
+
+    #[test]
+    fn test_timeout_resets_search_state() {
+        let entries = vec![
+            FileEntry {
+                name: "ab".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+            FileEntry {
+                name: "abcd".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+            FileEntry {
+                name: "xyz".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+        ];
+        let mut app = test_app(entries);
+
+        handle_type_char(&mut app, 'a');
+        handle_type_char(&mut app, 'b');
+
+        // Verify search is active
+        assert!(!app.left.active_tab().typed_buffer.is_empty());
+        assert_eq!(app.left.active_tab().matching_indices.len(), 2);
+        assert_eq!(app.left.active_tab().cursor, 0);
+
+        // Simulate timeout by setting last_type_time to old value
+        app.left.active_tab_mut().last_type_time =
+            Some(std::time::Instant::now() - std::time::Duration::from_secs(2));
+
+        // Call reset_search as event loop would when timeout expired
+        reset_search(&mut app);
+
+        // Verify search state is cleared
+        assert!(app.left.active_tab().typed_buffer.is_empty());
+        assert!(app.left.active_tab().matching_indices.is_empty());
+        assert_eq!(app.left.active_tab().search_position, 0);
+        assert!(app.left.active_tab().last_type_time.is_none());
+    }
+
+    #[test]
+    fn test_periodic_reset_expired_search() {
+        let entries = vec![
+            FileEntry {
+                name: "ab".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+            FileEntry {
+                name: "abcd".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+        ];
+        let mut app = test_app(entries);
+
+        handle_type_char(&mut app, 'a');
+        handle_type_char(&mut app, 'b');
+
+        // Verify search is active
+        assert!(!app.left.active_tab().typed_buffer.is_empty());
+        assert_eq!(app.left.active_tab().matching_indices.len(), 2);
+
+        // Simulate timeout by setting last_type_time to old value
+        app.left.active_tab_mut().last_type_time =
+            Some(std::time::Instant::now() - std::time::Duration::from_secs(2));
+
+        // Call reset_expired_search as periodic check would
+        reset_expired_search(&mut app);
+
+        // Verify search state is cleared
+        assert!(app.left.active_tab().typed_buffer.is_empty());
+        assert!(app.left.active_tab().matching_indices.is_empty());
+        assert_eq!(app.left.active_tab().search_position, 0);
     }
 }

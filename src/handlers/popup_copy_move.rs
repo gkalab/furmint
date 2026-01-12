@@ -355,6 +355,8 @@ mod popup_copy_move_unit_tests {
             error: None,
             typed_buffer: String::new(),
             last_type_time: None,
+            matching_indices: Vec::new(),
+            search_position: 0,
             sort_column: crate::app::SortColumn::Name,
             sort_direction: crate::app_state::tabs::SortDirection::Ascending,
             scroll_offset: 0,

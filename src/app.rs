@@ -415,6 +415,8 @@ mod tests {
             error: None,
             typed_buffer: String::new(),
             last_type_time: None,
+            matching_indices: Vec::new(),
+            search_position: 0,
             sort_column: SortColumn::Name,
             sort_direction: SortDirection::Ascending,
             scroll_offset: 0,

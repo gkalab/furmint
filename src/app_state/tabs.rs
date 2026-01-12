@@ -31,6 +31,9 @@ pub struct Tab {
     // For incremental search
     pub typed_buffer: String,
     pub last_type_time: Option<std::time::Instant>,
+    // For tracking search matches and navigation position
+    pub matching_indices: Vec<usize>,
+    pub search_position: usize,
     // Sorting
     pub sort_column: SortColumn,
     pub sort_direction: SortDirection,
@@ -64,6 +67,8 @@ impl Tab {
             error: None,
             typed_buffer: String::new(),
             last_type_time: None,
+            matching_indices: Vec::new(),
+            search_position: 0,
             sort_column: SortColumn::Name,
             sort_direction: SortDirection::Ascending,
             scroll_offset: 0,
