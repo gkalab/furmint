@@ -103,28 +103,23 @@ pub(crate) fn handle_enter_directory(app: &mut AppState) {
     if let Some(entry) = entry_opt
         && entry.is_dir
     {
-        let panel = app.active_tab_mut();
-        let new_dir = if entry.name == ".." {
-            panel.current_dir.parent().map(std::path::Path::to_path_buf)
-        } else {
-            Some(panel.current_dir.join(&entry.name))
-        };
+        if entry.name == ".." {
+            let context_key = app.active_tab().provider.context_key();
+            let current_dir = app.active_tab().current_dir.clone();
 
-        if let Some(path) = new_dir {
-            if let Err(e) = panel.navigate_to(&path) {
-                panel.error = Some(format!("Error: {e}"));
+            if let Err(e) = app.active_tab_mut().go_up() {
+                app.active_tab_mut().error = Some(format!("Error: {e}"));
             } else {
-                // Drop panel borrow before using app.dir_history
-                let path_clone = path.clone();
-                let context_key = panel.provider.context_key();
-                // Ensure panel is not used after this point to allow mutable borrow of app.dir_history
-                // To be safe against borrow checker, we might need to restrict scope, but let's try direct insertion.
-                // Actually, if panel is still in scope, using app.dir_history is an error if panel borrows app.
-                // The previous code was:
-                // app.dir_history.record_visit(&path_clone);
-                // If that compiled (which it seemingly did), then NLL is working.
-
-                app.dir_history.record_visit(&context_key, &path_clone);
+                app.dir_history.record_visit(&context_key, &current_dir);
+                update_viewer_content(app);
+            }
+        } else {
+            let path = app.active_tab().current_dir.join(&entry.name);
+            if let Err(e) = app.active_tab_mut().navigate_to(&path) {
+                app.active_tab_mut().error = Some(format!("Error: {e}"));
+            } else {
+                let context_key = app.active_tab().provider.context_key();
+                app.dir_history.record_visit(&context_key, &path);
                 update_viewer_content(app);
             }
         }

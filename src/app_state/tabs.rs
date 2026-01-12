@@ -201,9 +201,11 @@ impl Tab {
             let parent_path = parent.to_path_buf();
             let current_name = self.current_dir.file_name().map(|n| n.to_os_string());
 
+            let cursor_before = self.cursor;
             self.navigate_to(&parent_path)?;
 
-            // Try to position cursor on the directory we just came from
+            self.cursor = cursor_before;
+
             if let Some(pos) = current_name.and_then(|name| {
                 self.entries
                     .iter()
