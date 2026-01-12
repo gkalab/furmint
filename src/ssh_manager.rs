@@ -251,7 +251,14 @@ impl SshManager {
             return Vec::new();
         }
 
-        let key_files = ["id_ed25519", "id_rsa", "id_ecdsa"];
+        let key_files = [
+            "id_ed25519",
+            "id_ecdsa",
+            "id_rsa",
+            "id_ed25519_sk",
+            "id_ecdsa_sk",
+            "id_rsa_sk",
+        ];
         key_files
             .iter()
             .filter(|&f| ssh_dir.join(f).exists())
