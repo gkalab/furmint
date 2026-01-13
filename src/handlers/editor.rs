@@ -452,6 +452,7 @@ mod tests {
             sort_direction: crate::app_state::tabs::SortDirection::Ascending,
             scroll_offset: 0,
             custom_title: None,
+            clipboard_msg: None,
         };
         let mut app = AppState {
             left: TabManager {

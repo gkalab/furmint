@@ -89,6 +89,21 @@ fn handle_clipboard_action(app: &mut AppState, action: crate::clipboard::FileCli
         return;
     }
 
+    let count = paths.len();
+    let action_str = match action {
+        crate::clipboard::FileClipboardAction::Copy => "copied",
+        crate::clipboard::FileClipboardAction::Cut => "cut",
+    };
+    app.active_tab_mut().clipboard_msg = Some((
+        format!(
+            "{} item{} {}",
+            count,
+            if count == 1 { "" } else { "s" },
+            action_str
+        ),
+        std::time::Instant::now(),
+    ));
+
     let data = FileClipboardData {
         action,
         paths,
@@ -468,6 +483,7 @@ mod popup_copy_move_unit_tests {
             sort_direction: crate::app_state::tabs::SortDirection::Ascending,
             scroll_offset: 0,
             custom_title: None,
+            clipboard_msg: None,
         }
     }
 
@@ -743,5 +759,26 @@ mod popup_copy_move_unit_tests {
 
         std::fs::remove_file(&src_file).ok();
         std::fs::remove_dir_all(&dest_dir).ok();
+    }
+
+    #[test]
+    fn test_handle_clipboard_action_sets_message() {
+        use crate::fs_ops::FileEntry;
+        let entries = vec![FileEntry {
+            name: "test.txt".to_string(),
+            is_dir: false,
+            is_symlink: false,
+            size: Some(10),
+            modified: None,
+            attributes: "".to_string(),
+            selected: true,
+        }];
+        let mut app = minimal_state_with_entries(PanelSide::Left, entries, vec![], 0, 0);
+
+        super::handle_clipboard_copy(&mut app);
+
+        assert!(app.active_tab().clipboard_msg.is_some());
+        let (msg, _) = app.active_tab().clipboard_msg.as_ref().unwrap();
+        assert_eq!(msg, "1 item copied");
     }
 }

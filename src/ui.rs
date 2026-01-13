@@ -300,14 +300,29 @@ pub fn draw_panel_status(
             panel.typed_buffer,
             panel.matching_indices.len()
         )
-    } else if selected_count > 0 {
-        format!("{file_count} files, {dir_count} dirs | {selected_count} selected")
     } else {
-        format!("{file_count} files, {dir_count} dirs")
+        let items_info = if let Some((msg, instant)) = &panel.clipboard_msg
+            && instant.elapsed() < std::time::Duration::from_secs(3)
+        {
+            msg.clone()
+        } else {
+            format!("{file_count} files, {dir_count} dirs")
+        };
+
+        if selected_count > 0 {
+            format!("{items_info} | {selected_count} selected")
+        } else {
+            items_info
+        }
     };
+
     // Use the same background as file/directory rows (surface1)
     let fg = if error.is_empty() {
         if !panel.typed_buffer.is_empty() {
+            Color::Rgb(palette.yellow.r, palette.yellow.g, palette.yellow.b)
+        } else if let Some((_, instant)) = &panel.clipboard_msg
+            && instant.elapsed() < std::time::Duration::from_secs(3)
+        {
             Color::Rgb(palette.yellow.r, palette.yellow.g, palette.yellow.b)
         } else {
             Color::Rgb(palette.text.r, palette.text.g, palette.text.b)

@@ -424,6 +424,7 @@ mod tests {
             sort_direction: SortDirection::Ascending,
             scroll_offset: 0,
             custom_title: None,
+            clipboard_msg: None,
         }
     }
 

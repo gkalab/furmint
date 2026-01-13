@@ -40,6 +40,7 @@ pub struct Tab {
     pub scroll_offset: usize,
     // Custom tab title (e.g., SSH connection name)
     pub custom_title: Option<String>,
+    pub clipboard_msg: Option<(String, std::time::Instant)>,
 }
 
 impl Tab {
@@ -73,6 +74,7 @@ impl Tab {
             sort_direction: SortDirection::Ascending,
             scroll_offset: 0,
             custom_title: None,
+            clipboard_msg: None,
         };
         tab.sort_entries();
         Ok(tab)
