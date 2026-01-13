@@ -61,10 +61,15 @@ pub mod win_clipboard {
     use std::ffi::OsStr;
     use std::iter;
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
-    use windows::Win32::Foundation::{HANDLE, HWND};
-    use windows::Win32::System::DataExchange::*;
-    use windows::Win32::System::Memory::*;
-    use windows::Win32::UI::Shell::*;
+    use windows::Win32::Foundation::{HANDLE, HGLOBAL};
+    use windows::Win32::System::DataExchange::{
+        CF_HDROP, CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard,
+        RegisterClipboardFormatW, SetClipboardData,
+    };
+    use windows::Win32::System::Memory::{
+        GMEM_MOVEABLE, GMEM_ZEROINIT, GlobalAlloc, GlobalFree, GlobalLock, GlobalUnlock,
+    };
+    use windows::Win32::UI::Shell::{DragQueryFileW, HDROP};
     use windows::core::w;
 
     const DROPEFFECT_COPY: u32 = 1;
@@ -163,7 +168,7 @@ pub mod win_clipboard {
         if hglobal == 0 {
             return None;
         }
-        let h = HANDLE(hglobal as *mut _);
+        let h = HGLOBAL(hglobal as *mut _);
         let ptr = GlobalLock(h);
         if ptr.is_null() {
             return None;
@@ -197,7 +202,7 @@ pub mod win_clipboard {
                         if !ptr.is_null() {
                             *(ptr as *mut u32) = effect;
                             let _ = GlobalUnlock(hglobal_effect);
-                            let _ = SetClipboardData(format, Some(hglobal_effect));
+                            let _ = SetClipboardData(format, Some(HANDLE(hglobal_effect.0)));
                         }
                     }
                 }
