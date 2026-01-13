@@ -287,8 +287,8 @@ pub mod win_clipboard {
 
                 unsafe {
                     let hdrop_handle = match GetClipboardData(CF_HDROP) {
-                        Ok(h) => h,
-                        Err(_) => return Ok(None),
+                        Ok(h) if !h.0.is_null() => h,
+                        _ => return Ok(None),
                     };
                     let hdrop = HDROP(hdrop_handle.0 as *mut _);
 
