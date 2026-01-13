@@ -195,18 +195,50 @@ pub mod win_clipboard {
         Some(value)
     }
 
+    struct ClipboardGuard;
+
+    impl ClipboardGuard {
+        fn open() -> anyhow::Result<Self> {
+            unsafe {
+                let mut attempts = 0;
+                loop {
+                    if OpenClipboard(None).is_ok() {
+                        return Ok(Self);
+                    }
+                    attempts += 1;
+                    if attempts >= 20 {
+                        break;
+                    }
+                    // Increase sleep duration slightly each time
+                    std::thread::sleep(std::time::Duration::from_millis(attempts * 5));
+                }
+                OpenClipboard(None).context("OpenClipboard failed after 20 retries")?;
+                Ok(Self)
+            }
+        }
+    }
+
+    impl Drop for ClipboardGuard {
+        fn drop(&mut self) {
+            unsafe {
+                let _ = CloseClipboard();
+            }
+        }
+    }
+
     impl FileClipboard for WindowsFileClipboard {
         fn set(&mut self, data: FileClipboardData) -> anyhow::Result<()> {
             // Update in-process cache
             *self.cache.lock().unwrap() = Some(data.clone());
 
+            let _guard = ClipboardGuard::open()?;
             unsafe {
-                OpenClipboard(None).context("OpenClipboard failed")?;
-                let _res = EmptyClipboard();
+                EmptyClipboard().context("EmptyClipboard failed")?;
 
                 let buf = paths_to_dropfiles_buffer(&data.paths);
                 let hglobal = alloc_global_from_bytes(&buf)?;
-                let _ = SetClipboardData(CF_HDROP, Some(HANDLE(hglobal as *mut _)));
+                SetClipboardData(CF_HDROP, Some(HANDLE(hglobal as *mut _)))
+                    .context("SetClipboardData CF_HDROP failed")?;
 
                 let format = RegisterClipboardFormatW(w!("Preferred DropEffect"));
                 if format != 0 {
@@ -220,100 +252,110 @@ pub mod win_clipboard {
                     if !hglobal_effect.0.is_null() {
                         let ptr = GlobalLock(hglobal_effect);
                         if !ptr.is_null() {
-                            *(ptr as *mut u32) = effect;
+                            *(ptr as *mut u32) = to_drop_effect(data.action);
                             let _ = GlobalUnlock(hglobal_effect);
-                            let _ = SetClipboardData(format, Some(HANDLE(hglobal_effect.0)));
+                            if let Err(e) = SetClipboardData(format, Some(HANDLE(hglobal_effect.0)))
+                            {
+                                // If this fails, it's not fatal, but we should log it or something
+                                // and we definitely shouldn't leak hglobal_effect if it wasn't taken.
+                                // Actually SetClipboardData documentation says if it fails, the caller owns the memory.
+                                let _ = GlobalFree(hglobal_effect);
+                                return Err(anyhow::anyhow!(
+                                    "SetClipboardData format failed: {}",
+                                    e
+                                ));
+                            }
+                        } else {
+                            let _ = GlobalFree(hglobal_effect);
                         }
                     }
                 }
-
-                CloseClipboard().context("CloseClipboard failed")?;
             }
             Ok(())
         }
 
         fn get(&mut self) -> anyhow::Result<Option<FileClipboardData>> {
-            unsafe {
-                if OpenClipboard(None).is_err() {
-                    return Ok(None);
-                }
+            let mut paths = Vec::new();
+            let mut action = FileClipboardAction::Copy;
 
-                let hdrop_data = GetClipboardData(CF_HDROP);
-                if hdrop_data.is_err() {
-                    let _ = CloseClipboard();
-                    return Ok(None);
-                }
-                let hdrop = hdrop_data.unwrap();
+            {
+                // We use a small scope for the guard so it's closed before we return cache data
+                let _guard = match ClipboardGuard::open() {
+                    Ok(g) => g,
+                    Err(_) => return Ok(None),
+                };
 
-                let count = DragQueryFileW(HDROP(hdrop.0 as *mut _), 0xFFFFFFFF, None);
-                if count == 0 {
-                    let _ = CloseClipboard();
-                    return Ok(None);
-                }
+                unsafe {
+                    let hdrop_handle = match GetClipboardData(CF_HDROP) {
+                        Ok(h) => h,
+                        Err(_) => return Ok(None),
+                    };
+                    let hdrop = HDROP(hdrop_handle.0 as *mut _);
 
-                let mut paths = Vec::new();
-                for i in 0..count {
-                    let len = DragQueryFileW(HDROP(hdrop.0 as *mut _), i, None);
-                    if len == 0 {
-                        continue;
+                    let count = DragQueryFileW(hdrop, 0xFFFFFFFF, None);
+                    if count == 0 {
+                        return Ok(None);
                     }
-                    let mut buf: Vec<u16> = iter::repeat(0).take(len as usize + 1).collect();
-                    let written = DragQueryFileW(HDROP(hdrop.0 as *mut _), i, Some(&mut buf));
-                    if written == 0 {
-                        continue;
-                    }
-                    if let Some(pos) = buf.iter().position(|&c| c == 0) {
-                        buf.truncate(pos);
-                    }
-                    let os_str = std::ffi::OsString::from_wide(&buf);
-                    paths.push(PathBuf::from(os_str));
-                }
 
-                let format = RegisterClipboardFormatW(w!("Preferred DropEffect"));
-                let mut action = FileClipboardAction::Copy;
-                if format != 0 {
-                    if let Ok(hmem) = GetClipboardData(format) {
-                        if let Some(effect) = read_u32_from_hglobal(hmem.0 as isize) {
-                            if let Some(a) = from_drop_effect(effect) {
-                                action = a;
+                    for i in 0..count {
+                        let len = DragQueryFileW(hdrop, i, None);
+                        if len == 0 {
+                            continue;
+                        }
+                        let mut buf: Vec<u16> = iter::repeat(0).take(len as usize + 1).collect();
+                        let written = DragQueryFileW(hdrop, i, Some(&mut buf));
+                        if written == 0 {
+                            continue;
+                        }
+                        if let Some(pos) = buf.iter().position(|&c| c == 0) {
+                            buf.truncate(pos);
+                        }
+                        let os_str = std::ffi::OsString::from_wide(&buf);
+                        paths.push(PathBuf::from(os_str));
+                    }
+
+                    let format = RegisterClipboardFormatW(w!("Preferred DropEffect"));
+                    if format != 0 {
+                        if let Ok(hmem) = GetClipboardData(format) {
+                            if let Some(effect) = read_u32_from_hglobal(hmem.0 as isize) {
+                                if let Some(a) = from_drop_effect(effect) {
+                                    action = a;
+                                }
                             }
                         }
                     }
                 }
+            }
 
-                let _ = CloseClipboard();
-
-                // Check cache first
-                if let Some(cache_data) = self.cache.lock().unwrap().clone() {
-                    // Simple heuristic: if the number of paths matches, and the first path matches,
-                    // we assume it's the same data and prefer the cache (preserving provider/remote paths).
-                    if cache_data.paths.len() == paths.len() {
-                        if paths.is_empty() {
+            // Check cache first
+            if let Some(cache_data) = self.cache.lock().unwrap().clone() {
+                // Simple heuristic: if the number of paths matches, and the first path matches,
+                // we assume it's the same data and prefer the cache (preserving provider/remote paths).
+                if cache_data.paths.len() == paths.len() {
+                    if paths.is_empty() {
+                        return Ok(Some(cache_data));
+                    }
+                    if let (Some(c_first), Some(p_first)) = (cache_data.paths.get(0), paths.get(0))
+                    {
+                        let c_str = c_first.to_string_lossy().to_lowercase().replace("/", "\\");
+                        let p_str = p_first.to_string_lossy().to_lowercase().replace("/", "\\");
+                        let c_norm = c_str.strip_prefix(r"\\?\").unwrap_or(&c_str);
+                        let p_norm = p_str.strip_prefix(r"\\?\").unwrap_or(&p_str);
+                        if c_norm == p_norm {
                             return Ok(Some(cache_data));
                         }
-                        if let (Some(c_first), Some(p_first)) =
-                            (cache_data.paths.get(0), paths.get(0))
-                        {
-                            let c_str = c_first.to_string_lossy().to_lowercase().replace("/", "\\");
-                            let p_str = p_first.to_string_lossy().to_lowercase().replace("/", "\\");
-                            let c_norm = c_str.strip_prefix(r"\\?\").unwrap_or(&c_str);
-                            let p_norm = p_str.strip_prefix(r"\\?\").unwrap_or(&p_str);
-                            if c_norm == p_norm {
-                                return Ok(Some(cache_data));
-                            }
-                        }
                     }
                 }
+            }
 
-                if paths.is_empty() {
-                    Ok(None)
-                } else {
-                    Ok(Some(FileClipboardData {
-                        action,
-                        paths,
-                        source_provider: Arc::new(crate::fs_local::LocalFs::new()),
-                    }))
-                }
+            if paths.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(FileClipboardData {
+                    action,
+                    paths,
+                    source_provider: Arc::new(crate::fs_local::LocalFs::new()),
+                }))
             }
         }
 
