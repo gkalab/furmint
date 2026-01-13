@@ -233,27 +233,26 @@ pub fn handle_copy_move_event(code: KeyCode, modifiers: KeyModifiers, app: &mut 
             app.popups.copy_move.destination_input = dest_abs.to_string_lossy().to_string();
             let src_provider = app.active_tab().provider.clone();
             if src_provider.context_key() == dest_provider.context_key() {
-                if let Ok(dest_abs) = dest_provider.canonicalize(&dest_path) {
-                    for src in &app.popups.copy_move.source_paths {
-                        if let Ok(src_abs) = src_provider.canonicalize(src) {
-                            if src_abs == dest_abs {
+                // Use the dest_abs we already calculated/canonicalized above
+                let validation_dest = dest_abs.clone();
+                for src in &app.popups.copy_move.source_paths {
+                    if let Ok(src_abs) = src_provider.canonicalize(src) {
+                        if src_abs == validation_dest {
+                            app.popups.copy_move.error =
+                                Some("Cannot copy/move source into itself".to_string());
+                            return false;
+                        }
+                        if validation_dest.starts_with(&src_abs) {
+                            app.popups.copy_move.error =
+                                Some("Cannot copy/move into subdirectory of itself".to_string());
+                            return false;
+                        }
+                        if let Some(file_name) = src_abs.file_name() {
+                            let effective_dest = validation_dest.join(file_name);
+                            if effective_dest == src_abs {
                                 app.popups.copy_move.error =
-                                    Some("Cannot copy/move source into itself".to_string());
+                                    Some("Source and destination are the same".to_string());
                                 return false;
-                            }
-                            if dest_abs.starts_with(&src_abs) {
-                                app.popups.copy_move.error = Some(
-                                    "Cannot copy/move into subdirectory of itself".to_string(),
-                                );
-                                return false;
-                            }
-                            if let Some(file_name) = src_abs.file_name() {
-                                let effective_dest = dest_abs.join(file_name);
-                                if effective_dest == src_abs {
-                                    app.popups.copy_move.error =
-                                        Some("Source and destination are the same".to_string());
-                                    return false;
-                                }
                             }
                         }
                     }

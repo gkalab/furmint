@@ -366,11 +366,9 @@ pub mod win_clipboard {
 
         fn clear(&mut self) -> anyhow::Result<()> {
             *self.cache.lock().unwrap() = None;
+            let _guard = ClipboardGuard::open()?;
             unsafe {
-                if OpenClipboard(None).is_ok() {
-                    let _res = EmptyClipboard();
-                    let _ = CloseClipboard();
-                }
+                EmptyClipboard().context("EmptyClipboard failed")?;
             }
             Ok(())
         }
