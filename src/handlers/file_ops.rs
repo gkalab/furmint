@@ -79,11 +79,11 @@ impl FileSystem for StdFileSystem {
         Ok(())
     }
 
-    async fn get_permissions(&self, path: &std::path::Path) -> Option<u32> {
+    async fn get_permissions(&self, _path: &std::path::Path) -> Option<u32> {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            tokio::fs::metadata(path)
+            tokio::fs::metadata(_path)
                 .await
                 .ok()
                 .map(|m| m.permissions().mode() & 0o777)
@@ -111,8 +111,8 @@ impl FileSystem for StdFileSystem {
             let duration = mtime
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_err(|_| std::io::Error::other("invalid mtime"))?;
-            let sec = duration.as_secs() as libc::time_t;
-            let nsec = duration.subsec_nanos() as libc::c_long;
+            let _sec = duration.as_secs() as libc::time_t;
+            let _nsec = duration.subsec_nanos() as libc::c_long;
 
             #[cfg(unix)]
             {
@@ -130,8 +130,8 @@ impl FileSystem for StdFileSystem {
                                 tv_nsec: libc::UTIME_OMIT,
                             },
                             libc::timespec {
-                                tv_sec: sec,
-                                tv_nsec: nsec,
+                                tv_sec: _sec,
+                                tv_nsec: _nsec,
                             },
                         ]
                         .as_ptr(),
@@ -161,13 +161,13 @@ impl FileSystem for StdFileSystem {
         mode: Option<u32>,
     ) -> anyhow::Result<()> {
         tokio::fs::write(path, data).await?;
-        if let Some(mode_val) = mode {
+        if let Some(_mode_val) = mode {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
                 if let Ok(metadata) = tokio::fs::metadata(path).await {
                     let current_mode = metadata.permissions().mode();
-                    let new_mode = (current_mode & !0o777) | (mode_val & 0o777);
+                    let new_mode = (current_mode & !0o777) | (_mode_val & 0o777);
                     let mut perms = metadata.permissions();
                     perms.set_mode(new_mode);
                     tokio::fs::set_permissions(path, perms).await?;

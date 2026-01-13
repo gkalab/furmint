@@ -111,25 +111,25 @@ pub fn handle_paste(app: &mut AppState) {
         // Validation for local providers
         if data.source_provider.is_local() && dest_provider.is_local() {
             for src in &data.paths {
-                if let Ok(src_abs) = src.canonicalize() {
-                    if let Ok(dest_abs) = dest_path.canonicalize() {
-                        if src_abs == dest_abs {
+                if let Ok(src_abs) = src.canonicalize()
+                    && let Ok(dest_abs) = dest_path.canonicalize()
+                {
+                    if src_abs == dest_abs {
+                        app.active_tab_mut().error =
+                            Some("Cannot copy/move source into itself".to_string());
+                        return;
+                    }
+                    if dest_abs.starts_with(&src_abs) {
+                        app.active_tab_mut().error =
+                            Some("Cannot copy/move into subdirectory of itself".to_string());
+                        return;
+                    }
+                    if let Some(file_name) = src_abs.file_name() {
+                        let effective_dest = dest_abs.join(file_name);
+                        if effective_dest == src_abs {
                             app.active_tab_mut().error =
-                                Some("Cannot copy/move source into itself".to_string());
+                                Some("Source and destination are the same".to_string());
                             return;
-                        }
-                        if dest_abs.starts_with(&src_abs) {
-                            app.active_tab_mut().error =
-                                Some("Cannot copy/move into subdirectory of itself".to_string());
-                            return;
-                        }
-                        if let Some(file_name) = src_abs.file_name() {
-                            let effective_dest = dest_abs.join(file_name);
-                            if effective_dest == src_abs {
-                                app.active_tab_mut().error =
-                                    Some("Source and destination are the same".to_string());
-                                return;
-                            }
                         }
                     }
                 }

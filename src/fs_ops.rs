@@ -122,11 +122,11 @@ impl FileEntry {
     }
 }
 
-pub fn get_attributes(meta: &Metadata, is_dir: bool) -> String {
+pub fn get_attributes(_meta: &Metadata, is_dir: bool) -> String {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mode = meta.permissions().mode();
+        let mode = _meta.permissions().mode();
         let mut attrs = String::new();
         attrs.push(if is_dir { 'd' } else { '-' });
         for i in (0..9).rev() {
@@ -237,11 +237,11 @@ pub fn format_modified(modified: Option<SystemTime>) -> String {
 }
 
 // Helper to detect executables
-pub fn is_executable(full_path: &std::path::Path, e: &FileEntry) -> bool {
+pub fn is_executable(_full_path: &std::path::Path, e: &FileEntry) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if let Ok(meta) = std::fs::symlink_metadata(full_path) {
+        if let Ok(meta) = std::fs::symlink_metadata(_full_path) {
             let mode = meta.permissions().mode();
             mode & 0o111 != 0 && !e.is_dir
         } else {

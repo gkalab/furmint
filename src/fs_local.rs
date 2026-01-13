@@ -98,11 +98,11 @@ impl FileSystemProvider for LocalFs {
         Ok(fs::canonicalize(path)?)
     }
 
-    fn get_permissions(&self, path: &Path) -> Option<u32> {
+    fn get_permissions(&self, _path: &Path) -> Option<u32> {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            fs::metadata(path)
+            fs::metadata(_path)
                 .ok()
                 .map(|m| m.permissions().mode() & 0o777)
         }
@@ -114,16 +114,16 @@ impl FileSystemProvider for LocalFs {
         }
     }
 
-    fn set_permissions(&self, path: &Path, mode: u32) -> bool {
+    fn set_permissions(&self, _path: &Path, _mode: u32) -> bool {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            if let Ok(metadata) = fs::metadata(path) {
+            if let Ok(metadata) = fs::metadata(_path) {
                 let current_mode = metadata.permissions().mode();
-                let new_mode = (current_mode & !0o777) | (mode & 0o777);
+                let new_mode = (current_mode & !0o777) | (_mode & 0o777);
                 let mut perms = metadata.permissions();
                 perms.set_mode(new_mode);
-                fs::set_permissions(path, perms).is_ok()
+                fs::set_permissions(_path, perms).is_ok()
             } else {
                 false
             }
@@ -143,8 +143,8 @@ impl FileSystemProvider for LocalFs {
             Ok(d) => d,
             Err(_) => return false,
         };
-        let sec = duration.as_secs() as libc::time_t;
-        let nsec = duration.subsec_nanos() as libc::c_long;
+        let _sec = duration.as_secs() as libc::time_t;
+        let _nsec = duration.subsec_nanos() as libc::c_long;
 
         #[cfg(unix)]
         {
@@ -162,8 +162,8 @@ impl FileSystemProvider for LocalFs {
                             tv_nsec: libc::UTIME_OMIT,
                         },
                         libc::timespec {
-                            tv_sec: sec,
-                            tv_nsec: nsec,
+                            tv_sec: _sec,
+                            tv_nsec: _nsec,
                         },
                     ]
                     .as_ptr(),
