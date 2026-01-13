@@ -165,11 +165,21 @@ pub fn handle_paste(app: &mut AppState) {
                         if let Ok(eff_dest_abs) = effective_dest.canonicalize() {
                             let s_eff = eff_dest_abs.to_string_lossy();
                             #[cfg(windows)]
-                            let n_eff = s_eff.to_lowercase().replace("/", "\\");
+                            let n_eff = {
+                                let s = s_eff.to_lowercase().replace("/", "\\");
+                                s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
+                            };
                             #[cfg(not(windows))]
                             let n_eff = s_eff.to_string();
 
-                            if n_eff == n_src {
+                            // Also normalize n_src to strip prefix for comparison
+                            #[cfg(windows)]
+                            let n_src_cmp =
+                                n_src.strip_prefix(r"\\?\").unwrap_or(&n_src).to_string();
+                            #[cfg(not(windows))]
+                            let n_src_cmp = n_src.clone();
+
+                            if n_eff == n_src_cmp {
                                 app.active_tab_mut().error =
                                     Some("Source and destination are the same".to_string());
                                 return;
