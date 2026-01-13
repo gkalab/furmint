@@ -61,16 +61,18 @@ pub mod win_clipboard {
     use std::ffi::OsStr;
     use std::iter;
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
-    use windows::Win32::Foundation::{HANDLE, HGLOBAL};
+    use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL};
     use windows::Win32::System::DataExchange::{
-        CF_HDROP, CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard,
+        CLIPBOARD_FORMAT, CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard,
         RegisterClipboardFormatW, SetClipboardData,
     };
     use windows::Win32::System::Memory::{
-        GMEM_MOVEABLE, GMEM_ZEROINIT, GlobalAlloc, GlobalFree, GlobalLock, GlobalUnlock,
+        GMEM_MOVEABLE, GMEM_ZEROINIT, GlobalAlloc, GlobalLock, GlobalUnlock,
     };
     use windows::Win32::UI::Shell::{DragQueryFileW, HDROP};
     use windows::core::w;
+
+    const CF_HDROP: CLIPBOARD_FORMAT = CLIPBOARD_FORMAT(15);
 
     const DROPEFFECT_COPY: u32 = 1;
     const DROPEFFECT_MOVE: u32 = 2;
@@ -146,21 +148,26 @@ pub mod win_clipboard {
     }
 
     unsafe fn alloc_global_from_bytes(bytes: &[u8]) -> anyhow::Result<isize> {
-        let hglobal = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, bytes.len())
-            .map_err(|e| anyhow::anyhow!("GlobalAlloc failed: {}", e))?;
+        let hglobal = unsafe {
+            GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, bytes.len())
+                .map_err(|e| anyhow::anyhow!("GlobalAlloc failed: {}", e))?
+        };
         if hglobal.0.is_null() {
             anyhow::bail!("GlobalAlloc failed");
         }
 
-        let ptr = GlobalLock(hglobal);
+        let ptr = unsafe { GlobalLock(hglobal) };
         if ptr.is_null() {
-            let _ = GlobalFree(hglobal);
+            unsafe {
+                let _ = GlobalFree(hglobal);
+            };
             anyhow::bail!("GlobalLock failed");
         }
 
-        std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr as *mut u8, bytes.len());
-
-        let _ = GlobalUnlock(hglobal);
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr as *mut u8, bytes.len());
+            let _ = GlobalUnlock(hglobal);
+        }
         Ok(hglobal.0 as isize)
     }
 
@@ -169,12 +176,12 @@ pub mod win_clipboard {
             return None;
         }
         let h = HGLOBAL(hglobal as *mut _);
-        let ptr = GlobalLock(h);
+        let ptr = unsafe { GlobalLock(h) };
         if ptr.is_null() {
             return None;
         }
-        let value = *(ptr as *const u32);
-        let _ = GlobalUnlock(h);
+        let value = unsafe { *(ptr as *const u32) };
+        let _ = unsafe { GlobalUnlock(h) };
         Some(value)
     }
 
@@ -186,7 +193,7 @@ pub mod win_clipboard {
 
                 let buf = paths_to_dropfiles_buffer(&data.paths);
                 let hglobal = alloc_global_from_bytes(&buf)?;
-                let _ = SetClipboardData(CF_HDROP.0, Some(HANDLE(hglobal as *mut _)));
+                let _ = unsafe { SetClipboardData(CF_HDROP.0, Some(HANDLE(hglobal as *mut _))) };
 
                 let format = RegisterClipboardFormatW(w!("Preferred DropEffect"));
                 if format != 0 {
@@ -198,11 +205,14 @@ pub mod win_clipboard {
                             })?;
 
                     if !hglobal_effect.0.is_null() {
-                        let ptr = GlobalLock(hglobal_effect);
+                        let ptr = unsafe { GlobalLock(hglobal_effect) };
                         if !ptr.is_null() {
-                            *(ptr as *mut u32) = effect;
-                            let _ = GlobalUnlock(hglobal_effect);
-                            let _ = SetClipboardData(format, Some(HANDLE(hglobal_effect.0)));
+                            unsafe {
+                                *(ptr as *mut u32) = effect;
+                            };
+                            let _ = unsafe { GlobalUnlock(hglobal_effect) };
+                            let _ =
+                                unsafe { SetClipboardData(format, Some(HANDLE(hglobal_effect.0))) };
                         }
                     }
                 }
@@ -218,14 +228,14 @@ pub mod win_clipboard {
                     return Ok(None);
                 }
 
-                let hdrop_data = GetClipboardData(CF_HDROP.0);
+                let hdrop_data = unsafe { GetClipboardData(CF_HDROP.0) };
                 if hdrop_data.is_err() {
-                    let _ = CloseClipboard();
+                    let _ = unsafe { CloseClipboard() };
                     return Ok(None);
                 }
                 let hdrop = hdrop_data.unwrap();
 
-                let count = DragQueryFileW(HDROP(hdrop.0 as *mut _), 0xFFFFFFFF, None);
+                let count = unsafe { DragQueryFileW(HDROP(hdrop.0 as *mut _), 0xFFFFFFFF, None) };
                 if count == 0 {
                     let _ = CloseClipboard();
                     return Ok(None);
@@ -233,12 +243,13 @@ pub mod win_clipboard {
 
                 let mut paths = Vec::new();
                 for i in 0..count {
-                    let len = DragQueryFileW(HDROP(hdrop.0 as *mut _), i, None);
+                    let len = unsafe { DragQueryFileW(HDROP(hdrop.0 as *mut _), i, None) };
                     if len == 0 {
                         continue;
                     }
                     let mut buf: Vec<u16> = iter::repeat(0).take(len as usize + 1).collect();
-                    let written = DragQueryFileW(HDROP(hdrop.0 as *mut _), i, Some(&mut buf));
+                    let written =
+                        unsafe { DragQueryFileW(HDROP(hdrop.0 as *mut _), i, Some(&mut buf)) };
                     if written == 0 {
                         continue;
                     }
