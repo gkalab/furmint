@@ -56,10 +56,12 @@ pub mod unix_clipboard {
 
 #[cfg(target_os = "windows")]
 pub mod win_clipboard {
+    use super::*;
     use anyhow::Context;
     use std::ffi::OsStr;
     use std::iter;
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL};
     use windows::Win32::System::DataExchange::{
