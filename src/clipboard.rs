@@ -226,11 +226,8 @@ pub mod win_clipboard {
         }
     }
 
-    impl FileClipboard for WindowsFileClipboard {
-        fn set(&mut self, data: FileClipboardData) -> anyhow::Result<()> {
-            // Update in-process cache
-            *self.cache.lock().unwrap() = Some(data.clone());
-
+    impl WindowsFileClipboard {
+        fn try_set_clipboard(data: &FileClipboardData) -> anyhow::Result<()> {
             let _guard = ClipboardGuard::open()?;
             unsafe {
                 EmptyClipboard().context("EmptyClipboard failed")?;
@@ -242,7 +239,6 @@ pub mod win_clipboard {
 
                 let format = RegisterClipboardFormatW(w!("Preferred DropEffect"));
                 if format != 0 {
-                    let _effect = to_drop_effect(data.action);
                     let hglobal_effect =
                         GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, std::mem::size_of::<u32>())
                             .map_err(|e| {
@@ -256,9 +252,6 @@ pub mod win_clipboard {
                             let _ = GlobalUnlock(hglobal_effect);
                             if let Err(e) = SetClipboardData(format, Some(HANDLE(hglobal_effect.0)))
                             {
-                                // If this fails, it's not fatal, but we should log it or something
-                                // and we definitely shouldn't leak hglobal_effect if it wasn't taken.
-                                // Actually SetClipboardData documentation says if it fails, the caller owns the memory.
                                 let _ = GlobalFree(Some(hglobal_effect));
                                 return Err(anyhow::anyhow!(
                                     "SetClipboardData format failed: {}",
@@ -272,6 +265,27 @@ pub mod win_clipboard {
                 }
             }
             Ok(())
+        }
+    }
+
+    impl FileClipboard for WindowsFileClipboard {
+        fn set(&mut self, data: FileClipboardData) -> anyhow::Result<()> {
+            // Update in-process cache
+            *self.cache.lock().unwrap() = Some(data.clone());
+
+            // Retry the entire clipboard operation to handle contention during parallel tests
+            let mut last_error = None;
+            for attempt in 0..5 {
+                if attempt > 0 {
+                    std::thread::sleep(std::time::Duration::from_millis(attempt * 50));
+                }
+
+                match Self::try_set_clipboard(&data) {
+                    Ok(()) => return Ok(()),
+                    Err(e) => last_error = Some(e),
+                }
+            }
+            Err(last_error.unwrap_or_else(|| anyhow::anyhow!("Clipboard set failed")))
         }
 
         fn get(&mut self) -> anyhow::Result<Option<FileClipboardData>> {
