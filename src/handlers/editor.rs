@@ -291,13 +291,11 @@ fn get_default_editor() -> String {
 
     if let Ok(txt_key) = hkcr.open_subkey(".txt")
         && let Ok(prog_id) = txt_key.get_value::<String, _>("")
-    {
-        if let Ok(prog_key) = hkcr.open_subkey(&prog_id)
+        && let Ok(prog_key) = hkcr.open_subkey(&prog_id)
             && let Ok(app) = prog_key.get_value::<String, _>("")
         {
             return app;
         }
-    }
 
     "notepad.exe".to_string()
 }

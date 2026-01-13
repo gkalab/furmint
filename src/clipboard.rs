@@ -59,7 +59,7 @@ pub mod win_clipboard {
     use super::*;
     use anyhow::Context;
     use std::ffi::OsStr;
-    use std::iter;
+    
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
@@ -242,7 +242,7 @@ pub mod win_clipboard {
 
                 let format = RegisterClipboardFormatW(w!("Preferred DropEffect"));
                 if format != 0 {
-                    let effect = to_drop_effect(data.action);
+                    let _effect = to_drop_effect(data.action);
                     let hglobal_effect =
                         GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, std::mem::size_of::<u32>())
                             .map_err(|e| {
@@ -302,7 +302,7 @@ pub mod win_clipboard {
                         if len == 0 {
                             continue;
                         }
-                        let mut buf: Vec<u16> = iter::repeat(0).take(len as usize + 1).collect();
+                        let mut buf: Vec<u16> = std::iter::repeat_n(0, len as usize + 1).collect();
                         let written = DragQueryFileW(hdrop, i, Some(&mut buf));
                         if written == 0 {
                             continue;
@@ -315,15 +315,12 @@ pub mod win_clipboard {
                     }
 
                     let format = RegisterClipboardFormatW(w!("Preferred DropEffect"));
-                    if format != 0 {
-                        if let Ok(hmem) = GetClipboardData(format) {
-                            if let Some(effect) = read_u32_from_hglobal(hmem.0 as isize) {
-                                if let Some(a) = from_drop_effect(effect) {
+                    if format != 0
+                        && let Ok(hmem) = GetClipboardData(format)
+                            && let Some(effect) = read_u32_from_hglobal(hmem.0 as isize)
+                                && let Some(a) = from_drop_effect(effect) {
                                     action = a;
                                 }
-                            }
-                        }
-                    }
                 }
             }
 
@@ -335,7 +332,7 @@ pub mod win_clipboard {
                     if paths.is_empty() {
                         return Ok(Some(cache_data));
                     }
-                    if let (Some(c_first), Some(p_first)) = (cache_data.paths.get(0), paths.get(0))
+                    if let (Some(c_first), Some(p_first)) = (cache_data.paths.first(), paths.first())
                     {
                         let c_str = c_first.to_string_lossy().to_lowercase().replace("/", "\\");
                         let p_str = p_first.to_string_lossy().to_lowercase().replace("/", "\\");
