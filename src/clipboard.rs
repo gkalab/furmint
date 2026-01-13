@@ -259,14 +259,14 @@ pub mod win_clipboard {
                                 // If this fails, it's not fatal, but we should log it or something
                                 // and we definitely shouldn't leak hglobal_effect if it wasn't taken.
                                 // Actually SetClipboardData documentation says if it fails, the caller owns the memory.
-                                let _ = GlobalFree(hglobal_effect);
+                                let _ = GlobalFree(Some(hglobal_effect));
                                 return Err(anyhow::anyhow!(
                                     "SetClipboardData format failed: {}",
                                     e
                                 ));
                             }
                         } else {
-                            let _ = GlobalFree(hglobal_effect);
+                            let _ = GlobalFree(Some(hglobal_effect));
                         }
                     }
                 }
@@ -423,11 +423,10 @@ impl FileClipboard for ClipboardBackend {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     fn test_unix_clipboard() {
+        use super::*;
         let mut cb = unix_clipboard::UnixFileClipboard::new();
         assert!(cb.get().unwrap().is_none());
 
