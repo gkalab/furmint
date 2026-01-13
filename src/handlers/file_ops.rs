@@ -642,7 +642,7 @@ mod tests {
             std::fs::write(&src_file, b"test content").unwrap();
             // Set executable permissions
             std::process::Command::new("chmod")
-                .args(&["755", &src_file.to_string_lossy()])
+                .args(["755", &src_file.to_string_lossy()])
                 .status()
                 .unwrap();
         }

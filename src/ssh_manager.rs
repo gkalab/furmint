@@ -664,8 +664,8 @@ mod tests {
 
         let d = mgr_j.compute_backoff(3);
         let expected = 4.0;
-        let low = (expected * (1.0 - 0.2)) as f64;
-        let high = (expected * (1.0 + 0.2)) as f64;
+        let low = expected * (1.0 - 0.2);
+        let high = expected * (1.0 + 0.2);
         let got = d.as_secs_f64();
         assert!(
             got >= low && got <= high,
@@ -704,7 +704,7 @@ mod tests {
             payload: None,
         };
         mgr.enqueue_op(sid, op.clone()).unwrap();
-        assert!(mgr.read_queue(sid).unwrap().len() > 0);
+        assert!(!mgr.read_queue(sid).unwrap().is_empty());
 
         mgr.clear_queue(sid).unwrap();
         assert_eq!(mgr.read_queue(sid).unwrap().len(), 0);

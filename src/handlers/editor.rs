@@ -412,7 +412,6 @@ pub async fn handle_remote_edit_event(code: crossterm::event::KeyCode, app: &mut
 }
 
 #[cfg(test)]
-#[cfg(test)]
 mod tests {
     use super::*;
     use crate::app::{AppState, PanelSide, Tab, TabManager};

@@ -330,16 +330,14 @@ pub mod win_clipboard {
                     if let (Some(c_first), Some(p_first)) =
                         (cache_data.paths.first(), paths.first())
                     {
-                        let c_str = c_first.to_string_lossy().to_lowercase().replace("/", "\\");
-                        let p_str = p_first.to_string_lossy().to_lowercase().replace("/", "\\");
-                        let c_norm = c_str.strip_prefix(r"\\?\").unwrap_or(&c_str);
-                        let p_norm = p_str.strip_prefix(r"\\?\").unwrap_or(&p_str);
+                        let c_norm = normalize_path_for_match(c_first);
+                        let p_norm = normalize_path_for_match(p_first);
 
                         // On Windows, OS might prepend drive letters (C:\) to relative-looking remote paths.
                         // We check if either one is a suffix of the other (normalized).
                         if c_norm == p_norm
-                            || (c_norm.len() > 2 && p_norm.ends_with(c_norm))
-                            || (p_norm.len() > 2 && c_norm.ends_with(p_norm))
+                            || (c_norm.len() > 2 && p_norm.ends_with(&c_norm))
+                            || (p_norm.len() > 2 && c_norm.ends_with(&p_norm))
                         {
                             return Ok(Some(cache_data));
                         }
@@ -366,6 +364,11 @@ pub mod win_clipboard {
             }
             Ok(())
         }
+    }
+
+    fn normalize_path_for_match(p: &std::path::Path) -> String {
+        let s = p.to_string_lossy().to_lowercase().replace("/", "\\");
+        s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
     }
 }
 

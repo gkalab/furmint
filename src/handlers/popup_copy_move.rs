@@ -123,71 +123,14 @@ pub fn handle_paste(app: &mut AppState) {
         let dest_provider = app.active_tab().provider.clone();
         let dest_path = app.active_tab().current_dir.clone();
 
-        // Provider-aware validation
-        if data.source_provider.context_key() == dest_provider.context_key() {
-            for src in &data.paths {
-                if let Ok(src_abs) = data.source_provider.canonicalize(src)
-                    && let Ok(dest_abs) = dest_provider.canonicalize(&dest_path)
-                {
-                    let s_src = src_abs.to_string_lossy();
-                    let s_dest = dest_abs.to_string_lossy();
-
-                    #[cfg(windows)]
-                    let (n_src, n_dest) = (
-                        s_src.to_lowercase().replace("/", "\\"),
-                        s_dest.to_lowercase().replace("/", "\\"),
-                    );
-                    #[cfg(not(windows))]
-                    let (n_src, n_dest) = (s_src.to_string(), s_dest.to_string());
-
-                    if n_src == n_dest {
-                        app.active_tab_mut().error =
-                            Some("Cannot copy/move source into itself".to_string());
-                        return;
-                    }
-
-                    // For subdirectory check, ensure we check with trailing separator to avoid false prefixes
-                    let sep = if cfg!(windows) { "\\" } else { "/" };
-                    let n_src_sep = if n_src.ends_with(sep) {
-                        n_src.clone()
-                    } else {
-                        format!("{}{}", n_src, sep)
-                    };
-
-                    if n_dest.starts_with(&n_src_sep) {
-                        app.active_tab_mut().error =
-                            Some("Cannot copy/move into subdirectory of itself".to_string());
-                        return;
-                    }
-
-                    if let Some(file_name) = src_abs.file_name() {
-                        let effective_dest = dest_abs.join(file_name);
-                        if let Ok(eff_dest_abs) = effective_dest.canonicalize() {
-                            let s_eff = eff_dest_abs.to_string_lossy();
-                            #[cfg(windows)]
-                            let n_eff = {
-                                let s = s_eff.to_lowercase().replace("/", "\\");
-                                s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
-                            };
-                            #[cfg(not(windows))]
-                            let n_eff = s_eff.to_string();
-
-                            // Also normalize n_src to strip prefix for comparison
-                            #[cfg(windows)]
-                            let n_src_cmp =
-                                n_src.strip_prefix(r"\\?\").unwrap_or(&n_src).to_string();
-                            #[cfg(not(windows))]
-                            let n_src_cmp = n_src.clone();
-
-                            if n_eff == n_src_cmp {
-                                app.active_tab_mut().error =
-                                    Some("Source and destination are the same".to_string());
-                                return;
-                            }
-                        }
-                    }
-                }
-            }
+        if let Some(err) = validate_copy_move(
+            &data.paths,
+            &data.source_provider,
+            &dest_path,
+            &dest_provider,
+        ) {
+            app.active_tab_mut().error = Some(err);
+            return;
         }
 
         let dest_str = dest_path.to_string_lossy().to_string();
@@ -204,6 +147,86 @@ pub fn handle_paste(app: &mut AppState) {
             let _ = app.clipboard.clear();
         }
     }
+}
+
+/// Validates that source paths are não being copied/moved into themselves or subdirectories of themselves.
+/// Returns Some(error_message) if validation fails, None otherwise.
+fn validate_copy_move(
+    src_paths: &[PathBuf],
+    src_provider: &Arc<dyn FileSystemProvider>,
+    dest_path: &std::path::Path,
+    dest_provider: &Arc<dyn FileSystemProvider>,
+) -> Option<String> {
+    if src_provider.context_key() != dest_provider.context_key() {
+        return None;
+    }
+
+    let dest_abs = if let Ok(p) = dest_provider.canonicalize(dest_path) {
+        p
+    } else if dest_path.is_absolute() {
+        dest_path.to_path_buf()
+    } else {
+        // Fallback to raw path if we can't do better
+        dest_path.to_path_buf()
+    };
+
+    for src in src_paths {
+        if let Ok(src_abs) = src_provider.canonicalize(src) {
+            let s_src = src_abs.to_string_lossy();
+            let s_dest = dest_abs.to_string_lossy();
+
+            #[cfg(windows)]
+            let (n_src, n_dest) = (
+                s_src.to_lowercase().replace("/", "\\"),
+                s_dest.to_lowercase().replace("/", "\\"),
+            );
+            #[cfg(not(windows))]
+            let (n_src, n_dest) = (s_src.to_string(), s_dest.to_string());
+
+            #[cfg(windows)]
+            let (n_src_norm, n_dest_norm) = (
+                n_src.strip_prefix(r"\\?\").unwrap_or(&n_src).to_string(),
+                n_dest.strip_prefix(r"\\?\").unwrap_or(&n_dest).to_string(),
+            );
+            #[cfg(not(windows))]
+            let (n_src_norm, n_dest_norm) = (n_src, n_dest);
+
+            if n_src_norm == n_dest_norm {
+                return Some("Cannot copy/move source into itself".to_string());
+            }
+
+            // For subdirectory check, ensure we check with trailing separator to avoid false prefixes
+            let sep = if cfg!(windows) { "\\" } else { "/" };
+            let n_src_sep = if n_src_norm.ends_with(sep) {
+                n_src_norm.clone()
+            } else {
+                format!("{}{}", n_src_norm, sep)
+            };
+
+            if n_dest_norm.starts_with(&n_src_sep) {
+                return Some("Cannot copy/move into subdirectory of itself".to_string());
+            }
+
+            if let Some(file_name) = src_abs.file_name() {
+                let effective_dest = dest_abs.join(file_name);
+                if let Ok(eff_dest_abs) = effective_dest.canonicalize() {
+                    let s_eff = eff_dest_abs.to_string_lossy();
+                    #[cfg(windows)]
+                    let n_eff = {
+                        let s = s_eff.to_lowercase().replace("/", "\\");
+                        s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
+                    };
+                    #[cfg(not(windows))]
+                    let n_eff = s_eff.to_string();
+
+                    if n_eff == n_src_norm {
+                        return Some("Source and destination are the same".to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 pub fn handle_copy_move_event(code: KeyCode, modifiers: KeyModifiers, app: &mut AppState) -> bool {
@@ -242,31 +265,14 @@ pub fn handle_copy_move_event(code: KeyCode, modifiers: KeyModifiers, app: &mut 
             };
             app.popups.copy_move.destination_input = dest_abs.to_string_lossy().to_string();
             let src_provider = app.active_tab().provider.clone();
-            if src_provider.context_key() == dest_provider.context_key() {
-                // Use the dest_abs we already calculated/canonicalized above
-                let validation_dest = dest_abs.clone();
-                for src in &app.popups.copy_move.source_paths {
-                    if let Ok(src_abs) = src_provider.canonicalize(src) {
-                        if src_abs == validation_dest {
-                            app.popups.copy_move.error =
-                                Some("Cannot copy/move source into itself".to_string());
-                            return false;
-                        }
-                        if validation_dest.starts_with(&src_abs) {
-                            app.popups.copy_move.error =
-                                Some("Cannot copy/move into subdirectory of itself".to_string());
-                            return false;
-                        }
-                        if let Some(file_name) = src_abs.file_name() {
-                            let effective_dest = validation_dest.join(file_name);
-                            if effective_dest == src_abs {
-                                app.popups.copy_move.error =
-                                    Some("Source and destination are the same".to_string());
-                                return false;
-                            }
-                        }
-                    }
-                }
+            if let Some(err) = validate_copy_move(
+                &app.popups.copy_move.source_paths,
+                &src_provider,
+                &dest_abs,
+                &dest_provider,
+            ) {
+                app.popups.copy_move.error = Some(err);
+                return false;
             }
 
             spawn_copy_move_task(

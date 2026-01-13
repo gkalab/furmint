@@ -634,6 +634,87 @@ fn connect_ssh(
         });
 }
 
+fn show_password_popup_for_reconnect(
+    app: &mut AppState,
+    session: &crate::ssh_manager::SessionState,
+    error: Option<String>,
+) {
+    app.popups.ssh_password.is_visible = true;
+    app.popups.ssh_password.session_id = session.session_id.clone();
+    app.popups.ssh_password.host = session.host.clone();
+    app.popups.ssh_password.user = session.user.clone();
+    app.popups.ssh_password.error = error;
+    app.popups.ssh_password.password.clear();
+    app.popups.ssh_password.cursor_position = 0;
+}
+
+pub fn handle_reconnect_ssh(app: &mut AppState) {
+    let active_tab = app.active_tab();
+    let provider = &active_tab.provider;
+
+    if provider.is_local() {
+        return;
+    }
+
+    let context_key = provider.context_key();
+
+    let sessions = app.ssh_manager.get_all_sessions();
+    let session = sessions
+        .iter()
+        .find(|s| format!("[{}@{}]", s.user, s.host) == context_key);
+
+    if let Some(session) = session {
+        // Check if we have a cached password
+        if let Some(cached_password) = app.ssh_manager.get_cached_password(&session.session_id) {
+            // Try to reconnect with cached password
+            let ssh_manager = app.ssh_manager.clone();
+            let current_dir = app.active_tab().current_dir.clone();
+            let session_id = session.session_id.clone();
+            let password_for_cache = cached_password.clone();
+            let connection_name = app.active_tab().custom_title.clone();
+
+            app.task_manager.spawn_task(
+                "Reconnecting SSH session".to_string(),
+                move |_cancel, tx, id| async move {
+                    let result =
+                        ssh_manager.reconnect_session(&session_id, cached_password, |_op| async {
+                            Ok(())
+                        });
+
+                    match result.await {
+                        Ok((new_session_id, fs)) => {
+                            ssh_manager.clear_password(&session_id);
+                            ssh_manager.cache_password(&new_session_id, password_for_cache);
+                            let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Completed));
+                            let _ = tx.send(TaskEvent::SshReconnected(SshContext {
+                                provider: Arc::new(fs),
+                                path: Some(current_dir),
+                                name: connection_name,
+                            }));
+                        }
+                        Err(e) => {
+                            // Check if it's an authentication failure
+                            if e.to_string().contains("Authentication failed") {
+                                let _ = tx.send(TaskEvent::SshReconnectFailed(
+                                    session_id.clone(),
+                                    e.to_string(),
+                                ));
+                            }
+                            let _ = tx.send(TaskEvent::UpdateStatus(
+                                id,
+                                TaskStatus::Failed(format!("Reconnection failed: {}", e)),
+                            ));
+                        }
+                    }
+                },
+            );
+        } else {
+            // No cached password, show popup immediately
+            show_password_popup_for_reconnect(app, session, None);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -830,86 +911,5 @@ mod tests {
         assert_eq!(app.popups.ssh_password.host, "example.com");
         assert_eq!(app.popups.ssh_password.user, "testuser");
         assert!(app.popups.ssh_password.password.is_empty());
-    }
-}
-
-fn show_password_popup_for_reconnect(
-    app: &mut AppState,
-    session: &crate::ssh_manager::SessionState,
-    error: Option<String>,
-) {
-    app.popups.ssh_password.is_visible = true;
-    app.popups.ssh_password.session_id = session.session_id.clone();
-    app.popups.ssh_password.host = session.host.clone();
-    app.popups.ssh_password.user = session.user.clone();
-    app.popups.ssh_password.error = error;
-    app.popups.ssh_password.password.clear();
-    app.popups.ssh_password.cursor_position = 0;
-}
-
-pub fn handle_reconnect_ssh(app: &mut AppState) {
-    let active_tab = app.active_tab();
-    let provider = &active_tab.provider;
-
-    if provider.is_local() {
-        return;
-    }
-
-    let context_key = provider.context_key();
-
-    let sessions = app.ssh_manager.get_all_sessions();
-    let session = sessions
-        .iter()
-        .find(|s| format!("[{}@{}]", s.user, s.host) == context_key);
-
-    if let Some(session) = session {
-        // Check if we have a cached password
-        if let Some(cached_password) = app.ssh_manager.get_cached_password(&session.session_id) {
-            // Try to reconnect with cached password
-            let ssh_manager = app.ssh_manager.clone();
-            let current_dir = app.active_tab().current_dir.clone();
-            let session_id = session.session_id.clone();
-            let password_for_cache = cached_password.clone();
-            let connection_name = app.active_tab().custom_title.clone();
-
-            app.task_manager.spawn_task(
-                "Reconnecting SSH session".to_string(),
-                move |_cancel, tx, id| async move {
-                    let result =
-                        ssh_manager.reconnect_session(&session_id, cached_password, |_op| async {
-                            Ok(())
-                        });
-
-                    match result.await {
-                        Ok((new_session_id, fs)) => {
-                            ssh_manager.clear_password(&session_id);
-                            ssh_manager.cache_password(&new_session_id, password_for_cache);
-                            let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Completed));
-                            let _ = tx.send(TaskEvent::SshReconnected(SshContext {
-                                provider: Arc::new(fs),
-                                path: Some(current_dir),
-                                name: connection_name,
-                            }));
-                        }
-                        Err(e) => {
-                            // Check if it's an authentication failure
-                            if e.to_string().contains("Authentication failed") {
-                                let _ = tx.send(TaskEvent::SshReconnectFailed(
-                                    session_id.clone(),
-                                    e.to_string(),
-                                ));
-                            }
-                            let _ = tx.send(TaskEvent::UpdateStatus(
-                                id,
-                                TaskStatus::Failed(format!("Reconnection failed: {}", e)),
-                            ));
-                        }
-                    }
-                },
-            );
-        } else {
-            // No cached password, show popup immediately
-            show_password_popup_for_reconnect(app, session, None);
-        }
     }
 }

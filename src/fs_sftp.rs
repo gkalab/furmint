@@ -613,7 +613,7 @@ mod tests {
                 .lock()
                 .map_err(|e| format!("Session mutex poisoned: {}", e))?;
             let sftp = session.sftp()?;
-            f(&sftp)
+            f(sftp)
         }
 
         // Adapters for trait logic
@@ -651,7 +651,7 @@ mod tests {
 
         #[allow(dead_code)]
         fn get_permissions(&self, path: &std::path::Path) -> Option<u32> {
-            self.with_sftp(|sftp| Ok(sftp.stat(path).ok().and_then(|stat| Some(stat.perms))))
+            self.with_sftp(|sftp| Ok(sftp.stat(path).ok().map(|stat| stat.perms)))
                 .unwrap_or(None)
         }
 
