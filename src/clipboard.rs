@@ -63,8 +63,8 @@ pub mod win_clipboard {
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
     use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL};
     use windows::Win32::System::DataExchange::{
-        CLIPBOARD_FORMAT, CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard,
-        RegisterClipboardFormatW, SetClipboardData,
+        CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, RegisterClipboardFormatW,
+        SetClipboardData,
     };
     use windows::Win32::System::Memory::{
         GMEM_MOVEABLE, GMEM_ZEROINIT, GlobalAlloc, GlobalLock, GlobalUnlock,
@@ -72,7 +72,7 @@ pub mod win_clipboard {
     use windows::Win32::UI::Shell::{DragQueryFileW, HDROP};
     use windows::core::w;
 
-    const CF_HDROP: CLIPBOARD_FORMAT = CLIPBOARD_FORMAT(15);
+    const CF_HDROP: u32 = 15;
 
     const DROPEFFECT_COPY: u32 = 1;
     const DROPEFFECT_MOVE: u32 = 2;
@@ -159,7 +159,7 @@ pub mod win_clipboard {
         let ptr = unsafe { GlobalLock(hglobal) };
         if ptr.is_null() {
             unsafe {
-                let _ = GlobalFree(hglobal);
+                let _ = GlobalFree(Some(hglobal));
             };
             anyhow::bail!("GlobalLock failed");
         }
@@ -193,7 +193,7 @@ pub mod win_clipboard {
 
                 let buf = paths_to_dropfiles_buffer(&data.paths);
                 let hglobal = alloc_global_from_bytes(&buf)?;
-                let _ = unsafe { SetClipboardData(CF_HDROP.0, Some(HANDLE(hglobal as *mut _))) };
+                let _ = unsafe { SetClipboardData(CF_HDROP, Some(HANDLE(hglobal as *mut _))) };
 
                 let format = RegisterClipboardFormatW(w!("Preferred DropEffect"));
                 if format != 0 {
@@ -228,7 +228,7 @@ pub mod win_clipboard {
                     return Ok(None);
                 }
 
-                let hdrop_data = unsafe { GetClipboardData(CF_HDROP.0) };
+                let hdrop_data = unsafe { GetClipboardData(CF_HDROP) };
                 if hdrop_data.is_err() {
                     let _ = unsafe { CloseClipboard() };
                     return Ok(None);
