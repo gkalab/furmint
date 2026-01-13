@@ -56,11 +56,11 @@ pub mod unix_clipboard {
 
 #[cfg(target_os = "windows")]
 pub mod win_clipboard {
-    use super::*;
     use anyhow::Context;
     use std::ffi::OsStr;
     use std::iter;
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use std::sync::{Arc, Mutex};
     use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL};
     use windows::Win32::System::DataExchange::{
         CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, RegisterClipboardFormatW,
@@ -77,11 +77,15 @@ pub mod win_clipboard {
     const DROPEFFECT_COPY: u32 = 1;
     const DROPEFFECT_MOVE: u32 = 2;
 
-    pub struct WindowsFileClipboard;
+    pub struct WindowsFileClipboard {
+        cache: Arc<Mutex<Option<FileClipboardData>>>,
+    }
 
     impl WindowsFileClipboard {
         pub fn new() -> Self {
-            Self
+            Self {
+                cache: Arc::new(Mutex::new(None)),
+            }
         }
     }
 
@@ -148,26 +152,22 @@ pub mod win_clipboard {
     }
 
     unsafe fn alloc_global_from_bytes(bytes: &[u8]) -> anyhow::Result<isize> {
-        let hglobal = unsafe {
-            GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, bytes.len())
-                .map_err(|e| anyhow::anyhow!("GlobalAlloc failed: {}", e))?
-        };
+        let hglobal = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, bytes.len())
+            .map_err(|e| anyhow::anyhow!("GlobalAlloc failed: {}", e))?;
+
         if hglobal.0.is_null() {
             anyhow::bail!("GlobalAlloc failed");
         }
 
-        let ptr = unsafe { GlobalLock(hglobal) };
+        let ptr = GlobalLock(hglobal);
         if ptr.is_null() {
-            unsafe {
-                let _ = GlobalFree(Some(hglobal));
-            };
+            let _ = GlobalFree(Some(hglobal));
             anyhow::bail!("GlobalLock failed");
         }
 
-        unsafe {
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr as *mut u8, bytes.len());
-            let _ = GlobalUnlock(hglobal);
-        }
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr as *mut u8, bytes.len());
+        let _ = GlobalUnlock(hglobal);
+
         Ok(hglobal.0 as isize)
     }
 
@@ -176,24 +176,27 @@ pub mod win_clipboard {
             return None;
         }
         let h = HGLOBAL(hglobal as *mut _);
-        let ptr = unsafe { GlobalLock(h) };
+        let ptr = GlobalLock(h);
         if ptr.is_null() {
             return None;
         }
-        let value = unsafe { *(ptr as *const u32) };
-        let _ = unsafe { GlobalUnlock(h) };
+        let value = *(ptr as *const u32);
+        let _ = GlobalUnlock(h);
         Some(value)
     }
 
     impl FileClipboard for WindowsFileClipboard {
         fn set(&mut self, data: FileClipboardData) -> anyhow::Result<()> {
+            // Update in-process cache
+            *self.cache.lock().unwrap() = Some(data.clone());
+
             unsafe {
                 OpenClipboard(None).context("OpenClipboard failed")?;
                 let _res = EmptyClipboard();
 
                 let buf = paths_to_dropfiles_buffer(&data.paths);
                 let hglobal = alloc_global_from_bytes(&buf)?;
-                let _ = unsafe { SetClipboardData(CF_HDROP, Some(HANDLE(hglobal as *mut _))) };
+                let _ = SetClipboardData(CF_HDROP, Some(HANDLE(hglobal as *mut _)));
 
                 let format = RegisterClipboardFormatW(w!("Preferred DropEffect"));
                 if format != 0 {
@@ -205,14 +208,11 @@ pub mod win_clipboard {
                             })?;
 
                     if !hglobal_effect.0.is_null() {
-                        let ptr = unsafe { GlobalLock(hglobal_effect) };
+                        let ptr = GlobalLock(hglobal_effect);
                         if !ptr.is_null() {
-                            unsafe {
-                                *(ptr as *mut u32) = effect;
-                            };
-                            let _ = unsafe { GlobalUnlock(hglobal_effect) };
-                            let _ =
-                                unsafe { SetClipboardData(format, Some(HANDLE(hglobal_effect.0))) };
+                            *(ptr as *mut u32) = effect;
+                            let _ = GlobalUnlock(hglobal_effect);
+                            let _ = SetClipboardData(format, Some(HANDLE(hglobal_effect.0)));
                         }
                     }
                 }
@@ -228,14 +228,14 @@ pub mod win_clipboard {
                     return Ok(None);
                 }
 
-                let hdrop_data = unsafe { GetClipboardData(CF_HDROP) };
+                let hdrop_data = GetClipboardData(CF_HDROP);
                 if hdrop_data.is_err() {
-                    let _ = unsafe { CloseClipboard() };
+                    let _ = CloseClipboard();
                     return Ok(None);
                 }
                 let hdrop = hdrop_data.unwrap();
 
-                let count = unsafe { DragQueryFileW(HDROP(hdrop.0 as *mut _), 0xFFFFFFFF, None) };
+                let count = DragQueryFileW(HDROP(hdrop.0 as *mut _), 0xFFFFFFFF, None);
                 if count == 0 {
                     let _ = CloseClipboard();
                     return Ok(None);
@@ -243,13 +243,12 @@ pub mod win_clipboard {
 
                 let mut paths = Vec::new();
                 for i in 0..count {
-                    let len = unsafe { DragQueryFileW(HDROP(hdrop.0 as *mut _), i, None) };
+                    let len = DragQueryFileW(HDROP(hdrop.0 as *mut _), i, None);
                     if len == 0 {
                         continue;
                     }
                     let mut buf: Vec<u16> = iter::repeat(0).take(len as usize + 1).collect();
-                    let written =
-                        unsafe { DragQueryFileW(HDROP(hdrop.0 as *mut _), i, Some(&mut buf)) };
+                    let written = DragQueryFileW(HDROP(hdrop.0 as *mut _), i, Some(&mut buf));
                     if written == 0 {
                         continue;
                     }
@@ -274,6 +273,28 @@ pub mod win_clipboard {
 
                 let _ = CloseClipboard();
 
+                // Check cache first
+                if let Some(cache_data) = self.cache.lock().unwrap().clone() {
+                    // Simple heuristic: if the number of paths matches, and the first path matches,
+                    // we assume it's the same data and prefer the cache (preserving provider/remote paths).
+                    if cache_data.paths.len() == paths.len() {
+                        if paths.is_empty() {
+                            return Ok(Some(cache_data));
+                        }
+                        if let (Some(c_first), Some(p_first)) =
+                            (cache_data.paths.get(0), paths.get(0))
+                        {
+                            // On Windows, compare string representations ignoring case/separators if needed
+                            // but usually direct PathBuf comparison or string comparison is enough for equality check.
+                            if c_first.to_string_lossy().to_lowercase().replace("/", "\\")
+                                == p_first.to_string_lossy().to_lowercase().replace("/", "\\")
+                            {
+                                return Ok(Some(cache_data));
+                            }
+                        }
+                    }
+                }
+
                 if paths.is_empty() {
                     Ok(None)
                 } else {
@@ -287,6 +308,7 @@ pub mod win_clipboard {
         }
 
         fn clear(&mut self) -> anyhow::Result<()> {
+            *self.cache.lock().unwrap() = None;
             unsafe {
                 OpenClipboard(None).context("OpenClipboard failed")?;
                 let _res = EmptyClipboard();
