@@ -150,5 +150,10 @@ For future work:
 - Add more tests and documentation as features grow.
 - Consider further UI/UX improvements and performance profiling as needed.
 
+### Clipboard functionality
+
+#### Known Limitations on Windows
+* Remote paths to Explorer: Direct "Paste" into Windows Explorer for remote files (SSH) currently does nothing because Explorer requires actual local file paths.
+
 ### TODO
 - Refactoring
