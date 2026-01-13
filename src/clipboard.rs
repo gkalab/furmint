@@ -18,6 +18,7 @@ pub struct FileClipboardData {
 pub trait FileClipboard: Send {
     fn set(&mut self, data: FileClipboardData) -> anyhow::Result<()>;
     fn get(&mut self) -> anyhow::Result<Option<FileClipboardData>>;
+    fn clear(&mut self) -> anyhow::Result<()>;
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -45,6 +46,11 @@ pub mod unix_clipboard {
         fn get(&mut self) -> anyhow::Result<Option<FileClipboardData>> {
             Ok(self.inner.lock().unwrap().clone())
         }
+
+        fn clear(&mut self) -> anyhow::Result<()> {
+            *self.inner.lock().unwrap() = None;
+            Ok(())
+        }
     }
 }
 
@@ -54,8 +60,8 @@ pub mod win_clipboard {
     use anyhow::Context;
     use std::ffi::OsStr;
     use std::iter;
-    use std::os::windows::ffi::OsStrExt;
-    use windows::Win32::Foundation::{BOOL, HWND};
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use windows::Win32::Foundation::{HANDLE, HWND};
     use windows::Win32::System::DataExchange::*;
     use windows::Win32::System::Memory::*;
     use windows::Win32::UI::Shell::*;
@@ -105,16 +111,16 @@ pub mod win_clipboard {
             p_files: u32,
             pt_x: i32,
             pt_y: i32,
-            f_nc: BOOL,
-            f_wide: BOOL,
+            f_nc: i32,   // Replacing BOOL (4 bytes) with i32
+            f_wide: i32, // Replacing BOOL (4 bytes) with i32
         }
 
         let header = DROPFILES {
             p_files: std::mem::size_of::<DROPFILES>() as u32,
             pt_x: 0,
             pt_y: 0,
-            f_nc: BOOL(0),
-            f_wide: BOOL(1),
+            f_nc: 0,
+            f_wide: 1,
         };
 
         let mut buf = Vec::with_capacity(std::mem::size_of::<DROPFILES>() + wide.len() * 2);
@@ -137,7 +143,7 @@ pub mod win_clipboard {
     unsafe fn alloc_global_from_bytes(bytes: &[u8]) -> anyhow::Result<isize> {
         let hglobal = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, bytes.len())
             .map_err(|e| anyhow::anyhow!("GlobalAlloc failed: {}", e))?;
-        if hglobal.is_invalid() {
+        if hglobal.0.is_null() {
             anyhow::bail!("GlobalAlloc failed");
         }
 
@@ -157,7 +163,7 @@ pub mod win_clipboard {
         if hglobal == 0 {
             return None;
         }
-        let h = HGLOBAL(hglobal as *mut _);
+        let h = HANDLE(hglobal as *mut _);
         let ptr = GlobalLock(h);
         if ptr.is_null() {
             return None;
@@ -170,12 +176,12 @@ pub mod win_clipboard {
     impl FileClipboard for WindowsFileClipboard {
         fn set(&mut self, data: FileClipboardData) -> anyhow::Result<()> {
             unsafe {
-                OpenClipboard(HWND(std::ptr::null_mut())).context("OpenClipboard failed")?;
+                OpenClipboard(None).context("OpenClipboard failed")?;
                 let _res = EmptyClipboard();
 
                 let buf = paths_to_dropfiles_buffer(&data.paths);
                 let hglobal = alloc_global_from_bytes(&buf)?;
-                let _ = SetClipboardData(CF_HDROP.0 as u32, HGLOBAL(hglobal as *mut _));
+                let _ = SetClipboardData(CF_HDROP.0, Some(HANDLE(hglobal as *mut _)));
 
                 let format = RegisterClipboardFormatW(w!("Preferred DropEffect"));
                 if format != 0 {
@@ -186,12 +192,12 @@ pub mod win_clipboard {
                                 anyhow::anyhow!("GlobalAlloc for DropEffect failed: {}", e)
                             })?;
 
-                    if !hglobal_effect.is_invalid() {
+                    if !hglobal_effect.0.is_null() {
                         let ptr = GlobalLock(hglobal_effect);
                         if !ptr.is_null() {
                             *(ptr as *mut u32) = effect;
                             let _ = GlobalUnlock(hglobal_effect);
-                            let _ = SetClipboardData(format, hglobal_effect);
+                            let _ = SetClipboardData(format, Some(hglobal_effect));
                         }
                     }
                 }
@@ -203,11 +209,11 @@ pub mod win_clipboard {
 
         fn get(&mut self) -> anyhow::Result<Option<FileClipboardData>> {
             unsafe {
-                if OpenClipboard(HWND(std::ptr::null_mut())).is_err() {
+                if OpenClipboard(None).is_err() {
                     return Ok(None);
                 }
 
-                let hdrop_data = GetClipboardData(CF_HDROP.0 as u32);
+                let hdrop_data = GetClipboardData(CF_HDROP.0);
                 if hdrop_data.is_err() {
                     let _ = CloseClipboard();
                     return Ok(None);
@@ -234,7 +240,7 @@ pub mod win_clipboard {
                     if let Some(pos) = buf.iter().position(|&c| c == 0) {
                         buf.truncate(pos);
                     }
-                    let os_str = std::os::windows::ffi::OsStrExt::from_wide(&buf);
+                    let os_str = std::ffi::OsString::from_wide(&buf);
                     paths.push(PathBuf::from(os_str));
                 }
 
@@ -262,6 +268,15 @@ pub mod win_clipboard {
                     }))
                 }
             }
+        }
+
+        fn clear(&mut self) -> anyhow::Result<()> {
+            unsafe {
+                OpenClipboard(None).context("OpenClipboard failed")?;
+                let _res = EmptyClipboard();
+                CloseClipboard().context("CloseClipboard failed")?;
+            }
+            Ok(())
         }
     }
 }
@@ -302,6 +317,15 @@ impl FileClipboard for ClipboardBackend {
             ClipboardBackend::Windows(c) => c.get(),
             #[cfg(any(target_os = "linux", target_os = "macos"))]
             ClipboardBackend::Unix(c) => c.get(),
+        }
+    }
+
+    fn clear(&mut self) -> anyhow::Result<()> {
+        match self {
+            #[cfg(target_os = "windows")]
+            ClipboardBackend::Windows(c) => c.clear(),
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            ClipboardBackend::Unix(c) => c.clear(),
         }
     }
 }

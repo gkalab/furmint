@@ -105,15 +105,50 @@ pub fn handle_paste(app: &mut AppState) {
             crate::clipboard::FileClipboardAction::Cut => CopyMoveAction::Move,
         };
 
-        let dest_str = app.active_tab().current_dir.to_string_lossy().to_string();
+        let dest_provider = app.active_tab().provider.clone();
+        let dest_path = app.active_tab().current_dir.clone();
+
+        // Validation for local providers
+        if data.source_provider.is_local() && dest_provider.is_local() {
+            for src in &data.paths {
+                if let Ok(src_abs) = src.canonicalize() {
+                    if let Ok(dest_abs) = dest_path.canonicalize() {
+                        if src_abs == dest_abs {
+                            app.active_tab_mut().error =
+                                Some("Cannot copy/move source into itself".to_string());
+                            return;
+                        }
+                        if dest_abs.starts_with(&src_abs) {
+                            app.active_tab_mut().error =
+                                Some("Cannot copy/move into subdirectory of itself".to_string());
+                            return;
+                        }
+                        if let Some(file_name) = src_abs.file_name() {
+                            let effective_dest = dest_abs.join(file_name);
+                            if effective_dest == src_abs {
+                                app.active_tab_mut().error =
+                                    Some("Source and destination are the same".to_string());
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let dest_str = dest_path.to_string_lossy().to_string();
         spawn_copy_move_task(
             app,
             data.source_provider,
-            app.active_tab().provider.clone(),
-            data.paths,
+            dest_provider,
+            data.paths.clone(),
             dest_str,
             action,
         );
+
+        if data.action == crate::clipboard::FileClipboardAction::Cut {
+            let _ = app.clipboard.clear();
+        }
     }
 }
 
@@ -649,5 +684,64 @@ mod popup_copy_move_unit_tests {
         );
 
         std::fs::remove_dir_all(&src_dir).ok();
+    }
+
+    #[tokio::test]
+    async fn test_handle_paste_validation_same_path() {
+        let temp_dir = std::env::temp_dir().canonicalize().unwrap();
+        let file_path = temp_dir.join("test_file_paste_val.txt");
+        std::fs::File::create(&file_path).unwrap();
+
+        let mut app = minimal_state_with_entries(PanelSide::Left, vec![], vec![], 0, 0);
+        app.left.active_tab_mut().current_dir = temp_dir.clone();
+
+        let data = crate::clipboard::FileClipboardData {
+            action: crate::clipboard::FileClipboardAction::Copy,
+            paths: vec![file_path.clone()],
+            source_provider: Arc::new(LocalFs::new()),
+        };
+        app.clipboard.set(data).unwrap();
+
+        handle_paste(&mut app);
+
+        assert!(app.left.active_tab().error.is_some());
+        assert!(
+            app.left
+                .active_tab()
+                .error
+                .as_ref()
+                .unwrap()
+                .contains("same")
+        );
+
+        std::fs::remove_file(&file_path).ok();
+    }
+
+    #[tokio::test]
+    async fn test_handle_paste_clears_clipboard_on_move() {
+        let temp_dir = std::env::temp_dir().canonicalize().unwrap();
+        let src_file = temp_dir.join("test_paste_clear_src.txt");
+        std::fs::File::create(&src_file).unwrap();
+
+        let mut app = minimal_state_with_entries(PanelSide::Left, vec![], vec![], 0, 0);
+        // Navigate to different dir to pass path validation
+        let dest_dir = temp_dir.join("test_paste_clear_dest");
+        std::fs::create_dir_all(&dest_dir).unwrap();
+        app.left.active_tab_mut().current_dir = dest_dir.clone();
+
+        let data = crate::clipboard::FileClipboardData {
+            action: crate::clipboard::FileClipboardAction::Cut,
+            paths: vec![src_file.clone()],
+            source_provider: Arc::new(LocalFs::new()),
+        };
+        app.clipboard.set(data).unwrap();
+
+        handle_paste(&mut app);
+
+        // Clipboard should be empty now
+        assert!(app.clipboard.get().unwrap().is_none());
+
+        std::fs::remove_file(&src_file).ok();
+        std::fs::remove_dir_all(&dest_dir).ok();
     }
 }
