@@ -59,7 +59,7 @@ pub mod win_clipboard {
     use super::*;
     use anyhow::Context;
     use std::ffi::OsStr;
-    
+
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
@@ -317,10 +317,11 @@ pub mod win_clipboard {
                     let format = RegisterClipboardFormatW(w!("Preferred DropEffect"));
                     if format != 0
                         && let Ok(hmem) = GetClipboardData(format)
-                            && let Some(effect) = read_u32_from_hglobal(hmem.0 as isize)
-                                && let Some(a) = from_drop_effect(effect) {
-                                    action = a;
-                                }
+                        && let Some(effect) = read_u32_from_hglobal(hmem.0 as isize)
+                        && let Some(a) = from_drop_effect(effect)
+                    {
+                        action = a;
+                    }
                 }
             }
 
@@ -332,13 +333,20 @@ pub mod win_clipboard {
                     if paths.is_empty() {
                         return Ok(Some(cache_data));
                     }
-                    if let (Some(c_first), Some(p_first)) = (cache_data.paths.first(), paths.first())
+                    if let (Some(c_first), Some(p_first)) =
+                        (cache_data.paths.first(), paths.first())
                     {
                         let c_str = c_first.to_string_lossy().to_lowercase().replace("/", "\\");
                         let p_str = p_first.to_string_lossy().to_lowercase().replace("/", "\\");
                         let c_norm = c_str.strip_prefix(r"\\?\").unwrap_or(&c_str);
                         let p_norm = p_str.strip_prefix(r"\\?\").unwrap_or(&p_str);
-                        if c_norm == p_norm {
+
+                        // On Windows, OS might prepend drive letters (C:\) to relative-looking remote paths.
+                        // We check if either one is a suffix of the other (normalized).
+                        if c_norm == p_norm
+                            || (c_norm.len() > 2 && p_norm.ends_with(c_norm))
+                            || (p_norm.len() > 2 && c_norm.ends_with(p_norm))
+                        {
                             return Ok(Some(cache_data));
                         }
                     }

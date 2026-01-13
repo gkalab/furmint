@@ -123,11 +123,11 @@ pub fn handle_paste(app: &mut AppState) {
         let dest_provider = app.active_tab().provider.clone();
         let dest_path = app.active_tab().current_dir.clone();
 
-        // Validation for local providers
-        if data.source_provider.is_local() && dest_provider.is_local() {
+        // Provider-aware validation
+        if data.source_provider.context_key() == dest_provider.context_key() {
             for src in &data.paths {
-                if let Ok(src_abs) = src.canonicalize()
-                    && let Ok(dest_abs) = dest_path.canonicalize()
+                if let Ok(src_abs) = data.source_provider.canonicalize(src)
+                    && let Ok(dest_abs) = dest_provider.canonicalize(&dest_path)
                 {
                     let s_src = src_abs.to_string_lossy();
                     let s_dest = dest_abs.to_string_lossy();
@@ -222,33 +222,39 @@ pub fn handle_copy_move_event(code: KeyCode, modifiers: KeyModifiers, app: &mut 
                 if let Ok(p) = dest_path.canonicalize() {
                     p
                 } else if dest_path.is_absolute() {
-                    dest_path
+                    dest_path.clone()
                 } else {
                     app.active_tab().current_dir.join(&dest_path)
                 }
             } else {
                 // For remote, treat as absolute Unix path
-                dest_path
+                dest_path.clone()
             };
             app.popups.copy_move.destination_input = dest_abs.to_string_lossy().to_string();
-            for src in &app.popups.copy_move.source_paths {
-                if let Ok(src_abs) = src.canonicalize() {
-                    if src_abs == dest_abs {
-                        app.popups.copy_move.error =
-                            Some("Cannot copy/move source into itself".to_string());
-                        return false;
-                    }
-                    if dest_abs.starts_with(&src_abs) {
-                        app.popups.copy_move.error =
-                            Some("Cannot copy/move into subdirectory of itself".to_string());
-                        return false;
-                    }
-                    if let Some(file_name) = src_abs.file_name() {
-                        let effective_dest = dest_abs.join(file_name);
-                        if effective_dest == src_abs {
-                            app.popups.copy_move.error =
-                                Some("Source and destination are the same".to_string());
-                            return false;
+            let src_provider = app.active_tab().provider.clone();
+            if src_provider.context_key() == dest_provider.context_key() {
+                if let Ok(dest_abs) = dest_provider.canonicalize(&dest_path) {
+                    for src in &app.popups.copy_move.source_paths {
+                        if let Ok(src_abs) = src_provider.canonicalize(src) {
+                            if src_abs == dest_abs {
+                                app.popups.copy_move.error =
+                                    Some("Cannot copy/move source into itself".to_string());
+                                return false;
+                            }
+                            if dest_abs.starts_with(&src_abs) {
+                                app.popups.copy_move.error = Some(
+                                    "Cannot copy/move into subdirectory of itself".to_string(),
+                                );
+                                return false;
+                            }
+                            if let Some(file_name) = src_abs.file_name() {
+                                let effective_dest = dest_abs.join(file_name);
+                                if effective_dest == src_abs {
+                                    app.popups.copy_move.error =
+                                        Some("Source and destination are the same".to_string());
+                                    return false;
+                                }
+                            }
                         }
                     }
                 }
