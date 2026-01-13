@@ -282,7 +282,7 @@ pub mod win_clipboard {
             if let Ok(_guard) = ClipboardGuard::open() {
                 unsafe {
                     // ifs must not be collapsed
-                    #[allow(clippy::collapsible_if)] 
+                    #[allow(clippy::collapsible_if)]
                     if let Ok(h) = GetClipboardData(CF_HDROP) {
                         if !h.0.is_null() {
                             let hdrop = HDROP(h.0 as *mut _);
