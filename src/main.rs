@@ -1,5 +1,6 @@
 mod app;
 pub mod app_state;
+mod clipboard;
 mod config;
 mod conflict_ui;
 mod copy_move_ui;

@@ -61,6 +61,7 @@ mod tests {
             viewer_cfg: crate::config::ViewerConfig::default(),
             ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
             ssh_manager: std::sync::Arc::new(crate::ssh_manager::SshManager::default()),
+            clipboard: Box::new(crate::clipboard::ClipboardBackend::new()),
         };
         app.popups.conflict.is_visible = true;
         app.popups.conflict.task_id = task_id;

@@ -1,4 +1,5 @@
 pub use crate::app_state::tabs::{PanelSide, PersistentTab, SortColumn, Tab, TabManager};
+use crate::clipboard::{ClipboardBackend, FileClipboard};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -72,6 +73,7 @@ pub struct AppState {
     pub editor_cfg: crate::config::EditorConfig,
     pub viewer_cfg: crate::config::ViewerConfig,
     pub ssh_history: crate::ssh_history::SshConnectionHistory,
+    pub clipboard: Box<dyn FileClipboard + Send>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -131,6 +133,7 @@ impl AppState {
             editor_cfg: ctx.editor_cfg,
             viewer_cfg: ctx.viewer_cfg,
             ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
+            clipboard: Box::new(ClipboardBackend::new()),
         }
     }
 

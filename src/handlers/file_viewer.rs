@@ -115,6 +115,7 @@ mod tests {
             editor_cfg: crate::config::EditorConfig::default(),
             viewer_cfg: crate::config::ViewerConfig::default(),
             ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
+            clipboard: Box::new(crate::clipboard::ClipboardBackend::new()),
         };
         // Populate content lines
         app.file_viewer.content = vec!["line".to_string(); file_lines];

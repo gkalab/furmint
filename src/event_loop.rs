@@ -623,6 +623,20 @@ async fn handle_main_panel_event(
         return false;
     }
 
+    // Clipboard handlers
+    if code == KeyCode::Char('c') && modifiers.contains(KeyModifiers::CONTROL) {
+        crate::handlers::popup_copy_move::handle_clipboard_copy(app);
+        return false;
+    }
+    if code == KeyCode::Char('x') && modifiers.contains(KeyModifiers::CONTROL) {
+        crate::handlers::popup_copy_move::handle_clipboard_cut(app);
+        return false;
+    }
+    if code == KeyCode::Char('v') && modifiers.contains(KeyModifiers::CONTROL) {
+        crate::handlers::popup_copy_move::handle_paste(app);
+        return false;
+    }
+
     // Previous directory from history
     if let Some(keys) = &keyboard.back
         && keys.contains(&shortcut)
@@ -1032,6 +1046,7 @@ mod tests {
             editor_cfg: crate::config::EditorConfig::default(),
             viewer_cfg: crate::config::ViewerConfig::default(),
             ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
+            clipboard: Box::new(crate::clipboard::ClipboardBackend::new()),
         };
         let paths = vec![std::path::PathBuf::from("/mock")];
         let event = WatcherEvent::FileSystemChange(paths);
@@ -1110,6 +1125,7 @@ mod tests {
             editor_cfg: crate::config::EditorConfig::default(),
             viewer_cfg: crate::config::ViewerConfig::default(),
             ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
+            clipboard: Box::new(crate::clipboard::ClipboardBackend::new()),
         };
 
         // Note: we need to mock list_dir or ensure it returns what we expect.
@@ -1208,6 +1224,7 @@ mod tests {
             editor_cfg: crate::config::EditorConfig::default(),
             viewer_cfg: crate::config::ViewerConfig::default(),
             ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
+            clipboard: Box::new(crate::clipboard::ClipboardBackend::new()),
         };
         let event = WatcherEvent::Error("test error".to_string());
         super::handle_watcher_event(event, &mut app);
@@ -1294,6 +1311,7 @@ mod tests {
             editor_cfg: crate::config::EditorConfig::default(),
             viewer_cfg: crate::config::ViewerConfig::default(),
             ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
+            clipboard: Box::new(crate::clipboard::ClipboardBackend::new()),
         };
 
         let keyboard = KeyboardConfig::default();

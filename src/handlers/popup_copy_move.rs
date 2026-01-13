@@ -1,9 +1,13 @@
 //! Copy/move popup handler and spawning logic
 
 use crate::app::AppState;
+use crate::clipboard::FileClipboardData;
+use crate::fs_provider::FileSystemProvider;
 use crate::handlers::clipboard_utils::{get_clipboard_content, insert_text_at_cursor};
+use crate::state::CopyMoveAction;
 use crossterm::event::{KeyCode, KeyModifiers};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 pub fn handle_init_copy(app: &mut AppState) {
     init_copy_move(app, crate::app::CopyMoveAction::Copy);
@@ -49,6 +53,68 @@ pub fn init_copy_move(app: &mut AppState, action: crate::app::CopyMoveAction) {
     app.popups.copy_move.cursor_position = app.popups.copy_move.destination_input.len();
     app.popups.copy_move.input_selected = false;
     app.popups.copy_move.is_visible = true;
+}
+
+pub fn handle_clipboard_copy(app: &mut AppState) {
+    handle_clipboard_action(app, crate::clipboard::FileClipboardAction::Copy);
+}
+
+pub fn handle_clipboard_cut(app: &mut AppState) {
+    handle_clipboard_action(app, crate::clipboard::FileClipboardAction::Cut);
+}
+
+fn handle_clipboard_action(app: &mut AppState, action: crate::clipboard::FileClipboardAction) {
+    let tab = app.active_tab();
+    let selected: Vec<_> = tab
+        .get_selected_entries()
+        .iter()
+        .map(|e| tab.current_dir.join(&e.name))
+        .collect();
+
+    let paths = if selected.is_empty() {
+        if let Some(entry) = tab.current_entry() {
+            if entry.name == ".." {
+                vec![]
+            } else {
+                vec![tab.current_dir.join(&entry.name)]
+            }
+        } else {
+            vec![]
+        }
+    } else {
+        selected
+    };
+
+    if paths.is_empty() {
+        return;
+    }
+
+    let data = FileClipboardData {
+        action,
+        paths,
+        source_provider: tab.provider.clone(),
+    };
+
+    let _ = app.clipboard.set(data);
+}
+
+pub fn handle_paste(app: &mut AppState) {
+    if let Ok(Some(data)) = app.clipboard.get() {
+        let action = match data.action {
+            crate::clipboard::FileClipboardAction::Copy => CopyMoveAction::Copy,
+            crate::clipboard::FileClipboardAction::Cut => CopyMoveAction::Move,
+        };
+
+        let dest_str = app.active_tab().current_dir.to_string_lossy().to_string();
+        spawn_copy_move_task(
+            app,
+            data.source_provider,
+            app.active_tab().provider.clone(),
+            data.paths,
+            dest_str,
+            action,
+        );
+    }
 }
 
 pub fn handle_copy_move_event(code: KeyCode, modifiers: KeyModifiers, app: &mut AppState) -> bool {
@@ -108,7 +174,15 @@ pub fn handle_copy_move_event(code: KeyCode, modifiers: KeyModifiers, app: &mut 
                     }
                 }
             }
-            spawn_copy_move_task(app);
+
+            spawn_copy_move_task(
+                app,
+                app.active_tab().provider.clone(),
+                app.inactive_tab().provider.clone(),
+                app.popups.copy_move.source_paths.clone(),
+                app.popups.copy_move.destination_input.clone(),
+                app.popups.copy_move.action,
+            );
             app.popups.copy_move.reset();
         }
         KeyCode::Char('v') if modifiers.contains(KeyModifiers::CONTROL) => {
@@ -166,17 +240,17 @@ pub fn handle_copy_move_event(code: KeyCode, modifiers: KeyModifiers, app: &mut 
     false
 }
 
-pub fn spawn_copy_move_task(app: &mut AppState) {
-    let paths = app.popups.copy_move.source_paths.clone();
-    let dest_str = app.popups.copy_move.destination_input.clone();
-    let action = app.popups.copy_move.action;
-
-    // Validate destination
-    let dest_path = std::path::PathBuf::from(&dest_str);
-
+pub fn spawn_copy_move_task(
+    app: &mut AppState,
+    src_provider: Arc<dyn FileSystemProvider>,
+    dest_provider: Arc<dyn FileSystemProvider>,
+    paths: Vec<PathBuf>,
+    dest_str: String,
+    action: CopyMoveAction,
+) {
     let task_name = match action {
-        crate::app::CopyMoveAction::Copy => format!("Copying {} items", paths.len()),
-        crate::app::CopyMoveAction::Move => format!("Moving {} items", paths.len()),
+        CopyMoveAction::Copy => format!("Copying {} items", paths.len()),
+        CopyMoveAction::Move => format!("Moving {} items", paths.len()),
     };
 
     // Deselect files in active panel
@@ -192,14 +266,12 @@ pub fn spawn_copy_move_task(app: &mut AppState) {
     // Create channel for decisions
     let (decision_tx, decision_rx) = tokio::sync::mpsc::channel(1);
 
-    let src_provider = app.active_tab().provider.clone();
-    let dest_provider = app.inactive_tab().provider.clone();
-
     let id = app
         .task_manager
         .spawn_task(task_name, move |cancel, tx, id| async move {
             let src_fs = crate::handlers::file_ops::ProviderFileSystem(src_provider);
             let dest_fs = crate::handlers::file_ops::ProviderFileSystem(dest_provider);
+            let dest_path = std::path::PathBuf::from(&dest_str);
             // Pre-calculation of total items using the source filesystem
             let total_items = crate::handlers::file_ops::count_items(&src_fs, &paths).await;
             let processed_items = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -398,6 +470,7 @@ mod popup_copy_move_unit_tests {
             editor_cfg: crate::config::EditorConfig::default(),
             viewer_cfg: crate::config::ViewerConfig::default(),
             ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
+            clipboard: Box::new(crate::clipboard::ClipboardBackend::new()),
         }
     }
 
