@@ -149,7 +149,7 @@ pub fn handle_paste(app: &mut AppState) {
     }
 }
 
-/// Validates that source paths are não being copied/moved into themselves or subdirectories of themselves.
+/// Validates that source paths are not being copied/moved into themselves or subdirectories of themselves.
 /// Returns Some(error_message) if validation fails, None otherwise.
 fn validate_copy_move(
     src_paths: &[PathBuf],
