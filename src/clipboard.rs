@@ -278,49 +278,41 @@ pub mod win_clipboard {
             let mut paths = Vec::new();
             let mut action = FileClipboardAction::Copy;
 
-            {
-                // We use a small scope for the guard so it's closed before we return cache data
-                let _guard = match ClipboardGuard::open() {
-                    Ok(g) => g,
-                    Err(_) => return Ok(None),
-                };
-
+            // Try to read from OS clipboard first (may fail or be empty)
+            if let Ok(_guard) = ClipboardGuard::open() {
                 unsafe {
-                    let hdrop_handle = match GetClipboardData(CF_HDROP) {
-                        Ok(h) if !h.0.is_null() => h,
-                        _ => return Ok(None),
-                    };
-                    let hdrop = HDROP(hdrop_handle.0 as *mut _);
+                    if let Ok(h) = GetClipboardData(CF_HDROP) {
+                        if !h.0.is_null() {
+                            let hdrop = HDROP(h.0 as *mut _);
+                            let count = DragQueryFileW(hdrop, 0xFFFFFFFF, None);
 
-                    let count = DragQueryFileW(hdrop, 0xFFFFFFFF, None);
-                    if count == 0 {
-                        return Ok(None);
-                    }
+                            for i in 0..count {
+                                let len = DragQueryFileW(hdrop, i, None);
+                                if len == 0 {
+                                    continue;
+                                }
+                                let mut buf: Vec<u16> =
+                                    std::iter::repeat_n(0, len as usize + 1).collect();
+                                let written = DragQueryFileW(hdrop, i, Some(&mut buf));
+                                if written == 0 {
+                                    continue;
+                                }
+                                if let Some(pos) = buf.iter().position(|&c| c == 0) {
+                                    buf.truncate(pos);
+                                }
+                                let os_str = std::ffi::OsString::from_wide(&buf);
+                                paths.push(PathBuf::from(os_str));
+                            }
 
-                    for i in 0..count {
-                        let len = DragQueryFileW(hdrop, i, None);
-                        if len == 0 {
-                            continue;
+                            let format = RegisterClipboardFormatW(w!("Preferred DropEffect"));
+                            if format != 0
+                                && let Ok(hmem) = GetClipboardData(format)
+                                && let Some(effect) = read_u32_from_hglobal(hmem.0 as isize)
+                                && let Some(a) = from_drop_effect(effect)
+                            {
+                                action = a;
+                            }
                         }
-                        let mut buf: Vec<u16> = std::iter::repeat_n(0, len as usize + 1).collect();
-                        let written = DragQueryFileW(hdrop, i, Some(&mut buf));
-                        if written == 0 {
-                            continue;
-                        }
-                        if let Some(pos) = buf.iter().position(|&c| c == 0) {
-                            buf.truncate(pos);
-                        }
-                        let os_str = std::ffi::OsString::from_wide(&buf);
-                        paths.push(PathBuf::from(os_str));
-                    }
-
-                    let format = RegisterClipboardFormatW(w!("Preferred DropEffect"));
-                    if format != 0
-                        && let Ok(hmem) = GetClipboardData(format)
-                        && let Some(effect) = read_u32_from_hglobal(hmem.0 as isize)
-                        && let Some(a) = from_drop_effect(effect)
-                    {
-                        action = a;
                     }
                 }
             }
