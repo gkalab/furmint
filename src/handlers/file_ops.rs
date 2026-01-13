@@ -387,8 +387,8 @@ pub fn recursive_op<'a>(
                 }
                 WorkItem::Process { src, dest } => {
                     // Move optimization: Try rename first if it's a move operation and same FS
-                    // We don't have a good way to check "same FS" yet, so we'll try rename and see if it fails.
-                    if ctx.action == crate::app::CopyMoveAction::Move {
+                    let same_fs = ctx.src_fs.context_key() == ctx.dest_fs.context_key();
+                    if ctx.action == crate::app::CopyMoveAction::Move && same_fs {
                         let dest_exists = ctx.dest_fs.try_exists(&dest).await.unwrap_or(false);
                         if !dest_exists && ctx.src_fs.rename(&src, &dest).await.is_ok() {
                             // Successfully moved! Update progress and continue.

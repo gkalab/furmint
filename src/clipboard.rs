@@ -189,7 +189,9 @@ pub mod win_clipboard {
             return None;
         }
         let value = unsafe { *(ptr as *const u32) };
-        let _ = unsafe { GlobalUnlock(h) };
+        unsafe {
+            let _ = GlobalUnlock(h);
+        }
         Some(value)
     }
 
@@ -318,9 +320,10 @@ pub mod win_clipboard {
         fn clear(&mut self) -> anyhow::Result<()> {
             *self.cache.lock().unwrap() = None;
             unsafe {
-                OpenClipboard(None).context("OpenClipboard failed")?;
-                let _res = EmptyClipboard();
-                CloseClipboard().context("CloseClipboard failed")?;
+                if OpenClipboard(None).is_ok() {
+                    let _res = EmptyClipboard();
+                    let _ = CloseClipboard();
+                }
             }
             Ok(())
         }
