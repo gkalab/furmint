@@ -120,7 +120,7 @@ pub mod win_clipboard {
 
         #[repr(C)]
         #[derive(Clone, Copy)]
-        struct DROPFILES {
+        struct Dropfiles {
             p_files: u32,
             pt_x: i32,
             pt_y: i32,
@@ -128,20 +128,20 @@ pub mod win_clipboard {
             f_wide: i32, // Replacing BOOL (4 bytes) with i32
         }
 
-        let header = DROPFILES {
-            p_files: std::mem::size_of::<DROPFILES>() as u32,
+        let header = Dropfiles {
+            p_files: std::mem::size_of::<Dropfiles>() as u32,
             pt_x: 0,
             pt_y: 0,
             f_nc: 0,
             f_wide: 1,
         };
 
-        let mut buf = Vec::with_capacity(std::mem::size_of::<DROPFILES>() + wide.len() * 2);
+        let mut buf = Vec::with_capacity(std::mem::size_of::<Dropfiles>() + wide.len() * 2);
 
         let header_bytes = unsafe {
             std::slice::from_raw_parts(
-                &header as *const DROPFILES as *const u8,
-                std::mem::size_of::<DROPFILES>(),
+                &header as *const Dropfiles as *const u8,
+                std::mem::size_of::<Dropfiles>(),
             )
         };
         buf.extend_from_slice(header_bytes);
