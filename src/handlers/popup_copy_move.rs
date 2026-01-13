@@ -129,22 +129,51 @@ pub fn handle_paste(app: &mut AppState) {
                 if let Ok(src_abs) = src.canonicalize()
                     && let Ok(dest_abs) = dest_path.canonicalize()
                 {
-                    if src_abs == dest_abs {
+                    let s_src = src_abs.to_string_lossy();
+                    let s_dest = dest_abs.to_string_lossy();
+
+                    #[cfg(windows)]
+                    let (n_src, n_dest) = (
+                        s_src.to_lowercase().replace("/", "\\"),
+                        s_dest.to_lowercase().replace("/", "\\"),
+                    );
+                    #[cfg(not(windows))]
+                    let (n_src, n_dest) = (s_src.to_string(), s_dest.to_string());
+
+                    if n_src == n_dest {
                         app.active_tab_mut().error =
                             Some("Cannot copy/move source into itself".to_string());
                         return;
                     }
-                    if dest_abs.starts_with(&src_abs) {
+
+                    // For subdirectory check, ensure we check with trailing separator to avoid false prefixes
+                    let sep = if cfg!(windows) { "\\" } else { "/" };
+                    let n_src_sep = if n_src.ends_with(sep) {
+                        n_src.clone()
+                    } else {
+                        format!("{}{}", n_src, sep)
+                    };
+
+                    if n_dest.starts_with(&n_src_sep) {
                         app.active_tab_mut().error =
                             Some("Cannot copy/move into subdirectory of itself".to_string());
                         return;
                     }
+
                     if let Some(file_name) = src_abs.file_name() {
                         let effective_dest = dest_abs.join(file_name);
-                        if effective_dest == src_abs {
-                            app.active_tab_mut().error =
-                                Some("Source and destination are the same".to_string());
-                            return;
+                        if let Ok(eff_dest_abs) = effective_dest.canonicalize() {
+                            let s_eff = eff_dest_abs.to_string_lossy();
+                            #[cfg(windows)]
+                            let n_eff = s_eff.to_lowercase().replace("/", "\\");
+                            #[cfg(not(windows))]
+                            let n_eff = s_eff.to_string();
+
+                            if n_eff == n_src {
+                                app.active_tab_mut().error =
+                                    Some("Source and destination are the same".to_string());
+                                return;
+                            }
                         }
                     }
                 }

@@ -294,11 +294,11 @@ pub mod win_clipboard {
                         if let (Some(c_first), Some(p_first)) =
                             (cache_data.paths.get(0), paths.get(0))
                         {
-                            // On Windows, compare string representations ignoring case/separators if needed
-                            // but usually direct PathBuf comparison or string comparison is enough for equality check.
-                            if c_first.to_string_lossy().to_lowercase().replace("/", "\\")
-                                == p_first.to_string_lossy().to_lowercase().replace("/", "\\")
-                            {
+                            let c_str = c_first.to_string_lossy().to_lowercase().replace("/", "\\");
+                            let p_str = p_first.to_string_lossy().to_lowercase().replace("/", "\\");
+                            let c_norm = c_str.strip_prefix(r"\\?\").unwrap_or(&c_str);
+                            let p_norm = p_str.strip_prefix(r"\\?\").unwrap_or(&p_str);
+                            if c_norm == p_norm {
                                 return Ok(Some(cache_data));
                             }
                         }
