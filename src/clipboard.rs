@@ -154,21 +154,27 @@ pub mod win_clipboard {
     }
 
     unsafe fn alloc_global_from_bytes(bytes: &[u8]) -> anyhow::Result<isize> {
-        let hglobal = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, bytes.len())
-            .map_err(|e| anyhow::anyhow!("GlobalAlloc failed: {}", e))?;
+        let hglobal = unsafe {
+            GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, bytes.len())
+                .map_err(|e| anyhow::anyhow!("GlobalAlloc failed: {}", e))?
+        };
 
         if hglobal.0.is_null() {
             anyhow::bail!("GlobalAlloc failed");
         }
 
-        let ptr = GlobalLock(hglobal);
+        let ptr = unsafe { GlobalLock(hglobal) };
         if ptr.is_null() {
-            let _ = GlobalFree(Some(hglobal));
+            unsafe {
+                let _ = GlobalFree(Some(hglobal));
+            }
             anyhow::bail!("GlobalLock failed");
         }
 
-        std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr as *mut u8, bytes.len());
-        let _ = GlobalUnlock(hglobal);
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr as *mut u8, bytes.len());
+            let _ = GlobalUnlock(hglobal);
+        }
 
         Ok(hglobal.0 as isize)
     }
@@ -178,12 +184,12 @@ pub mod win_clipboard {
             return None;
         }
         let h = HGLOBAL(hglobal as *mut _);
-        let ptr = GlobalLock(h);
+        let ptr = unsafe { GlobalLock(h) };
         if ptr.is_null() {
             return None;
         }
-        let value = *(ptr as *const u32);
-        let _ = GlobalUnlock(h);
+        let value = unsafe { *(ptr as *const u32) };
+        let _ = unsafe { GlobalUnlock(h) };
         Some(value)
     }
 

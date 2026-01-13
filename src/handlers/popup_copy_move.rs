@@ -9,6 +9,44 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+fn get_paths_to_act_on(app: &AppState) -> Vec<PathBuf> {
+    let tab = app.active_tab();
+    let current_dir = &tab.current_dir;
+    let is_local = tab.provider.is_local();
+
+    let selected_entries = tab.get_selected_entries();
+    let entries = if selected_entries.is_empty() {
+        if let Some(entry) = tab.current_entry() {
+            if entry.name == ".." {
+                vec![]
+            } else {
+                vec![entry]
+            }
+        } else {
+            vec![]
+        }
+    } else {
+        selected_entries
+    };
+
+    entries
+        .into_iter()
+        .map(|e| {
+            if is_local {
+                current_dir.join(&e.name)
+            } else {
+                let s = current_dir.to_string_lossy().to_string();
+                let mut s = s.replace('\\', "/");
+                if !s.ends_with('/') {
+                    s.push('/');
+                }
+                s.push_str(&e.name);
+                PathBuf::from(s)
+            }
+        })
+        .collect()
+}
+
 pub fn handle_init_copy(app: &mut AppState) {
     init_copy_move(app, crate::app::CopyMoveAction::Copy);
 }
@@ -18,26 +56,7 @@ pub fn handle_init_move(app: &mut AppState) {
 }
 
 pub fn init_copy_move(app: &mut AppState, action: crate::app::CopyMoveAction) {
-    let tab = app.active_tab();
-    let selected: Vec<_> = tab
-        .get_selected_entries()
-        .iter()
-        .map(|e| tab.current_dir.join(&e.name))
-        .collect();
-
-    let paths = if selected.is_empty() {
-        if let Some(entry) = tab.current_entry() {
-            if entry.name == ".." {
-                vec![]
-            } else {
-                vec![tab.current_dir.join(&entry.name)]
-            }
-        } else {
-            vec![]
-        }
-    } else {
-        selected
-    };
+    let paths = get_paths_to_act_on(app);
 
     if paths.is_empty() {
         return;
@@ -64,26 +83,7 @@ pub fn handle_clipboard_cut(app: &mut AppState) {
 }
 
 fn handle_clipboard_action(app: &mut AppState, action: crate::clipboard::FileClipboardAction) {
-    let tab = app.active_tab();
-    let selected: Vec<_> = tab
-        .get_selected_entries()
-        .iter()
-        .map(|e| tab.current_dir.join(&e.name))
-        .collect();
-
-    let paths = if selected.is_empty() {
-        if let Some(entry) = tab.current_entry() {
-            if entry.name == ".." {
-                vec![]
-            } else {
-                vec![tab.current_dir.join(&entry.name)]
-            }
-        } else {
-            vec![]
-        }
-    } else {
-        selected
-    };
+    let paths = get_paths_to_act_on(app);
 
     if paths.is_empty() {
         return;
@@ -92,7 +92,7 @@ fn handle_clipboard_action(app: &mut AppState, action: crate::clipboard::FileCli
     let data = FileClipboardData {
         action,
         paths,
-        source_provider: tab.provider.clone(),
+        source_provider: app.active_tab().provider.clone(),
     };
 
     let _ = app.clipboard.set(data);
