@@ -761,7 +761,10 @@ async fn handle_main_panel_event(
     if let Some(keys) = &keyboard.swap_tabs
         && keys.contains(&shortcut)
     {
-        app.swap_active_tabs();
+        match app.can_swap_active_tabs() {
+            Ok(_) => app.swap_active_tabs(),
+            Err(e) => app.active_tab_mut().error = Some(e),
+        }
         return false;
     }
 

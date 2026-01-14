@@ -27,12 +27,16 @@ pub(crate) fn handle_prev_tab(app: &mut AppState) {
 }
 
 pub(crate) fn handle_close_tab(app: &mut AppState) {
-    let tab_manager = app.active_tab_manager_mut();
+    let current_index = app.active_tab_manager().active_tab_index;
+    let is_local = app.active_tab().provider.context_key() == "local";
 
-    let current_index = tab_manager.active_tab_index;
-    if !tab_manager.close_tab(current_index) {
-        // Could not close (last tab), optionally show a message
-        // For now, just silently ignore
+    if is_local && app.active_tab_manager().local_tab_count() <= 1 {
+        app.active_tab_mut().error = Some("Cannot close the last local tab".to_string());
+        return;
+    }
+
+    if !app.active_tab_manager_mut().close_tab(current_index) {
+        // Could not close (last tab)
     }
     update_viewer_content(app);
 }

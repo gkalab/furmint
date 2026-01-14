@@ -235,6 +235,25 @@ impl AppState {
         }
     }
 
+    /// Checks if swapping active tabs is allowed (each panel must have at least one local tab)
+    pub fn can_swap_active_tabs(&self) -> Result<(), String> {
+        let left_tab = self.left.active_tab();
+        let right_tab = self.right.active_tab();
+
+        let left_is_local = left_tab.provider.context_key() == "local";
+        let right_is_local = right_tab.provider.context_key() == "local";
+
+        if left_is_local && !right_is_local && self.left.local_tab_count() <= 1 {
+            return Err("Cannot swap: at least one local tab is required per panel".to_string());
+        }
+
+        if right_is_local && !left_is_local && self.right.local_tab_count() <= 1 {
+            return Err("Cannot swap: at least one local tab is required per panel".to_string());
+        }
+
+        Ok(())
+    }
+
     /// Returns a reference to the active tab manager
     pub fn active_tab_manager(&self) -> &TabManager {
         match self.active {
@@ -617,5 +636,129 @@ mod tests {
         let new_tab = manager.active_tab();
         assert_eq!(new_tab.sort_column, SortColumn::Size);
         assert_eq!(new_tab.sort_direction, SortDirection::Descending);
+    }
+
+    #[test]
+    fn test_can_swap_active_tabs() {
+        use crate::fs_provider::FileSystemProvider;
+        use std::path::Path;
+
+        // Simple mock provider that is NOT "local"
+        struct RemoteProvider;
+        impl FileSystemProvider for RemoteProvider {
+            fn list_dir(&self, _path: &Path) -> anyhow::Result<Vec<FileEntry>> {
+                Ok(vec![])
+            }
+            fn create_dir(&self, _path: &Path) -> anyhow::Result<()> {
+                Ok(())
+            }
+            fn create_file(&self, _path: &Path) -> anyhow::Result<()> {
+                Ok(())
+            }
+            fn delete(&self, _path: &Path, _recursive: bool) -> anyhow::Result<()> {
+                Ok(())
+            }
+            fn rename(&self, _from: &Path, _to: &Path) -> anyhow::Result<()> {
+                Ok(())
+            }
+            fn read_file(&self, _path: &Path) -> anyhow::Result<Vec<u8>> {
+                Ok(vec![])
+            }
+            fn write_file(&self, _path: &Path, _data: &[u8]) -> anyhow::Result<()> {
+                Ok(())
+            }
+            fn display_prefix(&self) -> &str {
+                ""
+            }
+            fn is_local(&self) -> bool {
+                false
+            }
+            fn exists(&self, _path: &Path) -> bool {
+                true
+            }
+            fn is_dir(&self, _path: &Path) -> bool {
+                true
+            }
+            fn canonicalize(&self, path: &Path) -> anyhow::Result<std::path::PathBuf> {
+                Ok(path.to_path_buf())
+            }
+            fn get_permissions(&self, _path: &Path) -> Option<u32> {
+                None
+            }
+            fn set_permissions(&self, _path: &Path, _mode: u32) -> bool {
+                false
+            }
+            fn get_modified_time(&self, _path: &Path) -> Option<std::time::SystemTime> {
+                None
+            }
+            fn set_modified_time(&self, _path: &Path, _mtime: std::time::SystemTime) -> bool {
+                false
+            }
+            fn context_key(&self) -> String {
+                "remote".to_string()
+            }
+            fn display_path(&self, path: &Path) -> String {
+                path.to_string_lossy().to_string()
+            }
+        }
+
+        let local_tab = create_test_tab();
+        let remote_tab = Tab {
+            provider: Arc::new(RemoteProvider) as Arc<dyn FileSystemProvider>,
+            current_dir: PathBuf::from("/remote"),
+            entries: vec![],
+            cursor: 0,
+            history: vec![],
+            history_index: 0,
+            error: None,
+            typed_buffer: String::new(),
+            last_type_time: None,
+            matching_indices: Vec::new(),
+            search_position: 0,
+            sort_column: SortColumn::Name,
+            sort_direction: SortDirection::Ascending,
+            scroll_offset: 0,
+            custom_title: None,
+            clipboard_msg: None,
+        };
+
+        let mut app = AppState {
+            left: TabManager {
+                tabs: vec![local_tab.clone()],
+                active_tab_index: 0,
+            },
+            right: TabManager {
+                tabs: vec![remote_tab.clone()],
+                active_tab_index: 0,
+            },
+            active: PanelSide::Left,
+            file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
+            fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
+            popups: crate::app::Popups::new(),
+            task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
+            ssh_manager: Arc::new(crate::ssh_manager::SshManager::default()),
+            task_decision_txs: std::collections::HashMap::new(),
+            show_task_manager: false,
+            dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
+            watcher: None,
+            input_polling_handle: None,
+            needs_redraw: false,
+            global: crate::config::GlobalConfig::default(),
+            editor_cfg: crate::config::EditorConfig::default(),
+            viewer_cfg: crate::config::ViewerConfig::default(),
+            ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
+            clipboard: Box::new(crate::clipboard::InMemoryFileClipboard::new()),
+        };
+
+        // Case 1: Left has 1 local, Right has 0 local. Swapping Left (local) with Right (remote) would leave Left with 0 local.
+        assert!(app.can_swap_active_tabs().is_err());
+
+        // Case 2: Add another local tab to Left
+        app.left.tabs.push(local_tab.clone());
+        assert!(app.can_swap_active_tabs().is_ok());
+
+        // Case 3: Swap allowed when both are local
+        app.right.tabs[0] = local_tab.clone();
+        assert!(app.can_swap_active_tabs().is_ok());
     }
 }

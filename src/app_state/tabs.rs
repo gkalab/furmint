@@ -533,6 +533,13 @@ impl TabManager {
         Ok(())
     }
 
+    pub fn local_tab_count(&self) -> usize {
+        self.tabs
+            .iter()
+            .filter(|t| t.provider.context_key() == "local")
+            .count()
+    }
+
     pub fn close_tab(&mut self, index: usize) -> bool {
         if self.tabs.len() > 1 {
             self.tabs.remove(index);
@@ -562,4 +569,27 @@ impl TabManager {
 pub enum PanelSide {
     Left,
     Right,
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_local_tab_count() {
+        let mut manager = TabManager::new(Path::new(".")).unwrap();
+        assert_eq!(manager.local_tab_count(), 1);
+
+        manager.new_tab(Path::new(".."), None).unwrap();
+        assert_eq!(manager.local_tab_count(), 2);
+    }
+
+    #[test]
+    fn test_close_tab_last_tab() {
+        let mut manager = TabManager::new(Path::new(".")).unwrap();
+        assert_eq!(manager.tabs.len(), 1);
+
+        // Cannot close the very last tab
+        assert!(!manager.close_tab(0));
+        assert_eq!(manager.tabs.len(), 1);
+    }
 }
