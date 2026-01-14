@@ -1,7 +1,7 @@
 use anyhow::Result;
 use chrono::{DateTime, Local};
 use std::fs::{self, Metadata};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::SystemTime;
 
 // Cross-platform: empties user trash. Returns number of deleted items, or error.
@@ -96,21 +96,25 @@ pub struct FileEntry {
 }
 
 impl FileEntry {
-    pub fn from_path(path: &PathBuf, meta: &Metadata) -> Self {
-        let name = path
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
-        let is_dir = meta.is_dir();
-        let is_symlink = match fs::symlink_metadata(path) {
-            Ok(m) => m.file_type().is_symlink(),
-            Err(_) => false,
-        };
+    pub fn try_from_dir_entry(entry: &std::fs::DirEntry) -> Result<Self> {
+        let file_type = entry.file_type()?;
+        let meta = entry.metadata()?;
+
+        let name = entry.file_name().to_string_lossy().to_string();
+        let is_symlink = file_type.is_symlink();
+        let is_dir = file_type.is_dir();
+
+        // On Windows/Unix, we might want to follow symlinks to see if they are directories
+        // However, following symlinks is expensive over network drives.
+        // For now, we trust the entry's reported is_dir.
+        // If it's a symlink, is_dir will be true only if it's a directory symlink/junction
+        // that was resolved by the OS during iteration (common on Windows).
+
         let size = if is_dir { None } else { Some(meta.len()) };
         let modified = meta.modified().ok();
-        let attributes = get_attributes(meta, is_dir);
-        FileEntry {
+        let attributes = get_attributes(&meta, is_dir);
+
+        Ok(FileEntry {
             name,
             is_dir,
             is_symlink,
@@ -118,7 +122,7 @@ impl FileEntry {
             modified,
             attributes,
             selected: false,
-        }
+        })
     }
 }
 
@@ -180,11 +184,9 @@ pub fn list_dir(path: &Path) -> Result<Vec<FileEntry>> {
     });
     for entry in fs::read_dir(path)? {
         let entry = entry?;
-        let file_path = entry.path();
-        let Ok(meta) = fs::metadata(&file_path) else {
-            continue;
-        };
-        entries.push(FileEntry::from_path(&file_path, &meta));
+        if let Ok(file_entry) = FileEntry::try_from_dir_entry(&entry) {
+            entries.push(file_entry);
+        }
     }
     // Sort: dirs first, then files, both alphabetically
     entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
