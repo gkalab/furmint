@@ -34,6 +34,8 @@ pub struct Tab {
     // For tracking search matches and navigation position
     pub matching_indices: Vec<usize>,
     pub search_position: usize,
+    // (EntryIndex, HighlightIndices)
+    pub search_highlights: std::collections::HashMap<usize, Vec<usize>>,
     // Sorting
     pub sort_column: SortColumn,
     pub sort_direction: SortDirection,
@@ -70,6 +72,7 @@ impl Tab {
             last_type_time: None,
             matching_indices: Vec::new(),
             search_position: 0,
+            search_highlights: std::collections::HashMap::new(),
             sort_column: SortColumn::Name,
             sort_direction: SortDirection::Ascending,
             scroll_offset: 0,
@@ -181,6 +184,7 @@ impl Tab {
         self.cursor = 0;
         self.scroll_offset = 0;
         self.typed_buffer.clear();
+        self.search_highlights.clear();
 
         self.history.push(HistoryEntry {
             path: path.to_path_buf(),
@@ -195,6 +199,7 @@ impl Tab {
     pub fn reload(&mut self) -> anyhow::Result<()> {
         let entries = self.provider.list_dir(&self.current_dir)?;
         self.entries = entries;
+        self.search_highlights.clear();
         self.sort_entries();
         // Adjust cursor if out of bounds
         if self.cursor >= self.entries.len() {
@@ -242,6 +247,7 @@ impl Tab {
             self.cursor = entry.cursor;
             self.scroll_offset = 0; // Will be adjusted by scroll_to_cursor if needed
             self.typed_buffer.clear();
+            self.search_highlights.clear();
             self.sort_entries();
         }
         Ok(())
@@ -257,6 +263,7 @@ impl Tab {
             self.cursor = entry.cursor;
             self.scroll_offset = 0;
             self.typed_buffer.clear();
+            self.search_highlights.clear();
             self.sort_entries();
         }
         Ok(())

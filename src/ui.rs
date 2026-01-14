@@ -114,21 +114,20 @@ pub fn draw_panel(
     let rows = panel
         .entries
         .iter()
+        .enumerate()
         .skip(panel.scroll_offset)
         .take(visible_rows)
-        .map(|e| {
+        .map(|(idx, e)| {
             // Account for ratatui border: subtract 2 from available width
             let visible_name_width = if name_col_width > 2 {
                 name_col_width - 2
             } else {
                 1
             };
-            let truncated_name = truncate_middle_with_ellipsis(&e.name, visible_name_width);
-            let mut name_cell = Cell::from(truncated_name);
-            let full_path = panel.current_dir.join(&e.name);
+
             let name_style = if e.is_dir {
                 Style::default().fg(Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b))
-            } else if crate::fs_ops::is_executable(&full_path, e) {
+            } else if crate::fs_ops::is_executable(&panel.current_dir.join(&e.name), e) {
                 Style::default().fg(Color::Rgb(
                     palette.green.r,
                     palette.green.g,
@@ -137,7 +136,58 @@ pub fn draw_panel(
             } else {
                 Style::default().fg(text_fg)
             };
-            name_cell = name_cell.style(name_style);
+
+            let name_cell = if let Some(matches) = panel.search_highlights.get(&idx) {
+                let yellow = Color::Rgb(palette.yellow.r, palette.yellow.g, palette.yellow.b);
+                let highlight_style = Style::default().fg(yellow).add_modifier(Modifier::BOLD);
+
+                let name_chars: Vec<char> = e.name.chars().collect();
+                let name_len = name_chars.len();
+                let mut spans = Vec::new();
+
+                if name_len <= visible_name_width {
+                    for (i, c) in name_chars.iter().enumerate() {
+                        if matches.contains(&i) {
+                            spans.push(Span::styled(c.to_string(), highlight_style));
+                        } else {
+                            spans.push(Span::raw(c.to_string()));
+                        }
+                    }
+                } else {
+                    // Truncate logic
+                    let ellipsis = "…";
+                    let ellipsis_len = 1;
+                    let keep = visible_name_width.saturating_sub(ellipsis_len);
+                    let left = keep / 2;
+                    let right = keep - left;
+
+                    // Left part
+                    for (i, c) in name_chars.iter().take(left).enumerate() {
+                        if matches.contains(&i) {
+                            spans.push(Span::styled(c.to_string(), highlight_style));
+                        } else {
+                            spans.push(Span::raw(c.to_string()));
+                        }
+                    }
+                    // Ellipsis
+                    spans.push(Span::raw(ellipsis));
+                    // Right part
+                    let start_right = name_len.saturating_sub(right);
+                    for (i, c) in name_chars.iter().skip(start_right).enumerate() {
+                        let original_idx = start_right + i;
+                        if matches.contains(&original_idx) {
+                            spans.push(Span::styled(c.to_string(), highlight_style));
+                        } else {
+                            spans.push(Span::raw(c.to_string()));
+                        }
+                    }
+                }
+                Cell::from(Line::from(spans)).style(name_style)
+            } else {
+                let truncated_name = truncate_middle_with_ellipsis(&e.name, visible_name_width);
+                Cell::from(truncated_name).style(name_style)
+            };
+
             Row::new(vec![
                 name_cell,
                 Cell::from(format_size(e.size, e.is_dir, e.is_symlink))

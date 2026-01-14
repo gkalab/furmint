@@ -529,6 +529,7 @@ mod popup_copy_move_unit_tests {
             last_type_time: None,
             matching_indices: Vec::new(),
             search_position: 0,
+            search_highlights: std::collections::HashMap::new(),
             sort_column: crate::app::SortColumn::Name,
             sort_direction: crate::app_state::tabs::SortDirection::Ascending,
             scroll_offset: 0,

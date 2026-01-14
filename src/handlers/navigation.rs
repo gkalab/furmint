@@ -56,34 +56,47 @@ pub(crate) fn handle_type_char(app: &mut AppState, c: char) {
     panel.typed_buffer.push(c);
     panel.last_type_time = Some(now);
     let typed = panel.typed_buffer.to_lowercase();
+    panel.search_highlights.clear();
 
     // Find all entries whose name starts with typed
     panel.matching_indices = panel
         .entries
         .iter()
         .enumerate()
-        .filter(|(_, entry)| entry.name.to_lowercase().starts_with(&typed))
+        .filter(|(idx, entry)| {
+            if entry.name.to_lowercase().starts_with(&typed) {
+                panel
+                    .search_highlights
+                    .insert(*idx, (0..typed.len()).collect());
+                true
+            } else {
+                false
+            }
+        })
         .map(|(idx, _)| idx)
         .collect();
 
     // If no prefix matches, try fuzzy matching
     if panel.matching_indices.is_empty() {
         let matcher = SkimMatcherV2::default();
-        let mut results: Vec<(usize, i64)> = panel
+        let mut results: Vec<(usize, i64, Vec<usize>)> = panel
             .entries
             .iter()
             .enumerate()
             .filter_map(|(idx, entry)| {
                 matcher
-                    .fuzzy_match(&entry.name.to_lowercase(), &typed)
-                    .map(|score| (idx, score))
+                    .fuzzy_indices(&entry.name.to_lowercase(), &typed)
+                    .map(|(score, indices)| (idx, score, indices))
             })
             .collect();
 
         // Sort by score (descending)
         results.sort_by(|a, b| b.1.cmp(&a.1));
 
-        panel.matching_indices = results.into_iter().map(|(idx, _)| idx).collect();
+        for (idx, _, indices) in &results {
+            panel.search_highlights.insert(*idx, indices.clone());
+        }
+        panel.matching_indices = results.into_iter().map(|(idx, _, _)| idx).collect();
     }
 
     // Select first match
@@ -135,6 +148,7 @@ pub(crate) fn reset_search(app: &mut AppState) {
     let panel = app.active_tab_mut();
     panel.typed_buffer.clear();
     panel.matching_indices.clear();
+    panel.search_highlights.clear();
     panel.search_position = 0;
     panel.last_type_time = None;
 }
@@ -149,6 +163,7 @@ pub(crate) fn reset_expired_search(app: &mut AppState) {
     {
         panel.typed_buffer.clear();
         panel.matching_indices.clear();
+        panel.search_highlights.clear();
         panel.search_position = 0;
         panel.last_type_time = None;
     }
@@ -340,6 +355,7 @@ mod tests {
             last_type_time: None,
             matching_indices: Vec::new(),
             search_position: 0,
+            search_highlights: std::collections::HashMap::new(),
             sort_column: crate::app::SortColumn::Name,
             sort_direction: crate::app_state::tabs::SortDirection::Ascending,
             scroll_offset: 0,
@@ -1064,5 +1080,57 @@ mod tests {
         assert!(app.left.active_tab().typed_buffer.is_empty());
         assert!(app.left.active_tab().matching_indices.is_empty());
         assert_eq!(app.left.active_tab().search_position, 0);
+    }
+
+    #[test]
+    fn test_handle_type_char_populates_highlights() {
+        let entries = vec![
+            FileEntry {
+                name: "test_file.txt".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: Some(10),
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+            FileEntry {
+                name: "other.txt".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: Some(10),
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+        ];
+        let mut app = test_app(entries);
+
+        // 1. Prefix match "test"
+        for c in "test".chars() {
+            handle_type_char(&mut app, c);
+        }
+
+        let panel = app.active_tab();
+        assert!(!panel.matching_indices.is_empty());
+        assert!(panel.search_highlights.contains_key(&0)); // "test_file.txt" is at index 0
+        let highlights = panel.search_highlights.get(&0).unwrap();
+        assert_eq!(highlights, &vec![0, 1, 2, 3]);
+
+        // Reset
+        reset_search(&mut app);
+        assert!(app.active_tab().search_highlights.is_empty());
+
+        // 2. Fuzzy match "tf"
+        handle_type_char(&mut app, 't');
+        handle_type_char(&mut app, 'f');
+
+        let panel = app.active_tab();
+        assert!(!panel.matching_indices.is_empty());
+        assert!(panel.search_highlights.contains_key(&0));
+        let highlights = panel.search_highlights.get(&0).unwrap();
+        // Fuzzy match should highlight 't' (0) and 'f' (5)
+        assert!(highlights.contains(&0));
+        assert!(highlights.contains(&5));
     }
 }
