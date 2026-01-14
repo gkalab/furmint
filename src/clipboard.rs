@@ -334,11 +334,10 @@ pub mod win_clipboard {
             }
 
             // Check if OS clipboard matches our cache
-            if let Some(cache_data) = self.cache.lock().unwrap().clone() {
-                if cache_data.paths == paths {
+            if let Some(cache_data) = self.cache.lock().unwrap().clone()
+                && cache_data.paths == paths {
                     return Ok(Some(cache_data));
                 }
-            }
 
             if paths.is_empty() {
                 Ok(None)
