@@ -1048,7 +1048,7 @@ mod tests {
             editor_cfg: crate::config::EditorConfig::default(),
             viewer_cfg: crate::config::ViewerConfig::default(),
             ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
-            clipboard: Box::new(crate::clipboard::ClipboardBackend::new()),
+            clipboard: Box::new(crate::clipboard::InMemoryFileClipboard::new()),
         };
         let paths = vec![std::path::PathBuf::from("/mock")];
         let event = WatcherEvent::FileSystemChange(paths);
@@ -1129,7 +1129,7 @@ mod tests {
             editor_cfg: crate::config::EditorConfig::default(),
             viewer_cfg: crate::config::ViewerConfig::default(),
             ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
-            clipboard: Box::new(crate::clipboard::ClipboardBackend::new()),
+            clipboard: Box::new(crate::clipboard::InMemoryFileClipboard::new()),
         };
 
         // Note: we need to mock list_dir or ensure it returns what we expect.
@@ -1230,7 +1230,7 @@ mod tests {
             editor_cfg: crate::config::EditorConfig::default(),
             viewer_cfg: crate::config::ViewerConfig::default(),
             ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
-            clipboard: Box::new(crate::clipboard::ClipboardBackend::new()),
+            clipboard: Box::new(crate::clipboard::InMemoryFileClipboard::new()),
         };
         let event = WatcherEvent::Error("test error".to_string());
         super::handle_watcher_event(event, &mut app);
@@ -1319,7 +1319,7 @@ mod tests {
             editor_cfg: crate::config::EditorConfig::default(),
             viewer_cfg: crate::config::ViewerConfig::default(),
             ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
-            clipboard: Box::new(crate::clipboard::ClipboardBackend::new()),
+            clipboard: Box::new(crate::clipboard::InMemoryFileClipboard::new()),
         };
 
         let keyboard = KeyboardConfig::default();

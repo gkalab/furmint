@@ -165,7 +165,7 @@ mod tests {
             editor_cfg: crate::config::EditorConfig::default(),
             viewer_cfg: crate::config::ViewerConfig::default(),
             ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
-            clipboard: Box::new(crate::clipboard::ClipboardBackend::new()),
+            clipboard: Box::new(crate::clipboard::InMemoryFileClipboard::new()),
         }
     }
 

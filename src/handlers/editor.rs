@@ -479,7 +479,7 @@ mod tests {
             },
             viewer_cfg: crate::config::ViewerConfig::default(),
             ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
-            clipboard: Box::new(crate::clipboard::ClipboardBackend::new()),
+            clipboard: Box::new(crate::clipboard::InMemoryFileClipboard::new()),
         };
         handle_edit(&mut app, tx).await;
         let error = app.left.active_tab().error.clone();
@@ -639,7 +639,7 @@ mod tests {
             editor_cfg: EditorConfig::default(),
             viewer_cfg: crate::config::ViewerConfig::default(),
             ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
-            clipboard: Box::new(crate::clipboard::ClipboardBackend::new()),
+            clipboard: Box::new(crate::clipboard::InMemoryFileClipboard::new()),
         }
     }
 
