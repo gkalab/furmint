@@ -292,7 +292,7 @@ pub mod win_clipboard {
             let mut paths = Vec::new();
             let mut action = FileClipboardAction::Copy;
 
-            // Try to read from OS clipboard first (may fail or be empty)
+            // Try to read from OS clipboard (e.g. from Explorer)
             if let Ok(_guard) = ClipboardGuard::open() {
                 unsafe {
                     // ifs must not be collapsed
@@ -333,29 +333,10 @@ pub mod win_clipboard {
                 }
             }
 
-            // Check cache first
+            // Check if OS clipboard matches our cache
             if let Some(cache_data) = self.cache.lock().unwrap().clone() {
-                // Simple heuristic: if the number of paths matches, and the first path matches,
-                // we assume it's the same data and prefer the cache (preserving provider/remote paths).
-                if cache_data.paths.len() == paths.len() {
-                    if paths.is_empty() {
-                        return Ok(Some(cache_data));
-                    }
-                    if let (Some(c_first), Some(p_first)) =
-                        (cache_data.paths.first(), paths.first())
-                    {
-                        let c_norm = normalize_path_for_match(c_first);
-                        let p_norm = normalize_path_for_match(p_first);
-
-                        // On Windows, OS might prepend drive letters (C:\) to relative-looking remote paths.
-                        // We check if either one is a suffix of the other (normalized).
-                        if c_norm == p_norm
-                            || (c_norm.len() > 2 && p_norm.ends_with(&c_norm))
-                            || (p_norm.len() > 2 && c_norm.ends_with(&p_norm))
-                        {
-                            return Ok(Some(cache_data));
-                        }
-                    }
+                if cache_data.paths == paths {
+                    return Ok(Some(cache_data));
                 }
             }
 
@@ -378,11 +359,6 @@ pub mod win_clipboard {
             }
             Ok(())
         }
-    }
-
-    fn normalize_path_for_match(p: &std::path::Path) -> String {
-        let s = p.to_string_lossy().to_lowercase().replace("/", "\\");
-        s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
     }
 }
 
