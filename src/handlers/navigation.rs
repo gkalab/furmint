@@ -1,6 +1,8 @@
 //! Navigation-related event handlers for directory and panel navigation.
 
 use crate::app::{AppState, PanelSide};
+use fuzzy_matcher::FuzzyMatcher;
+use fuzzy_matcher::skim::SkimMatcherV2;
 
 // Moves the cursor up in the active panel.
 pub(crate) fn handle_up(app: &mut AppState) {
@@ -54,6 +56,7 @@ pub(crate) fn handle_type_char(app: &mut AppState, c: char) {
     panel.typed_buffer.push(c);
     panel.last_type_time = Some(now);
     let typed = panel.typed_buffer.to_lowercase();
+
     // Find all entries whose name starts with typed
     panel.matching_indices = panel
         .entries
@@ -62,6 +65,27 @@ pub(crate) fn handle_type_char(app: &mut AppState, c: char) {
         .filter(|(_, entry)| entry.name.to_lowercase().starts_with(&typed))
         .map(|(idx, _)| idx)
         .collect();
+
+    // If no prefix matches, try fuzzy matching
+    if panel.matching_indices.is_empty() {
+        let matcher = SkimMatcherV2::default();
+        let mut results: Vec<(usize, i64)> = panel
+            .entries
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, entry)| {
+                matcher
+                    .fuzzy_match(&entry.name.to_lowercase(), &typed)
+                    .map(|score| (idx, score))
+            })
+            .collect();
+
+        // Sort by score (descending)
+        results.sort_by(|a, b| b.1.cmp(&a.1));
+
+        panel.matching_indices = results.into_iter().map(|(idx, _)| idx).collect();
+    }
+
     // Select first match
     if let Some(&idx) = panel.matching_indices.first() {
         panel.cursor = idx;
@@ -535,6 +559,63 @@ mod tests {
         app.left.active_tab_mut().typed_buffer.clear();
         handle_type_char(&mut app, 'a');
         assert_eq!(app.left.active_tab().cursor, 0);
+    }
+
+    #[test]
+    fn test_handle_type_char_fuzzy_fallback() {
+        let entries = vec![
+            FileEntry {
+                name: "apple.txt".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+            FileEntry {
+                name: "banana.txt".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+            FileEntry {
+                name: "Cargo.toml".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+        ];
+        let mut app = test_app(entries);
+
+        // Type 'c', 't' -> Should match 'Cargo.toml' (fuzzy)
+        handle_type_char(&mut app, 'c');
+        assert_eq!(app.active_tab().cursor, 2); // 'Cargo.toml' starts with 'c'
+
+        handle_type_char(&mut app, 't');
+        // 'ct' matches 'Cargo.toml' fuzzy, but doesn't start with 'ct'
+        assert_eq!(app.active_tab().cursor, 2);
+        assert!(
+            !app.active_tab().entries[2]
+                .name
+                .to_lowercase()
+                .starts_with("ct")
+        );
+        assert!(app.active_tab().matching_indices.contains(&2));
+
+        // Test with something that ONLY matches fuzzy
+        app.left.active_tab_mut().typed_buffer.clear();
+        handle_type_char(&mut app, 'b');
+        handle_type_char(&mut app, 't'); // 'bt' doesn't match 'apple', 'banana', 'Cargo' via prefix
+        // 'bt' matches 'banana.txt' (b...t) and 'apple.txt' (p...t...x...t)
+        // 'banana.txt' should rank higher for 'bt'
+        assert_eq!(app.active_tab().cursor, 1); // 'banana.txt'
     }
 
     #[test]
