@@ -1,7 +1,7 @@
 #[cfg(windows)]
 fn main() {
-    use std::process::Command;
     use std::path::PathBuf;
+    use std::process::Command;
 
     // Generate the .rc file using winres
     let mut res = winres::WindowsResource::new();
