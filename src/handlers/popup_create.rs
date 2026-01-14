@@ -46,28 +46,8 @@ pub fn handle_create_directory_event(
                 Ok(()) => {
                     app.popups.create_directory.is_visible = false;
                     app.popups.create_directory.reset();
-                    // Reload active tab
-                    let (entries, panel_cursor_update) = {
-                        let panel = app.active_tab_mut();
-                        let entries = panel.provider.list_dir(&current_dir).ok();
-                        let mut new_cursor = None;
-                        if let Some(entries) = &entries
-                            && let Some(name) = new_path.file_name().and_then(|n| n.to_str())
-                            && let Some(idx) = entries.iter().position(|e| e.name == name)
-                        {
-                            new_cursor = Some(idx);
-                        }
-                        (entries, new_cursor)
-                    };
-
-                    if let Some(entries) = entries {
-                        let panel = app.active_tab_mut();
-                        panel.entries = entries;
-                        panel.sort_entries();
-                        if let Some(idx) = panel_cursor_update {
-                            panel.cursor = idx;
-                        }
-                    }
+                    // Reload active tab and focus on the new directory
+                    let _ = app.active_tab_mut().reload_and_focus(&new_name);
                 }
                 Err(e) => {
                     app.popups.create_directory.error = Some(e.to_string());
@@ -223,6 +203,13 @@ pub async fn handle_create_file_event(
                 app.popups.create_file.error = Some(format!("Failed to create file: {e}"));
                 return false;
             }
+
+            // Reload entries and focus on the new file BEFORE opening editor
+            // so if it's an external editor, the UI is already updated.
+            if let Some(name) = path_buf.file_name().and_then(|n| n.to_str()) {
+                let _ = app.active_tab_mut().reload_and_focus(name);
+            }
+
             // Open in editor using environment helper
             let file_name_opt = path_buf
                 .file_name()

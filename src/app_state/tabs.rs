@@ -203,6 +203,14 @@ impl Tab {
         Ok(())
     }
 
+    pub fn reload_and_focus(&mut self, name: &str) -> anyhow::Result<()> {
+        self.reload()?;
+        if let Some(idx) = self.entries.iter().position(|e| e.name == name) {
+            self.cursor = idx;
+        }
+        Ok(())
+    }
+
     pub fn go_up(&mut self) -> anyhow::Result<()> {
         if let Some(parent) = self.current_dir.parent() {
             let parent_path = parent.to_path_buf();
@@ -591,5 +599,32 @@ mod tests {
         // Cannot close the very last tab
         assert!(!manager.close_tab(0));
         assert_eq!(manager.tabs.len(), 1);
+    }
+
+    #[test]
+    fn test_reload_and_focus() {
+        let temp_dir = std::env::temp_dir();
+        let test_dir = temp_dir.join("fm_test_reload_focus");
+        if test_dir.exists() {
+            std::fs::remove_dir_all(&test_dir).ok();
+        }
+        std::fs::create_dir_all(&test_dir).unwrap();
+
+        let mut tab = Tab::new(&test_dir).unwrap();
+        assert_eq!(tab.entries.len(), 1); // just ".."
+
+        // Create a new child
+        let child_dir = test_dir.join("new_child");
+        std::fs::create_dir(&child_dir).unwrap();
+
+        tab.reload_and_focus("new_child").unwrap();
+        // Index 0 is "..", Index 1 should be "new_child"
+        assert_eq!(tab.entries.len(), 2);
+        assert_eq!(tab.entries[1].name, "new_child");
+        assert_eq!(tab.cursor, 1);
+        assert!(!tab.entries[1].selected); // Should NOT be selected
+
+        // Clean up
+        std::fs::remove_dir_all(&test_dir).ok();
     }
 }
