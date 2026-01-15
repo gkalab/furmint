@@ -128,8 +128,8 @@ pub fn draw_scrollbar(
             .orientation(ScrollbarOrientation::VerticalRight)
             .begin_symbol(None)
             .end_symbol(None)
-            .track_symbol(Some("│"))
-            .thumb_symbol("█")
+            .track_symbol(Some(" "))
+            .thumb_symbol("▊")
             .style(Style::default().fg(scrollbar_color));
         f.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
     }

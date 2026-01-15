@@ -6,15 +6,6 @@ use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Cell, Row, Table, TableState};
 use std::env;
 
-/// Helper function to create a lighter shade of red for inactive borders
-fn lighten_red(red: crate::theme::Rgb) -> crate::theme::Rgb {
-    crate::theme::Rgb::new(
-        ((red.r as u16 + 255) / 2) as u8,
-        ((red.g as u16 + 255) / 2) as u8,
-        ((red.b as u16 + 255) / 2) as u8,
-    )
-}
-
 /// Draw the tab bar for a panel
 pub fn draw_tab_bar(
     f: &mut ratatui::Frame,
@@ -50,11 +41,24 @@ pub fn draw_tab_bar(
                 Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b),
             )
         } else if is_active_tab {
-            // Active tab in inactive panel
-            (
-                Color::Rgb(palette.text.r, palette.text.g, palette.text.b),
-                Color::Rgb(palette.surface1.r, palette.surface1.g, palette.surface1.b),
-            )
+            // Active tab in inactive panel - use same background as inactive panel
+            if palette.is_dark {
+                let r = ((palette.base.r as u16 * 3 + palette.surface1.r as u16) / 4) as u8; // 75%
+                let g = ((palette.base.g as u16 * 3 + palette.surface1.g as u16) / 4) as u8; // 75%
+                let b = ((palette.base.b as u16 * 3 + palette.surface1.b as u16) / 4) as u8; // 75%
+                (
+                    Color::Rgb(palette.text.r, palette.text.g, palette.text.b),
+                    Color::Rgb(r, g, b),
+                )
+            } else {
+                let r = ((palette.base.r as u16 * 14 + palette.surface1.r as u16) / 15) as u8; // 93%
+                let g = ((palette.base.g as u16 * 14 + palette.surface1.g as u16) / 15) as u8; // 93%
+                let b = ((palette.base.b as u16 * 14 + palette.surface1.b as u16) / 15) as u8; // 93%
+                (
+                    Color::Rgb(palette.text.r, palette.text.g, palette.text.b),
+                    Color::Rgb(r, g, b),
+                )
+            }
         } else {
             // Inactive tab
             (
@@ -76,7 +80,7 @@ pub fn draw_tab_bar(
     }
 
     let line = Line::from(spans);
-    let bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
+    let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
     let paragraph = ratatui::widgets::Paragraph::new(line).style(Style::default().bg(bg_color));
     f.render_widget(paragraph, area);
 }
@@ -202,35 +206,58 @@ pub fn draw_panel(
     let is_root = panel.provider.display_prefix().starts_with("[root@")
         || (panel.provider.display_prefix().is_empty() && system_user == "root");
 
-    let border_color = if is_root && active {
-        Color::Rgb(palette.red.r, palette.red.g, palette.red.b)
-    } else if is_root && !active {
-        let light_red = lighten_red(palette.red);
-        Color::Rgb(light_red.r, light_red.g, light_red.b)
-    } else if active {
-        Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b)
+    let panel_bg = if active {
+        Color::Rgb(palette.base.r, palette.base.g, palette.base.b)
+    } else if palette.is_dark {
+        let r = ((palette.base.r as u16 * 3 + palette.surface1.r as u16) / 4) as u8; // 75%
+        let g = ((palette.base.g as u16 * 3 + palette.surface1.g as u16) / 4) as u8; // 75%
+        let b = ((palette.base.b as u16 * 3 + palette.surface1.b as u16) / 4) as u8; // 75%
+        Color::Rgb(r, g, b)
     } else {
-        Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b)
+        let r = ((palette.base.r as u16 * 14 + palette.surface1.r as u16) / 15) as u8; // 93%
+        let g = ((palette.base.g as u16 * 14 + palette.surface1.g as u16) / 15) as u8; // 93%
+        let b = ((palette.base.b as u16 * 14 + palette.surface1.b as u16) / 15) as u8; // 93%
+        Color::Rgb(r, g, b)
     };
 
-    let title_width = area.width.saturating_sub(2) as usize;
+    // Add reddish tint for root user
+    let panel_bg = if is_root {
+        let (r0, g0, b0) = match panel_bg {
+            Color::Rgb(r, g, b) => (r as u16, g as u16, b as u16),
+            _ => (
+                palette.base.r as u16,
+                palette.base.g as u16,
+                palette.base.b as u16,
+            ),
+        };
+        let r = ((r0 * 9 + palette.red.r as u16) / 10) as u8;
+        let g = ((g0 * 9 + palette.red.g as u16) / 10) as u8;
+        let b = ((b0 * 9 + palette.red.b as u16) / 10) as u8;
+        Color::Rgb(r, g, b)
+    } else {
+        panel_bg
+    };
+
     let prefix = panel.provider.display_prefix();
     let path_str = panel.provider.display_path(&panel.current_dir);
     let full_title = if prefix.is_empty() {
-        format!(" {} ", path_str)
+        format!("{} ", path_str)
     } else {
-        format!(" {}:{} ", prefix, path_str)
+        format!("{}:{} ", prefix, path_str)
     };
-    // Truncate if necessary
+    let title_width = area.width.saturating_sub(4) as usize;
     let panel_title = if full_title.len() > title_width {
         crate::ui_utils::truncate_path_with_ellipsis(&panel.current_dir, title_width)
     } else {
         full_title
     };
+
     let block = Block::default()
         .borders(Borders::ALL)
         .title(panel_title)
-        .border_style(Style::default().fg(border_color));
+        .border_style(Style::default().fg(text_fg).bg(panel_bg))
+        .border_set(ratatui::symbols::border::EMPTY)
+        .style(Style::default().bg(panel_bg));
     let widths = [
         Constraint::Min(10),    // Name: dynamic, at least 10
         Constraint::Length(7),  // Size: always 7 (right-aligned)
@@ -240,11 +267,9 @@ pub fn draw_panel(
     let panel_selection_background = if active {
         Color::Rgb(palette.surface2.r, palette.surface2.g, palette.surface2.b)
     } else {
-        // Use a lighter color for the selection line of the inactive panel
-        Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b)
+        Color::Rgb(palette.base.r, palette.base.g, palette.base.b)
     };
     let panel_selection_foreground = if !palette.is_dark && active {
-        // For light themes, use the base background color for text on the dark selection background
         Color::Rgb(palette.base.r, palette.base.g, palette.base.b)
     } else {
         Color::Rgb(palette.text.r, palette.text.g, palette.text.b)
@@ -255,12 +280,17 @@ pub fn draw_panel(
             palette.yellow.g,
             palette.yellow.b,
         ))))
-        .block(block)
-        .row_highlight_style(
+        .block(block);
+
+    let table = if active {
+        table.row_highlight_style(
             Style::default()
                 .bg(panel_selection_background)
                 .fg(panel_selection_foreground),
-        );
+        )
+    } else {
+        table
+    };
 
     f.render_stateful_widget(
         table,
@@ -269,7 +299,7 @@ pub fn draw_panel(
             .with_selected(Some(panel.cursor.saturating_sub(panel.scroll_offset))),
     );
 
-    // Draw selection markers over the left border
+    // Draw selection markers using half-block
     let yellow_color = Color::Rgb(palette.yellow.r, palette.yellow.g, palette.yellow.b);
 
     for (idx, entry) in panel
@@ -282,29 +312,24 @@ pub fn draw_panel(
         let row_y = area.y + 2 + (idx - panel.scroll_offset) as u16; // +2 for border and header
 
         if row_y >= area.y + area.height - 1 {
-            break; // Don't draw past the bottom border
+            break;
         }
 
-        let marker = if entry.selected {
-            Span::styled("█", Style::default().fg(yellow_color))
-        } else {
-            // Restore the border character
-            Span::styled("│", Style::default().fg(border_color))
-        };
-
-        f.render_widget(
-            Line::from(marker),
-            Rect {
-                x: area.x,
-                y: row_y,
-                width: 1,
-                height: 1,
-            },
-        );
+        if entry.selected {
+            let marker = Span::styled("▊", Style::default().fg(yellow_color));
+            f.render_widget(
+                Line::from(marker),
+                Rect {
+                    x: area.x,
+                    y: row_y,
+                    width: 1,
+                    height: 1,
+                },
+            );
+        }
     }
 
-    // Draw unobtrusive vertical scrollbar if needed
-    // visible_rows is already calculated as height - 3
+    // Draw vertical scrollbar if needed
     let total_entries = panel.entries.len();
 
     let scroll_area = Rect {
@@ -389,13 +414,10 @@ pub fn draw_panel_status(
     };
 
     // calculate bg color for clearing
-    let bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
+    let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
 
     // Clear the status area first to prevent artifacts
-    f.render_widget(
-        Block::default().style(Style::default().bg(bg_color)),
-        status_area,
-    );
+    f.render_widget(Block::default().style(Style::default().bg(bg_color)), area);
 
     match side {
         crate::app::PanelSide::Left => {
