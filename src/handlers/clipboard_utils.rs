@@ -6,15 +6,6 @@ pub fn get_clipboard_content() -> Option<String> {
     ctx.get_contents().ok()
 }
 
-pub fn insert_text_at_cursor(text: &mut String, cursor: &mut usize, content: &str) {
-    let sanitized: String = content
-        .chars()
-        .filter(|c| *c != '\n' && *c != '\r')
-        .collect();
-    text.insert_str(*cursor, &sanitized);
-    *cursor += sanitized.len();
-}
-
 pub fn insert_text_at_cursor_unicode(text: &mut String, cursor: &mut usize, content: &str) {
     let sanitized: String = content
         .chars()
@@ -27,5 +18,5 @@ pub fn insert_text_at_cursor_unicode(text: &mut String, cursor: &mut usize, cont
         .map_or(text.len(), |(i, _)| i);
 
     text.insert_str(byte_pos, &sanitized);
-    *cursor += sanitized.len();
+    *cursor += sanitized.chars().count();
 }

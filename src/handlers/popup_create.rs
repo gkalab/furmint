@@ -1,9 +1,7 @@
 //! Handlers for creating files and directories in popup
 
 use crate::app::AppState;
-use crate::handlers::clipboard_utils::{
-    get_clipboard_content, insert_text_at_cursor, insert_text_at_cursor_unicode,
-};
+use crate::handlers::clipboard_utils::{get_clipboard_content, insert_text_at_cursor_unicode};
 use crossterm::event::{KeyCode, KeyModifiers};
 
 pub fn handle_init_create_file(app: &mut AppState) {
@@ -230,7 +228,7 @@ pub async fn handle_create_file_event(
         }
         KeyCode::Char('v') if modifiers.contains(KeyModifiers::CONTROL) => {
             if let Some(content) = get_clipboard_content() {
-                insert_text_at_cursor(
+                insert_text_at_cursor_unicode(
                     &mut app.popups.create_file.input_value,
                     &mut app.popups.create_file.cursor_position,
                     &content,
@@ -239,29 +237,51 @@ pub async fn handle_create_file_event(
         }
         KeyCode::Char(c) => {
             app.popups.create_file.error = None;
-            app.popups
-                .create_file
-                .input_value
-                .insert(app.popups.create_file.cursor_position, c);
+            let idx = app.popups.create_file.cursor_position;
+            let current_len = app.popups.create_file.input_value.chars().count();
+            if idx >= current_len {
+                app.popups.create_file.input_value.push(c);
+            } else {
+                let byte_idx = app
+                    .popups
+                    .create_file
+                    .input_value
+                    .char_indices()
+                    .nth(idx)
+                    .map(|(i, _)| i)
+                    .unwrap();
+                app.popups.create_file.input_value.insert(byte_idx, c);
+            }
             app.popups.create_file.cursor_position += 1;
         }
         KeyCode::Backspace => {
             app.popups.create_file.error = None;
             if app.popups.create_file.cursor_position > 0 {
-                app.popups
+                let byte_idx = app
+                    .popups
                     .create_file
                     .input_value
-                    .remove(app.popups.create_file.cursor_position - 1);
+                    .char_indices()
+                    .nth(app.popups.create_file.cursor_position - 1)
+                    .map(|(i, _)| i)
+                    .unwrap();
+                app.popups.create_file.input_value.remove(byte_idx);
                 app.popups.create_file.cursor_position -= 1;
             }
         }
         KeyCode::Delete => {
             app.popups.create_file.error = None;
-            if app.popups.create_file.cursor_position < app.popups.create_file.input_value.len() {
-                app.popups
+            let current_len = app.popups.create_file.input_value.chars().count();
+            if app.popups.create_file.cursor_position < current_len {
+                let byte_idx = app
+                    .popups
                     .create_file
                     .input_value
-                    .remove(app.popups.create_file.cursor_position);
+                    .char_indices()
+                    .nth(app.popups.create_file.cursor_position)
+                    .map(|(i, _)| i)
+                    .unwrap();
+                app.popups.create_file.input_value.remove(byte_idx);
             }
         }
         KeyCode::Left => {
@@ -270,7 +290,8 @@ pub async fn handle_create_file_event(
             }
         }
         KeyCode::Right => {
-            if app.popups.create_file.cursor_position < app.popups.create_file.input_value.len() {
+            let len = app.popups.create_file.input_value.chars().count();
+            if app.popups.create_file.cursor_position < len {
                 app.popups.create_file.cursor_position += 1;
             }
         }
@@ -278,7 +299,8 @@ pub async fn handle_create_file_event(
             app.popups.create_file.cursor_position = 0;
         }
         KeyCode::End => {
-            app.popups.create_file.cursor_position = app.popups.create_file.input_value.len();
+            app.popups.create_file.cursor_position =
+                app.popups.create_file.input_value.chars().count();
         }
         _ => {}
     }

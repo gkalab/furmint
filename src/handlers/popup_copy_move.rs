@@ -3,7 +3,7 @@
 use crate::app::AppState;
 use crate::clipboard::FileClipboardData;
 use crate::fs_provider::FileSystemProvider;
-use crate::handlers::clipboard_utils::{get_clipboard_content, insert_text_at_cursor};
+use crate::handlers::clipboard_utils::{get_clipboard_content, insert_text_at_cursor_unicode};
 use crate::state::CopyMoveAction;
 use crossterm::event::{KeyCode, KeyModifiers};
 use std::path::PathBuf;
@@ -69,7 +69,7 @@ pub fn init_copy_move(app: &mut AppState, action: crate::app::CopyMoveAction) {
     app.popups.copy_move.source_paths = paths;
     app.popups.copy_move.action = action;
     app.popups.copy_move.destination_input = dest;
-    app.popups.copy_move.cursor_position = app.popups.copy_move.destination_input.len();
+    app.popups.copy_move.cursor_position = app.popups.copy_move.destination_input.chars().count();
     app.popups.copy_move.input_selected = false;
     app.popups.copy_move.is_visible = true;
 }
@@ -263,7 +263,6 @@ pub fn handle_copy_move_event(code: KeyCode, modifiers: KeyModifiers, app: &mut 
                 // For remote, treat as absolute Unix path
                 dest_path.clone()
             };
-            app.popups.copy_move.destination_input = dest_abs.to_string_lossy().to_string();
             let src_provider = app.active_tab().provider.clone();
             if let Some(err) = validate_copy_move(
                 &app.popups.copy_move.source_paths,
@@ -274,6 +273,10 @@ pub fn handle_copy_move_event(code: KeyCode, modifiers: KeyModifiers, app: &mut 
                 app.popups.copy_move.error = Some(err);
                 return false;
             }
+
+            app.popups.copy_move.destination_input = dest_abs.to_string_lossy().to_string();
+            app.popups.copy_move.cursor_position =
+                app.popups.copy_move.destination_input.chars().count();
 
             spawn_copy_move_task(
                 app,
@@ -287,7 +290,7 @@ pub fn handle_copy_move_event(code: KeyCode, modifiers: KeyModifiers, app: &mut 
         }
         KeyCode::Char('v') if modifiers.contains(KeyModifiers::CONTROL) => {
             if let Some(content) = get_clipboard_content() {
-                insert_text_at_cursor(
+                insert_text_at_cursor_unicode(
                     &mut app.popups.copy_move.destination_input,
                     &mut app.popups.copy_move.cursor_position,
                     &content,
@@ -296,27 +299,49 @@ pub fn handle_copy_move_event(code: KeyCode, modifiers: KeyModifiers, app: &mut 
         }
         KeyCode::Char(c) => {
             app.popups.copy_move.error = None;
-            app.popups
-                .copy_move
-                .destination_input
-                .insert(app.popups.copy_move.cursor_position, c);
+            let idx = app.popups.copy_move.cursor_position;
+            let current_len = app.popups.copy_move.destination_input.chars().count();
+            if idx >= current_len {
+                app.popups.copy_move.destination_input.push(c);
+            } else {
+                let byte_idx = app
+                    .popups
+                    .copy_move
+                    .destination_input
+                    .char_indices()
+                    .nth(idx)
+                    .map(|(i, _)| i)
+                    .unwrap();
+                app.popups.copy_move.destination_input.insert(byte_idx, c);
+            }
             app.popups.copy_move.cursor_position += 1;
         }
         KeyCode::Backspace => {
             if app.popups.copy_move.cursor_position > 0 {
-                app.popups
+                let byte_idx = app
+                    .popups
                     .copy_move
                     .destination_input
-                    .remove(app.popups.copy_move.cursor_position - 1);
+                    .char_indices()
+                    .nth(app.popups.copy_move.cursor_position - 1)
+                    .map(|(i, _)| i)
+                    .unwrap();
+                app.popups.copy_move.destination_input.remove(byte_idx);
                 app.popups.copy_move.cursor_position -= 1;
             }
         }
         KeyCode::Delete => {
-            if app.popups.copy_move.cursor_position < app.popups.copy_move.destination_input.len() {
-                app.popups
+            let current_len = app.popups.copy_move.destination_input.chars().count();
+            if app.popups.copy_move.cursor_position < current_len {
+                let byte_idx = app
+                    .popups
                     .copy_move
                     .destination_input
-                    .remove(app.popups.copy_move.cursor_position);
+                    .char_indices()
+                    .nth(app.popups.copy_move.cursor_position)
+                    .map(|(i, _)| i)
+                    .unwrap();
+                app.popups.copy_move.destination_input.remove(byte_idx);
             }
         }
         KeyCode::Left => {
@@ -325,7 +350,8 @@ pub fn handle_copy_move_event(code: KeyCode, modifiers: KeyModifiers, app: &mut 
             }
         }
         KeyCode::Right => {
-            if app.popups.copy_move.cursor_position < app.popups.copy_move.destination_input.len() {
+            let len = app.popups.copy_move.destination_input.chars().count();
+            if app.popups.copy_move.cursor_position < len {
                 app.popups.copy_move.cursor_position += 1;
             }
         }
@@ -333,7 +359,8 @@ pub fn handle_copy_move_event(code: KeyCode, modifiers: KeyModifiers, app: &mut 
             app.popups.copy_move.cursor_position = 0;
         }
         KeyCode::End => {
-            app.popups.copy_move.cursor_position = app.popups.copy_move.destination_input.len();
+            app.popups.copy_move.cursor_position =
+                app.popups.copy_move.destination_input.chars().count();
         }
         _ => {}
     }

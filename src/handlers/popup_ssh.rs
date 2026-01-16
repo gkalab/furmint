@@ -1,5 +1,5 @@
 use crate::app::AppState;
-use crate::handlers::clipboard_utils::{get_clipboard_content, insert_text_at_cursor};
+use crate::handlers::clipboard_utils::{get_clipboard_content, insert_text_at_cursor_unicode};
 use crate::tasks::{SshContext, TaskEvent, TaskStatus};
 use crossterm::event::{KeyCode, KeyModifiers};
 use std::sync::Arc;
@@ -148,10 +148,10 @@ pub fn handle_ssh_connection_event(
                 app.popups.ssh_connection.cursor_position =
                     match app.popups.ssh_connection.active_field {
                         SshField::ConnectionString => {
-                            app.popups.ssh_connection.connection_string.len()
+                            app.popups.ssh_connection.connection_string.chars().count()
                         }
-                        SshField::Name => app.popups.ssh_connection.name.len(),
-                        SshField::Port => app.popups.ssh_connection.port.len(),
+                        SshField::Name => app.popups.ssh_connection.name.chars().count(),
+                        SshField::Port => app.popups.ssh_connection.port.chars().count(),
                         _ => 0,
                     };
             }
@@ -160,14 +160,14 @@ pub fn handle_ssh_connection_event(
             if let Some(content) = get_clipboard_content() {
                 match app.popups.ssh_connection.active_field {
                     SshField::ConnectionString => {
-                        insert_text_at_cursor(
+                        insert_text_at_cursor_unicode(
                             &mut app.popups.ssh_connection.connection_string,
                             &mut app.popups.ssh_connection.cursor_position,
                             &content,
                         );
                     }
                     SshField::Name => {
-                        insert_text_at_cursor(
+                        insert_text_at_cursor_unicode(
                             &mut app.popups.ssh_connection.name,
                             &mut app.popups.ssh_connection.cursor_position,
                             &content,
@@ -176,7 +176,7 @@ pub fn handle_ssh_connection_event(
                     SshField::Port => {
                         let sanitized: String =
                             content.chars().filter(|c| c.is_ascii_digit()).collect();
-                        insert_text_at_cursor(
+                        insert_text_at_cursor_unicode(
                             &mut app.popups.ssh_connection.port,
                             &mut app.popups.ssh_connection.cursor_position,
                             &sanitized,
@@ -188,25 +188,61 @@ pub fn handle_ssh_connection_event(
         }
         KeyCode::Char(c) => match app.popups.ssh_connection.active_field {
             SshField::ConnectionString => {
-                app.popups
-                    .ssh_connection
-                    .connection_string
-                    .insert(app.popups.ssh_connection.cursor_position, c);
+                let idx = app.popups.ssh_connection.cursor_position;
+                let current_len = app.popups.ssh_connection.connection_string.chars().count();
+                if idx >= current_len {
+                    app.popups.ssh_connection.connection_string.push(c);
+                } else {
+                    let byte_idx = app
+                        .popups
+                        .ssh_connection
+                        .connection_string
+                        .char_indices()
+                        .nth(idx)
+                        .map(|(i, _)| i)
+                        .unwrap();
+                    app.popups
+                        .ssh_connection
+                        .connection_string
+                        .insert(byte_idx, c);
+                }
                 app.popups.ssh_connection.cursor_position += 1;
             }
             SshField::Name => {
-                app.popups
-                    .ssh_connection
-                    .name
-                    .insert(app.popups.ssh_connection.cursor_position, c);
+                let idx = app.popups.ssh_connection.cursor_position;
+                let current_len = app.popups.ssh_connection.name.chars().count();
+                if idx >= current_len {
+                    app.popups.ssh_connection.name.push(c);
+                } else {
+                    let byte_idx = app
+                        .popups
+                        .ssh_connection
+                        .name
+                        .char_indices()
+                        .nth(idx)
+                        .map(|(i, _)| i)
+                        .unwrap();
+                    app.popups.ssh_connection.name.insert(byte_idx, c);
+                }
                 app.popups.ssh_connection.cursor_position += 1;
             }
             SshField::Port => {
                 if c.is_ascii_digit() {
-                    app.popups
-                        .ssh_connection
-                        .port
-                        .insert(app.popups.ssh_connection.cursor_position, c);
+                    let idx = app.popups.ssh_connection.cursor_position;
+                    let current_len = app.popups.ssh_connection.port.chars().count();
+                    if idx >= current_len {
+                        app.popups.ssh_connection.port.push(c);
+                    } else {
+                        let byte_idx = app
+                            .popups
+                            .ssh_connection
+                            .port
+                            .char_indices()
+                            .nth(idx)
+                            .map(|(i, _)| i)
+                            .unwrap();
+                        app.popups.ssh_connection.port.insert(byte_idx, c);
+                    }
                     app.popups.ssh_connection.cursor_position += 1;
                 }
             }
@@ -218,24 +254,39 @@ pub fn handle_ssh_connection_event(
             if app.popups.ssh_connection.cursor_position > 0 {
                 match app.popups.ssh_connection.active_field {
                     SshField::ConnectionString => {
-                        app.popups
+                        let byte_idx = app
+                            .popups
                             .ssh_connection
                             .connection_string
-                            .remove(app.popups.ssh_connection.cursor_position - 1);
+                            .char_indices()
+                            .nth(app.popups.ssh_connection.cursor_position - 1)
+                            .map(|(i, _)| i)
+                            .unwrap();
+                        app.popups.ssh_connection.connection_string.remove(byte_idx);
                         app.popups.ssh_connection.cursor_position -= 1;
                     }
                     SshField::Name => {
-                        app.popups
+                        let byte_idx = app
+                            .popups
                             .ssh_connection
                             .name
-                            .remove(app.popups.ssh_connection.cursor_position - 1);
+                            .char_indices()
+                            .nth(app.popups.ssh_connection.cursor_position - 1)
+                            .map(|(i, _)| i)
+                            .unwrap();
+                        app.popups.ssh_connection.name.remove(byte_idx);
                         app.popups.ssh_connection.cursor_position -= 1;
                     }
                     SshField::Port => {
-                        app.popups
+                        let byte_idx = app
+                            .popups
                             .ssh_connection
                             .port
-                            .remove(app.popups.ssh_connection.cursor_position - 1);
+                            .char_indices()
+                            .nth(app.popups.ssh_connection.cursor_position - 1)
+                            .map(|(i, _)| i)
+                            .unwrap();
+                        app.popups.ssh_connection.port.remove(byte_idx);
                         app.popups.ssh_connection.cursor_position -= 1;
                     }
                     _ => {}
@@ -244,31 +295,45 @@ pub fn handle_ssh_connection_event(
         }
         KeyCode::Delete => match app.popups.ssh_connection.active_field {
             SshField::ConnectionString => {
-                if app.popups.ssh_connection.cursor_position
-                    < app.popups.ssh_connection.connection_string.len()
-                {
-                    app.popups
+                let current_len = app.popups.ssh_connection.connection_string.chars().count();
+                if app.popups.ssh_connection.cursor_position < current_len {
+                    let byte_idx = app
+                        .popups
                         .ssh_connection
                         .connection_string
-                        .remove(app.popups.ssh_connection.cursor_position);
+                        .char_indices()
+                        .nth(app.popups.ssh_connection.cursor_position)
+                        .map(|(i, _)| i)
+                        .unwrap();
+                    app.popups.ssh_connection.connection_string.remove(byte_idx);
                 }
             }
             SshField::Name => {
-                if app.popups.ssh_connection.cursor_position < app.popups.ssh_connection.name.len()
-                {
-                    app.popups
+                let current_len = app.popups.ssh_connection.name.chars().count();
+                if app.popups.ssh_connection.cursor_position < current_len {
+                    let byte_idx = app
+                        .popups
                         .ssh_connection
                         .name
-                        .remove(app.popups.ssh_connection.cursor_position);
+                        .char_indices()
+                        .nth(app.popups.ssh_connection.cursor_position)
+                        .map(|(i, _)| i)
+                        .unwrap();
+                    app.popups.ssh_connection.name.remove(byte_idx);
                 }
             }
             SshField::Port => {
-                if app.popups.ssh_connection.cursor_position < app.popups.ssh_connection.port.len()
-                {
-                    app.popups
+                let current_len = app.popups.ssh_connection.port.chars().count();
+                if app.popups.ssh_connection.cursor_position < current_len {
+                    let byte_idx = app
+                        .popups
                         .ssh_connection
                         .port
-                        .remove(app.popups.ssh_connection.cursor_position);
+                        .char_indices()
+                        .nth(app.popups.ssh_connection.cursor_position)
+                        .map(|(i, _)| i)
+                        .unwrap();
+                    app.popups.ssh_connection.port.remove(byte_idx);
                 }
             }
             _ => {}
@@ -282,7 +347,7 @@ pub fn handle_ssh_connection_event(
                     app.popups.ssh_connection.name = info.name.clone().unwrap_or_default();
                     app.popups.ssh_connection.port = info.port.to_string();
                     app.popups.ssh_connection.cursor_position =
-                        app.popups.ssh_connection.connection_string.len();
+                        app.popups.ssh_connection.connection_string.chars().count();
                     start_ssh_auth(app);
                 }
             } else {
@@ -297,9 +362,9 @@ pub fn handle_ssh_connection_event(
 fn reset_cursor(app: &mut AppState) {
     use crate::state::ssh::SshField;
     app.popups.ssh_connection.cursor_position = match app.popups.ssh_connection.active_field {
-        SshField::ConnectionString => app.popups.ssh_connection.connection_string.len(),
-        SshField::Name => app.popups.ssh_connection.name.len(),
-        SshField::Port => app.popups.ssh_connection.port.len(),
+        SshField::ConnectionString => app.popups.ssh_connection.connection_string.chars().count(),
+        SshField::Name => app.popups.ssh_connection.name.chars().count(),
+        SshField::Port => app.popups.ssh_connection.port.chars().count(),
         SshField::History => 0,
     };
 }
@@ -494,7 +559,7 @@ pub fn handle_ssh_password_event(
         }
         KeyCode::Char('v') if modifiers.contains(KeyModifiers::CONTROL) => {
             if let Some(content) = get_clipboard_content() {
-                insert_text_at_cursor(
+                insert_text_at_cursor_unicode(
                     &mut app.popups.ssh_password.password,
                     &mut app.popups.ssh_password.cursor_position,
                     &content,
@@ -502,25 +567,49 @@ pub fn handle_ssh_password_event(
             }
         }
         KeyCode::Char(c) => {
-            let pos = app.popups.ssh_password.cursor_position;
-            let password = &mut app.popups.ssh_password.password;
-            if pos <= password.len() {
-                password.insert(pos, c);
-                app.popups.ssh_password.cursor_position += 1;
+            let idx = app.popups.ssh_password.cursor_position;
+            let current_len = app.popups.ssh_password.password.chars().count();
+            if idx >= current_len {
+                app.popups.ssh_password.password.push(c);
+            } else {
+                let byte_idx = app
+                    .popups
+                    .ssh_password
+                    .password
+                    .char_indices()
+                    .nth(idx)
+                    .map(|(i, _)| i)
+                    .unwrap();
+                app.popups.ssh_password.password.insert(byte_idx, c);
             }
+            app.popups.ssh_password.cursor_position += 1;
         }
         KeyCode::Backspace => {
             if app.popups.ssh_password.cursor_position > 0 {
-                let pos = app.popups.ssh_password.cursor_position;
-                app.popups.ssh_password.password.remove(pos - 1);
+                let byte_idx = app
+                    .popups
+                    .ssh_password
+                    .password
+                    .char_indices()
+                    .nth(app.popups.ssh_password.cursor_position - 1)
+                    .map(|(i, _)| i)
+                    .unwrap();
+                app.popups.ssh_password.password.remove(byte_idx);
                 app.popups.ssh_password.cursor_position -= 1;
             }
         }
         KeyCode::Delete => {
-            let pos = app.popups.ssh_password.cursor_position;
-            let password_len = app.popups.ssh_password.password.len();
-            if pos < password_len {
-                app.popups.ssh_password.password.remove(pos);
+            let current_len = app.popups.ssh_password.password.chars().count();
+            if app.popups.ssh_password.cursor_position < current_len {
+                let byte_idx = app
+                    .popups
+                    .ssh_password
+                    .password
+                    .char_indices()
+                    .nth(app.popups.ssh_password.cursor_position)
+                    .map(|(i, _)| i)
+                    .unwrap();
+                app.popups.ssh_password.password.remove(byte_idx);
             }
         }
         KeyCode::Left => {
@@ -529,7 +618,8 @@ pub fn handle_ssh_password_event(
             }
         }
         KeyCode::Right => {
-            if app.popups.ssh_password.cursor_position < app.popups.ssh_password.password.len() {
+            let len = app.popups.ssh_password.password.chars().count();
+            if app.popups.ssh_password.cursor_position < len {
                 app.popups.ssh_password.cursor_position += 1;
             }
         }
@@ -537,7 +627,8 @@ pub fn handle_ssh_password_event(
             app.popups.ssh_password.cursor_position = 0;
         }
         KeyCode::End => {
-            app.popups.ssh_password.cursor_position = app.popups.ssh_password.password.len();
+            app.popups.ssh_password.cursor_position =
+                app.popups.ssh_password.password.chars().count();
         }
         _ => {}
     }

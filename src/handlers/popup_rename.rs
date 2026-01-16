@@ -1,7 +1,7 @@
 //! Rename popup event handler and helpers
 
 use crate::app::AppState;
-use crate::handlers::clipboard_utils::{get_clipboard_content, insert_text_at_cursor};
+use crate::handlers::clipboard_utils::{get_clipboard_content, insert_text_at_cursor_unicode};
 use crossterm::event::{KeyCode, KeyModifiers};
 
 pub(crate) fn handle_init_rename(app: &mut AppState) {
@@ -80,7 +80,7 @@ pub(crate) fn handle_rename_event(
         }
         KeyCode::Char('v') if modifiers.contains(KeyModifiers::CONTROL) => {
             if let Some(content) = get_clipboard_content() {
-                insert_text_at_cursor(
+                insert_text_at_cursor_unicode(
                     &mut app.popups.rename.new_name,
                     &mut app.popups.rename.cursor_position,
                     &content,
@@ -89,28 +89,50 @@ pub(crate) fn handle_rename_event(
         }
         KeyCode::Char(c) => {
             app.popups.rename.error = None;
-            app.popups
-                .rename
-                .new_name
-                .insert(app.popups.rename.cursor_position, c);
+            let idx = app.popups.rename.cursor_position;
+            let current_len = app.popups.rename.new_name.chars().count();
+            if idx >= current_len {
+                app.popups.rename.new_name.push(c);
+            } else {
+                let byte_idx = app
+                    .popups
+                    .rename
+                    .new_name
+                    .char_indices()
+                    .nth(idx)
+                    .map(|(i, _)| i)
+                    .unwrap();
+                app.popups.rename.new_name.insert(byte_idx, c);
+            }
             app.popups.rename.cursor_position += 1;
         }
         KeyCode::Backspace => {
             app.popups.rename.error = None;
             if app.popups.rename.cursor_position > 0 {
-                app.popups
+                let byte_idx = app
+                    .popups
                     .rename
                     .new_name
-                    .remove(app.popups.rename.cursor_position - 1);
+                    .char_indices()
+                    .nth(app.popups.rename.cursor_position - 1)
+                    .map(|(i, _)| i)
+                    .unwrap();
+                app.popups.rename.new_name.remove(byte_idx);
                 app.popups.rename.cursor_position -= 1;
             }
         }
         KeyCode::Delete => {
-            if app.popups.rename.cursor_position < app.popups.rename.new_name.len() {
-                app.popups
+            let current_len = app.popups.rename.new_name.chars().count();
+            if app.popups.rename.cursor_position < current_len {
+                let byte_idx = app
+                    .popups
                     .rename
                     .new_name
-                    .remove(app.popups.rename.cursor_position);
+                    .char_indices()
+                    .nth(app.popups.rename.cursor_position)
+                    .map(|(i, _)| i)
+                    .unwrap();
+                app.popups.rename.new_name.remove(byte_idx);
             }
         }
         KeyCode::Left => {
@@ -119,7 +141,8 @@ pub(crate) fn handle_rename_event(
             }
         }
         KeyCode::Right => {
-            if app.popups.rename.cursor_position < app.popups.rename.new_name.len() {
+            let len = app.popups.rename.new_name.chars().count();
+            if app.popups.rename.cursor_position < len {
                 app.popups.rename.cursor_position += 1;
             }
         }
@@ -127,7 +150,7 @@ pub(crate) fn handle_rename_event(
             app.popups.rename.cursor_position = 0;
         }
         KeyCode::End => {
-            app.popups.rename.cursor_position = app.popups.rename.new_name.len();
+            app.popups.rename.cursor_position = app.popups.rename.new_name.chars().count();
         }
         _ => {}
     }
