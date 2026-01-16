@@ -1,6 +1,7 @@
 use crate::app::{CopyMoveAction, CopyMoveState};
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
+use ratatui::symbols::border::Set;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 pub fn draw_copy_move_popup(f: &mut ratatui::Frame, state: &CopyMoveState, palette: &ThemePalette) {
@@ -8,10 +9,9 @@ pub fn draw_copy_move_popup(f: &mut ratatui::Frame, state: &CopyMoveState, palet
         return;
     }
 
-    // Calculate popup size
     let area = f.area();
-    let popup_width = 80;
-    let popup_height = 3;
+    let popup_width = 76;
+    let popup_height = 7;
     let popup_x = (area.width.saturating_sub(popup_width)) / 2;
     let popup_y = (area.height.saturating_sub(popup_height)) / 2;
 
@@ -22,13 +22,67 @@ pub fn draw_copy_move_popup(f: &mut ratatui::Frame, state: &CopyMoveState, palet
         height: popup_height,
     };
 
-    // Clear the popup area
     f.render_widget(Clear, popup_area);
 
-    let bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
-    // Use blue for copy/move to distinguish from red (delete)
+    let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
+    let field_bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
     let border_color = Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b);
     let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
+    let title_color = Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b);
+    let error_color = Color::Rgb(palette.red.r, palette.red.g, palette.red.b);
+
+    let custom_border = Set {
+        top_left: "▎",
+        top_right: " ",
+        bottom_left: "▎",
+        bottom_right: " ",
+        vertical_left: "▎",
+        vertical_right: " ",
+        horizontal_top: " ",
+        horizontal_bottom: " ",
+    };
+
+    f.render_widget(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(border_color))
+            .border_set(symbols::border::EMPTY)
+            .style(Style::default().bg(bg_color)),
+        popup_area,
+    );
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .horizontal_margin(2)
+        .vertical_margin(1)
+        .constraints([Constraint::Length(5)])
+        .split(popup_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border_color).bg(field_bg_color))
+        .border_set(custom_border)
+        .style(Style::default().bg(field_bg_color));
+
+    f.render_widget(&block, chunks[0]);
+
+    let text_area = Rect {
+        x: chunks[0].x + 2,
+        y: chunks[0].y,
+        width: chunks[0].width.saturating_sub(2),
+        height: chunks[0].height,
+    };
+
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .split(text_area);
 
     let title_prefix = match state.action {
         CopyMoveAction::Copy => "Copy",
@@ -37,74 +91,45 @@ pub fn draw_copy_move_popup(f: &mut ratatui::Frame, state: &CopyMoveState, palet
     let count = state.source_paths.len();
     let title = format!("{title_prefix} {count} item(s) to:");
 
-    let mut block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
-        .title(title)
-        .border_style(Style::default().fg(border_color))
-        .style(Style::default().bg(bg_color));
+    let title_paragraph = Paragraph::new(title)
+        .style(Style::default().fg(title_color).bg(field_bg_color))
+        .alignment(Alignment::Left);
+    f.render_widget(title_paragraph, layout[1]);
 
-    if let Some(error) = &state.error {
-        block = block.title_bottom(
-            Line::from(format!(" Error: {error} "))
-                .style(Style::default().fg(Color::Rgb(palette.red.r, palette.red.g, palette.red.b)))
-                .alignment(Alignment::Center),
-        );
-    }
+    let input_width = (chunks[0].width as usize).saturating_sub(4);
+    let cursor_pos = state.cursor_position;
 
-    // Input display logic
-    let input_width = (popup_area.width as usize).saturating_sub(2);
-
-    // If input_selected, we show the whole text (truncated if needed) with a highlight background
-    // If not selected, we show scrolling window around cursor.
-
-    let (display_text, style) = if state.input_selected {
-        // Show start of path if selected, or maybe end? usually start is better for path.
-        // Actually, for a selected path, usually you see the whole thing or as much as fits.
-        let text: String = state.destination_input.chars().take(input_width).collect();
-        // Use surface2 or overlay1 for selection background?
-        // Let's use blue background for selection to be classic
-        (
-            text,
-            Style::default().fg(bg_color).bg(border_color), // White on Blue-ish
-        )
+    let scroll_offset = if cursor_pos < input_width {
+        0
     } else {
-        // Normal editing mode
-        let cursor_pos = state.cursor_position;
-        let scroll_offset = if cursor_pos < input_width {
-            0
-        } else {
-            cursor_pos - input_width + 1
-        };
-
-        let text: String = state
-            .destination_input
-            .chars()
-            .skip(scroll_offset)
-            .take(input_width)
-            .collect();
-
-        (text, Style::default().fg(text_color).bg(bg_color))
+        cursor_pos - input_width + 1
     };
 
-    let paragraph = Paragraph::new(display_text).block(block).style(style);
+    let display_text: String = state
+        .destination_input
+        .chars()
+        .skip(scroll_offset)
+        .take(input_width)
+        .collect();
 
-    f.render_widget(paragraph, popup_area);
+    let paragraph = Paragraph::new(display_text.as_str())
+        .style(Style::default().fg(text_color).bg(field_bg_color));
 
-    if !state.input_selected {
-        // Draw cursor
-        let scroll_offset = if state.cursor_position < input_width {
-            0
-        } else {
-            state.cursor_position - input_width + 1
-        };
-        let cursor_visual_offset = state.cursor_position.saturating_sub(scroll_offset);
+    f.render_widget(paragraph, layout[3]);
 
-        if cursor_visual_offset < input_width {
-            let cursor_x = popup_area.x + 1 + cursor_visual_offset as u16;
-            let cursor_y = popup_area.y + 1;
-            f.set_cursor_position(Position::new(cursor_x, cursor_y));
-        }
+    let cursor_visual_offset = cursor_pos.saturating_sub(scroll_offset);
+    if cursor_visual_offset < input_width {
+        f.set_cursor_position(Position::new(
+            chunks[0].x + 2 + cursor_visual_offset as u16,
+            chunks[0].y + 3,
+        ));
+    }
+
+    if let Some(error) = &state.error {
+        let error_paragraph = Paragraph::new(error.as_str())
+            .style(Style::default().fg(error_color).bg(field_bg_color))
+            .alignment(Alignment::Right);
+        f.render_widget(error_paragraph, layout[4]);
     }
 }
 
@@ -147,7 +172,7 @@ mod tests {
                     source_paths: vec![PathBuf::from("/foo")],
                     destination_input: "/tmp/bar".into(),
                     input_selected: false,
-                    cursor_position: 7, // after text
+                    cursor_position: 7,
                     error: Some("Some error message".to_string()),
                 };
                 let palette = crate::theme::default_theme();
@@ -158,7 +183,7 @@ mod tests {
 
     #[test]
     fn test_draw_copy_move_popup_invisible() {
-        let backend = TestBackend::new(80, 5);
+        let backend = TestBackend::new(80, 10);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal
             .draw(|f| {
