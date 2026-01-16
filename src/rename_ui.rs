@@ -65,18 +65,15 @@ pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &RenameState, palette: &
         let truncated_name = crate::ui_utils::truncate_middle_with_ellipsis(&state.new_name, 35);
         let text = format!("Overwrite {truncated_name}?");
 
-        let confirm_block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(border_color))
-            .border_set(symbols::border::EMPTY)
-            .style(Style::default().bg(bg_color));
+        f.render_widget(
+            Block::default().style(Style::default().bg(field_bg_color)),
+            chunks[0],
+        );
 
-        f.render_widget(&confirm_block, chunks[0]);
-        let inner_area = confirm_block.inner(chunks[0]);
         let layout =
-            Layout::vertical([Constraint::Min(2), Constraint::Length(1)]).split(inner_area);
+            Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(chunks[0]);
         let p_message = Paragraph::new(text)
-            .style(Style::default().fg(text_color).bg(bg_color))
+            .style(Style::default().fg(text_color).bg(field_bg_color))
             .alignment(Alignment::Center);
         f.render_widget(p_message, layout[0]);
 
