@@ -196,7 +196,7 @@ pub fn draw_drive_select_popup(f: &mut Frame, app: &mut AppState, palette: &Them
 
     let inner_area = Layout::default()
         .direction(Direction::Vertical)
-        .horizontal_margin(1)
+        .horizontal_margin(2)
         .vertical_margin(1)
         .constraints([Constraint::Min(1)])
         .split(popup_rect)[0];
