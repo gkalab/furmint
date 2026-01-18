@@ -204,9 +204,8 @@ pub fn draw_drive_select_popup(f: &mut Frame, app: &mut AppState, palette: &Them
     // Draw list inside
     let list = List::new(items).block(
         Block::default()
-            .title(" Select Drive ")
             .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_set(ratatui::symbols::border::EMPTY)
             .border_style(Style::default().fg(border_color))
             .style(Style::default().bg(list_bg_color)),
     );
