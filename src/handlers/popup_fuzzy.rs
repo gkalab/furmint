@@ -1,7 +1,19 @@
 //! Fuzzy search popup event handler
 
 use crate::app::AppState;
+use crate::fuzzy_search_ui::FuzzySearchState;
 use crossterm::event::KeyCode;
+
+fn update_fuzzy_search_results(
+    state: &mut FuzzySearchState,
+    dir_history: &crate::dir_history::DirectoryHistory,
+    context_key: &str,
+) {
+    let results = dir_history.fuzzy_search(context_key, &state.input);
+    state.filtered_dirs = results.into_iter().map(|(p, _)| p).collect();
+    state.selected_index = 0;
+    state.scroll_offset = 0;
+}
 
 pub(crate) fn handle_fuzzy_search_event(code: KeyCode, app: &mut AppState) -> bool {
     let context_key = app.active_tab().provider.context_key();
@@ -38,23 +50,32 @@ pub(crate) fn handle_fuzzy_search_event(code: KeyCode, app: &mut AppState) -> bo
         KeyCode::PageDown => {
             app.fuzzy_search.move_selection_page_down(10);
         }
+        KeyCode::Left => {
+            app.fuzzy_search.move_cursor_left();
+        }
+        KeyCode::Right => {
+            app.fuzzy_search.move_cursor_right();
+        }
+        KeyCode::Home => {
+            app.fuzzy_search.move_cursor_home();
+        }
+        KeyCode::End => {
+            app.fuzzy_search.move_cursor_end();
+        }
         KeyCode::Backspace => {
-            app.fuzzy_search.input.pop();
-            let results = app
-                .dir_history
-                .fuzzy_search(&context_key, &app.fuzzy_search.input);
-            app.fuzzy_search.filtered_dirs = results.into_iter().map(|(p, _)| p).collect();
-            app.fuzzy_search.selected_index = 0;
-            app.fuzzy_search.scroll_offset = 0;
+            if app.fuzzy_search.cursor_position > 0 {
+                app.fuzzy_search.cursor_position -= 1;
+                let char_idx = app.fuzzy_search.cursor_position;
+                app.fuzzy_search.input.remove(char_idx);
+                update_fuzzy_search_results(&mut app.fuzzy_search, &app.dir_history, &context_key);
+            }
         }
         KeyCode::Char(c) => {
-            app.fuzzy_search.input.push(c);
-            let results = app
-                .dir_history
-                .fuzzy_search(&context_key, &app.fuzzy_search.input);
-            app.fuzzy_search.filtered_dirs = results.into_iter().map(|(p, _)| p).collect();
-            app.fuzzy_search.selected_index = 0;
-            app.fuzzy_search.scroll_offset = 0;
+            app.fuzzy_search
+                .input
+                .insert(app.fuzzy_search.cursor_position, c);
+            app.fuzzy_search.cursor_position += 1;
+            update_fuzzy_search_results(&mut app.fuzzy_search, &app.dir_history, &context_key);
         }
         _ => {}
     }

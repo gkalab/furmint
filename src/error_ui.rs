@@ -29,55 +29,61 @@ pub fn draw_error_popup(f: &mut ratatui::Frame, state: &ErrorState, palette: &Th
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_set(ratatui::symbols::border::EMPTY)
         .title(" Operation Failed ")
         .title_alignment(Alignment::Center)
         .border_style(Style::default().fg(border_color))
         .style(Style::default().bg(bg_color));
 
-    // Draw block/borders first
-    f.render_widget(&block, popup_area);
-    let mut inner_area = block.inner(popup_area);
-    inner_area.x += 1;
-    inner_area.width = inner_area.width.saturating_sub(2);
+    // Draw outer block
+    f.render_widget(block, popup_area);
+
+    // Inner chunks for margin
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .horizontal_margin(2)
+        .vertical_margin(1)
+        .constraints([Constraint::Min(1)])
+        .split(popup_area);
+
+    let field_bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
+
+    // Draw inner block with field background
+    let inner_block = Block::default()
+        .borders(Borders::ALL)
+        .border_set(ratatui::symbols::border::EMPTY)
+        .border_style(Style::default().fg(border_color).bg(field_bg_color))
+        .style(Style::default().bg(field_bg_color));
+
+    f.render_widget(inner_block.clone(), chunks[0]);
+    let inner_content_area = inner_block.inner(chunks[0]);
+
     let layout = Layout::vertical([
         Constraint::Length(1), // Path label
         Constraint::Length(1), // Path
         Constraint::Min(2),    // Error message
         Constraint::Length(1), // Button row
     ])
-    .split(inner_area);
+    .split(inner_content_area);
 
     f.render_widget(
-        Paragraph::new("Path:").style(Style::default().fg(text_color).add_modifier(Modifier::BOLD)),
+        Paragraph::new("Path:").style(
+            Style::default()
+                .fg(text_color)
+                .add_modifier(Modifier::BOLD)
+                .bg(field_bg_color),
+        ),
         layout[0],
     );
     f.render_widget(
-        Paragraph::new(state.error_path.as_str()).style(Style::default().fg(text_color)),
+        Paragraph::new(state.error_path.as_str())
+            .style(Style::default().fg(text_color).bg(field_bg_color)),
         layout[1],
     );
     f.render_widget(
         Paragraph::new(state.error_message.as_str())
             .wrap(Wrap { trim: true })
-            .style(Style::default().fg(Color::Red)),
-        layout[2],
-    );
-
-    crate::ui_utils::draw_button_row(
-        f,
-        &["[R]etry", "[S]kip", "Skip [A]ll", "[C]ancel"],
-        layout[3],
-        text_color,
-    );
-    f.render_widget(
-        Paragraph::new(state.error_path.as_str()).style(Style::default().fg(text_color)),
-        layout[1],
-    );
-
-    f.render_widget(
-        Paragraph::new(state.error_message.as_str())
-            .wrap(Wrap { trim: true })
-            .style(Style::default().fg(Color::Red)),
+            .style(Style::default().fg(Color::Red).bg(field_bg_color)),
         layout[2],
     );
 

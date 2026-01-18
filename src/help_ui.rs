@@ -1,45 +1,118 @@
 use crate::config::KeyboardConfig;
 use crate::theme::ThemePalette;
+use crossterm::event::KeyCode as CrosstermKeyCode;
 use ratatui::prelude::*;
-use ratatui::widgets::{Block, Borders, Cell, Clear, Row, Table};
+use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table};
 
 pub fn draw_help_popup(
     f: &mut ratatui::Frame,
-    is_visible: bool,
+    app: &mut crate::app::AppState, // Takes app state mutable to update scroll calculation limits? No, we shouldn't update state during draw. But we need scroll_offset.
     keyboard: &KeyboardConfig,
     palette: &ThemePalette,
 ) {
-    if !is_visible {
+    if !app.popups.help.is_visible {
         return;
     }
 
     let size = f.area();
-    let area = centered_rect(80, 80, size);
+    // Using unified centered rect utility
+    let area = crate::ui_utils::centered_rect_percent(40, 80, size);
 
-    let blue = Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b);
-    let base = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
-    let text = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
+    let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
+    let field_bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
+    let border_color = Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b);
+    let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
+
+    f.render_widget(Clear, area);
+
+    // Draw outer block
+    f.render_widget(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(border_color))
+            .border_set(ratatui::symbols::border::EMPTY)
+            .style(Style::default().bg(bg_color)),
+        area,
+    );
+
+    // Inner chunks for margin
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .horizontal_margin(2)
+        .vertical_margin(1)
+        .constraints([Constraint::Min(1)])
+        .split(area);
+
+    // Draw inner block with field background
+    let inner_block = Block::default()
+        .borders(Borders::ALL)
+        .border_set(ratatui::symbols::border::EMPTY)
+        .border_style(Style::default().fg(border_color).bg(field_bg_color))
+        .style(Style::default().bg(field_bg_color));
+
+    f.render_widget(inner_block.clone(), chunks[0]);
+    let inner_content_area = inner_block.inner(chunks[0]);
+
+    // Layout inside inner block: Title, Content (Table)
+    let layout = Layout::vertical([
+        Constraint::Length(1), // Title
+        Constraint::Min(1),    // Table
+    ])
+    .horizontal_margin(1)
+    .split(inner_content_area);
+
+    f.render_widget(
+        Paragraph::new("Help (Esc to close)")
+            .alignment(Alignment::Center)
+            .style(
+                Style::default()
+                    .fg(text_color)
+                    .add_modifier(Modifier::BOLD)
+                    .bg(field_bg_color),
+            ),
+        layout[0],
+    );
+
+    //
+    // CLEANEST PLATFORM-SAFE NAVIGATION LIST
+    //
+
+    // Base navigation entries (all platforms)
+    let base_nav = vec![
+        ("Search", &keyboard.search),
+        ("Enter Dir", &keyboard.enter_dir),
+        ("Up Dir", &keyboard.up_dir),
+        ("New Tab", &keyboard.new_tab),
+        ("Next Tab", &keyboard.tab_next),
+        ("Prev Tab", &keyboard.tab_prev),
+        ("Swap Tabs", &keyboard.swap_tabs),
+        ("Close Tab", &keyboard.tab_close),
+        ("History Back", &keyboard.back),
+        ("History Forward", &keyboard.forward),
+    ];
+
+    // Windows‑only additions
+    #[cfg(target_os = "windows")]
+    let navigation = {
+        let mut v = base_nav;
+        v.push(("Change Drive of Left Panel", &keyboard.change_drive_left));
+        v.push(("Change Drive of Right Panel", &keyboard.change_drive_right));
+        v
+    };
+
+    // Non‑Windows: use base list unchanged
+    #[cfg(not(target_os = "windows"))]
+    let navigation = base_nav;
 
     // Dynamic grouping of key bindings
     let categories = vec![
-        (
-            "Navigation",
-            vec![
-                ("Back", &keyboard.back),
-                ("Forward", &keyboard.forward),
-                ("Enter Dir", &keyboard.enter_dir),
-                ("Up Dir", &keyboard.up_dir),
-                ("New Tab", &keyboard.new_tab),
-                ("Next Tab", &keyboard.tab_next),
-                ("Prev Tab", &keyboard.tab_prev),
-                ("Close Tab", &keyboard.tab_close),
-            ],
-        ),
+        ("Navigation", navigation),
         (
             "File Operations",
             vec![
                 ("New File", &keyboard.new_file),
                 ("New Dir", &keyboard.new_dir),
+                ("Select All", &keyboard.select_all),
                 ("Edit", &keyboard.edit_file),
                 ("Copy", &keyboard.copy_to),
                 ("Move", &keyboard.move_to),
@@ -63,6 +136,7 @@ pub fn draw_help_popup(
             vec![
                 ("Help", &keyboard.help),
                 ("Tasks", &keyboard.tasks),
+                ("Toggle Console", &keyboard.toggle_console),
                 ("Terminal", &keyboard.open_terminal),
                 ("Quit", &keyboard.quit),
             ],
@@ -80,7 +154,9 @@ pub fn draw_help_popup(
     for (category, bindings) in categories {
         rows.push(Row::new(vec![Cell::from(Span::styled(
             category,
-            Style::default().add_modifier(Modifier::BOLD).fg(blue),
+            Style::default()
+                .add_modifier(Modifier::BOLD)
+                .fg(border_color),
         ))]));
 
         for (label, keys) in bindings {
@@ -95,39 +171,92 @@ pub fn draw_help_popup(
         rows.push(Row::new(vec![Cell::from("")])); // Spacer
     }
 
-    let table = Table::new(
-        rows,
-        [Constraint::Percentage(40), Constraint::Percentage(60)],
-    )
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(blue)) // Changed to blue since lavender might not be in palette
-            .title(" Help (Esc to close) ")
-            .title_alignment(Alignment::Center),
-    )
-    .style(Style::default().bg(base).fg(text));
+    let table_area = layout[1];
+    let total_rows = rows.len();
+    let visible_height = table_area.height as usize;
 
-    f.render_widget(Clear, area);
-    f.render_widget(table, area);
+    // Adjust scroll offset to ensure it's valid
+    // We allow scrolling until the last item is at the top (saturating_sub(1))
+    // to handle cases where rows might wrap or user prefers scrolling to end.
+    let max_scroll = total_rows.saturating_sub(1);
+    if app.popups.help.scroll_offset > max_scroll {
+        app.popups.help.scroll_offset = max_scroll;
+    }
+
+    let rows_to_render = rows
+        .into_iter()
+        .skip(app.popups.help.scroll_offset)
+        .take(visible_height);
+
+    let table = Table::new(
+        rows_to_render,
+        [Constraint::Percentage(60), Constraint::Percentage(40)],
+    )
+    .style(Style::default().bg(field_bg_color).fg(text_color));
+
+    f.render_widget(table, table_area);
+
+    // Scrollbar
+    let scroll_area = Rect {
+        x: table_area.x + table_area.width.saturating_sub(1),
+        y: table_area.y,
+        width: 1,
+        height: table_area.height,
+    };
+
+    crate::ui_utils::draw_scrollbar(
+        f,
+        scroll_area,
+        total_rows,
+        visible_height,
+        app.popups.help.scroll_offset,
+        palette,
+    );
 }
 
-fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(r);
+pub fn handle_help_popup_event(code: CrosstermKeyCode, app: &mut crate::app::AppState) -> bool {
+    // visible_height unused for now as we use hardcoded page_step
+    // Ideally, we store visible_height in state during draw, but for now we can assume a safe default or use a larger step.
+    // Or better, we only increment/decrement by 1 for arrow keys, and use a fixed step for page up/down.
+    // However, without knowing the rendered height, exact page scrolling is hard.
+    // Let's use a reasonable constant for page scroll, or just 10.
+    let page_step = 10;
 
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(popup_layout[1])[1]
+    // Total rows is also dynamic based on config. We can calculate it again or store it.
+    // Re-calculating cost is low.
+    // But we don't have access to keyboard config here easily to calculate exact rows.
+    // We can just guard against overflow in the draw function (which we did), passing a simplified max here?
+    // Actually, simply incrementing indefinitely is fine if draw clamps it?
+    // Yes, draw function clamps `app.popups.help.scroll_offset`.
+    // BUT, we need to know total rows to clamp here if we want "End" key to work perfectly immediately,
+    // or we rely on draw to clamp it on next frame.
+    // Let's rely on draw clamping for upper bound? No, because we modify state here.
+    // If we set it to usize::MAX, draw checks `if scroll > max { scroll = max }`.
+    // So for "End", we can set it to usize::MAX.
+
+    match code {
+        CrosstermKeyCode::Esc => {
+            app.popups.help.reset();
+        }
+        CrosstermKeyCode::Up => {
+            app.popups.help.scroll_offset = app.popups.help.scroll_offset.saturating_sub(1);
+        }
+        CrosstermKeyCode::Down => {
+            app.popups.help.scroll_offset = app.popups.help.scroll_offset.saturating_add(1);
+        }
+        CrosstermKeyCode::PageUp => {
+            app.popups.help.scroll_offset = app.popups.help.scroll_offset.saturating_sub(page_step);
+        }
+        CrosstermKeyCode::PageDown => {
+            app.popups.help.scroll_offset = app.popups.help.scroll_offset.saturating_add(page_step);
+        }
+        CrosstermKeyCode::Home => {
+            app.popups.help.scroll_offset = 0;
+        }
+        CrosstermKeyCode::End => {
+            app.popups.help.scroll_offset = usize::MAX; // Draw will clamp
+        }
+        _ => return false,
+    }
+    true
 }

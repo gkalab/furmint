@@ -9,38 +9,47 @@ pub fn draw_delete_popup(f: &mut ratatui::Frame, state: &DeleteState, palette: &
     }
 
     // Calculate popup size
-    let area = f.area();
-    let popup_width = 60;
-    let popup_height = 5;
-    let popup_x = (area.width.saturating_sub(popup_width)) / 2;
-    let popup_y = (area.height.saturating_sub(popup_height)) / 2;
-
-    let popup_area = Rect {
-        x: popup_x,
-        y: popup_y,
-        width: popup_width,
-        height: popup_height,
-    };
+    // Calculate popup size
+    let popup_width = 66;
+    let popup_height = 8;
+    let popup_area = crate::ui_utils::centered_rect_absolute(popup_width, popup_height, f.area());
 
     // Clear the popup area
     f.render_widget(Clear, popup_area);
 
-    let bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
+    let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
     let border_color = Color::Rgb(palette.red.r, palette.red.g, palette.red.b);
     let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
 
-    let title = if state.is_permanent {
-        "Permanent Delete"
-    } else {
-        "Move to Trash"
-    };
+    // Draw outer block
+    f.render_widget(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(border_color))
+            .border_set(ratatui::symbols::border::EMPTY)
+            .style(Style::default().bg(bg_color)),
+        popup_area,
+    );
 
-    let block = Block::default()
+    // Inner chunks for margin
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .horizontal_margin(2)
+        .vertical_margin(1)
+        .constraints([Constraint::Min(1)])
+        .split(popup_area);
+
+    let field_bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
+
+    // Draw inner block with field background
+    let inner_block = Block::default()
         .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
-        .title(title)
-        .border_style(Style::default().fg(border_color))
-        .style(Style::default().bg(bg_color));
+        .border_set(ratatui::symbols::border::EMPTY)
+        .border_style(Style::default().fg(border_color).bg(field_bg_color))
+        .style(Style::default().bg(field_bg_color));
+
+    f.render_widget(inner_block.clone(), chunks[0]);
+    let inner_content_area = inner_block.inner(chunks[0]);
 
     let count = state.selected_paths.len();
     let message = if count == 1 {
@@ -49,7 +58,7 @@ pub fn draw_delete_popup(f: &mut ratatui::Frame, state: &DeleteState, palette: &
             .unwrap_or_default()
             .to_string_lossy();
         // Truncate if too long
-        let truncated = crate::ui_utils::truncate_middle_with_ellipsis(&name, 40);
+        let truncated = crate::ui_utils::truncate_middle_with_ellipsis(&name, 36);
         if state.is_permanent {
             format!("Permanently delete '{truncated}'?")
         } else {
@@ -61,27 +70,20 @@ pub fn draw_delete_popup(f: &mut ratatui::Frame, state: &DeleteState, palette: &
         format!("Trash {count} items?")
     };
 
-    // Divide popup_area for message and button row
-    // Robust: message uses Min, button row is Length(1)
-
-    // Draw block/borders first
-    f.render_widget(&block, popup_area);
-    let mut inner_area = block.inner(popup_area);
-    inner_area.x += 1;
-    inner_area.width = inner_area.width.saturating_sub(2);
-
-    let layout = Layout::vertical([
-        Constraint::Min(2),    // Message
-        Constraint::Length(1), // Button row
-    ])
-    .split(inner_area);
+    let inner_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(1),    // Message
+            Constraint::Length(1), // Button row
+        ])
+        .split(inner_content_area);
 
     let p_message = Paragraph::new(message)
-        .style(Style::default().fg(text_color).bg(bg_color))
+        .style(Style::default().fg(text_color).bg(field_bg_color))
         .alignment(Alignment::Center);
-    f.render_widget(p_message, layout[0]);
+    f.render_widget(p_message, inner_layout[0]);
 
-    crate::ui_utils::draw_button_row(f, &["(Y)es", "(N)o"], layout[1], text_color);
+    crate::ui_utils::draw_button_row(f, &["(Y)es", "(N)o"], inner_layout[1], text_color);
 }
 
 #[cfg(test)]

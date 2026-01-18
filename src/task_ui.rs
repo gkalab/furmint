@@ -13,37 +13,37 @@ pub fn draw_task_manager(
         return;
     }
 
-    let area = f.area();
+    // Calculate popup size
     let popup_width = 80;
     let popup_height = 20;
-    let popup_x = (area.width.saturating_sub(popup_width)) / 2;
-    let popup_y = (area.height.saturating_sub(popup_height)) / 2;
-
-    let popup_area = Rect {
-        x: popup_x,
-        y: popup_y,
-        width: popup_width,
-        height: popup_height,
-    };
+    let popup_area = crate::ui_utils::centered_rect_absolute(popup_width, popup_height, f.area());
 
     f.render_widget(Clear, popup_area);
 
-    let bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
+    let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
+    let list_bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
     let border_color = Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b);
     let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
 
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
-        .title("Task Manager (Esc to close, x to cancel selected)")
-        .border_style(Style::default().fg(border_color))
-        .style(Style::default().bg(bg_color));
+    // Draw outer block
+    f.render_widget(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(border_color))
+            .border_set(ratatui::symbols::border::EMPTY)
+            .title(" Task Manager (Esc to close, x to cancel selected) ")
+            .style(Style::default().bg(bg_color)),
+        popup_area,
+    );
 
-    f.render_widget(block.clone(), popup_area);
+    let inner_area = Layout::default()
+        .direction(Direction::Vertical)
+        .horizontal_margin(2)
+        .vertical_margin(1)
+        .constraints([Constraint::Min(1)])
+        .split(popup_area)[0];
 
     let tasks = task_manager.get_tasks();
-
-    let inner_area = block.inner(popup_area);
 
     // Use stateful list to show selection
     let selected_index = task_manager
@@ -103,12 +103,6 @@ pub fn draw_task_manager(
             String::new()
         };
 
-        // If failed, append error to title or a separate line?
-        // Let's just keep title simple for now.
-        // We create a Multi-line item? List items are usually single line?
-        // Ratatui List items can be multi-line if they contain newlines?
-        // No, ListItem takes a generic Text which can be lines.
-
         let mut spans = vec![Line::from(Span::styled(item_title, style))];
 
         if !progress_line.is_empty() {
@@ -122,15 +116,18 @@ pub fn draw_task_manager(
             )));
         }
 
-        // Add a separator or just spacing?
-        // Usually list items are compact.
-
         list_items.push(ListItem::new(spans));
     }
 
+    // List Block inside
     let list = List::new(list_items)
-        .block(Block::default())
-        .style(Style::default().bg(bg_color))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_set(ratatui::symbols::border::EMPTY)
+                .border_style(Style::default().fg(border_color))
+                .style(Style::default().bg(list_bg_color)),
+        )
         .highlight_style(highlight_style);
 
     f.render_stateful_widget(list, inner_area, &mut state);

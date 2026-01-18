@@ -150,7 +150,8 @@ pub fn draw_drive_select_popup(f: &mut Frame, app: &mut AppState, palette: &Them
 
     f.render_widget(Clear, popup_rect);
 
-    let bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
+    let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
+    let list_bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
     let border_color = Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b);
     let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
 
@@ -159,7 +160,7 @@ pub fn draw_drive_select_popup(f: &mut Frame, app: &mut AppState, palette: &Them
     let drive_selection_foreground = if palette.is_dark {
         text_color
     } else {
-        bg_color
+        list_bg_color
     };
 
     let items: Vec<ListItem> = app
@@ -183,14 +184,32 @@ pub fn draw_drive_select_popup(f: &mut Frame, app: &mut AppState, palette: &Them
         })
         .collect();
 
+    // Draw outer block
+    f.render_widget(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_set(ratatui::symbols::border::EMPTY)
+            .border_style(Style::default().fg(border_color))
+            .style(Style::default().bg(bg_color)),
+        popup_rect,
+    );
+
+    let inner_area = Layout::default()
+        .direction(Direction::Vertical)
+        .horizontal_margin(1)
+        .vertical_margin(1)
+        .constraints([Constraint::Min(1)])
+        .split(popup_rect)[0];
+
+    // Draw list inside
     let list = List::new(items).block(
         Block::default()
             .title(" Select Drive ")
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(border_color))
-            .style(Style::default().bg(bg_color)),
+            .style(Style::default().bg(list_bg_color)),
     );
 
-    f.render_widget(list, popup_rect);
+    f.render_widget(list, inner_area);
 }

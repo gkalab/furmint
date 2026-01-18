@@ -356,7 +356,7 @@ fn draw_ui(
         crate::error_ui::draw_error_popup(f, &app.popups.error, palette);
 
         // Draw help popup
-        crate::help_ui::draw_help_popup(f, app.popups.help.is_visible, keyboard, palette);
+        crate::help_ui::draw_help_popup(f, app, keyboard, palette);
 
         // Draw drive selection popup
         if app.popups.drive_select.is_visible {
@@ -431,9 +431,7 @@ pub async fn handle_event(
 
             // Handle help popup
             if app.popups.help.is_visible {
-                if code == KeyCode::Esc {
-                    app.popups.help.reset();
-                }
+                crate::help_ui::handle_help_popup_event(code, app);
                 return false;
             }
 

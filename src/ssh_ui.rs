@@ -7,7 +7,7 @@ use ratatui::widgets::*;
 
 pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemePalette) {
     let area = f.area();
-    let popup_area = centered_rect(70, 80, area);
+    let popup_area = crate::ui_utils::centered_rect_percent(70, 80, area);
 
     f.render_widget(Clear, popup_area);
 
@@ -267,7 +267,7 @@ pub fn draw_ssh_password_popup(f: &mut Frame, app: &AppState, palette: &ThemePal
     };
 
     let input_width = (chunks[0].width as usize).saturating_sub(4);
-    let password_mask: String = "*".repeat(app.popups.ssh_password.password.len());
+    let password_mask: String = "●".repeat(app.popups.ssh_password.password.len());
     let cursor_pos = app.popups.ssh_password.cursor_position;
 
     let scroll_offset = if cursor_pos < input_width {
@@ -319,30 +319,4 @@ pub fn draw_ssh_password_popup(f: &mut Frame, app: &AppState, palette: &ThemePal
             chunks[0].y + 1,
         ));
     }
-}
-
-fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(
-            [
-                Constraint::Percentage((100 - percent_y) / 2),
-                Constraint::Percentage(percent_y),
-                Constraint::Percentage((100 - percent_y) / 2),
-            ]
-            .as_ref(),
-        )
-        .split(r);
-
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints(
-            [
-                Constraint::Percentage((100 - percent_x) / 2),
-                Constraint::Percentage(percent_x),
-                Constraint::Percentage((100 - percent_x) / 2),
-            ]
-            .as_ref(),
-        )
-        .split(popup_layout[1])[1]
 }

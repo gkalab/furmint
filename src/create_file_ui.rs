@@ -12,64 +12,121 @@ pub fn draw_create_file_popup(
     }
 
     // Popup size/position (like other popups)
-    let area = f.area();
+    // Popup size/position (like other popups)
+    // Height 7 to allow for title, input and error message space
     let popup_width = 60;
-    let popup_height = 3;
-    let popup_x = (area.width.saturating_sub(popup_width)) / 2;
-    let popup_y = (area.height.saturating_sub(popup_height)) / 2;
-    let popup_area = Rect {
-        x: popup_x,
-        y: popup_y,
-        width: popup_width,
-        height: popup_height,
-    };
+    let popup_height = 7;
+    let popup_area = crate::ui_utils::centered_rect_absolute(popup_width, popup_height, f.area());
+
     f.render_widget(Clear, popup_area);
 
-    let bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
+    let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
+    let field_bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
     let border_color = Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b);
     let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
+    let title_color = Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b);
+    let error_color = Color::Rgb(palette.red.r, palette.red.g, palette.red.b);
 
-    let (title, title_style) = if let Some(err) = &state.error {
-        (
-            err.as_str(),
-            Style::default().fg(Color::Rgb(palette.red.r, palette.red.g, palette.red.b)),
-        )
-    } else {
-        ("Create File:", Style::default().fg(border_color))
-    };
+    // Draw outer block (shadow/background)
+    f.render_widget(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(border_color))
+            .border_set(ratatui::symbols::border::EMPTY)
+            .style(Style::default().bg(bg_color)),
+        popup_area,
+    );
 
+    // Inner layout for input field
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .horizontal_margin(2)
+        .vertical_margin(1)
+        .constraints([Constraint::Length(5)])
+        .split(popup_area);
+
+    // Draw input block
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
-        .title(title)
-        .border_style(title_style)
-        .style(Style::default().bg(bg_color));
+        .border_style(Style::default().fg(border_color).bg(field_bg_color))
+        .border_set(crate::ui_utils::custom_border_set())
+        .style(Style::default().bg(field_bg_color));
 
-    let input_width = (popup_area.width as usize).saturating_sub(2);
+    f.render_widget(&block, chunks[0]);
+
+    // Layout inside padding for title, input, error
+    let text_area = Rect {
+        x: chunks[0].x + 2,
+        y: chunks[0].y,
+        width: chunks[0].width.saturating_sub(2),
+        height: chunks[0].height,
+    };
+
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1), // Spacing
+            Constraint::Length(1), // Title
+            Constraint::Length(1), // Spacing
+            Constraint::Length(1), // Input
+            Constraint::Length(1), // Error
+        ])
+        .split(text_area);
+
+    // Title
+    let title_paragraph = Paragraph::new("Create File")
+        .style(Style::default().fg(title_color).bg(field_bg_color))
+        .alignment(Alignment::Left);
+    f.render_widget(title_paragraph, layout[1]);
+
+    // Input text
+    let input_width = (chunks[0].width as usize).saturating_sub(4);
     let cursor_pos = state.cursor_position;
+
     let scroll_offset = if cursor_pos < input_width {
         0
     } else {
         cursor_pos - input_width + 1
     };
-    let display_text: String = state
-        .input_value
-        .chars()
-        .skip(scroll_offset)
-        .take(input_width)
-        .collect();
 
-    let paragraph = Paragraph::new(display_text.as_str())
-        .block(block)
-        .style(Style::default().fg(text_color).bg(bg_color));
-    f.render_widget(paragraph, popup_area);
+    let display_text = if state.input_value.is_empty() {
+        Span::styled(
+            "File Name",
+            Style::default().fg(Color::Rgb(
+                palette.overlay0.r,
+                palette.overlay0.g,
+                palette.overlay0.b,
+            )),
+        )
+    } else {
+        let text: String = state
+            .input_value
+            .chars()
+            .skip(scroll_offset)
+            .take(input_width)
+            .collect();
+        Span::styled(text, Style::default().fg(text_color).bg(field_bg_color))
+    };
 
-    // Draw cursor
+    let paragraph = Paragraph::new(display_text).style(Style::default().bg(field_bg_color));
+
+    f.render_widget(paragraph, layout[3]);
+
+    // Cursor
     let cursor_visual_offset = cursor_pos.saturating_sub(scroll_offset);
     if cursor_visual_offset < input_width {
-        let cursor_x = popup_area.x + 1 + cursor_visual_offset as u16;
-        let cursor_y = popup_area.y + 1;
-        f.set_cursor_position(Position::new(cursor_x, cursor_y));
+        f.set_cursor_position(Position::new(
+            chunks[0].x + 2 + cursor_visual_offset as u16,
+            chunks[0].y + 3,
+        ));
+    }
+
+    // Error
+    if let Some(error) = &state.error {
+        let error_paragraph = Paragraph::new(error.as_str())
+            .style(Style::default().fg(error_color).bg(field_bg_color))
+            .alignment(Alignment::Right);
+        f.render_widget(error_paragraph, layout[4]);
     }
 }
 
