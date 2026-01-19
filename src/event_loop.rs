@@ -259,20 +259,29 @@ fn draw_ui(
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
             .split(vertical_chunks[1]);
 
-        // Split each panel area into tab bar and content
+        let show_tabs = app.left.tabs.len() > 1 || app.right.tabs.len() > 1;
+
         let left_panel_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(1), // tab bar
-                Constraint::Min(1),    // panel content
+                if show_tabs {
+                    Constraint::Length(1)
+                } else {
+                    Constraint::Length(0)
+                },
+                Constraint::Min(1),
             ])
             .split(panel_chunks[0]);
 
         let right_panel_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(1), // tab bar
-                Constraint::Min(1),    // panel content
+                if show_tabs {
+                    Constraint::Length(1)
+                } else {
+                    Constraint::Length(0)
+                },
+                Constraint::Min(1),
             ])
             .split(panel_chunks[1]);
 
@@ -286,7 +295,9 @@ fn draw_ui(
             );
         } else {
             let is_active = app.active == PanelSide::Left && !app.file_viewer.focused;
-            crate::ui::draw_tab_bar(f, &app.left, left_panel_layout[0], palette, is_active);
+            if show_tabs {
+                crate::ui::draw_tab_bar(f, &app.left, left_panel_layout[0], palette, is_active);
+            }
             draw_panel(
                 f,
                 app.left.active_tab_mut(),
@@ -307,7 +318,9 @@ fn draw_ui(
             );
         } else {
             let is_active = app.active == PanelSide::Right && !app.file_viewer.focused;
-            crate::ui::draw_tab_bar(f, &app.right, right_panel_layout[0], palette, is_active);
+            if show_tabs {
+                crate::ui::draw_tab_bar(f, &app.right, right_panel_layout[0], palette, is_active);
+            }
             draw_panel(
                 f,
                 app.right.active_tab_mut(),
