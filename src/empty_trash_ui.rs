@@ -15,7 +15,7 @@ pub fn draw_empty_trash_popup(
     // Calculate popup size
     // Calculate popup size
     let popup_width = 60;
-    let popup_height = 5;
+    let popup_height = 7;
     let popup_area = crate::ui_utils::centered_rect_absolute(popup_width, popup_height, f.area());
 
     // Clear the popup area
@@ -23,7 +23,8 @@ pub fn draw_empty_trash_popup(
 
     let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
     let border_color = Color::Rgb(palette.red.r, palette.red.g, palette.red.b);
-    let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
+    let text_color = Color::Rgb(palette.red.r, palette.red.g, palette.red.b);
+    let button_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
 
     // Draw outer block
     f.render_widget(
@@ -31,7 +32,6 @@ pub fn draw_empty_trash_popup(
             .borders(Borders::ALL)
             .border_style(Style::default().fg(border_color))
             .border_set(ratatui::symbols::border::EMPTY)
-            .title("Empty Trash")
             .style(Style::default().bg(bg_color)),
         popup_area,
     );
@@ -69,7 +69,7 @@ pub fn draw_empty_trash_popup(
         .alignment(Alignment::Center);
     f.render_widget(p_message, layout[0]);
 
-    crate::ui_utils::draw_button_row(f, &["(Y)es", "(N)o"], layout[1], text_color);
+    crate::ui_utils::draw_button_row(f, &["(Y)es", "(N)o"], layout[1], button_color);
 }
 
 // Handles empty trash confirmation popup key actions (Y, N, Esc, Enter)
