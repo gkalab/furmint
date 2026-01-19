@@ -268,7 +268,7 @@ pub fn draw_ssh_password_popup(f: &mut Frame, app: &AppState, palette: &ThemePal
     };
 
     let input_width = (chunks[0].width as usize).saturating_sub(4);
-    let password_mask: String = "●".repeat(app.popups.ssh_password.password.len());
+    let password_mask: String = "•".repeat(app.popups.ssh_password.password.len());
     let cursor_pos = app.popups.ssh_password.cursor_position;
 
     let scroll_offset = if cursor_pos < input_width {
