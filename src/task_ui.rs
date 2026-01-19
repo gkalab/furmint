@@ -54,13 +54,19 @@ pub fn draw_task_manager(
         state.select(Some(selected_index));
     }
 
+    let highlight_fg = if palette.is_dark {
+        Color::Rgb(palette.text.r, palette.text.g, palette.text.b)
+    } else {
+        Color::Rgb(palette.base.r, palette.base.g, palette.base.b)
+    };
+
     let highlight_style = Style::default()
         .bg(Color::Rgb(
             palette.surface2.r,
             palette.surface2.g,
             palette.surface2.b,
         ))
-        .fg(Color::Rgb(palette.base.r, palette.base.g, palette.base.b))
+        .fg(highlight_fg)
         .add_modifier(Modifier::BOLD);
 
     let mut list_items = Vec::new();
@@ -75,7 +81,7 @@ pub fn draw_task_manager(
         let style = if idx == selected_index {
             highlight_style
         } else {
-            Style::default().fg(text_color)
+            Style::default().fg(text_color).bg(list_bg_color)
         };
 
         // Task Name Line
