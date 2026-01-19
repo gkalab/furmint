@@ -277,7 +277,13 @@ fn draw_ui(
             .split(panel_chunks[1]);
 
         if app.file_viewer.is_visible && app.active == PanelSide::Right {
-            crate::ui::draw_file_viewer(f, &app.file_viewer, panel_chunks[0], palette);
+            crate::ui::draw_file_viewer(
+                f,
+                &app.file_viewer,
+                panel_chunks[0],
+                palette,
+                app.global.borders.unwrap_or(false),
+            );
         } else {
             let is_active = app.active == PanelSide::Left && !app.file_viewer.focused;
             crate::ui::draw_tab_bar(f, &app.left, left_panel_layout[0], palette, is_active);
@@ -287,11 +293,18 @@ fn draw_ui(
                 is_active,
                 left_panel_layout[1],
                 palette,
+                app.global.borders.unwrap_or(false),
             );
         }
 
         if app.file_viewer.is_visible && app.active == PanelSide::Left {
-            crate::ui::draw_file_viewer(f, &app.file_viewer, panel_chunks[1], palette);
+            crate::ui::draw_file_viewer(
+                f,
+                &app.file_viewer,
+                panel_chunks[1],
+                palette,
+                app.global.borders.unwrap_or(false),
+            );
         } else {
             let is_active = app.active == PanelSide::Right && !app.file_viewer.focused;
             crate::ui::draw_tab_bar(f, &app.right, right_panel_layout[0], palette, is_active);
@@ -301,6 +314,7 @@ fn draw_ui(
                 is_active,
                 right_panel_layout[1],
                 palette,
+                app.global.borders.unwrap_or(false),
             );
         }
 

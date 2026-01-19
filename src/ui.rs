@@ -6,6 +6,56 @@ use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Cell, Row, Table, TableState};
 use std::env;
 
+/// Helper function to create a lighter shade of red for inactive borders
+fn lighten_red(red: crate::theme::Rgb) -> crate::theme::Rgb {
+    crate::theme::Rgb::new(
+        ((red.r as u16 + 255) / 2) as u8,
+        ((red.g as u16 + 255) / 2) as u8,
+        ((red.b as u16 + 255) / 2) as u8,
+    )
+}
+
+/// Check if the current tab is accessing a root location
+fn is_root_user(tab: &Tab) -> bool {
+    let system_user = env::var("USER").unwrap_or_default();
+    tab.provider.display_prefix().starts_with("[root@")
+        || (tab.provider.display_prefix().is_empty() && system_user == "root")
+}
+
+/// Calculate the background color for a panel based on active state and root status
+fn panel_bg_color(palette: &ThemePalette, active: bool, is_root: bool) -> Color {
+    let base_bg = if active {
+        Color::Rgb(palette.base.r, palette.base.g, palette.base.b)
+    } else if palette.is_dark {
+        let r = ((palette.base.r as u16 * 3 + palette.surface1.r as u16) / 4) as u8;
+        let g = ((palette.base.g as u16 * 3 + palette.surface1.g as u16) / 4) as u8;
+        let b = ((palette.base.b as u16 * 3 + palette.surface1.b as u16) / 4) as u8;
+        Color::Rgb(r, g, b)
+    } else {
+        let r = ((palette.base.r as u16 * 14 + palette.surface1.r as u16) / 15) as u8;
+        let g = ((palette.base.g as u16 * 14 + palette.surface1.g as u16) / 15) as u8;
+        let b = ((palette.base.b as u16 * 14 + palette.surface1.b as u16) / 15) as u8;
+        Color::Rgb(r, g, b)
+    };
+
+    if is_root {
+        let (r0, g0, b0) = match base_bg {
+            Color::Rgb(r, g, b) => (r as u16, g as u16, b as u16),
+            _ => (
+                palette.base.r as u16,
+                palette.base.g as u16,
+                palette.base.b as u16,
+            ),
+        };
+        let r = ((r0 * 9 + palette.red.r as u16) / 10) as u8;
+        let g = ((g0 * 9 + palette.red.g as u16) / 10) as u8;
+        let b = ((b0 * 9 + palette.red.b as u16) / 10) as u8;
+        Color::Rgb(r, g, b)
+    } else {
+        base_bg
+    }
+}
+
 /// Draw the tab bar for a panel
 pub fn draw_tab_bar(
     f: &mut ratatui::Frame,
@@ -91,6 +141,7 @@ pub fn draw_panel(
     active: bool,
     area: Rect,
     palette: &ThemePalette,
+    borders: bool,
 ) {
     // Calculate visible rows for scrolling logic
     let visible_rows = area.height.saturating_sub(3) as usize; // -2 for borders, -1 for header
@@ -201,42 +252,20 @@ pub fn draw_panel(
             ])
         });
 
-    // Determine if the current tab user is root
-    let system_user = env::var("USER").unwrap_or_default();
-    let is_root = panel.provider.display_prefix().starts_with("[root@")
-        || (panel.provider.display_prefix().is_empty() && system_user == "root");
+    let is_root = is_root_user(panel);
 
-    let panel_bg = if active {
-        Color::Rgb(palette.base.r, palette.base.g, palette.base.b)
-    } else if palette.is_dark {
-        let r = ((palette.base.r as u16 * 3 + palette.surface1.r as u16) / 4) as u8; // 75%
-        let g = ((palette.base.g as u16 * 3 + palette.surface1.g as u16) / 4) as u8; // 75%
-        let b = ((palette.base.b as u16 * 3 + palette.surface1.b as u16) / 4) as u8; // 75%
-        Color::Rgb(r, g, b)
+    let border_color = if is_root && active {
+        Color::Rgb(palette.red.r, palette.red.g, palette.red.b)
+    } else if is_root && !active {
+        let light_red = lighten_red(palette.red);
+        Color::Rgb(light_red.r, light_red.g, light_red.b)
+    } else if active {
+        Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b)
     } else {
-        let r = ((palette.base.r as u16 * 14 + palette.surface1.r as u16) / 15) as u8; // 93%
-        let g = ((palette.base.g as u16 * 14 + palette.surface1.g as u16) / 15) as u8; // 93%
-        let b = ((palette.base.b as u16 * 14 + palette.surface1.b as u16) / 15) as u8; // 93%
-        Color::Rgb(r, g, b)
+        Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b)
     };
 
-    // Add reddish tint for root user
-    let panel_bg = if is_root {
-        let (r0, g0, b0) = match panel_bg {
-            Color::Rgb(r, g, b) => (r as u16, g as u16, b as u16),
-            _ => (
-                palette.base.r as u16,
-                palette.base.g as u16,
-                palette.base.b as u16,
-            ),
-        };
-        let r = ((r0 * 9 + palette.red.r as u16) / 10) as u8;
-        let g = ((g0 * 9 + palette.red.g as u16) / 10) as u8;
-        let b = ((b0 * 9 + palette.red.b as u16) / 10) as u8;
-        Color::Rgb(r, g, b)
-    } else {
-        panel_bg
-    };
+    let panel_bg = panel_bg_color(palette, active, is_root);
 
     let prefix = panel.provider.display_prefix();
     let path_str = panel.provider.display_path(&panel.current_dir);
@@ -255,9 +284,14 @@ pub fn draw_panel(
     let block = Block::default()
         .borders(Borders::ALL)
         .title(panel_title)
-        .border_style(Style::default().fg(text_fg).bg(panel_bg))
-        .border_set(ratatui::symbols::border::EMPTY)
+        .border_style(Style::default().fg(border_color).bg(panel_bg))
         .style(Style::default().bg(panel_bg));
+
+    let block = if borders {
+        block.border_type(ratatui::widgets::BorderType::Rounded)
+    } else {
+        block.border_set(ratatui::symbols::border::EMPTY)
+    };
     let widths = [
         Constraint::Min(10),    // Name: dynamic, at least 10
         Constraint::Length(7),  // Size: always 7 (right-aligned)
@@ -346,6 +380,7 @@ pub fn draw_panel(
         visible_rows,
         panel.cursor,
         palette,
+        borders,
     );
 }
 
@@ -354,7 +389,7 @@ pub fn draw_panel_status(
     panel: &Tab,
     area: Rect,
     palette: &ThemePalette,
-    _active: bool,
+    active: bool,
     task_manager: &crate::tasks::TaskManager,
     side: crate::app::PanelSide,
 ) {
@@ -413,11 +448,11 @@ pub fn draw_panel_status(
         height: area.height,
     };
 
-    // calculate bg color for clearing
-    let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
+    let is_root = is_root_user(panel);
+    let panel_bg = panel_bg_color(palette, active, is_root);
 
     // Clear the status area first to prevent artifacts
-    f.render_widget(Block::default().style(Style::default().bg(bg_color)), area);
+    f.render_widget(Block::default().style(Style::default().bg(panel_bg)), area);
 
     match side {
         crate::app::PanelSide::Left => {
@@ -556,6 +591,7 @@ pub fn draw_file_viewer(
     viewer: &crate::app::FileViewerState,
     area: Rect,
     palette: &ThemePalette,
+    borders: bool,
 ) {
     use syntect::easy::HighlightLines;
 
@@ -627,6 +663,7 @@ pub fn draw_file_viewer(
         visible_lines,
         viewer.scroll_offset,
         palette,
+        borders,
     );
 }
 

@@ -77,6 +77,7 @@ Support for basic maintenance and information:
 ```toml
 [global]
 theme = "mariana"
+borders = false
 # Optional: Configure default terminal to launch
 # terminal = "gnome-terminal"
 

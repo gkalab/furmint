@@ -211,6 +211,7 @@ pub fn draw_help_popup(
         visible_height,
         app.popups.help.scroll_offset,
         palette,
+        false,
     );
 }
 

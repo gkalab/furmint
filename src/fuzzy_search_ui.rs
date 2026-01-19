@@ -276,6 +276,7 @@ pub fn draw_fuzzy_search_popup(
         visible_rows,
         state.selected_index,
         palette,
+        false,
     );
 }
 

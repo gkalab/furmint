@@ -63,6 +63,7 @@ pub struct SshConfig {
 pub struct GlobalConfig {
     pub theme: Option<String>,
     pub terminal: Option<String>,
+    pub borders: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -117,6 +118,7 @@ pub fn default_global_config() -> GlobalConfig {
     GlobalConfig {
         theme: Some("mariana".to_string()),
         terminal: None,
+        borders: Some(false),
     }
 }
 
@@ -237,6 +239,7 @@ pub fn merge_global_config(
     let terminal = user
         .and_then(|g| g.terminal.clone())
         .or_else(|| default.terminal.clone());
+    let borders = user.and_then(|g| g.borders).or(default.borders);
 
     // Validate theme name
     if let Some(ref n) = theme
@@ -249,7 +252,11 @@ pub fn merge_global_config(
         ));
     }
 
-    Ok(GlobalConfig { theme, terminal })
+    Ok(GlobalConfig {
+        theme,
+        terminal,
+        borders,
+    })
 }
 
 pub fn validate_keyboard_config(config: &KeyboardConfig) -> Result<(), String> {

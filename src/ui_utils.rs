@@ -114,6 +114,7 @@ pub fn draw_scrollbar(
     visible_length: usize,
     offset: usize,
     palette: &crate::theme::ThemePalette,
+    borders: bool,
 ) {
     use ratatui::style::{Color, Style};
     use ratatui::widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState};
@@ -124,11 +125,12 @@ pub fn draw_scrollbar(
             .position(offset);
         let scrollbar_color =
             Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b);
+        let track_symbol = if borders { Some("│") } else { Some(" ") };
         let scrollbar = Scrollbar::default()
             .orientation(ScrollbarOrientation::VerticalRight)
             .begin_symbol(None)
             .end_symbol(None)
-            .track_symbol(Some(" "))
+            .track_symbol(track_symbol)
             .thumb_symbol("▊")
             .style(Style::default().fg(scrollbar_color));
         f.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
