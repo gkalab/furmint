@@ -83,6 +83,12 @@ pub mod win_clipboard {
         cache: Arc<Mutex<Option<FileClipboardData>>>,
     }
 
+    impl Default for WindowsFileClipboard {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     impl WindowsFileClipboard {
         pub fn new() -> Self {
             Self {
