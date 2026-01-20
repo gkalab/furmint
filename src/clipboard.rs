@@ -364,20 +364,17 @@ pub mod win_clipboard {
 
 /// In-memory clipboard for tests - does not use OS clipboard
 /// Use this in tests to avoid parallel test interference on Windows
-#[cfg(test)]
 #[derive(Clone, Default)]
 pub struct InMemoryFileClipboard {
     inner: Option<FileClipboardData>,
 }
 
-#[cfg(test)]
 impl InMemoryFileClipboard {
     pub fn new() -> Self {
         Self::default()
     }
 }
 
-#[cfg(test)]
 impl FileClipboard for InMemoryFileClipboard {
     fn set(&mut self, data: FileClipboardData) -> anyhow::Result<()> {
         self.inner = Some(data);

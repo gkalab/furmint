@@ -3,7 +3,7 @@
 use crate::app::AppState;
 use crossterm::event::KeyCode;
 
-pub(crate) fn handle_delete_event(code: KeyCode, app: &mut AppState) -> bool {
+pub fn handle_delete_event(code: KeyCode, app: &mut AppState) -> bool {
     match code {
         KeyCode::Esc | KeyCode::Char('n') => {
             app.popups.delete.reset();
@@ -17,7 +17,7 @@ pub(crate) fn handle_delete_event(code: KeyCode, app: &mut AppState) -> bool {
     false
 }
 
-pub(crate) fn handle_init_delete(app: &mut AppState, permanent: bool) {
+pub fn handle_init_delete(app: &mut AppState, permanent: bool) {
     let tab = app.active_tab();
     let mut selected: Vec<_> = tab
         .get_selected_entries()
@@ -43,7 +43,7 @@ pub(crate) fn handle_init_delete(app: &mut AppState, permanent: bool) {
     app.popups.delete.is_visible = true;
 }
 
-pub(crate) fn handle_confirm_delete(app: &mut AppState) {
+pub fn handle_confirm_delete(app: &mut AppState) {
     let paths = app.popups.delete.selected_paths.clone();
     let is_permanent = app.popups.delete.is_permanent;
     let provider = app.active_tab().provider.clone();
@@ -112,124 +112,5 @@ pub(crate) fn handle_confirm_delete(app: &mut AppState) {
     // Clear selection in active tab if deletion started
     for entry in &mut app.active_tab_mut().entries {
         entry.selected = false;
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::app::Tab;
-    use crate::app::{AppState, PanelSide};
-    use crate::fs_ops::FileEntry;
-    use crossterm::event::KeyCode;
-    use std::path::Path;
-
-    fn basic_app_with_entry(name: &str) -> AppState {
-        use crate::state::FileViewerState;
-        use crate::tasks::TaskEvent;
-        use tokio::sync::mpsc;
-        let (task_tx, _task_rx) = mpsc::unbounded_channel::<TaskEvent>();
-
-        let mut tab = Tab::new(Path::new("/tmp")).unwrap();
-        tab.entries.clear();
-        tab.entries.push(FileEntry {
-            name: name.to_string(),
-            is_dir: false,
-            is_symlink: false,
-            size: Some(42),
-            modified: None,
-            attributes: String::from("-rw-r--r--"),
-            selected: false,
-        });
-        tab.cursor = 0;
-        AppState {
-            left: {
-                let mut tm = crate::app::TabManager::new(Path::new("/tmp")).unwrap();
-                tm.tabs[0] = tab;
-                tm
-            },
-            right: crate::app::TabManager::new(Path::new("/tmp")).unwrap(),
-            active: PanelSide::Left,
-            file_viewer: FileViewerState::new(false, ""),
-            fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
-            popups: crate::app::Popups::new(),
-            task_manager: crate::tasks::TaskManager::new(task_tx),
-            ssh_manager: std::sync::Arc::new(crate::ssh_manager::SshManager::default()),
-            task_decision_txs: Default::default(),
-            show_task_manager: false,
-            dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
-            watcher: None,
-            input_polling_handle: None,
-            needs_redraw: false,
-            global: crate::config::GlobalConfig::default(),
-            editor_cfg: crate::config::EditorConfig::default(),
-            viewer_cfg: crate::config::ViewerConfig::default(),
-            ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
-            clipboard: Box::new(crate::clipboard::InMemoryFileClipboard::new()),
-        }
-    }
-
-    #[test]
-    fn test_handle_init_delete_populates_popup() {
-        let mut app = basic_app_with_entry("test_file.txt");
-        handle_init_delete(&mut app, false);
-        assert!(app.popups.delete.is_visible);
-        assert!(!app.popups.delete.selected_paths.is_empty());
-        assert!(!app.popups.delete.is_permanent);
-    }
-
-    #[test]
-    fn test_handle_init_delete_permanent_sets_flag() {
-        let mut app = basic_app_with_entry("test_file2.txt");
-        handle_init_delete(&mut app, true);
-        assert!(app.popups.delete.is_visible);
-        assert!(app.popups.delete.is_permanent);
-    }
-
-    #[test]
-    fn test_handle_delete_event_esc_resets() {
-        let mut app = basic_app_with_entry("will_reset.txt");
-        handle_init_delete(&mut app, false);
-        assert!(app.popups.delete.is_visible);
-        handle_delete_event(KeyCode::Esc, &mut app);
-        assert!(!app.popups.delete.is_visible);
-    }
-
-    #[tokio::test]
-    async fn test_handle_delete_event_enter_triggers_confirm() {
-        let mut app = basic_app_with_entry("some_file.txt");
-        handle_init_delete(&mut app, false);
-        assert!(app.popups.delete.is_visible);
-        handle_delete_event(KeyCode::Enter, &mut app);
-        // Should become invisible after
-        assert!(!app.popups.delete.is_visible);
-    }
-
-    #[tokio::test]
-    async fn test_handle_confirm_delete_clears_selection() {
-        let mut app = basic_app_with_entry("file_to_del.txt");
-        app.left.tabs[0].entries[0].selected = true;
-        handle_init_delete(&mut app, true);
-        handle_confirm_delete(&mut app);
-        assert!(!app.left.tabs[0].entries[0].selected);
-    }
-
-    #[tokio::test]
-    async fn test_handle_confirm_delete_multiple_files() {
-        let mut app = basic_app_with_entry("file1.txt");
-        app.left.tabs[0].entries.push(FileEntry {
-            name: "file2.txt".to_string(),
-            is_dir: false,
-            is_symlink: false,
-            size: Some(10),
-            modified: None,
-            attributes: String::new(),
-            selected: true,
-        });
-        app.left.tabs[0].entries[0].selected = true;
-        handle_init_delete(&mut app, true);
-        assert_eq!(app.popups.delete.selected_paths.len(), 2);
-        handle_delete_event(KeyCode::Enter, &mut app);
-        assert!(!app.popups.delete.is_visible);
     }
 }
