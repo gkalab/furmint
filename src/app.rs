@@ -48,6 +48,12 @@ impl Popups {
     }
 }
 
+impl Default for Popups {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct AppState {
     pub left: TabManager,
     pub right: TabManager,

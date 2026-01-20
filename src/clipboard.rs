@@ -414,6 +414,12 @@ impl ClipboardBackend {
     }
 }
 
+impl Default for ClipboardBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FileClipboard for ClipboardBackend {
     fn set(&mut self, data: FileClipboardData) -> anyhow::Result<()> {
         match self {

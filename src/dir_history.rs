@@ -18,9 +18,9 @@ pub struct DirEntry {
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct DirectoryHistory {
     // Context -> Path -> Entry
-    entries: HashMap<String, HashMap<PathBuf, DirEntry>>,
+    pub entries: HashMap<String, HashMap<PathBuf, DirEntry>>,
     #[serde(skip)]
-    cache_file: PathBuf,
+    pub cache_file: PathBuf,
 }
 
 impl DirectoryHistory {
@@ -168,99 +168,5 @@ impl DirectoryHistory {
         let content = serde_json::to_string_pretty(&self)?;
         fs::write(&self.cache_file, content)?;
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_record_visit() {
-        let mut history = DirectoryHistory {
-            entries: HashMap::new(),
-            cache_file: PathBuf::from("/tmp/test.json"),
-        };
-
-        let path = PathBuf::from("/home/user");
-        history.record_visit("local", &path);
-        // Access via context map
-        assert_eq!(
-            history
-                .entries
-                .get("local")
-                .unwrap()
-                .get(&path)
-                .unwrap()
-                .visit_count,
-            1
-        );
-
-        history.record_visit("local", &path);
-        assert_eq!(
-            history
-                .entries
-                .get("local")
-                .unwrap()
-                .get(&path)
-                .unwrap()
-                .visit_count,
-            2
-        );
-    }
-
-    #[test]
-    fn test_fuzzy_search() {
-        let mut history = DirectoryHistory {
-            entries: HashMap::new(),
-            cache_file: PathBuf::from("/tmp/test.json"),
-        };
-
-        history.record_visit("local", &PathBuf::from("/home/user"));
-        history.record_visit("local", &PathBuf::from("/usr/local"));
-        history.record_visit("local", &PathBuf::from("/var/log"));
-
-        let results = history.fuzzy_search("local", "hm");
-        assert!(!results.is_empty());
-        assert!(
-            results
-                .iter()
-                .any(|(p, _)| p.to_string_lossy().contains("home"))
-        );
-    }
-    #[test]
-    fn test_fuzzy_search_sorting() {
-        let mut history = DirectoryHistory {
-            entries: HashMap::new(),
-            cache_file: PathBuf::from("/tmp/test_fuzzy_sorting.json"),
-        };
-
-        // path_a: visited 10 times (high score)
-        let path_a = PathBuf::from("/home/user/documents");
-        for _ in 0..10 {
-            history.record_visit("local", &path_a);
-        }
-
-        // path_b: visited 1 time (low score)
-        let path_b = PathBuf::from("/home/user/downloads");
-        history.record_visit("local", &path_b);
-
-        // search for "do" - both match
-        // expected: path_a comes first because 10 visits > 1 visit
-        // even if fuzzy match score is similar or identical for "do"
-        let results = history.fuzzy_search("local", "do");
-
-        // Find positions of both paths
-        let pos_a = results.iter().position(|(p, _)| p == &path_a);
-        let pos_b = results.iter().position(|(p, _)| p == &path_b);
-
-        assert!(pos_a.is_some(), "path_a should be in results");
-        assert!(pos_b.is_some(), "path_b should be in results");
-
-        // Assert path_a comes before path_b
-        assert!(
-            pos_a.unwrap() < pos_b.unwrap(),
-            "Highly visited path should come before less visited path"
-        );
     }
 }

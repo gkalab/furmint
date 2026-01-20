@@ -36,6 +36,12 @@ impl SshConnectionState {
     }
 }
 
+impl Default for SshConnectionState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct SshPasswordState {
     pub is_visible: bool,
     pub password: String,
@@ -57,5 +63,11 @@ impl SshPasswordState {
             error: None,
             cursor_position: 0,
         }
+    }
+}
+
+impl Default for SshPasswordState {
+    fn default() -> Self {
+        Self::new()
     }
 }
