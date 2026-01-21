@@ -166,9 +166,9 @@ pub fn solarized_light() -> ThemePalette {
         surface0: Rgb::new(238, 232, 213), // base2
         surface1: Rgb::new(147, 161, 161), // base1 - Comments
         surface2: Rgb::new(131, 148, 150), // base0 - Selection bg
-        overlay0: Rgb::new(88, 110, 117),  // base01 - Emphasis
-        text: Rgb::new(101, 123, 131),     // base00 - Body text
-        subtext: Rgb::new(88, 110, 117),   // base01
+        overlay0: Rgb::new(101, 123, 131), // base00 - Secondary text
+        text: Rgb::new(88, 110, 117),      // base01  - Primary text
+        subtext: Rgb::new(101, 123, 131),  // base0 - Body text
         blue: Rgb::new(38, 139, 210),      // blue (directories)
         green: Rgb::new(133, 153, 0),      // green (executables)
         yellow: Rgb::new(181, 137, 0),     // yellow (headers)

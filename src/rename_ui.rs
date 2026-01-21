@@ -11,7 +11,10 @@ pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &RenameState, palette: &
 
     let area = f.area();
     let popup_width = 60;
-    let popup_height = 5;
+    let mut popup_height = 5;
+    if state.show_overwrite_confirm {
+        popup_height = 6;
+    }
     let popup_x = (area.width.saturating_sub(popup_width)) / 2;
     let popup_y = (area.height.saturating_sub(popup_height)) / 2;
 
@@ -34,23 +37,45 @@ pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &RenameState, palette: &
         Color::Rgb(palette.text.r, palette.text.g, palette.text.b)
     };
 
-    f.render_widget(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(border_color))
-            .border_set(symbols::border::EMPTY)
-            .style(Style::default().bg(bg_color)),
-        popup_area,
-    );
+    if state.show_overwrite_confirm {
+        let message_border = Set {
+            top_left: "━",
+            top_right: "━",
+            bottom_left: " ",
+            bottom_right: " ",
+            vertical_left: " ",
+            vertical_right: " ",
+            horizontal_top: "━",
+            horizontal_bottom: " ",
+        };
+        let message_border_color = Color::Rgb(palette.red.r, palette.red.g, palette.red.b);
+        f.render_widget(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(message_border_color))
+                .border_set(message_border)
+                .style(Style::default().bg(bg_color)),
+            popup_area,
+        );
+    } else {
+        f.render_widget(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(border_color))
+                .border_set(symbols::border::EMPTY)
+                .style(Style::default().bg(bg_color)),
+            popup_area,
+        );
+    }
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .horizontal_margin(2)
         .vertical_margin(1)
-        .constraints([Constraint::Length(3)])
+        .constraints([Constraint::Length(4)])
         .split(popup_area);
 
-    let custom_border = Set {
+    let edit_field_border = Set {
         top_left: "▎",
         top_right: " ",
         bottom_left: "▎",
@@ -66,18 +91,22 @@ pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &RenameState, palette: &
         let text = format!("Overwrite {truncated_name}?");
 
         f.render_widget(
-            Block::default().style(Style::default().bg(field_bg_color)),
+            Block::default().style(Style::default().bg(bg_color)),
             chunks[0],
         );
 
-        let layout =
-            Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(chunks[0]);
+        let layout = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(2),
+            Constraint::Length(1),
+        ])
+        .split(chunks[0]);
         let p_message = Paragraph::new(text)
-            .style(Style::default().fg(text_color).bg(field_bg_color))
+            .style(Style::default().fg(text_color).bg(bg_color))
             .alignment(Alignment::Center);
-        f.render_widget(p_message, layout[0]);
+        f.render_widget(p_message, layout[1]);
 
-        crate::ui_utils::draw_button_row(f, &["(Y)es", "(N)o"], layout[1], text_color);
+        crate::ui_utils::draw_button_row(f, &["(Y)es", "(N)o"], layout[2], text_color);
     } else {
         let input_width = (chunks[0].width as usize).saturating_sub(4);
         let cursor_pos = state.cursor_position;
@@ -108,7 +137,7 @@ pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &RenameState, palette: &
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(border_color).bg(field_bg_color))
-            .border_set(custom_border)
+            .border_set(edit_field_border)
             .style(Style::default().bg(field_bg_color));
 
         f.render_widget(&block, chunks[0]);

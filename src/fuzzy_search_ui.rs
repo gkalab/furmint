@@ -210,8 +210,8 @@ pub fn draw_fuzzy_search_popup(
     let list_block = Block::default()
         .borders(Borders::ALL)
         .border_set(ratatui::symbols::border::EMPTY)
-        .border_style(Style::default().fg(border_color).bg(field_bg_color))
-        .style(Style::default().bg(field_bg_color));
+        .border_style(Style::default().fg(border_color).bg(bg_color))
+        .style(Style::default().bg(bg_color));
 
     f.render_widget(list_block.clone(), chunks[2]);
     let list_inner_area = list_block.inner(chunks[2]);
@@ -244,7 +244,7 @@ pub fn draw_fuzzy_search_popup(
         } else {
             (
                 Color::Rgb(palette.text.r, palette.text.g, palette.text.b),
-                field_bg_color,
+                bg_color,
             )
         };
 
