@@ -1,6 +1,7 @@
 use crate::app::RemoteEditState;
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
+use ratatui::symbols::border::Set;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 pub fn draw_remote_edit_popup(
@@ -23,12 +24,23 @@ pub fn draw_remote_edit_popup(
     let border_color = Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b);
     let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
 
+    let message_border = Set {
+        top_left: "━",
+        top_right: "━",
+        bottom_left: " ",
+        bottom_right: " ",
+        vertical_left: " ",
+        vertical_right: " ",
+        horizontal_top: "━",
+        horizontal_bottom: " ",
+    };
+
     // Draw outer block
     f.render_widget(
         Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(border_color))
-            .border_set(ratatui::symbols::border::EMPTY)
+            .border_set(message_border)
             .style(Style::default().bg(bg_color)),
         popup_area,
     );
@@ -41,14 +53,11 @@ pub fn draw_remote_edit_popup(
         .constraints([Constraint::Min(1)])
         .split(popup_area);
 
-    let field_bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
-
-    // Draw inner block with field background
     let inner_block = Block::default()
         .borders(Borders::ALL)
         .border_set(ratatui::symbols::border::EMPTY)
-        .border_style(Style::default().fg(border_color).bg(field_bg_color))
-        .style(Style::default().bg(field_bg_color));
+        .border_style(Style::default().fg(border_color).bg(bg_color))
+        .style(Style::default().bg(bg_color));
 
     f.render_widget(inner_block.clone(), chunks[0]);
     let inner_content_area = inner_block.inner(chunks[0]);
@@ -67,20 +76,20 @@ pub fn draw_remote_edit_popup(
             Style::default()
                 .fg(text_color)
                 .add_modifier(Modifier::BOLD)
-                .bg(field_bg_color),
+                .bg(bg_color),
         ),
         layout[0],
     );
 
     f.render_widget(
         Paragraph::new(format!("File: {}", state.filename))
-            .style(Style::default().fg(text_color).bg(field_bg_color)),
+            .style(Style::default().fg(text_color).bg(bg_color)),
         layout[1],
     );
 
     f.render_widget(
         Paragraph::new("Select OK after you have finished editing.")
-            .style(Style::default().fg(text_color).bg(field_bg_color)),
+            .style(Style::default().fg(text_color).bg(bg_color)),
         layout[2],
     );
 

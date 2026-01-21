@@ -19,7 +19,7 @@ pub fn draw_help_popup(
     let area = crate::ui_utils::centered_rect_percent(40, 80, size);
 
     let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
-    let field_bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
+    let field_bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
     let border_color = Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b);
     let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
 
@@ -55,7 +55,7 @@ pub fn draw_help_popup(
 
     // Layout inside inner block: Title, Content (Table)
     let layout = Layout::vertical([
-        Constraint::Length(1), // Title
+        Constraint::Length(2), // Title
         Constraint::Min(1),    // Table
     ])
     .horizontal_margin(1)

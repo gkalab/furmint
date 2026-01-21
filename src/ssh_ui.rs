@@ -176,9 +176,9 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemeP
     let history_block = Block::default()
         .borders(Borders::ALL)
         .title("Connection History")
-        .border_style(Style::default().fg(border_color).bg(field_bg_color))
+        .border_style(Style::default().fg(border_color).bg(bg_color))
         .border_set(block_empty)
-        .style(Style::default().bg(field_bg_color));
+        .style(Style::default().bg(bg_color));
 
     let list = List::new(history_items).block(history_block);
 

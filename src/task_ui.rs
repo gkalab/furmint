@@ -21,7 +21,7 @@ pub fn draw_task_manager(
     f.render_widget(Clear, popup_area);
 
     let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
-    let list_bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
+    let list_bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
     let border_color = Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b);
     let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
 
@@ -31,7 +31,7 @@ pub fn draw_task_manager(
             .borders(Borders::ALL)
             .border_style(Style::default().fg(border_color))
             .border_set(ratatui::symbols::border::EMPTY)
-            .title(" Task Manager (Esc to close, x to cancel selected) ")
+            .title("  Task Manager (Esc to close, x to cancel selected)  ")
             .style(Style::default().bg(bg_color)),
         popup_area,
     );
