@@ -48,7 +48,7 @@ pub fn draw_delete_popup(f: &mut ratatui::Frame, state: &DeleteState, palette: &
         .direction(Direction::Vertical)
         .horizontal_margin(2)
         .vertical_margin(0)
-        .constraints([Constraint::Length(1),Constraint::Min(1)])
+        .constraints([Constraint::Length(1), Constraint::Min(1)])
         .split(popup_area);
 
     let field_bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
