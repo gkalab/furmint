@@ -617,10 +617,14 @@ pub fn draw_panel_status(
 
                 // Task Name/File info
                 if let Some(file) = current_file {
+                    let text_fg = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
                     if !progress_spans.is_empty() {
-                        progress_spans.push(Span::raw("| "));
+                        progress_spans.push(Span::styled("| ", Style::default().fg(text_fg)));
                     }
-                    progress_spans.push(Span::raw(format!("{} ", file)));
+                    progress_spans.push(Span::styled(
+                        format!("{} ", file),
+                        Style::default().fg(text_fg),
+                    ));
                 }
 
                 // Byte Progress
