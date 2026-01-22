@@ -504,7 +504,7 @@ pub fn draw_panel_status(
             let tasks = task_manager.get_tasks();
             let running_count = tasks
                 .iter()
-                .filter(|(_, _, s, _, _)| matches!(s, crate::tasks::TaskStatus::Running))
+                .filter(|(_, _, s, _, _, _, _)| matches!(s, crate::tasks::TaskStatus::Running))
                 .count();
 
             if running_count > 0 {
@@ -538,10 +538,10 @@ pub fn draw_panel_status(
                 // Check for recently completed/failed/cancelled tasks
                 let last_finished = tasks
                     .iter()
-                    .filter(|(_, _, _, _, completed_at)| completed_at.is_some())
-                    .max_by_key(|(_, _, _, _, completed_at)| *completed_at);
+                    .filter(|(_, _, _, _, _, _, completed_at)| completed_at.is_some())
+                    .max_by_key(|(_, _, _, _, _, _, completed_at)| *completed_at);
 
-                if let Some((_, _, status_task, _, _)) = last_finished {
+                if let Some((_, _, status_task, _, _, _, _)) = last_finished {
                     let (text, task_fg) = match status_task {
                         crate::tasks::TaskStatus::Completed => {
                             ("".to_string(), palette.green) // no text for task completed status
@@ -590,14 +590,58 @@ pub fn draw_panel_status(
                 .rev()
                 .find(|t| matches!(t.2, crate::tasks::TaskStatus::Running));
 
-            if let Some((_, _, crate::tasks::TaskStatus::Running, Some((processed, total)), _)) =
-                active_task
-                && *total > 0
+            if let Some((
+                _,
+                _,
+                crate::tasks::TaskStatus::Running,
+                progress,
+                byte_progress,
+                current_file,
+                _,
+            )) = active_task
             {
-                let percent = (*processed as f32 / *total as f32 * 100.0) as usize;
-                let progress_text =
-                    format!("{}% ({} left)", percent, total.saturating_sub(*processed));
-                let text_width = progress_text.len() as u16 + 2; // Add some spacing
+                let mut progress_spans = Vec::new();
+                let yellow = Color::Rgb(palette.yellow.r, palette.yellow.g, palette.yellow.b);
+
+                // Item Progress
+                if let Some((p, t)) = progress
+                    && *t > 0
+                {
+                    let percent = (*p as f32 / *t as f32 * 100.0) as usize;
+                    let left = t.saturating_sub(*p);
+                    progress_spans.push(Span::styled(
+                        format!("{}% ({} left) ", percent, left),
+                        Style::default().fg(yellow),
+                    ));
+                }
+
+                // Task Name/File info
+                if let Some(file) = current_file {
+                    if !progress_spans.is_empty() {
+                        progress_spans.push(Span::raw("| "));
+                    }
+                    progress_spans.push(Span::raw(format!("{} ", file)));
+                }
+
+                // Byte Progress
+                if let Some((p_bytes, t_bytes)) = byte_progress
+                    && *t_bytes > 0
+                {
+                    let percent = (*p_bytes as f32 / *t_bytes as f32 * 100.0) as usize;
+                    progress_spans.push(Span::styled(
+                        format!(
+                            "[{}% of {}] ",
+                            percent,
+                            crate::fs_ops::format_size(Some(*t_bytes), false, false).trim()
+                        ),
+                        Style::default().fg(yellow),
+                    ));
+                }
+
+                let text_width = progress_spans
+                    .iter()
+                    .map(|s| s.content.len())
+                    .sum::<usize>() as u16;
 
                 let chunks = Layout::default()
                     .direction(Direction::Horizontal)
@@ -605,13 +649,9 @@ pub fn draw_panel_status(
                     .split(status_area);
 
                 // Task Info (Left)
-                let progress_paragraph = ratatui::widgets::Paragraph::new(progress_text)
-                    .alignment(Alignment::Left)
-                    .style(Style::default().fg(Color::Rgb(
-                        palette.yellow.r,
-                        palette.yellow.g,
-                        palette.yellow.b,
-                    )));
+                let progress_line = Line::from(progress_spans);
+                let progress_paragraph =
+                    ratatui::widgets::Paragraph::new(progress_line).alignment(Alignment::Left);
                 f.render_widget(progress_paragraph, chunks[0]);
 
                 // File Info (Right)

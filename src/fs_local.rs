@@ -60,8 +60,30 @@ impl FileSystemProvider for LocalFs {
         Ok(fs::read(path)?)
     }
 
+    fn read_file_at(&self, path: &Path, offset: u64, len: usize) -> Result<Vec<u8>> {
+        use std::io::{Read, Seek, SeekFrom};
+        let mut file = fs::File::open(path)?;
+        file.seek(SeekFrom::Start(offset))?;
+        let mut buffer = vec![0; len];
+        let n = file.read(&mut buffer)?;
+        buffer.truncate(n);
+        Ok(buffer)
+    }
+
     fn write_file(&self, path: &Path, data: &[u8]) -> Result<()> {
         fs::write(path, data)?;
+        Ok(())
+    }
+
+    fn write_file_at(&self, path: &Path, offset: u64, data: &[u8]) -> Result<()> {
+        use std::io::{Seek, SeekFrom, Write};
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)?;
+        file.seek(SeekFrom::Start(offset))?;
+        file.write_all(data)?;
         Ok(())
     }
 

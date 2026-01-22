@@ -24,6 +24,24 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
         }
         crate::tasks::TaskEvent::UpdateProgress(id, p, t) => {
             app.task_manager.update_task_progress(id, p, t);
+            // Refresh UI periodically during progress updates
+            static LAST_REFRESH: std::sync::atomic::AtomicU64 =
+                std::sync::atomic::AtomicU64::new(0);
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            let last = LAST_REFRESH.load(std::sync::atomic::Ordering::Relaxed);
+            if now - last > 500 {
+                app.refresh_active_tabs();
+                LAST_REFRESH.store(now, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        crate::tasks::TaskEvent::UpdateByteProgress(id, p, t) => {
+            app.task_manager.update_task_byte_progress(id, p, t);
+        }
+        crate::tasks::TaskEvent::UpdateCurrentFile(id, filename) => {
+            app.task_manager.update_task_current_file(id, filename);
         }
         crate::tasks::TaskEvent::Conflict(id, path, conflict_type) => {
             // Show conflict popup

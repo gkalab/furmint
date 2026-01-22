@@ -17,7 +17,9 @@ pub enum TaskStatus {
 pub struct Task {
     pub name: String,
     pub status: TaskStatus,
-    pub progress: Option<(usize, usize)>, // (processed, total)
+    pub progress: Option<(usize, usize)>,  // (processed, total)
+    pub byte_progress: Option<(u64, u64)>, // (processed_bytes, total_bytes)
+    pub current_file: Option<String>,
     pub cancel_flag: Arc<AtomicBool>,
     pub completed_at: Option<std::time::Instant>,
 }
@@ -26,6 +28,8 @@ pub struct Task {
 pub enum TaskEvent {
     UpdateStatus(usize, TaskStatus),
     UpdateProgress(usize, usize, usize), // id, processed, total
+    UpdateByteProgress(usize, u64, u64), // id, processed_bytes, total_bytes
+    UpdateCurrentFile(usize, String),    // id, filename
     Conflict(usize, std::path::PathBuf, ConflictType),
     Error(usize, String, String), // id, path, error_message
     SshConnected(SshContext),
@@ -97,6 +101,8 @@ impl TaskManager {
             name: name.to_string(),
             status: TaskStatus::Running,
             progress: None,
+            byte_progress: None,
+            current_file: None,
             cancel_flag: cancel_flag.clone(),
             completed_at: None,
         };
@@ -170,6 +176,8 @@ impl TaskManager {
         String,
         TaskStatus,
         Option<(usize, usize)>,
+        Option<(u64, u64)>,
+        Option<String>,
         Option<std::time::Instant>,
     )> {
         let tasks = self.tasks.lock().unwrap();
@@ -181,6 +189,8 @@ impl TaskManager {
                     t.name.clone(),
                     t.status.clone(),
                     t.progress,
+                    t.byte_progress,
+                    t.current_file.clone(),
                     t.completed_at,
                 )
             })
@@ -238,6 +248,20 @@ impl TaskManager {
             task.progress = Some((processed, total));
         }
     }
+
+    pub fn update_task_byte_progress(&self, id: usize, processed: u64, total: u64) {
+        let mut tasks = self.tasks.lock().unwrap();
+        if let Some(task) = tasks.get_mut(&id) {
+            task.byte_progress = Some((processed, total));
+        }
+    }
+
+    pub fn update_task_current_file(&self, id: usize, filename: String) {
+        let mut tasks = self.tasks.lock().unwrap();
+        if let Some(task) = tasks.get_mut(&id) {
+            task.current_file = Some(filename);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -262,7 +286,7 @@ mod tests {
         // Should NOT be removed immediately
         assert_eq!(manager.get_tasks().len(), 1);
         assert_eq!(manager.get_tasks()[0].2, TaskStatus::Completed);
-        assert!(manager.get_tasks()[0].4.is_some());
+        assert!(manager.get_tasks()[0].6.is_some());
 
         // Cleanup should not remove it yet (it's new)
         manager.cleanup_tasks();
@@ -323,7 +347,7 @@ mod tests {
         tm.update_task_status(id, TaskStatus::Completed);
         let tasks = tm.get_tasks();
         assert!(matches!(tasks[0].2, TaskStatus::Completed));
-        assert!(tasks[0].4.is_some()); // completed_at should be set
+        assert!(tasks[0].6.is_some()); // completed_at should be set
 
         tm.update_task_progress(id, 50, 100);
         let tasks = tm.get_tasks();

@@ -70,7 +70,9 @@ pub fn draw_task_manager(
         .add_modifier(Modifier::BOLD);
 
     let mut list_items = Vec::new();
-    for (idx, (id, name, status, progress, _completed_at)) in tasks.into_iter().enumerate() {
+    for (idx, (id, name, status, progress, byte_progress, current_file, _completed_at)) in
+        tasks.into_iter().enumerate()
+    {
         let status_str = match status {
             TaskStatus::Running => "Running",
             TaskStatus::Completed => "Completed",
@@ -109,10 +111,47 @@ pub fn draw_task_manager(
             String::new()
         };
 
+        // Byte Progress Line
+        let byte_progress_line = if let Some((processed, total)) = byte_progress {
+            if total > 0 {
+                let ratio = processed as f64 / total as f64;
+                let percentage = (ratio * 100.0) as usize;
+
+                // Format sizes
+                let processed_str = crate::fs_ops::format_size(Some(processed), false, false)
+                    .trim()
+                    .to_string();
+                let total_str = crate::fs_ops::format_size(Some(total), false, false)
+                    .trim()
+                    .to_string();
+
+                format!("{percentage}% ({processed_str} / {total_str})")
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
+
         let mut spans = vec![Line::from(Span::styled(item_title, style))];
+
+        if let Some(file) = current_file {
+            spans.push(Line::from(Span::styled(
+                format!("Current: {file}"),
+                style.fg(Color::Rgb(
+                    palette.yellow.r,
+                    palette.yellow.g,
+                    palette.yellow.b,
+                )),
+            )));
+        }
 
         if !progress_line.is_empty() {
             spans.push(Line::from(Span::styled(progress_line, style)));
+        }
+
+        if !byte_progress_line.is_empty() {
+            spans.push(Line::from(Span::styled(byte_progress_line, style)));
         }
 
         if let TaskStatus::Failed(e) = status {

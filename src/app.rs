@@ -710,7 +710,23 @@ mod tests {
             fn read_file(&self, _path: &Path) -> anyhow::Result<Vec<u8>> {
                 Ok(vec![])
             }
+            fn read_file_at(
+                &self,
+                _path: &Path,
+                _offset: u64,
+                _len: usize,
+            ) -> anyhow::Result<Vec<u8>> {
+                Ok(vec![])
+            }
             fn write_file(&self, _path: &Path, _data: &[u8]) -> anyhow::Result<()> {
+                Ok(())
+            }
+            fn write_file_at(
+                &self,
+                _path: &Path,
+                _offset: u64,
+                _data: &[u8],
+            ) -> anyhow::Result<()> {
                 Ok(())
             }
             fn display_prefix(&self) -> &str {

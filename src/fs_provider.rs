@@ -28,11 +28,17 @@ pub trait FileSystemProvider: Send + Sync {
     /// Rename/move a file or directory within the same filesystem.
     fn rename(&self, from: &Path, to: &Path) -> Result<()>;
 
-    /// Read file contents as bytes.
+    /// Read file content as bytes.
     fn read_file(&self, path: &Path) -> Result<Vec<u8>>;
+
+    /// Read a chunk of a file.
+    fn read_file_at(&self, path: &Path, offset: u64, len: usize) -> Result<Vec<u8>>;
 
     /// Write data to a file.
     fn write_file(&self, path: &Path, data: &[u8]) -> Result<()>;
+
+    /// Write a chunk of data to a file.
+    fn write_file_at(&self, path: &Path, offset: u64, data: &[u8]) -> Result<()>;
 
     /// Write data to a file with specific permissions (Unix mode).
     /// Default implementation calls write_file and then set_permissions.

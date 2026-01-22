@@ -525,6 +525,15 @@ mod tests {
             Ok(b"original content".to_vec())
         }
 
+        fn read_file_at(
+            &self,
+            _path: &std::path::Path,
+            _offset: u64,
+            _len: usize,
+        ) -> anyhow::Result<Vec<u8>> {
+            Ok(b"original content".to_vec())
+        }
+
         fn write_file(&self, _path: &std::path::Path, data: &[u8]) -> anyhow::Result<()> {
             self.write_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -532,6 +541,15 @@ mod tests {
             if self.write_error.load(std::sync::atomic::Ordering::SeqCst) {
                 return Err(anyhow::anyhow!("Mock write error"));
             }
+            Ok(())
+        }
+
+        fn write_file_at(
+            &self,
+            _path: &std::path::Path,
+            _offset: u64,
+            _data: &[u8],
+        ) -> anyhow::Result<()> {
             Ok(())
         }
 

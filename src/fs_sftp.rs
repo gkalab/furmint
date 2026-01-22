@@ -186,6 +186,21 @@ impl FileSystemProvider for SftpFs {
         })
     }
 
+    fn read_file_at(&self, path: &Path, offset: u64, len: usize) -> Result<Vec<u8>> {
+        self.with_sftp(|sftp| {
+            use std::io::{Read, Seek, SeekFrom};
+            let normalized = self.normalize_path(path);
+            let mut file = sftp
+                .open(&normalized)
+                .map_err(|_| anyhow!("Failed to open file: {:?}", normalized))?;
+            file.seek(SeekFrom::Start(offset))?;
+            let mut buffer = vec![0; len];
+            let n = file.read(&mut buffer)?;
+            buffer.truncate(n);
+            Ok(buffer)
+        })
+    }
+
     fn write_file(&self, path: &Path, data: &[u8]) -> Result<()> {
         self.with_sftp(|sftp| {
             use std::io::Write;
@@ -194,6 +209,34 @@ impl FileSystemProvider for SftpFs {
                 .map_err(|e| anyhow!("Failed to create file: {}", e))?;
             file.write_all(data)
                 .map_err(|e| anyhow!("Failed to write file: {}", e))?;
+            Ok(())
+        })
+    }
+
+    fn write_file_at(&self, path: &Path, offset: u64, data: &[u8]) -> Result<()> {
+        self.with_sftp(|sftp| {
+            use std::io::{Seek, SeekFrom, Write};
+            let normalized = self.normalize_path(path);
+            let mut file = if offset == 0 {
+                sftp.create(&normalized)
+                    .map_err(|e| anyhow!("Failed to create file: {}", e))?
+            } else {
+                sftp.open_mode(
+                    &normalized,
+                    ssh2::OpenFlags::READ | ssh2::OpenFlags::WRITE,
+                    0o644,
+                    ssh2::OpenType::File,
+                )
+                .map_err(|e| {
+                    anyhow!(
+                        "Failed to open file for writing at offset {}: {}",
+                        offset,
+                        e
+                    )
+                })?
+            };
+            file.seek(SeekFrom::Start(offset))?;
+            file.write_all(data)?;
             Ok(())
         })
     }

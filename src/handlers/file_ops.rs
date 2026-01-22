@@ -1,6 +1,5 @@
-//! File operations helpers: recursive ops, item counters, decision state
-
 use async_trait::async_trait;
+use std::path::Path;
 
 #[async_trait]
 pub trait FileSystem: Send + Sync {
@@ -11,9 +10,31 @@ pub trait FileSystem: Send + Sync {
     async fn rename(&self, src: &std::path::Path, dst: &std::path::Path) -> anyhow::Result<()>;
     async fn remove_file(&self, path: &std::path::Path) -> anyhow::Result<()>;
     async fn copy(&self, src: &std::path::Path, dst: &std::path::Path) -> anyhow::Result<()>;
+    async fn copy_with_progress(
+        &self,
+        src: &std::path::Path,
+        dst: &std::path::Path,
+        id: usize,
+        tx: &tokio::sync::mpsc::UnboundedSender<crate::tasks::TaskEvent>,
+        cancel: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> anyhow::Result<()>;
+    async fn get_size(&self, path: &std::path::Path) -> anyhow::Result<u64>;
     async fn read_file(&self, path: &std::path::Path) -> anyhow::Result<Vec<u8>>;
+    async fn read_chunk(
+        &self,
+        path: &std::path::Path,
+        offset: u64,
+        len: usize,
+    ) -> anyhow::Result<Vec<u8>>;
     async fn write_file(&self, path: &std::path::Path, data: &[u8]) -> anyhow::Result<()>;
+    async fn write_chunk(
+        &self,
+        path: &std::path::Path,
+        offset: u64,
+        data: &[u8],
+    ) -> anyhow::Result<()>;
     async fn get_permissions(&self, path: &std::path::Path) -> Option<u32>;
+    async fn set_permissions(&self, path: &std::path::Path, mode: u32) -> anyhow::Result<()>;
     async fn get_modified_time(&self, path: &std::path::Path) -> Option<std::time::SystemTime>;
     async fn set_modified_time(
         &self,
@@ -71,11 +92,88 @@ impl FileSystem for StdFileSystem {
         }
         Ok(())
     }
+    async fn copy_with_progress(
+        &self,
+        src: &std::path::Path,
+        dst: &std::path::Path,
+        id: usize,
+        tx: &tokio::sync::mpsc::UnboundedSender<crate::tasks::TaskEvent>,
+        cancel: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> anyhow::Result<()> {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let metadata = tokio::fs::metadata(src).await?;
+        let total_size = metadata.len();
+        let mtime = metadata.modified().ok();
+
+        let mut reader = tokio::fs::File::open(src).await?;
+        let mut writer = tokio::fs::File::create(dst).await?;
+
+        let mut buffer = vec![0; 64 * 1024]; // 64KB chunks
+        let mut processed = 0;
+
+        while processed < total_size {
+            if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                return Ok(());
+            }
+
+            let n = reader.read(&mut buffer).await?;
+            if n == 0 {
+                break;
+            }
+            writer.write_all(&buffer[..n]).await?;
+            processed += n as u64;
+
+            let _ = tx.send(crate::tasks::TaskEvent::UpdateByteProgress(
+                id, processed, total_size,
+            ));
+        }
+
+        if let Some(mt) = mtime {
+            let _ = self.set_modified_time(dst, mt).await;
+        }
+
+        Ok(())
+    }
+    async fn get_size(&self, path: &std::path::Path) -> anyhow::Result<u64> {
+        Ok(tokio::fs::metadata(path).await?.len())
+    }
     async fn read_file(&self, path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
         Ok(tokio::fs::read(path).await?)
     }
+    async fn read_chunk(
+        &self,
+        path: &std::path::Path,
+        offset: u64,
+        len: usize,
+    ) -> anyhow::Result<Vec<u8>> {
+        use tokio::io::{AsyncReadExt, AsyncSeekExt};
+        let mut file = tokio::fs::File::open(path).await?;
+        file.seek(std::io::SeekFrom::Start(offset)).await?;
+        let mut buffer = vec![0; len];
+        let n = file.read(&mut buffer).await?;
+        buffer.truncate(n);
+        Ok(buffer)
+    }
     async fn write_file(&self, path: &std::path::Path, data: &[u8]) -> anyhow::Result<()> {
         tokio::fs::write(path, data).await?;
+        Ok(())
+    }
+    async fn write_chunk(
+        &self,
+        path: &std::path::Path,
+        offset: u64,
+        data: &[u8],
+    ) -> anyhow::Result<()> {
+        use tokio::io::{AsyncSeekExt, AsyncWriteExt};
+        let mut file = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)
+            .await?;
+        file.seek(std::io::SeekFrom::Start(offset)).await?;
+        file.write_all(data).await?;
         Ok(())
     }
 
@@ -90,7 +188,28 @@ impl FileSystem for StdFileSystem {
         }
         #[cfg(not(unix))]
         {
+            let _ = _path;
             None
+        }
+    }
+
+    async fn set_permissions(&self, path: &std::path::Path, mode: u32) -> anyhow::Result<()> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let metadata = tokio::fs::metadata(path).await?;
+            let mut perms = metadata.permissions();
+            perms.set_mode(mode);
+            tokio::fs::set_permissions(path, perms).await?;
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = path;
+            let _ = mode;
+            Err(anyhow::anyhow!(
+                "Permissions not supported on this platform"
+            ))
         }
     }
 
@@ -227,24 +346,75 @@ impl FileSystem for ProviderFileSystem {
         Ok(())
     }
     async fn copy(&self, src: &std::path::Path, dst: &std::path::Path) -> anyhow::Result<()> {
-        // Core cross-provider copy logic
-        let data = self.read_file(src).await?;
+        // We use a dummy cancel and tx for the basic copy if needed,
+        // but it's better to just implement it with read/write if small.
+        // Actually, let's just use copy_with_progress with a blackhole channel if we must.
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        self.copy_with_progress(src, dst, 0, &tx, &cancel).await
+    }
 
-        // Preserve permissions if the destination provider supports it
-        let src_perms = self.0.get_permissions(src);
+    async fn get_size(&self, path: &std::path::Path) -> anyhow::Result<u64> {
+        let p = self.0.clone();
+        let path = path.to_path_buf();
+        Ok(tokio::task::spawn_blocking(move || {
+            let parent = path.parent().unwrap_or(Path::new("/"));
+            let entries = p.list_dir(parent)?;
+            let name = path.file_name().unwrap_or_default().to_string_lossy();
+            let entry = entries
+                .iter()
+                .find(|e| e.name == name)
+                .ok_or_else(|| anyhow::anyhow!("File not found: {}", path.display()))?;
+            Ok::<u64, anyhow::Error>(entry.size.unwrap_or(0))
+        })
+        .await??)
+    }
 
-        // Try to write with permissions if supported, otherwise write normally and set afterwards
-        if let Some(mode) = src_perms {
-            let dst_clone = dst.to_path_buf();
-            let data_clone = data.clone();
-            let provider = self.0.clone();
-            tokio::task::spawn_blocking(move || {
-                provider.write_file_with_permissions(&dst_clone, &data_clone, Some(mode))
-            })
-            .await??;
-        } else {
-            self.write_file(dst, &data).await?;
-        }
+    async fn copy_with_progress(
+        &self,
+        src: &std::path::Path,
+        dst: &std::path::Path,
+        id: usize,
+        tx: &tokio::sync::mpsc::UnboundedSender<crate::tasks::TaskEvent>,
+        cancel: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> anyhow::Result<()> {
+        let provider = self.0.clone();
+        let src_buf = src.to_path_buf();
+        let dst_buf = dst.to_path_buf();
+        let tx = tx.clone();
+        let cancel = cancel.clone();
+
+        tokio::task::spawn_blocking(move || {
+            // we need to get total_size first
+            let entries = provider.list_dir(src_buf.parent().unwrap_or(Path::new("/")))?;
+            let entry = entries
+                .iter()
+                .find(|e| e.name == src_buf.file_name().unwrap_or_default().to_string_lossy())
+                .ok_or_else(|| anyhow::anyhow!("Source file not found in directory listing"))?;
+            let total_size = entry.size.unwrap_or(0);
+            let mtime = entry.modified;
+            let perms = provider.get_permissions(&src_buf);
+
+            let data = provider.read_file(&src_buf)?;
+            let processed = data.len() as u64;
+
+            if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                return Ok(());
+            }
+
+            provider.write_file_with_permissions(&dst_buf, &data, perms)?;
+
+            let _ = tx.send(crate::tasks::TaskEvent::UpdateByteProgress(
+                id, processed, total_size,
+            ));
+
+            if let Some(mt) = mtime {
+                provider.set_modified_time(&dst_buf, mt);
+            }
+
+            Ok::<(), anyhow::Error>(())
+        })
+        .await??;
 
         Ok(())
     }
@@ -253,11 +423,33 @@ impl FileSystem for ProviderFileSystem {
         let path = path.to_path_buf();
         Ok(tokio::task::spawn_blocking(move || p.read_file(&path)).await??)
     }
+    async fn read_chunk(
+        &self,
+        path: &std::path::Path,
+        offset: u64,
+        len: usize,
+    ) -> anyhow::Result<Vec<u8>> {
+        let p = self.0.clone();
+        let path = path.to_path_buf();
+        Ok(tokio::task::spawn_blocking(move || p.read_file_at(&path, offset, len)).await??)
+    }
     async fn write_file(&self, path: &std::path::Path, data: &[u8]) -> anyhow::Result<()> {
         let p = self.0.clone();
         let path = path.to_path_buf();
         let data = data.to_vec();
         tokio::task::spawn_blocking(move || p.write_file(&path, &data)).await??;
+        Ok(())
+    }
+    async fn write_chunk(
+        &self,
+        path: &std::path::Path,
+        offset: u64,
+        data: &[u8],
+    ) -> anyhow::Result<()> {
+        let p = self.0.clone();
+        let path = path.to_path_buf();
+        let data = data.to_vec();
+        tokio::task::spawn_blocking(move || p.write_file_at(&path, offset, &data)).await??;
         Ok(())
     }
 
@@ -267,6 +459,18 @@ impl FileSystem for ProviderFileSystem {
         tokio::task::spawn_blocking(move || p.get_permissions(&path))
             .await
             .unwrap_or(None)
+    }
+    async fn set_permissions(&self, path: &std::path::Path, mode: u32) -> anyhow::Result<()> {
+        let p = self.0.clone();
+        let path = path.to_path_buf();
+        let success = tokio::task::spawn_blocking(move || p.set_permissions(&path, mode))
+            .await
+            .unwrap_or(false);
+        if success {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Failed to set permissions"))
+        }
     }
 
     async fn get_modified_time(&self, path: &std::path::Path) -> Option<std::time::SystemTime> {
@@ -314,18 +518,31 @@ impl FileSystem for ProviderFileSystem {
     }
 }
 
-// Helper to count items recursively
-pub async fn count_items(fs: &dyn FileSystem, paths: &[std::path::PathBuf]) -> usize {
+// Helper to count items and total size recursively
+pub async fn count_items_and_size(
+    fs: &dyn FileSystem,
+    paths: &[std::path::PathBuf],
+) -> (usize, u64) {
     let mut count = 0;
+    let mut total_size = 0;
     for path in paths {
         count += 1; // Count the item itself
-        if let Ok(true) = fs.is_dir(path).await
-            && let Ok(children) = fs.read_dir(path).await
-        {
-            count += Box::pin(count_items(fs, &children)).await;
+        if let Ok(true) = fs.is_dir(path).await {
+            if let Ok(children) = fs.read_dir(path).await {
+                let (c, s) = Box::pin(count_items_and_size(fs, &children)).await;
+                count += c;
+                total_size += s;
+            }
+        } else if let Ok(size) = fs.get_size(path).await {
+            total_size += size;
         }
     }
-    count
+    (count, total_size)
+}
+
+// Helper to count items recursively
+pub async fn count_items(fs: &dyn FileSystem, paths: &[std::path::PathBuf]) -> usize {
+    count_items_and_size(fs, paths).await.0
 }
 
 pub struct DecisionState {
@@ -348,7 +565,9 @@ pub struct RecursiveOpContext<'a> {
     pub tx: &'a tokio::sync::mpsc::UnboundedSender<crate::tasks::TaskEvent>,
     pub id: usize,
     pub total: usize,
+    pub total_bytes: u64,
     pub processed: &'a std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    pub processed_bytes: &'a std::sync::Arc<std::sync::atomic::AtomicU64>,
     pub decision_rx: &'a std::sync::Arc<
         tokio::sync::Mutex<tokio::sync::mpsc::Receiver<crate::tasks::TaskDecision>>,
     >,
@@ -374,6 +593,13 @@ pub fn recursive_op<'a>(
             src: ctx.src.to_path_buf(),
             dest: ctx.dest.to_path_buf(),
         }];
+
+        // Send initial progress update
+        let _ = ctx.tx.send(crate::tasks::TaskEvent::UpdateProgress(
+            ctx.id,
+            ctx.processed.load(std::sync::atomic::Ordering::Relaxed),
+            ctx.total,
+        ));
 
         while let Some(item) = stack.pop() {
             if ctx.cancel.load(std::sync::atomic::Ordering::Relaxed) {
@@ -500,6 +726,15 @@ pub fn recursive_op<'a>(
                         }
 
                         if perform {
+                            // Update current file
+                            let _ = ctx.tx.send(crate::tasks::TaskEvent::UpdateCurrentFile(
+                                ctx.id,
+                                src.file_name()
+                                    .unwrap_or_default()
+                                    .to_string_lossy()
+                                    .into_owned(),
+                            ));
+
                             loop {
                                 if dest_exists {
                                     let _ = ctx.dest_fs.remove_file(&dest).await;
@@ -508,18 +743,64 @@ pub fn recursive_op<'a>(
                                 // Check if it's the same filesystem type
                                 let same_fs = ctx.src_fs.context_key() == ctx.dest_fs.context_key();
                                 let copy_res = if same_fs {
-                                    ctx.dest_fs.copy(&src, &dest).await
+                                    ctx.src_fs
+                                        .copy_with_progress(&src, &dest, ctx.id, ctx.tx, ctx.cancel)
+                                        .await
                                 } else {
-                                    match ctx.src_fs.read_file(&src).await {
-                                        Ok(data) => {
-                                            // For cross-filesystem copies, preserve permissions
-                                            let perms = ctx.src_fs.get_permissions(&src).await;
-                                            ctx.dest_fs
-                                                .write_file_with_permissions(&dest, &data, perms)
-                                                .await
+                                    // Manual chunked cross-filesystem copy
+                                    async {
+                                        let total_size = ctx.src_fs.get_size(&src).await?;
+                                        let perms = ctx.src_fs.get_permissions(&src).await;
+                                        let chunk_size = 1024 * 1024; // 1MB
+                                        let mut offset = 0;
+
+                                        if total_size == 0 {
+                                            ctx.dest_fs.write_file(&dest, &[]).await?;
+                                        } else {
+                                            while offset < total_size {
+                                                if ctx
+                                                    .cancel
+                                                    .load(std::sync::atomic::Ordering::Relaxed)
+                                                {
+                                                    return Err(anyhow::anyhow!(
+                                                        "Operation cancelled"
+                                                    ));
+                                                }
+
+                                                let len = (total_size - offset)
+                                                    .min(chunk_size as u64)
+                                                    as usize;
+                                                let chunk = ctx
+                                                    .src_fs
+                                                    .read_chunk(&src, offset, len)
+                                                    .await?;
+                                                ctx.dest_fs
+                                                    .write_chunk(&dest, offset, &chunk)
+                                                    .await?;
+
+                                                let processed = chunk.len() as u64;
+                                                offset += processed;
+
+                                                ctx.processed_bytes.fetch_add(
+                                                    processed,
+                                                    std::sync::atomic::Ordering::Relaxed,
+                                                );
+                                                let _ = ctx.tx.send(
+                                                    crate::tasks::TaskEvent::UpdateByteProgress(
+                                                        ctx.id, offset, total_size,
+                                                    ),
+                                                );
+                                            }
                                         }
-                                        Err(e) => Err(e),
+
+                                        // Set permissions if we have them
+                                        if let Some(mode) = perms {
+                                            let _ = ctx.dest_fs.set_permissions(&dest, mode).await;
+                                        }
+
+                                        Ok::<(), anyhow::Error>(())
                                     }
+                                    .await
                                 };
 
                                 match copy_res {
@@ -859,12 +1140,33 @@ mod mock_fs_tests {
                 Err(anyhow::anyhow!("Missing file for copy"))
             }
         }
+        async fn copy_with_progress(
+            &self,
+            src: &Path,
+            dst: &Path,
+            _id: usize,
+            _tx: &tokio::sync::mpsc::UnboundedSender<crate::tasks::TaskEvent>,
+            _cancel: &Arc<AtomicBool>,
+        ) -> anyhow::Result<()> {
+            self.copy(src, dst).await
+        }
+        async fn get_size(&self, _path: &Path) -> anyhow::Result<u64> {
+            Ok(0)
+        }
         async fn read_file(&self, path: &Path) -> anyhow::Result<Vec<u8>> {
             if self.files.lock().await.contains_key(path) {
                 Ok(vec![]) // Fake empty content
             } else {
                 Err(anyhow::anyhow!("File not found"))
             }
+        }
+        async fn read_chunk(
+            &self,
+            path: &Path,
+            _offset: u64,
+            _len: usize,
+        ) -> anyhow::Result<Vec<u8>> {
+            self.read_file(path).await
         }
         async fn write_file(&self, path: &Path, _data: &[u8]) -> anyhow::Result<()> {
             self.files
@@ -873,9 +1175,15 @@ mod mock_fs_tests {
                 .insert(path.to_path_buf(), FakeEntry { is_dir: false });
             Ok(())
         }
+        async fn write_chunk(&self, path: &Path, _offset: u64, _data: &[u8]) -> anyhow::Result<()> {
+            self.write_file(path, _data).await
+        }
 
         async fn get_permissions(&self, _path: &Path) -> Option<u32> {
             Some(0o644) // Mock permissions
+        }
+        async fn set_permissions(&self, _path: &Path, _mode: u32) -> anyhow::Result<()> {
+            Ok(())
         }
 
         async fn get_modified_time(&self, _path: &Path) -> Option<std::time::SystemTime> {
@@ -934,6 +1242,8 @@ mod mock_fs_tests {
         let processed = Arc::new(AtomicUsize::new(0));
         let decision_rx = Arc::new(Mutex::new(drx_real));
         let cancel = Arc::new(AtomicBool::new(false));
+        let total_bytes = 0; // Mock doesn't track size
+        let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let ctx = RecursiveOpContext {
             src_fs: &fs,
             dest_fs: &fs,
@@ -944,7 +1254,9 @@ mod mock_fs_tests {
             tx: &tx,
             id: 1,
             total: 3,
+            total_bytes,
             processed: &processed,
+            processed_bytes: &processed_bytes,
             decision_rx: &decision_rx,
         };
         let mut decision_state = DecisionState {
@@ -990,6 +1302,8 @@ mod mock_fs_tests {
         let (dtx, drx_real) = mpsc::channel(1);
         let processed = Arc::new(AtomicUsize::new(0));
         let decision_rx = Arc::new(Mutex::new(drx_real));
+        let total_bytes = 0;
+        let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let ctx = RecursiveOpContext {
             src_fs: &fs,
             dest_fs: &fs,
@@ -1000,7 +1314,9 @@ mod mock_fs_tests {
             tx: &tx,
             id: 1,
             total: 2,
+            total_bytes,
             processed: &processed,
+            processed_bytes: &processed_bytes,
             decision_rx: &decision_rx,
         };
         let mut decision_state = DecisionState {
@@ -1011,8 +1327,10 @@ mod mock_fs_tests {
 
         // Decision task: send OverwriteAll on first conflict
         tokio::spawn(async move {
-            if let Some(crate::tasks::TaskEvent::Conflict(_, _, _)) = rx.recv().await {
-                let _ = dtx.send(crate::tasks::TaskDecision::OverwriteAll).await;
+            while let Some(event) = rx.recv().await {
+                if let crate::tasks::TaskEvent::Conflict(_, _, _) = event {
+                    let _ = dtx.send(crate::tasks::TaskDecision::OverwriteAll).await;
+                }
             }
         });
 
@@ -1052,6 +1370,8 @@ mod mock_fs_tests {
         let (dtx, drx_real) = mpsc::channel(1);
         let processed = Arc::new(AtomicUsize::new(0));
         let decision_rx = Arc::new(Mutex::new(drx_real));
+        let total_bytes = 0;
+        let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let ctx = RecursiveOpContext {
             src_fs: &fs,
             dest_fs: &fs,
@@ -1062,7 +1382,9 @@ mod mock_fs_tests {
             tx: &tx,
             id: 1,
             total: 2,
+            total_bytes,
             processed: &processed,
+            processed_bytes: &processed_bytes,
             decision_rx: &decision_rx,
         };
         let mut decision_state = DecisionState {
@@ -1073,8 +1395,10 @@ mod mock_fs_tests {
 
         // Decision task: send Cancel on first conflict
         tokio::spawn(async move {
-            if let Some(crate::tasks::TaskEvent::Conflict(_, _, _)) = rx.recv().await {
-                let _ = dtx.send(crate::tasks::TaskDecision::Cancel).await;
+            while let Some(event) = rx.recv().await {
+                if let crate::tasks::TaskEvent::Conflict(_, _, _) = event {
+                    let _ = dtx.send(crate::tasks::TaskDecision::Cancel).await;
+                }
             }
         });
 
@@ -1109,6 +1433,8 @@ mod mock_fs_tests {
         let (dtx, drx_real) = mpsc::channel(1);
         let processed = Arc::new(AtomicUsize::new(0));
         let decision_rx = Arc::new(Mutex::new(drx_real));
+        let total_bytes = 0;
+        let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let ctx = RecursiveOpContext {
             src_fs: &fs,
             dest_fs: &fs,
@@ -1119,7 +1445,9 @@ mod mock_fs_tests {
             tx: &tx,
             id: 1,
             total: 2,
+            total_bytes,
             processed: &processed,
+            processed_bytes: &processed_bytes,
             decision_rx: &decision_rx,
         };
         let mut decision_state = DecisionState {
@@ -1165,6 +1493,8 @@ mod mock_fs_tests {
         let (decision_tx, decision_rx_real) = mpsc::channel(1);
         let processed = Arc::new(AtomicUsize::new(0));
         let decision_rx = Arc::new(Mutex::new(decision_rx_real));
+        let total_bytes = 0;
+        let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let ctx = RecursiveOpContext {
             src_fs: &fs,
             dest_fs: &fs,
@@ -1175,7 +1505,9 @@ mod mock_fs_tests {
             tx: &tx,
             id: 1,
             total: 1,
+            total_bytes,
             processed: &processed,
+            processed_bytes: &processed_bytes,
             decision_rx: &decision_rx,
         };
         let mut decision_state = DecisionState {
@@ -1222,6 +1554,8 @@ mod mock_fs_tests {
         let (decision_tx, decision_rx_real) = mpsc::channel(1);
         let processed = Arc::new(AtomicUsize::new(0));
         let decision_rx = Arc::new(Mutex::new(decision_rx_real));
+        let total_bytes = 0;
+        let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let ctx = RecursiveOpContext {
             src_fs: &fs,
             dest_fs: &fs,
@@ -1232,7 +1566,9 @@ mod mock_fs_tests {
             tx: &tx,
             id: 1,
             total: 1,
+            total_bytes,
             processed: &processed,
+            processed_bytes: &processed_bytes,
             decision_rx: &decision_rx,
         };
         let mut decision_state = DecisionState {
@@ -1271,6 +1607,8 @@ mod mock_fs_tests {
         let processed = Arc::new(AtomicUsize::new(0));
         let decision_rx = Arc::new(Mutex::new(drx_real));
         let cancel = Arc::new(AtomicBool::new(false));
+        let total_bytes = 0;
+        let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let ctx = RecursiveOpContext {
             src_fs: &fs,
             dest_fs: &fs,
@@ -1281,7 +1619,9 @@ mod mock_fs_tests {
             tx: &tx,
             id: 1,
             total: 2,
+            total_bytes,
             processed: &processed,
+            processed_bytes: &processed_bytes,
             decision_rx: &decision_rx,
         };
         let mut decision_state = DecisionState {
@@ -1329,6 +1669,8 @@ mod mock_fs_tests {
         let (_dtx, drx_real) = mpsc::channel(1);
         let processed = Arc::new(AtomicUsize::new(0));
         let decision_rx = Arc::new(Mutex::new(drx_real));
+        let total_bytes = 0;
+        let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let ctx = RecursiveOpContext {
             src_fs: &fs,
             dest_fs: &fs,
@@ -1339,7 +1681,9 @@ mod mock_fs_tests {
             tx: &tx,
             id: 1,
             total: 3, // src_dir + file1.txt + file2.txt
+            total_bytes,
             processed: &processed,
+            processed_bytes: &processed_bytes,
             decision_rx: &decision_rx,
         };
         let mut decision_state = DecisionState {

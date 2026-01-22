@@ -400,8 +400,10 @@ pub fn spawn_copy_move_task(
             let dest_fs = crate::handlers::file_ops::ProviderFileSystem(dest_provider);
             let dest_path = std::path::PathBuf::from(&dest_str);
             // Pre-calculation of total items using the source filesystem
-            let total_items = crate::handlers::file_ops::count_items(&src_fs, &paths).await;
+            let (total_items, total_bytes) =
+                crate::handlers::file_ops::count_items_and_size(&src_fs, &paths).await;
             let processed_items = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let processed_bytes = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
 
             // State for "Apply to all" decisions
             // We use a struct to hold this state across recursions
@@ -482,7 +484,9 @@ pub fn spawn_copy_move_task(
                     tx: &tx,
                     id,
                     total: total_items,
+                    total_bytes,
                     processed: &processed_items,
+                    processed_bytes: &processed_bytes,
                     decision_rx: &decision_rx,
                 };
                 let res = crate::handlers::file_ops::recursive_op(ctx, &mut decision_state).await;
