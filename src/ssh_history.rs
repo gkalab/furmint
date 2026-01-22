@@ -1,3 +1,4 @@
+use crate::app_state::tabs::{SortColumn, SortDirection};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -9,6 +10,8 @@ pub struct SshConnectionInfo {
     pub host: String,
     pub port: u16,
     pub path: Option<String>,
+    pub sort_column: Option<SortColumn>,
+    pub sort_direction: Option<SortDirection>,
 }
 
 impl SshConnectionInfo {
@@ -43,7 +46,21 @@ impl SshConnectionHistory {
         };
         Ok(Self { connections, path })
     }
-    pub fn add(&mut self, info: SshConnectionInfo) {
+    pub fn add(&mut self, mut info: SshConnectionInfo) {
+        // If it already exists, preserve sort settings
+        if let Some(existing) = self
+            .connections
+            .iter()
+            .find(|c| c.connection_string == info.connection_string)
+        {
+            if info.sort_column.is_none() {
+                info.sort_column = existing.sort_column;
+            }
+            if info.sort_direction.is_none() {
+                info.sort_direction = existing.sort_direction;
+            }
+        }
+
         // Remove duplicate if it exists based on connection string
         self.connections
             .retain(|c| c.connection_string != info.connection_string);
@@ -57,5 +74,73 @@ impl SshConnectionHistory {
         let content = serde_json::to_string_pretty(&self.connections)?;
         fs::write(&self.path, content)?;
         Ok(())
+    }
+    pub fn load(&mut self) -> anyhow::Result<()> {
+        if self.path.exists() {
+            let content = fs::read_to_string(&self.path)?;
+            self.connections = serde_json::from_str(&content).unwrap_or_default();
+        }
+        Ok(())
+    }
+
+    pub fn update_sort_settings(
+        &mut self,
+        host: &str,
+        user: &str,
+        name: Option<&str>,
+        sort_column: SortColumn,
+        sort_direction: SortDirection,
+    ) {
+        let mut updated = false;
+        for conn in &mut self.connections {
+            let match_by_name = if let (Some(n1), Some(n2)) = (name, &conn.name) {
+                n1 == n2
+            } else {
+                false
+            };
+
+            if match_by_name
+                || (conn.host.to_lowercase() == host.to_lowercase() && conn.user == user)
+            {
+                conn.sort_column = Some(sort_column);
+                conn.sort_direction = Some(sort_direction);
+                updated = true;
+            }
+        }
+        if updated {
+            let _ = self.save();
+        }
+    }
+
+    pub fn get_sort_settings(
+        &self,
+        host: &str,
+        user: &str,
+        name: Option<&str>,
+    ) -> Option<(SortColumn, SortDirection)> {
+        self.connections
+            .iter()
+            .find(|c| {
+                // Try to match by name first if provided
+                if let (Some(n1), Some(n2)) = (name, &c.name)
+                    && n1 == n2
+                    && c.sort_column.is_some()
+                    && c.sort_direction.is_some()
+                {
+                    return true;
+                }
+
+                c.host.to_lowercase() == host.to_lowercase()
+                    && c.user == user
+                    && c.sort_column.is_some()
+                    && c.sort_direction.is_some()
+            })
+            .and_then(|c| {
+                if let (Some(col), Some(dir)) = (c.sort_column, c.sort_direction) {
+                    Some((col, dir))
+                } else {
+                    None
+                }
+            })
     }
 }

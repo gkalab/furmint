@@ -321,7 +321,30 @@ pub fn handle_history_next(app: &mut AppState) {
 }
 
 pub fn handle_sort(app: &mut AppState, column: crate::app::SortColumn) {
-    app.active_tab_mut().handle_sort(column);
+    let (col, dir, context_key) = {
+        let tab = app.active_tab_mut();
+        tab.handle_sort(column);
+        (
+            tab.sort_column,
+            tab.sort_direction,
+            tab.provider.context_key(),
+        )
+    };
+
+    if context_key.starts_with('[') && context_key.ends_with(']') {
+        let inner = &context_key[1..context_key.len() - 1];
+        if let Some(at_idx) = inner.find('@') {
+            let user = &inner[..at_idx];
+            let host = &inner[at_idx + 1..];
+            let name = {
+                let tab = app.active_tab();
+                tab.custom_title.clone()
+            };
+            app.ssh_history
+                .update_sort_settings(host, user, name.as_deref(), col, dir);
+        }
+    }
+
     update_viewer_content(app);
 }
 

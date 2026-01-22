@@ -23,7 +23,11 @@ fn is_root_user(tab: &Tab) -> bool {
         || (tab.provider.display_prefix().is_empty() && system_user == "root")
 }
 
-fn sort_indicator(column: SortColumn, current_column: SortColumn, direction: SortDirection) -> &'static str {
+fn sort_indicator(
+    column: SortColumn,
+    current_column: SortColumn,
+    direction: SortDirection,
+) -> &'static str {
     if column == current_column {
         match direction {
             SortDirection::Ascending => "▴",
@@ -176,14 +180,26 @@ pub fn draw_panel(
     );
     let name_indicator = sort_indicator(SortColumn::Name, panel.sort_column, panel.sort_direction);
     let name_header = format!("Name{}", name_indicator);
-    let ext_indicator = sort_indicator(SortColumn::Extension, panel.sort_column, panel.sort_direction);
+    let ext_indicator = sort_indicator(
+        SortColumn::Extension,
+        panel.sort_column,
+        panel.sort_direction,
+    );
     let name_header = if ext_indicator.is_empty() {
         name_header
     } else {
         format!("Name{}", ext_indicator)
     };
-    let modified_header = format!("Modified{}", sort_indicator(SortColumn::Date, panel.sort_column, panel.sort_direction));
-    let header = [name_header, size_header, modified_header, "Attributes".to_string()];
+    let modified_header = format!(
+        "Modified{}",
+        sort_indicator(SortColumn::Date, panel.sort_column, panel.sort_direction)
+    );
+    let header = [
+        name_header,
+        size_header,
+        modified_header,
+        "Attributes".to_string(),
+    ];
 
     let text_fg = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
     // Calculate available width for name column

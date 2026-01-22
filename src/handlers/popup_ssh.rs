@@ -465,6 +465,8 @@ fn start_ssh_auth(app: &mut AppState) {
             host: parsed.host.clone(),
             port,
             path: parsed.path.clone(),
+            sort_column: None,
+            sort_direction: None,
         });
 
         app.popups.ssh_connection.is_visible = false;

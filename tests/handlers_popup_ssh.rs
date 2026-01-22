@@ -140,6 +140,8 @@ fn test_history_search_reset() {
         host: "target".to_string(),
         port: 22,
         path: None,
+        sort_column: None,
+        sort_direction: None,
     });
 
     app.popups.ssh_connection.active_field = SshField::History;

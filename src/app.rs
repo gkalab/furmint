@@ -309,6 +309,25 @@ impl AppState {
         let connection_name = ctx.name;
         match Tab::with_provider(&path, ctx.provider) {
             Ok(mut tab) => {
+                // Restore sort settings from history
+                let context_key = tab.provider.context_key();
+                if context_key.starts_with('[') && context_key.ends_with(']') {
+                    let inner = &context_key[1..context_key.len() - 1];
+                    if let Some(at_idx) = inner.find('@') {
+                        let user = &inner[..at_idx];
+                        let host = &inner[at_idx + 1..];
+                        if let Some((col, dir)) = self.ssh_history.get_sort_settings(
+                            host,
+                            user,
+                            connection_name.as_deref(),
+                        ) {
+                            tab.sort_column = col;
+                            tab.sort_direction = dir;
+                            tab.sort_entries();
+                        }
+                    }
+                }
+
                 tab.custom_title = connection_name;
                 tab_manager.tabs.push(tab);
                 tab_manager.active_tab_index = tab_manager.tabs.len() - 1;
@@ -324,11 +343,31 @@ impl AppState {
     }
 
     pub fn handle_ssh_reconnected(&mut self, ctx: crate::tasks::SshContext) {
-        let tab = self.active_tab_mut();
         let path = ctx.path.unwrap_or_else(|| std::path::PathBuf::from("/"));
+
+        // Restore sort settings from history FIRST before borrowing tab mutably
+        let context_key = ctx.provider.context_key();
+        let mut sort_settings = None;
+        if context_key.starts_with('[') && context_key.ends_with(']') {
+            let inner = &context_key[1..context_key.len() - 1];
+            if let Some(at_idx) = inner.find('@') {
+                let user = &inner[..at_idx];
+                let host = &inner[at_idx + 1..];
+                sort_settings = self
+                    .ssh_history
+                    .get_sort_settings(host, user, ctx.name.as_deref());
+            }
+        }
+
+        let tab = self.active_tab_mut();
 
         // Replace the provider
         tab.provider = ctx.provider;
+
+        if let Some((col, dir)) = sort_settings {
+            tab.sort_column = col;
+            tab.sort_direction = dir;
+        }
 
         // Navigate to the preserved directory
         if let Err(e) = tab.navigate_to(&path) {
