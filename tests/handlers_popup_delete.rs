@@ -48,8 +48,9 @@ fn basic_app_with_entry(name: &str) -> AppState {
         global: fm::config::GlobalConfig::default(),
         editor_cfg: fm::config::EditorConfig::default(),
         viewer_cfg: fm::config::ViewerConfig::default(),
-        ssh_history: SshConnectionHistory::new().unwrap(),
+        ssh_history: fm::ssh_history::SshConnectionHistory::new().unwrap(),
         clipboard: Box::new(InMemoryFileClipboard::new()),
+        remote_watcher: None,
     }
 }
 

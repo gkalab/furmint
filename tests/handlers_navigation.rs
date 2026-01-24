@@ -62,6 +62,7 @@ fn test_app(entries: Vec<FileEntry>) -> AppState {
         viewer_cfg: fm::config::ViewerConfig::default(),
         ssh_history: SshConnectionHistory::new().unwrap(),
         clipboard: Box::new(InMemoryFileClipboard::new()),
+        remote_watcher: None,
     }
 }
 

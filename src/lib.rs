@@ -60,7 +60,7 @@ pub async fn run() -> Result<()> {
     let dir_history = crate::dir_history::DirectoryHistory::new().map_err(anyhow::Error::msg)?;
 
     let (watcher_tx, mut watcher_rx) = tokio::sync::mpsc::unbounded_channel();
-    let watcher = crate::watcher::AppWatcher::new(watcher_tx).ok();
+    let watcher = crate::watcher::AppWatcher::new(watcher_tx.clone()).ok();
     let watcher = if let Some(mut w) = watcher {
         let _ = w.watch(&cwd);
         Some(w)
@@ -80,7 +80,11 @@ pub async fn run() -> Result<()> {
         viewer_cfg,
         ssh_cfg,
         dir_history,
-        watcher,
+        watcher: watcher.map(|w| Box::new(w) as Box<dyn crate::watcher::FileSystemWatcher>),
+        remote_watcher: Some(
+            Box::new(crate::watcher::RemoteWatcher::new(watcher_tx.clone()))
+                as Box<dyn crate::watcher::FileSystemWatcher>,
+        ),
         task_manager,
     };
 

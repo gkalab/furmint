@@ -84,6 +84,7 @@ fn minimal_state_with_entries(
         viewer_cfg: fm::config::ViewerConfig::default(),
         ssh_history: SshConnectionHistory::new().unwrap(),
         clipboard: Box::new(InMemoryFileClipboard::new()),
+        remote_watcher: None,
     }
 }
 

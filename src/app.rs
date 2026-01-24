@@ -70,8 +70,9 @@ pub struct AppState {
 
     pub show_task_manager: bool,
     pub dir_history: crate::dir_history::DirectoryHistory,
-    // Watcher is optional so we can initialize it later or run without it if needed
-    pub watcher: Option<crate::watcher::AppWatcher>,
+    // Watchers are trait objects to support both local and remote
+    pub watcher: Option<Box<dyn crate::watcher::FileSystemWatcher>>,
+    pub remote_watcher: Option<Box<dyn crate::watcher::FileSystemWatcher>>,
     // Input polling task handle
     pub input_polling_handle: Option<tokio::task::JoinHandle<()>>,
     pub needs_redraw: bool, // <--- Added for explicit redraw after editor
@@ -102,7 +103,8 @@ pub struct AppConfigContext<'a> {
     pub viewer_cfg: crate::config::ViewerConfig,
     pub ssh_cfg: crate::config::SshConfig,
     pub dir_history: crate::dir_history::DirectoryHistory,
-    pub watcher: Option<crate::watcher::AppWatcher>,
+    pub watcher: Option<Box<dyn crate::watcher::FileSystemWatcher>>,
+    pub remote_watcher: Option<Box<dyn crate::watcher::FileSystemWatcher>>,
     pub task_manager: crate::tasks::TaskManager,
 }
 
@@ -133,6 +135,7 @@ impl AppState {
             show_task_manager: false,
             dir_history: ctx.dir_history,
             watcher: ctx.watcher,
+            remote_watcher: ctx.remote_watcher,
             input_polling_handle: None,
             needs_redraw: false,
             global: ctx.global,
@@ -199,7 +202,17 @@ impl AppState {
         // Reload both active tabs to show changes
         let _ = self.left.active_tab_mut().reload();
         let _ = self.right.active_tab_mut().reload();
-        self.needs_redraw = true;
+    }
+
+    pub fn reload_remote(&mut self) {
+        let handle_remote = |tab: &mut Tab| {
+            if !tab.provider.is_local() {
+                let _ = tab.reload();
+            }
+        };
+
+        handle_remote(self.left.active_tab_mut());
+        handle_remote(self.right.active_tab_mut());
     }
 
     pub fn spawn_empty_trash_task(&mut self) {
@@ -804,6 +817,7 @@ mod tests {
             show_task_manager: false,
             dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
             watcher: None,
+            remote_watcher: None,
             input_polling_handle: None,
             needs_redraw: false,
             global: crate::config::GlobalConfig::default(),

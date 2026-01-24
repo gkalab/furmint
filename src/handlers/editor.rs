@@ -100,7 +100,7 @@ async fn edit_file_remote(
         }
         let panel_current_dir = active_panel_dir.clone();
         if let Some(watcher) = &mut app.watcher {
-            let paths = watcher.watched_paths.clone();
+            let paths = watcher.watched_paths();
             for path in &paths {
                 let _ = watcher.unwatch(path);
             }
@@ -318,7 +318,7 @@ pub async fn open_file_in_editor_with_env_handling(
         panel.current_dir.clone()
     };
     if let Some(watcher) = &mut app.watcher {
-        let paths = watcher.watched_paths.clone();
+        let paths = watcher.watched_paths();
         for path in &paths {
             let _ = watcher.unwatch(path);
         }
@@ -471,6 +471,7 @@ mod tests {
             show_task_manager: false,
             dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
             watcher: None,
+            remote_watcher: None,
             input_polling_handle: None,
             needs_redraw: false,
             global: crate::config::GlobalConfig::default(),
@@ -652,6 +653,7 @@ mod tests {
             show_task_manager: false,
             dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
             watcher: None,
+            remote_watcher: None,
             input_polling_handle: None,
             needs_redraw: false,
             global: crate::config::GlobalConfig::default(),

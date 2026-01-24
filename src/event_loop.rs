@@ -136,6 +136,13 @@ pub async fn run_event_loop(
                                 app.task_manager.cleanup_tasks();
                                 // Reset search if timeout has expired
                                 reset_expired_search(app);
+                                // Poll watchers
+                                if let Some(w) = &mut app.watcher {
+                                    let _ = w.poll();
+                                }
+                                if let Some(w) = &mut app.remote_watcher {
+                                    let _ = w.poll();
+                                }
                                 draw_ui(terminal, app, palette, &keyboard)?;
                             }
                             else => break,
@@ -159,27 +166,16 @@ fn handle_watcher_event(event: crate::watcher::WatcherEvent, app: &mut AppState)
 
                 if !current_exists {
                     // Directory removed, try to go up
-                    // We don't check for errors here, just try
                     let _ = tab.go_up();
                 }
 
                 // Check if we need to reload
-                // 1. If we just went up, we likely loaded new content, but check logic below
-                // 2. If current dir is in paths (it changed itself)
-                // 3. If any path's parent is current dir (content of dir changed)
                 let needs_reload = paths
                     .iter()
                     .any(|p| p == &tab.current_dir || p.parent() == Some(&tab.current_dir));
 
                 if needs_reload {
-                    // Refresh entries
-                    // Note: if we just went up, entries are fresh, but reloading again is safe
-                    // We try to preserve cursor if possible by matching name?
-                    // But standard behavior is reload.
-                    // If we want to preserve cursor position on simple content change (like file size update):
-                    // Tab::navigate_to calls list_dir which resets cursor unless in history.
-                    // But here we are staying in same dir usually.
-
+                    // Try to preserve cursor position
                     let old_cursor_name = tab.current_entry().map(|e| e.name.clone());
                     let selected_names: std::collections::HashSet<String> = tab
                         .entries
@@ -222,11 +218,10 @@ fn handle_watcher_event(event: crate::watcher::WatcherEvent, app: &mut AppState)
                 handle_tab(tab);
             }
         }
-        crate::watcher::WatcherEvent::Error(_err) => {
-            // Log error to active tab error field?
-            // app.left.active_tab_mut().error = Some(format!("Watcher: {}", err));
-            // Don't disturb user too much
+        crate::watcher::WatcherEvent::RemoteReloadRequested => {
+            app.reload_remote();
         }
+        crate::watcher::WatcherEvent::Error(_) => {}
     }
 }
 
@@ -1072,6 +1067,7 @@ mod tests {
             show_task_manager: false,
             dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
             watcher: None,
+            remote_watcher: None,
             input_polling_handle: None,
             needs_redraw: false,
             global: crate::config::GlobalConfig::default(),
@@ -1155,6 +1151,7 @@ mod tests {
             show_task_manager: false,
             dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
             watcher: None,
+            remote_watcher: None,
             input_polling_handle: None,
             needs_redraw: false,
             global: crate::config::GlobalConfig::default(),
@@ -1258,6 +1255,7 @@ mod tests {
             show_task_manager: false,
             dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
             watcher: None,
+            remote_watcher: None,
             input_polling_handle: None,
             needs_redraw: false,
             global: crate::config::GlobalConfig::default(),
@@ -1349,6 +1347,7 @@ mod tests {
             show_task_manager: false,
             dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
             watcher: None,
+            remote_watcher: None,
             input_polling_handle: None,
             needs_redraw: false,
             global: crate::config::GlobalConfig::default(),

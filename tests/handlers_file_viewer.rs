@@ -34,6 +34,7 @@ fn test_app(file_lines: usize) -> AppState {
         viewer_cfg: fm::config::ViewerConfig::default(),
         ssh_history: SshConnectionHistory::new().unwrap(),
         clipboard: Box::new(InMemoryFileClipboard::new()),
+        remote_watcher: None,
     };
     // Populate content lines
     app.file_viewer.content = vec!["line".to_string(); file_lines];

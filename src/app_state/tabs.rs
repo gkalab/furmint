@@ -196,8 +196,11 @@ impl Tab {
         Ok(())
     }
 
-    pub fn reload(&mut self) -> anyhow::Result<()> {
+    pub fn reload(&mut self) -> anyhow::Result<bool> {
         let entries = self.provider.list_dir(&self.current_dir)?;
+        if entries == self.entries {
+            return Ok(false);
+        }
         self.entries = entries;
         self.search_highlights.clear();
         self.sort_entries();
@@ -205,7 +208,7 @@ impl Tab {
         if self.cursor >= self.entries.len() {
             self.cursor = self.entries.len().saturating_sub(1);
         }
-        Ok(())
+        Ok(true)
     }
 
     pub fn reload_and_focus(&mut self, name: &str) -> anyhow::Result<()> {

@@ -84,7 +84,7 @@ pub async fn empty_trash() -> std::result::Result<usize, String> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileEntry {
     pub name: String,
     pub is_dir: bool,

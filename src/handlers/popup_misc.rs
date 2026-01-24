@@ -19,12 +19,19 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
         crate::tasks::TaskEvent::UpdateStatus(id, status) => {
             app.task_manager.update_task_status(id, status.clone());
             if let crate::tasks::TaskStatus::Completed = status {
-                app.refresh_active_tabs();
+                // If we have a watcher, it should handle local refreshes.
+                // We mainly need to ensure remote tabs are refreshed.
+                if app.watcher.is_none() {
+                    app.refresh_active_tabs();
+                } else {
+                    app.reload_remote();
+                }
             }
         }
         crate::tasks::TaskEvent::UpdateProgress(id, p, t) => {
             app.task_manager.update_task_progress(id, p, t);
-            // Refresh UI periodically during progress updates
+            // Refresh remote UI periodically during progress updates to show new files
+            // Local UI is handled by AppWatcher
             static LAST_REFRESH: std::sync::atomic::AtomicU64 =
                 std::sync::atomic::AtomicU64::new(0);
             let now = std::time::SystemTime::now()
@@ -32,8 +39,8 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
                 .unwrap_or_default()
                 .as_millis() as u64;
             let last = LAST_REFRESH.load(std::sync::atomic::Ordering::Relaxed);
-            if now - last > 500 {
-                app.refresh_active_tabs();
+            if now - last > 2000 {
+                app.reload_remote();
                 LAST_REFRESH.store(now, std::sync::atomic::Ordering::Relaxed);
             }
         }

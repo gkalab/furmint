@@ -37,6 +37,7 @@ fn app_with_conflict(task_id: usize) -> (AppState, mpsc::Receiver<TaskDecision>)
         viewer_cfg: fm::config::ViewerConfig::default(),
         ssh_history: SshConnectionHistory::new().unwrap(),
         clipboard: Box::new(InMemoryFileClipboard::new()),
+        remote_watcher: None,
         ssh_manager: std::sync::Arc::new(SshManager::default()),
     };
 

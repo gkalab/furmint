@@ -8,6 +8,15 @@ use tokio::sync::mpsc::UnboundedSender;
 pub enum WatcherEvent {
     FileSystemChange(Vec<PathBuf>),
     Error(String),
+    RemoteReloadRequested,
+}
+
+pub trait FileSystemWatcher {
+    fn update_watched_paths(&mut self, paths: &[PathBuf]) -> anyhow::Result<()>;
+    fn poll(&mut self) -> anyhow::Result<()>;
+    fn watch(&mut self, path: &Path) -> anyhow::Result<()>;
+    fn unwatch(&mut self, path: &Path) -> anyhow::Result<()>;
+    fn watched_paths(&self) -> Vec<PathBuf>;
 }
 
 pub struct AppWatcher {
@@ -88,6 +97,68 @@ impl AppWatcher {
             }
         }
         Ok(())
+    }
+}
+
+impl FileSystemWatcher for AppWatcher {
+    fn update_watched_paths(&mut self, paths: &[PathBuf]) -> anyhow::Result<()> {
+        self.update_watched_paths(paths)
+    }
+
+    fn poll(&mut self) -> anyhow::Result<()> {
+        Ok(()) // Local watcher is event-driven
+    }
+
+    fn watch(&mut self, path: &Path) -> anyhow::Result<()> {
+        self.watch(path)
+    }
+
+    fn unwatch(&mut self, path: &Path) -> anyhow::Result<()> {
+        self.unwatch(path)
+    }
+
+    fn watched_paths(&self) -> Vec<PathBuf> {
+        self.watched_paths.clone()
+    }
+}
+
+pub struct RemoteWatcher {
+    tx: UnboundedSender<WatcherEvent>,
+    last_poll: std::time::Instant,
+}
+
+impl RemoteWatcher {
+    pub fn new(tx: UnboundedSender<WatcherEvent>) -> Self {
+        Self {
+            tx,
+            last_poll: std::time::Instant::now(),
+        }
+    }
+}
+
+impl FileSystemWatcher for RemoteWatcher {
+    fn update_watched_paths(&mut self, _paths: &[PathBuf]) -> anyhow::Result<()> {
+        Ok(()) // Polling logic handles path changes implicitly via active tabs
+    }
+
+    fn poll(&mut self) -> anyhow::Result<()> {
+        if self.last_poll.elapsed() >= Duration::from_secs(5) {
+            let _ = self.tx.send(WatcherEvent::RemoteReloadRequested);
+            self.last_poll = std::time::Instant::now();
+        }
+        Ok(())
+    }
+
+    fn watch(&mut self, _path: &Path) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn unwatch(&mut self, _path: &Path) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn watched_paths(&self) -> Vec<PathBuf> {
+        Vec::new()
     }
 }
 

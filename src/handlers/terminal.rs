@@ -228,7 +228,7 @@ pub async fn handle_toggle_console(
         panel.current_dir.clone()
     };
     if let Some(watcher) = &mut app.watcher {
-        let paths = watcher.watched_paths.clone();
+        let paths = watcher.watched_paths();
         for path in &paths {
             let _ = watcher.unwatch(path);
         }

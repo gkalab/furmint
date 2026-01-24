@@ -48,6 +48,7 @@ fn test_app_with_entry(name: &str, is_dir: bool, path: &std::path::Path) -> AppS
         viewer_cfg: fm::config::ViewerConfig::default(),
         ssh_history: SshConnectionHistory::new().unwrap(),
         clipboard: Box::new(InMemoryFileClipboard::new()),
+        remote_watcher: None,
     }
 }
 
