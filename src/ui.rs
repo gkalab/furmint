@@ -600,51 +600,24 @@ pub fn draw_panel_status(
                 _,
             )) = active_task
             {
-                let mut progress_spans = Vec::new();
-                let yellow = Color::Rgb(palette.yellow.r, palette.yellow.g, palette.yellow.b);
+                // Calculate available width for progress info
+                // We need to leave room for the status message on the right
+                let status_width = status.chars().count() as u16;
+                let spacing = 2; // Extra space between progress and status
+                let available_progress_width =
+                    status_area.width.saturating_sub(status_width + spacing);
 
-                // Item Progress
-                if let Some((p, t)) = progress
-                    && *t > 0
-                {
-                    let percent = (*p as f32 / *t as f32 * 100.0) as usize;
-                    let left = t.saturating_sub(*p);
-                    progress_spans.push(Span::styled(
-                        format!("{}% ({} left) ", percent, left),
-                        Style::default().fg(yellow),
-                    ));
-                }
-
-                // Task Name/File info
-                if let Some(file) = current_file {
-                    let text_fg = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
-                    if !progress_spans.is_empty() {
-                        progress_spans.push(Span::styled("| ", Style::default().fg(text_fg)));
-                    }
-                    progress_spans.push(Span::styled(
-                        format!("{} ", file),
-                        Style::default().fg(text_fg),
-                    ));
-                }
-
-                // Byte Progress
-                if let Some((p_bytes, t_bytes)) = byte_progress
-                    && *t_bytes > 0
-                {
-                    let percent = (*p_bytes as f32 / *t_bytes as f32 * 100.0) as usize;
-                    progress_spans.push(Span::styled(
-                        format!(
-                            "[{}% of {}] ",
-                            percent,
-                            crate::fs_ops::format_size(Some(*t_bytes), false, false).trim()
-                        ),
-                        Style::default().fg(yellow),
-                    ));
-                }
+                let progress_spans = get_task_progress_spans(
+                    progress.as_ref().copied(),
+                    byte_progress.as_ref().copied(),
+                    current_file.as_deref(),
+                    available_progress_width as usize,
+                    palette,
+                );
 
                 let text_width = progress_spans
                     .iter()
-                    .map(|s| s.content.len())
+                    .map(|s| s.content.chars().count())
                     .sum::<usize>() as u16;
 
                 let chunks = Layout::default()
@@ -672,6 +645,72 @@ pub fn draw_panel_status(
             }
         }
     }
+}
+
+fn get_task_progress_spans(
+    progress: Option<(usize, usize)>,
+    byte_progress: Option<(u64, u64)>,
+    current_file: Option<&str>,
+    max_width: usize,
+    palette: &ThemePalette,
+) -> Vec<Span<'static>> {
+    let mut progress_spans = Vec::new();
+    let yellow = Color::Rgb(palette.yellow.r, palette.yellow.g, palette.yellow.b);
+
+    let mut item_progress_str = String::new();
+    if let Some((p, t)) = progress
+        && t > 0
+    {
+        let percent = (p as f32 / t as f32 * 100.0) as usize;
+        let left = t.saturating_sub(p);
+        item_progress_str = format!("{}% ({} left) ", percent, left);
+    }
+
+    let mut byte_progress_str = String::new();
+    if let Some((p_bytes, t_bytes)) = byte_progress
+        && t_bytes > 0
+    {
+        let percent = (p_bytes as f32 / t_bytes as f32 * 100.0) as usize;
+        byte_progress_str = format!(
+            "[{}% of {}] ",
+            percent,
+            crate::fs_ops::format_size(Some(t_bytes), false, false).trim()
+        );
+    }
+
+    let mut used_width = item_progress_str.chars().count() + byte_progress_str.chars().count();
+    let mut separator = "";
+    if !item_progress_str.is_empty() && current_file.is_some() {
+        separator = "| ";
+        used_width += separator.chars().count();
+    }
+
+    if !item_progress_str.is_empty() {
+        progress_spans.push(Span::styled(item_progress_str, Style::default().fg(yellow)));
+    }
+
+    if let Some(file) = current_file {
+        let text_fg = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
+        if !separator.is_empty() {
+            progress_spans.push(Span::styled(separator, Style::default().fg(text_fg)));
+        }
+
+        let available_for_file = max_width.saturating_sub(used_width);
+        // Filename should take at least some space if possible, or be empty if no room at all
+        if available_for_file > 0 {
+            let truncated_file = format!(
+                "{} ",
+                truncate_middle_with_ellipsis(file, available_for_file.saturating_sub(1))
+            );
+            progress_spans.push(Span::styled(truncated_file, Style::default().fg(text_fg)));
+        }
+    }
+
+    if !byte_progress_str.is_empty() {
+        progress_spans.push(Span::styled(byte_progress_str, Style::default().fg(yellow)));
+    }
+
+    progress_spans
 }
 
 pub fn draw_file_viewer(
@@ -935,5 +974,57 @@ mod tests {
                 "Overflow detected for '{description}'! Width: {total_width}, Max: {max_width}. Result: '{resulting_text}'"
             );
         }
+    }
+
+    #[test]
+    fn test_task_progress_truncation() {
+        let palette = crate::theme::catppuccin_macchiato();
+
+        // Case 1: No truncation needed
+        // Progress strings: "50% (5 left) " (13) + "| " (2) + "[50% of 1000 B] " (~16) = ~31 overhead
+        // "file.txt " = 9 chars. Total needed ~40.
+        let max_width = 60;
+        let spans = get_task_progress_spans(
+            Some((5, 10)),
+            Some((500, 1000)),
+            Some("file.txt"),
+            max_width,
+            &palette,
+        );
+        let total_width: usize = spans.iter().map(|s| s.content.chars().count()).sum();
+        assert!(total_width <= max_width);
+        assert!(spans.iter().any(|s| s.content.contains("file.txt")));
+
+        // Case 2: Truncation needed for long filename
+        // Overhead ~31. Max width 45. Available ~14.
+        // File "very...txt" > 14. Should truncate.
+        let case2_width = 45;
+        let long_file = "very_long_filename_that_definitely_needs_truncation.txt";
+        let spans = get_task_progress_spans(
+            Some((5, 10)),
+            Some((500, 1000)),
+            Some(long_file),
+            case2_width,
+            &palette,
+        );
+        let total_width: usize = spans.iter().map(|s| s.content.chars().count()).sum();
+        assert!(total_width <= case2_width);
+        // The filename should be truncated
+        assert!(spans.iter().any(|s| s.content.contains("…")));
+
+        // Case 3: Very narrow width
+        // Max width 10. Overhead ~31. File should be dropped.
+        // Total width will exceed max_width because progress bars are not truncated,
+        // but we verify file is dropped.
+        let narrow_width = 10;
+        let spans = get_task_progress_spans(
+            Some((5, 10)),
+            Some((500, 1000)),
+            Some("short.txt"),
+            narrow_width,
+            &palette,
+        );
+        // We expect the file to be absent
+        assert!(!spans.iter().any(|s| s.content.contains("short.txt")));
     }
 }

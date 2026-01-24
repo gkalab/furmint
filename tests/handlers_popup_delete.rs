@@ -4,7 +4,6 @@ use fm::app::{AppState, PanelSide};
 use fm::clipboard::InMemoryFileClipboard;
 use fm::fs_ops::FileEntry;
 use fm::handlers::popup_delete::{handle_delete_event, handle_init_delete};
-use fm::ssh_history::SshConnectionHistory;
 use fm::ssh_manager::SshManager;
 use fm::state::FileViewerState;
 use fm::tasks::TaskEvent;
