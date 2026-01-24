@@ -2,7 +2,7 @@ use crate::app::AppState;
 use crate::state::ssh::SshField;
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
-use ratatui::symbols::border::Set;
+
 use ratatui::widgets::*;
 
 pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemePalette) {
@@ -43,16 +43,7 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemeP
 
     let active_field = app.popups.ssh_connection.active_field;
 
-    let custom_border = Set {
-        top_left: "▎",
-        top_right: " ",
-        bottom_left: "▎",
-        bottom_right: " ",
-        vertical_left: "▎",
-        vertical_right: " ",
-        horizontal_top: " ",
-        horizontal_bottom: " ",
-    };
+    let custom_border = crate::ui_utils::field_border_set();
 
     let block_empty = symbols::border::EMPTY;
 
@@ -256,16 +247,7 @@ pub fn draw_ssh_password_popup(f: &mut Frame, app: &AppState, palette: &ThemePal
         .constraints([Constraint::Length(3)])
         .split(popup_area);
 
-    let custom_border = Set {
-        top_left: "▎",
-        top_right: " ",
-        bottom_left: "▎",
-        bottom_right: " ",
-        vertical_left: "▎",
-        vertical_right: " ",
-        horizontal_top: " ",
-        horizontal_bottom: " ",
-    };
+    let custom_border = crate::ui_utils::field_border_set();
 
     let input_width = (chunks[0].width as usize).saturating_sub(4);
     let password_mask: String = "•".repeat(app.popups.ssh_password.password.len());

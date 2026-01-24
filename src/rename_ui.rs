@@ -1,7 +1,7 @@
 use crate::app::RenameState;
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
-use ratatui::symbols::border::Set;
+
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &RenameState, palette: &ThemePalette) {
@@ -38,16 +38,7 @@ pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &RenameState, palette: &
     };
 
     if state.show_overwrite_confirm {
-        let message_border = Set {
-            top_left: "━",
-            top_right: "━",
-            bottom_left: " ",
-            bottom_right: " ",
-            vertical_left: " ",
-            vertical_right: " ",
-            horizontal_top: "━",
-            horizontal_bottom: " ",
-        };
+        let message_border = crate::ui_utils::message_border_set();
         let message_border_color = Color::Rgb(palette.red.r, palette.red.g, palette.red.b);
         f.render_widget(
             Block::default()

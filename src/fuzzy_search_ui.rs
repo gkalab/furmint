@@ -143,7 +143,7 @@ pub fn draw_fuzzy_search_popup(
     // Draw input box
     let input_block = Block::default()
         .borders(Borders::ALL)
-        .border_set(crate::ui_utils::custom_border_set())
+        .border_set(crate::ui_utils::field_border_set())
         .border_style(Style::default().fg(border_color).bg(field_bg_color))
         .style(Style::default().bg(field_bg_color));
 

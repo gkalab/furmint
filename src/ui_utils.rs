@@ -175,7 +175,7 @@ pub fn centered_rect_absolute(width: u16, height: u16, r: Rect) -> Rect {
     }
 }
 
-pub fn custom_border_set() -> ratatui::symbols::border::Set<'static> {
+pub fn field_border_set() -> ratatui::symbols::border::Set<'static> {
     ratatui::symbols::border::Set {
         top_left: "▎",
         top_right: " ",
@@ -184,6 +184,19 @@ pub fn custom_border_set() -> ratatui::symbols::border::Set<'static> {
         vertical_left: "▎",
         vertical_right: " ",
         horizontal_top: " ",
+        horizontal_bottom: " ",
+    }
+}
+
+pub fn message_border_set() -> ratatui::symbols::border::Set<'static> {
+    ratatui::symbols::border::Set {
+        top_left: "━",
+        top_right: "━",
+        bottom_left: " ",
+        bottom_right: " ",
+        vertical_left: " ",
+        vertical_right: " ",
+        horizontal_top: "━",
         horizontal_bottom: " ",
     }
 }
@@ -248,7 +261,7 @@ pub fn draw_input_popup(
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border_color).bg(field_bg_color))
-        .border_set(custom_border_set())
+        .border_set(field_border_set())
         .style(Style::default().bg(field_bg_color));
 
     f.render_widget(&block, chunks[0]);
