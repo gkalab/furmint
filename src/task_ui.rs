@@ -118,10 +118,10 @@ pub fn draw_task_manager(
                 let percentage = (ratio * 100.0) as usize;
 
                 // Format sizes
-                let processed_str = crate::fs_ops::format_size(Some(processed), false, false)
+                let processed_str = crate::fs::utils::format_size(Some(processed), false, false)
                     .trim()
                     .to_string();
-                let total_str = crate::fs_ops::format_size(Some(total), false, false)
+                let total_str = crate::fs::utils::format_size(Some(total), false, false)
                     .trim()
                     .to_string();
 

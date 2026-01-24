@@ -5,32 +5,20 @@
 
 use crate::app::{AppState, PanelSide};
 use crate::config::KeyboardConfig;
-use crate::handlers::editor::handle_edit;
 use crate::handlers::file_viewer::handle_file_viewer_event;
-use crate::handlers::navigation::{
-    handle_directory_up, handle_down, handle_down_search, handle_end, handle_enter_directory,
-    handle_history_next, handle_history_previous, handle_home, handle_open_item, handle_page_down,
-    handle_page_up, handle_sort, handle_tab, handle_toggle_selection, handle_type_char, handle_up,
-    handle_up_search, reset_expired_search, reset_search, update_viewer_content,
-};
+use crate::handlers::navigation::{reset_expired_search, update_viewer_content};
 use crate::handlers::popup_conflict::handle_conflict_event;
-use crate::handlers::popup_copy_move::{
-    handle_copy_move_event, handle_init_copy, handle_init_move,
-};
-use crate::handlers::popup_create::{
-    handle_create_directory_event, handle_create_file_event, handle_init_create_directory,
-    handle_init_create_file,
-};
-use crate::handlers::popup_delete::{handle_delete_event, handle_init_delete};
+use crate::handlers::popup_copy_move::handle_copy_move_event;
+use crate::handlers::popup_create::{handle_create_directory_event, handle_create_file_event};
+use crate::handlers::popup_delete::handle_delete_event;
 use crate::handlers::popup_error::handle_error_event;
 use crate::handlers::popup_fuzzy::handle_fuzzy_search_event;
 use crate::handlers::popup_misc::{
     handle_quit_popup_event, handle_task_event, handle_task_manager_event,
 };
-use crate::handlers::popup_rename::{handle_init_rename, handle_rename_event};
+use crate::handlers::popup_rename::handle_rename_event;
 use crate::handlers::popup_ssh::{handle_ssh_connection_event, handle_ssh_password_event};
-use crate::handlers::tabs::{handle_close_tab, handle_new_tab, handle_next_tab, handle_prev_tab};
-use crate::handlers::terminal::{handle_open_terminal, handle_toggle_console};
+use crate::handlers::terminal::handle_toggle_console;
 use crate::theme::ThemePalette;
 use crate::ui::{draw_panel, draw_panel_status};
 
@@ -594,355 +582,7 @@ async fn handle_main_panel_event(
     keyboard: &KeyboardConfig,
     input_tx: tokio::sync::mpsc::UnboundedSender<crossterm::event::Event>,
 ) -> bool {
-    let shortcut = keyevent_to_string(code, modifiers);
-
-    // Empty Trash
-    if let Some(keys) = &keyboard.empty_trash
-        && keys.contains(&shortcut)
-    {
-        app.popups.empty_trash.is_visible = true;
-        return false;
-    }
-
-    // Clear error on any interaction in the main panel
-    {
-        let tab_manager = match app.active {
-            PanelSide::Left => &mut app.left,
-            PanelSide::Right => &mut app.right,
-        };
-        tab_manager.active_tab_mut().error = None;
-    }
-
-    // Tab management shortcuts
-    // New tab
-    if let Some(keys) = &keyboard.new_tab
-        && keys.contains(&shortcut)
-    {
-        handle_new_tab(app);
-        return false;
-    }
-    // Next tab
-    if let Some(keys) = &keyboard.tab_next
-        && keys.contains(&shortcut)
-    {
-        handle_next_tab(app);
-        return false;
-    }
-    // Previous tab
-    if let Some(keys) = &keyboard.tab_prev
-        && keys.contains(&shortcut)
-    {
-        handle_prev_tab(app);
-        return false;
-    }
-    // Close tab
-    if let Some(keys) = &keyboard.tab_close
-        && keys.contains(&shortcut)
-    {
-        handle_close_tab(app);
-        return false;
-    }
-
-    // Clipboard handlers
-    if code == KeyCode::Char('c') && modifiers.contains(KeyModifiers::CONTROL) {
-        crate::handlers::popup_copy_move::handle_clipboard_copy(app);
-        return false;
-    }
-    if code == KeyCode::Char('x') && modifiers.contains(KeyModifiers::CONTROL) {
-        crate::handlers::popup_copy_move::handle_clipboard_cut(app);
-        return false;
-    }
-    if code == KeyCode::Char('v') && modifiers.contains(KeyModifiers::CONTROL) {
-        crate::handlers::popup_copy_move::handle_paste(app);
-        return false;
-    }
-
-    // Previous directory from history
-    if let Some(keys) = &keyboard.back
-        && keys.contains(&shortcut)
-    {
-        handle_history_previous(app);
-        return false;
-    }
-    // Next directory from history
-    if let Some(keys) = &keyboard.forward
-        && keys.contains(&shortcut)
-    {
-        handle_history_next(app);
-        return false;
-    }
-    // Enter directory
-    if let Some(keys) = &keyboard.enter_dir
-        && keys.contains(&shortcut)
-    {
-        handle_enter_directory(app);
-        return false;
-    }
-    // Directory up
-    if let Some(keys) = &keyboard.up_dir
-        && keys.contains(&shortcut)
-    {
-        handle_directory_up(app);
-        return false;
-    }
-    // Edit
-    if let Some(keys) = &keyboard.edit_file
-        && keys.contains(&shortcut)
-    {
-        // Await edit action, pass input_tx
-        handle_edit(app, input_tx.clone()).await;
-        return false;
-    }
-    // Fuzzy search
-    if let Some(keys) = &keyboard.search
-        && keys.contains(&shortcut)
-    {
-        app.fuzzy_search.is_visible = true;
-        app.fuzzy_search.reset();
-        // Initialize with all directories sorted by score
-        let context_key = app.active_tab().provider.context_key();
-        let results = app.dir_history.fuzzy_search(&context_key, "");
-        app.fuzzy_search.filtered_dirs = results.into_iter().map(|(p, _)| p).collect();
-        app.fuzzy_search.selected_index = 0;
-        return false;
-    }
-
-    // Rename
-    if let Some(keys) = &keyboard.rename
-        && keys.contains(&shortcut)
-    {
-        handle_init_rename(app);
-        return false;
-    }
-
-    // Create File
-    if let Some(keys) = &keyboard.new_file
-        && keys.contains(&shortcut)
-    {
-        handle_init_create_file(app);
-        return false;
-    }
-
-    // Create Directory
-    if let Some(keys) = &keyboard.new_dir
-        && keys.contains(&shortcut)
-    {
-        handle_init_create_directory(app);
-        return false;
-    }
-
-    // Delete
-    if let Some(keys) = &keyboard.delete
-        && keys.contains(&shortcut)
-    {
-        handle_init_delete(app, false);
-        return false;
-    }
-    // Delete Permanently
-    if let Some(keys) = &keyboard.delete_force
-        && keys.contains(&shortcut)
-    {
-        handle_init_delete(app, true);
-        return false;
-    }
-
-    // Copy
-    if let Some(keys) = &keyboard.copy_to
-        && keys.contains(&shortcut)
-    {
-        handle_init_copy(app);
-        return false;
-    }
-
-    // Move
-    if let Some(keys) = &keyboard.move_to
-        && keys.contains(&shortcut)
-    {
-        handle_init_move(app);
-        return false;
-    }
-    // Task Manager
-    if let Some(keys) = &keyboard.tasks
-        && keys.contains(&shortcut)
-    {
-        app.show_task_manager = !app.show_task_manager;
-        return false;
-    }
-
-    // Help
-    if let Some(keys) = &keyboard.help
-        && keys.contains(&shortcut)
-    {
-        app.popups.help.is_visible = true;
-        return false;
-    }
-
-    // Swap Tabs
-    if let Some(keys) = &keyboard.swap_tabs
-        && keys.contains(&shortcut)
-    {
-        match app.can_swap_active_tabs() {
-            Ok(_) => app.swap_active_tabs(),
-            Err(e) => app.active_tab_mut().error = Some(e),
-        }
-        return false;
-    }
-
-    // Open SSH Connection
-    if let Some(keys) = &keyboard.open_ssh
-        && keys.contains(&shortcut)
-    {
-        crate::handlers::popup_ssh::handle_ssh_connection_init(app);
-        return false;
-    }
-
-    // Reconnect SSH
-    if let Some(keys) = &keyboard.reconnect_ssh
-        && keys.contains(&shortcut)
-    {
-        crate::handlers::popup_ssh::handle_reconnect_ssh(app);
-        return false;
-    }
-
-    // Open Terminal
-    if let Some(keys) = &keyboard.open_terminal
-        && keys.contains(&shortcut)
-    {
-        handle_open_terminal(app);
-        return false;
-    }
-
-    // Drive Selection Left (Windows only)
-    if let Some(keys) = &keyboard.change_drive_left
-        && keys.contains(&shortcut)
-    {
-        let drives = crate::drive_select_ui::get_available_drives();
-        if !drives.is_empty() {
-            app.popups.drive_select.is_visible = true;
-            app.popups.drive_select.drives = drives;
-            app.popups.drive_select.side = crate::app::PanelSide::Left;
-            app.popups.drive_select.selected_index = 0;
-        }
-        return false;
-    }
-
-    // Drive Selection Right (Windows only)
-    if let Some(keys) = &keyboard.change_drive_right
-        && keys.contains(&shortcut)
-    {
-        let drives = crate::drive_select_ui::get_available_drives();
-        if !drives.is_empty() {
-            app.popups.drive_select.is_visible = true;
-            app.popups.drive_select.drives = drives;
-            app.popups.drive_select.side = crate::app::PanelSide::Right;
-            app.popups.drive_select.selected_index = 0;
-        }
-        return false;
-    }
-
-    // Sorting shortcuts
-    if let Some(keys) = &keyboard.sort_name
-        && keys.contains(&shortcut)
-    {
-        handle_sort(app, crate::app::SortColumn::Name);
-        return false;
-    }
-    if let Some(keys) = &keyboard.sort_ext
-        && keys.contains(&shortcut)
-    {
-        handle_sort(app, crate::app::SortColumn::Extension);
-        return false;
-    }
-    if let Some(keys) = &keyboard.sort_date
-        && keys.contains(&shortcut)
-    {
-        handle_sort(app, crate::app::SortColumn::Date);
-        return false;
-    }
-    if let Some(keys) = &keyboard.sort_size
-        && keys.contains(&shortcut)
-    {
-        handle_sort(app, crate::app::SortColumn::Size);
-        return false;
-    }
-    // Select All shortcut
-    if let Some(keys) = &keyboard.select_all
-        && keys.contains(&shortcut)
-    {
-        let tab_manager = match app.active {
-            crate::app::PanelSide::Left => &mut app.left,
-            crate::app::PanelSide::Right => &mut app.right,
-        };
-        tab_manager.active_tab_mut().select_all();
-        return false;
-    }
-
-    if let (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) = (code, modifiers) {
-        handle_type_char(app, c);
-    } else {
-        let tab_manager = match app.active {
-            PanelSide::Left => &mut app.left,
-            PanelSide::Right => &mut app.right,
-        };
-        let panel = tab_manager.active_tab_mut();
-        // Check if search is active (within 1 second timeout)
-        let search_active = !panel.typed_buffer.is_empty()
-            && panel.last_type_time.is_some_and(|t| {
-                std::time::Instant::now().duration_since(t) <= std::time::Duration::from_secs(1)
-            });
-        match (code, modifiers) {
-            (KeyCode::Tab, KeyModifiers::NONE) => handle_tab(app),
-            (KeyCode::Up, _) => {
-                if search_active {
-                    handle_up_search(app);
-                } else {
-                    // Reset search if it was active but timed out
-                    if !panel.typed_buffer.is_empty() {
-                        reset_search(app);
-                    }
-                    handle_up(app);
-                }
-            }
-            (KeyCode::Down, _) => {
-                if search_active {
-                    handle_down_search(app);
-                } else {
-                    // Reset search if it was active but timed out
-                    if !panel.typed_buffer.is_empty() {
-                        reset_search(app);
-                    }
-                    handle_down(app);
-                }
-            }
-            (KeyCode::PageUp, _) => {
-                reset_search(app);
-                handle_page_up(app);
-            }
-            (KeyCode::PageDown, _) => {
-                reset_search(app);
-                handle_page_down(app);
-            }
-            (KeyCode::Home, _) => {
-                reset_search(app);
-                handle_home(app);
-            }
-            (KeyCode::End, _) => {
-                reset_search(app);
-                handle_end(app);
-            }
-            (KeyCode::Enter, _) => handle_open_item(app),
-            (KeyCode::Esc, _) => {
-                reset_search(app);
-            }
-            (KeyCode::Char(' '), KeyModifiers::NONE) => handle_toggle_selection(app),
-            (KeyCode::Insert, _) => {
-                handle_toggle_selection(app);
-                handle_down(app);
-            }
-            _ => {}
-        }
-    }
-    false
+    crate::handlers::input::handle_main_panel_event(code, modifiers, app, keyboard, input_tx).await
 }
 
 fn keyevent_to_string(code: KeyCode, modifiers: KeyModifiers) -> String {
@@ -1009,7 +649,7 @@ mod tests {
                 tabs: vec![crate::app::Tab {
                     provider: std::sync::Arc::new(crate::fs_local::LocalFs::new()),
                     current_dir: std::path::PathBuf::from("/mock"),
-                    entries: vec![crate::fs_ops::FileEntry {
+                    entries: vec![crate::fs::utils::FileEntry {
                         name: "testfile.txt".to_string(),
                         is_dir: false,
                         is_symlink: false,
@@ -1086,7 +726,7 @@ mod tests {
 
     #[test]
     fn test_handle_watcher_event_preserves_selection() {
-        use crate::fs_ops::FileEntry;
+        use crate::fs::utils::FileEntry;
         use crate::watcher::WatcherEvent;
         let mut app = crate::app::AppState {
             left: crate::app::TabManager {
@@ -1272,7 +912,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_insert_moves_cursor_down() {
-        use crate::fs_ops::FileEntry;
+        use crate::fs::utils::FileEntry;
         let mut app = crate::app::AppState {
             left: crate::app::TabManager {
                 tabs: vec![crate::app::Tab {

@@ -1,6 +1,3 @@
-// State module - contains popup and UI state structs
-// Extracted from app.rs for better organization
-
 mod conflict;
 mod copy_move;
 mod create_dir;

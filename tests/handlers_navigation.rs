@@ -2,8 +2,8 @@ use fm::app::{AppState, PanelSide, Tab, TabManager};
 use fm::clipboard::InMemoryFileClipboard;
 use fm::config::GlobalConfig;
 use fm::dir_history::DirectoryHistory;
+use fm::fs::utils::FileEntry;
 use fm::fs_local::LocalFs;
-use fm::fs_ops::FileEntry;
 use fm::handlers::navigation::{
     handle_directory_up, handle_down, handle_down_search, handle_end, handle_enter_directory,
     handle_history_next, handle_history_previous, handle_home, handle_open_item, handle_page_down,

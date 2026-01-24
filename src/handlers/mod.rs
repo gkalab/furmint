@@ -1,5 +1,3 @@
-//! Main event handler dispatcher and re-exports for categories
-
 pub mod navigation;
 
 pub mod tabs;
@@ -24,5 +22,5 @@ pub mod popup_ssh;
 pub mod clipboard_utils;
 pub mod editor;
 pub mod external;
-pub mod file_ops;
+pub mod input;
 pub mod terminal;

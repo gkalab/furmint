@@ -1,5 +1,5 @@
+use crate::fs::utils::FileEntry;
 use crate::fs_local::LocalFs;
-use crate::fs_ops::FileEntry;
 use crate::fs_provider::FileSystemProvider;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};

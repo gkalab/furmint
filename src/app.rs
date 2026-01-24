@@ -219,7 +219,7 @@ impl AppState {
         let name = "Emptying trash".to_string();
         self.task_manager
             .spawn_task(name, |_cancel, tx, id| async move {
-                let result = crate::fs_ops::empty_trash().await;
+                let result = crate::fs::utils::empty_trash().await;
                 match result {
                     Ok(_num) => {
                         let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
@@ -437,8 +437,8 @@ mod tests {
     }
     use super::*;
     use crate::app_state::tabs::{HistoryEntry, SortDirection};
+    use crate::fs::utils::FileEntry;
     use crate::fs_local::LocalFs;
-    use crate::fs_ops::FileEntry;
     use std::path::PathBuf;
     use std::sync::Arc;
 

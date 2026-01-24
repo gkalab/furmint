@@ -1,4 +1,4 @@
-use crate::fs_ops::FileEntry;
+use crate::fs::utils::FileEntry;
 use crate::fs_provider::FileSystemProvider;
 use anyhow::{Result, anyhow};
 use ssh2::{FileStat, Session};

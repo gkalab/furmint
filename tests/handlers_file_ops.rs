@@ -1,4 +1,4 @@
-use fm::handlers::file_ops::DecisionState;
+use fm::fs::ops::DecisionState;
 use std::time::{Duration, Instant};
 
 #[test]

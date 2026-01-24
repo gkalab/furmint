@@ -243,7 +243,7 @@ pub fn handle_open_item(app: &mut AppState) {
                     panel.current_dir.clone(),
                 )
             };
-            let is_exe = crate::fs_ops::is_executable(&full_path, &entry);
+            let is_exe = crate::fs::utils::is_executable(&full_path, &entry);
 
             if is_exe {
                 let configured_terminal = app.global.terminal.clone();

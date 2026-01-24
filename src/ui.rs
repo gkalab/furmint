@@ -1,6 +1,6 @@
 use crate::app::{Tab, TabManager};
 use crate::app_state::tabs::{SortColumn, SortDirection};
-use crate::fs_ops::{format_modified, format_size};
+use crate::fs::utils::{format_modified, format_size};
 use crate::theme::ThemePalette;
 use crate::ui_utils::truncate_middle_with_ellipsis;
 use ratatui::prelude::*;
@@ -226,7 +226,7 @@ pub fn draw_panel(
 
             let name_style = if e.is_dir {
                 Style::default().fg(Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b))
-            } else if crate::fs_ops::is_executable(&panel.current_dir.join(&e.name), e) {
+            } else if crate::fs::utils::is_executable(&panel.current_dir.join(&e.name), e) {
                 Style::default().fg(Color::Rgb(
                     palette.green.r,
                     palette.green.g,
@@ -674,7 +674,7 @@ fn get_task_progress_spans(
         byte_progress_str = format!(
             "[{}% of {}] ",
             percent,
-            crate::fs_ops::format_size(Some(t_bytes), false, false).trim()
+            crate::fs::utils::format_size(Some(t_bytes), false, false).trim()
         );
     }
 

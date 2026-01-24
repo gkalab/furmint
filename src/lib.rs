@@ -12,8 +12,9 @@ pub mod drive_select_ui;
 pub mod empty_trash_ui;
 pub mod error_ui;
 pub mod event_loop;
+pub mod fs;
 pub mod fs_local;
-pub mod fs_ops;
+// pub mod fs_ops; // Removed, now fs::ops
 pub mod fs_provider;
 pub mod fs_sftp;
 pub mod fuzzy_search_ui;

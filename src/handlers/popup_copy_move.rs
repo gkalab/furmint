@@ -396,18 +396,18 @@ pub fn spawn_copy_move_task(
     let id = app
         .task_manager
         .spawn_task(task_name, move |cancel, tx, id| async move {
-            let src_fs = crate::handlers::file_ops::ProviderFileSystem(src_provider);
-            let dest_fs = crate::handlers::file_ops::ProviderFileSystem(dest_provider);
+            let src_fs = crate::fs::provider::ProviderFileSystem(src_provider);
+            let dest_fs = crate::fs::provider::ProviderFileSystem(dest_provider);
             let dest_path = std::path::PathBuf::from(&dest_str);
             // Pre-calculation of total items using the source filesystem
             let (total_items, total_bytes) =
-                crate::handlers::file_ops::count_items_and_size(&src_fs, &paths).await;
+                crate::fs::ops::count_items_and_size(&src_fs, &paths).await;
             let processed_items = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
             let processed_bytes = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
 
             // State for "Apply to all" decisions
             // We use a struct to hold this state across recursions
-            let mut decision_state = crate::handlers::file_ops::DecisionState {
+            let mut decision_state = crate::fs::ops::DecisionState {
                 overwrite_all: false,
                 skip_all: false,
 
@@ -418,7 +418,7 @@ pub fn spawn_copy_move_task(
             let decision_rx = std::sync::Arc::new(tokio::sync::Mutex::new(decision_rx));
 
             // Ensure dest dir exists if multiple items or if treated as dir
-            use crate::handlers::file_ops::FileSystem;
+            use crate::fs::traits::FileSystem;
 
             // Re-evaluate if destination is a directory using the correct filesystem
             let dest_is_dir = dest_fs.is_dir(&dest_path).await.unwrap_or(false);
@@ -474,7 +474,7 @@ pub fn spawn_copy_move_task(
                 };
 
                 // Recursive copy/move
-                let ctx = crate::handlers::file_ops::RecursiveOpContext {
+                let ctx = crate::fs::ops::RecursiveOpContext {
                     src_fs: &src_fs,
                     dest_fs: &dest_fs,
                     src,
@@ -489,7 +489,7 @@ pub fn spawn_copy_move_task(
                     processed_bytes: &processed_bytes,
                     decision_rx: &decision_rx,
                 };
-                let res = crate::handlers::file_ops::recursive_op(ctx, &mut decision_state).await;
+                let res = crate::fs::ops::recursive_op(ctx, &mut decision_state).await;
 
                 if let Err(e) = res {
                     failures.push(e);

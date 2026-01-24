@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyModifiers};
 use fm::app::{AppState, PanelSide, Tab};
 use fm::clipboard::InMemoryFileClipboard;
-use fm::fs_ops::FileEntry;
+use fm::fs::utils::FileEntry;
 use fm::handlers::popup_rename::{handle_init_rename, handle_rename_event};
 use fm::ssh_history::SshConnectionHistory;
 use fm::ssh_manager::SshManager;

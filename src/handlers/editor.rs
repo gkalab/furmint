@@ -416,8 +416,8 @@ mod tests {
     use super::*;
     use crate::app::{AppState, PanelSide, Tab, TabManager};
     use crate::config::EditorConfig;
+    use crate::fs::utils::FileEntry;
     use crate::fs_local::LocalFs;
-    use crate::fs_ops::FileEntry;
     use std::sync::Arc;
     use tokio::sync::mpsc::unbounded_channel;
 
@@ -588,8 +588,8 @@ mod tests {
             if buffer.len() > limit {
                 return Ok(format!(
                     "File too large to display (size: {}, limit: {})",
-                    crate::fs_ops::format_size(Some(buffer.len() as u64), false, false),
-                    crate::fs_ops::format_size(Some(limit as u64), false, false)
+                    crate::fs::utils::format_size(Some(buffer.len() as u64), false, false),
+                    crate::fs::utils::format_size(Some(limit as u64), false, false)
                 ));
             }
             if buffer[..buffer.len().min(8192)].contains(&0) {

@@ -5,7 +5,7 @@
 //! - `SftpFs` - SSH/SFTP remote operations (future)
 //! - `ArchiveFs` - ZIP/TAR archive browsing (future)
 
-use crate::fs_ops::FileEntry;
+use crate::fs::utils::FileEntry;
 use anyhow::Result;
 use std::path::Path;
 
@@ -63,8 +63,8 @@ pub trait FileSystemProvider: Send + Sync {
         if buffer.len() > limit {
             return Ok(format!(
                 "File too large to display (size: {}, limit: {})",
-                crate::fs_ops::format_size(Some(buffer.len() as u64), false, false),
-                crate::fs_ops::format_size(Some(limit as u64), false, false)
+                crate::fs::utils::format_size(Some(buffer.len() as u64), false, false),
+                crate::fs::utils::format_size(Some(limit as u64), false, false)
             ));
         }
 
