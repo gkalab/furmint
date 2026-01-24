@@ -1,7 +1,7 @@
 //! Handlers for creating files and directories in popup
 
 use crate::app::AppState;
-use crate::handlers::clipboard_utils::{get_clipboard_content, insert_text_at_cursor_unicode};
+
 use crossterm::event::{KeyCode, KeyModifiers};
 
 pub fn handle_init_create_file(app: &mut AppState) {
@@ -52,83 +52,14 @@ pub fn handle_create_directory_event(
                 }
             }
         }
-        KeyCode::Backspace => {
-            if app.popups.create_directory.cursor_position > 0 {
-                let current_len = app.popups.create_directory.new_name.chars().count();
-                if app.popups.create_directory.cursor_position <= current_len {
-                    // Remove char at cursor_position - 1
-                    let byte_idx = app
-                        .popups
-                        .create_directory
-                        .new_name
-                        .char_indices()
-                        .nth(app.popups.create_directory.cursor_position - 1)
-                        .map(|(i, _)| i)
-                        .unwrap();
-                    app.popups.create_directory.new_name.remove(byte_idx);
-                    app.popups.create_directory.cursor_position -= 1;
-                }
-            }
+        _ => {
+            crate::handlers::input_utils::handle_text_input(
+                code,
+                modifiers,
+                &mut app.popups.create_directory.new_name,
+                &mut app.popups.create_directory.cursor_position,
+            );
         }
-        KeyCode::Delete => {
-            let current_len = app.popups.create_directory.new_name.chars().count();
-            if app.popups.create_directory.cursor_position < current_len {
-                let byte_idx = app
-                    .popups
-                    .create_directory
-                    .new_name
-                    .char_indices()
-                    .nth(app.popups.create_directory.cursor_position)
-                    .map(|(i, _)| i)
-                    .unwrap();
-                app.popups.create_directory.new_name.remove(byte_idx);
-            }
-        }
-        KeyCode::Left => {
-            if app.popups.create_directory.cursor_position > 0 {
-                app.popups.create_directory.cursor_position -= 1;
-            }
-        }
-        KeyCode::Right => {
-            let len = app.popups.create_directory.new_name.chars().count();
-            if app.popups.create_directory.cursor_position < len {
-                app.popups.create_directory.cursor_position += 1;
-            }
-        }
-        KeyCode::Home => {
-            app.popups.create_directory.cursor_position = 0;
-        }
-        KeyCode::End => {
-            app.popups.create_directory.cursor_position =
-                app.popups.create_directory.new_name.chars().count();
-        }
-        KeyCode::Char('v') if modifiers.contains(KeyModifiers::CONTROL) => {
-            if let Some(content) = get_clipboard_content() {
-                insert_text_at_cursor_unicode(
-                    &mut app.popups.create_directory.new_name,
-                    &mut app.popups.create_directory.cursor_position,
-                    &content,
-                );
-            }
-        }
-        KeyCode::Char(c) => {
-            let idx = app.popups.create_directory.cursor_position;
-            if idx >= app.popups.create_directory.new_name.chars().count() {
-                app.popups.create_directory.new_name.push(c);
-            } else {
-                let byte_idx = app
-                    .popups
-                    .create_directory
-                    .new_name
-                    .char_indices()
-                    .nth(idx)
-                    .map(|(i, _)| i)
-                    .unwrap();
-                app.popups.create_directory.new_name.insert(byte_idx, c);
-            }
-            app.popups.create_directory.cursor_position += 1;
-        }
-        _ => {}
     }
     // Clear error on any input in the popup
     if code != KeyCode::Enter && app.popups.create_directory.error.is_some() {
@@ -226,83 +157,18 @@ pub async fn handle_create_file_event(
             }
             app.popups.create_file.reset();
         }
-        KeyCode::Char('v') if modifiers.contains(KeyModifiers::CONTROL) => {
-            if let Some(content) = get_clipboard_content() {
-                insert_text_at_cursor_unicode(
-                    &mut app.popups.create_file.input_value,
-                    &mut app.popups.create_file.cursor_position,
-                    &content,
-                );
+        _ => {
+            crate::handlers::input_utils::handle_text_input(
+                code,
+                modifiers,
+                &mut app.popups.create_file.input_value,
+                &mut app.popups.create_file.cursor_position,
+            );
+            // Clear error on any input (consistent with create directory)
+            if app.popups.create_file.error.is_some() {
+                app.popups.create_file.error = None;
             }
         }
-        KeyCode::Char(c) => {
-            app.popups.create_file.error = None;
-            let idx = app.popups.create_file.cursor_position;
-            let current_len = app.popups.create_file.input_value.chars().count();
-            if idx >= current_len {
-                app.popups.create_file.input_value.push(c);
-            } else {
-                let byte_idx = app
-                    .popups
-                    .create_file
-                    .input_value
-                    .char_indices()
-                    .nth(idx)
-                    .map(|(i, _)| i)
-                    .unwrap();
-                app.popups.create_file.input_value.insert(byte_idx, c);
-            }
-            app.popups.create_file.cursor_position += 1;
-        }
-        KeyCode::Backspace => {
-            app.popups.create_file.error = None;
-            if app.popups.create_file.cursor_position > 0 {
-                let byte_idx = app
-                    .popups
-                    .create_file
-                    .input_value
-                    .char_indices()
-                    .nth(app.popups.create_file.cursor_position - 1)
-                    .map(|(i, _)| i)
-                    .unwrap();
-                app.popups.create_file.input_value.remove(byte_idx);
-                app.popups.create_file.cursor_position -= 1;
-            }
-        }
-        KeyCode::Delete => {
-            app.popups.create_file.error = None;
-            let current_len = app.popups.create_file.input_value.chars().count();
-            if app.popups.create_file.cursor_position < current_len {
-                let byte_idx = app
-                    .popups
-                    .create_file
-                    .input_value
-                    .char_indices()
-                    .nth(app.popups.create_file.cursor_position)
-                    .map(|(i, _)| i)
-                    .unwrap();
-                app.popups.create_file.input_value.remove(byte_idx);
-            }
-        }
-        KeyCode::Left => {
-            if app.popups.create_file.cursor_position > 0 {
-                app.popups.create_file.cursor_position -= 1;
-            }
-        }
-        KeyCode::Right => {
-            let len = app.popups.create_file.input_value.chars().count();
-            if app.popups.create_file.cursor_position < len {
-                app.popups.create_file.cursor_position += 1;
-            }
-        }
-        KeyCode::Home => {
-            app.popups.create_file.cursor_position = 0;
-        }
-        KeyCode::End => {
-            app.popups.create_file.cursor_position =
-                app.popups.create_file.input_value.chars().count();
-        }
-        _ => {}
     }
     false
 }

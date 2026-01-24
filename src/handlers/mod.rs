@@ -23,4 +23,5 @@ pub mod clipboard_utils;
 pub mod editor;
 pub mod external;
 pub mod input;
+pub mod input_utils;
 pub mod terminal;

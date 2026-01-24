@@ -28,9 +28,9 @@ pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &RenameState, palette: &
     f.render_widget(Clear, popup_area);
 
     let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
-    let field_bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
+
     let border_color = Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b);
-    let placeholder_color = Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b);
+
     let text_color = if state.error.is_some() {
         Color::Rgb(palette.red.r, palette.red.g, palette.red.b)
     } else {
@@ -75,17 +75,6 @@ pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &RenameState, palette: &
         .constraints([Constraint::Length(4)])
         .split(popup_area);
 
-    let edit_field_border = Set {
-        top_left: "▎",
-        top_right: " ",
-        bottom_left: "▎",
-        bottom_right: " ",
-        vertical_left: "▎",
-        vertical_right: " ",
-        horizontal_top: " ",
-        horizontal_bottom: " ",
-    };
-
     if state.show_overwrite_confirm {
         let truncated_name = crate::ui_utils::truncate_middle_with_ellipsis(&state.new_name, 35);
         let text = format!("Overwrite {truncated_name}?");
@@ -108,59 +97,18 @@ pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &RenameState, palette: &
 
         crate::ui_utils::draw_button_row(f, &["(Y)es", "(N)o"], layout[2], text_color);
     } else {
-        let input_width = (chunks[0].width as usize).saturating_sub(4);
-        let cursor_pos = state.cursor_position;
-
-        let scroll_offset = if cursor_pos < input_width {
-            0
-        } else {
-            cursor_pos - input_width + 1
-        };
-
-        let display_text: String = if state.new_name.is_empty() {
-            "Rename".to_string()
-        } else {
-            state
-                .new_name
-                .chars()
-                .skip(scroll_offset)
-                .take(input_width)
-                .collect()
-        };
-
-        let text_style = if state.new_name.is_empty() {
-            Style::default().fg(placeholder_color)
-        } else {
-            Style::default().fg(text_color)
-        };
-
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(border_color).bg(field_bg_color))
-            .border_set(edit_field_border)
-            .style(Style::default().bg(field_bg_color));
-
-        f.render_widget(&block, chunks[0]);
-
-        let inner_area = block.inner(chunks[0]);
-        let text_area = Rect {
-            x: inner_area.x + 1,
-            y: inner_area.y,
-            width: inner_area.width.saturating_sub(2),
-            height: inner_area.height,
-        };
-
-        let paragraph = Paragraph::new(display_text.as_str()).style(text_style.bg(field_bg_color));
-
-        f.render_widget(paragraph, text_area);
-
-        let cursor_visual_offset = cursor_pos.saturating_sub(scroll_offset);
-        if cursor_visual_offset < input_width {
-            f.set_cursor_position(Position::new(
-                chunks[0].x + 2 + cursor_visual_offset as u16,
-                chunks[0].y + 1,
-            ));
-        }
+        crate::ui_utils::draw_input_popup(
+            f,
+            crate::ui_utils::InputPopupOptions {
+                title: None,
+                input_value: &state.new_name,
+                cursor_position: state.cursor_position,
+                error: state.error.as_deref(),
+                placeholder: "Rename",
+                width: 60,
+            },
+            palette,
+        );
     }
 }
 

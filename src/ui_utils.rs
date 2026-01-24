@@ -187,3 +187,151 @@ pub fn custom_border_set() -> ratatui::symbols::border::Set<'static> {
         horizontal_bottom: " ",
     }
 }
+
+pub struct InputPopupOptions<'a> {
+    pub title: Option<&'a str>,
+    pub input_value: &'a str,
+    pub cursor_position: usize,
+    pub error: Option<&'a str>,
+    pub placeholder: &'a str,
+    pub width: u16,
+}
+
+pub fn draw_input_popup(
+    f: &mut ratatui::Frame,
+    options: InputPopupOptions,
+    palette: &crate::theme::ThemePalette,
+) {
+    use ratatui::widgets::{Block, Borders, Clear};
+
+    let has_title = options.title.is_some();
+    let popup_width = options.width;
+    let popup_height = if has_title { 7 } else { 5 };
+    let popup_area = centered_rect_absolute(popup_width, popup_height, f.area());
+
+    // Clear the popup area
+    f.render_widget(Clear, popup_area);
+
+    let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
+    let field_bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
+    let border_color = Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b);
+    let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
+    let title_color = Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b);
+    let error_color = Color::Rgb(palette.red.r, palette.red.g, palette.red.b);
+    let placeholder_color = Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b);
+
+    // Draw outer block (shadow/background)
+    f.render_widget(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(border_color))
+            .border_set(ratatui::symbols::border::EMPTY)
+            .style(Style::default().bg(bg_color)),
+        popup_area,
+    );
+
+    // Inner chunks for vertical spacing
+    let constraints = if has_title {
+        vec![Constraint::Length(5)]
+    } else {
+        vec![Constraint::Length(3)]
+    };
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .horizontal_margin(2)
+        .vertical_margin(1)
+        .constraints(constraints)
+        .split(popup_area);
+
+    // Draw input block
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border_color).bg(field_bg_color))
+        .border_set(custom_border_set())
+        .style(Style::default().bg(field_bg_color));
+
+    f.render_widget(&block, chunks[0]);
+
+    // Layout inside padding for title, input, error
+    let text_area = Rect {
+        x: chunks[0].x + 2,
+        y: chunks[0].y,
+        width: chunks[0].width.saturating_sub(2),
+        height: chunks[0].height,
+    };
+
+    let layout_constraints = if has_title {
+        vec![
+            Constraint::Length(1), // Spacing (top border)
+            Constraint::Length(1), // Title
+            Constraint::Length(1), // Spacing
+            Constraint::Length(1), // Input
+            Constraint::Length(1), // Error
+        ]
+    } else {
+        vec![
+            Constraint::Length(1), // Spacing (top border)
+            Constraint::Length(1), // Input
+            Constraint::Length(1), // Error
+        ]
+    };
+
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(layout_constraints)
+        .split(text_area);
+
+    if let Some(t) = options.title {
+        let title_paragraph = Paragraph::new(t)
+            .style(Style::default().fg(title_color).bg(field_bg_color))
+            .alignment(Alignment::Left);
+        f.render_widget(title_paragraph, layout[1]);
+    }
+
+    // Input text
+    let input_index = if has_title { 3 } else { 1 };
+    let input_width = (chunks[0].width as usize).saturating_sub(4);
+    let cursor_pos = options.cursor_position;
+
+    let scroll_offset = if cursor_pos < input_width {
+        0
+    } else {
+        cursor_pos - input_width + 1
+    };
+
+    let display_text = if options.input_value.is_empty() {
+        Span::styled(options.placeholder, Style::default().fg(placeholder_color))
+    } else {
+        let text: String = options
+            .input_value
+            .chars()
+            .skip(scroll_offset)
+            .take(input_width)
+            .collect();
+        Span::styled(text, Style::default().fg(text_color).bg(field_bg_color))
+    };
+
+    let paragraph = Paragraph::new(display_text).style(Style::default().bg(field_bg_color));
+
+    f.render_widget(paragraph, layout[input_index]);
+
+    // Cursor
+    let cursor_visual_offset = cursor_pos.saturating_sub(scroll_offset);
+    if cursor_visual_offset < input_width {
+        let y_offset = if has_title { 3 } else { 1 };
+        f.set_cursor_position(Position::new(
+            chunks[0].x + 2 + cursor_visual_offset as u16,
+            chunks[0].y + y_offset,
+        ));
+    }
+
+    // Error
+    let error_index = if has_title { 4 } else { 2 };
+    if let Some(error) = options.error {
+        let error_paragraph = Paragraph::new(error)
+            .style(Style::default().fg(error_color).bg(field_bg_color))
+            .alignment(Alignment::Right);
+        f.render_widget(error_paragraph, layout[error_index]);
+    }
+}
