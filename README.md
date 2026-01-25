@@ -46,7 +46,8 @@ Run `fm --create-config` to generate a default configuration.
 ```toml
 [global]
 theme = "mariana"
-borders = false
+borders = true
+icons = true
 
 [editor]
 command = "nvim"
