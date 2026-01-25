@@ -443,59 +443,128 @@ mod tests {
 
     #[test]
     fn test_is_executable_from_attributes() {
-        // Test executable detection from attributes field (for remote files)
-        let executable_entry = FileEntry {
-            name: "remote_script".to_string(),
-            is_dir: false,
-            is_symlink: false,
-            size: Some(1024),
-            modified: None,
-            attributes: "-rwxr-xr-x".to_string(),
-            selected: false,
-        };
+        #[cfg(unix)]
+        {
+            // Test executable detection from attributes field (for remote files)
+            let executable_entry = FileEntry {
+                name: "remote_script".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: Some(1024),
+                modified: None,
+                attributes: "-rwxr-xr-x".to_string(),
+                selected: false,
+            };
 
-        // Use a non-existent path to force fallback to attributes parsing
-        let fake_path = std::path::PathBuf::from("/nonexistent/remote_script");
-        assert!(is_executable(&fake_path, &executable_entry));
+            // Use a non-existent path to force fallback to attributes parsing
+            let fake_path = std::path::PathBuf::from("/nonexistent/remote_script");
+            assert!(is_executable(&fake_path, &executable_entry));
 
-        // Test non-executable file
-        let non_executable_entry = FileEntry {
-            name: "remote_file".to_string(),
-            is_dir: false,
-            is_symlink: false,
-            size: Some(1024),
-            modified: None,
-            attributes: "-rw-r--r--".to_string(),
-            selected: false,
-        };
+            // Test non-executable file
+            let non_executable_entry = FileEntry {
+                name: "remote_file".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: Some(1024),
+                modified: None,
+                attributes: "-rw-r--r--".to_string(),
+                selected: false,
+            };
 
-        assert!(!is_executable(&fake_path, &non_executable_entry));
+            assert!(!is_executable(&fake_path, &non_executable_entry));
 
-        // Test directory (should not be executable even with x bits)
-        let dir_entry = FileEntry {
-            name: "remote_dir".to_string(),
-            is_dir: true,
-            is_symlink: false,
-            size: None,
-            modified: None,
-            attributes: "drwxr-xr-x".to_string(),
-            selected: false,
-        };
+            // Test directory (should not be executable even with x bits)
+            let dir_entry = FileEntry {
+                name: "remote_dir".to_string(),
+                is_dir: true,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: "drwxr-xr-x".to_string(),
+                selected: false,
+            };
 
-        assert!(!is_executable(&fake_path, &dir_entry));
+            assert!(!is_executable(&fake_path, &dir_entry));
 
-        // Test file with only user execute permission
-        let user_exec_entry = FileEntry {
-            name: "user_exec".to_string(),
-            is_dir: false,
-            is_symlink: false,
-            size: Some(512),
-            modified: None,
-            attributes: "-rwx------".to_string(),
-            selected: false,
-        };
+            // Test file with only user execute permission
+            let user_exec_entry = FileEntry {
+                name: "user_exec".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: Some(512),
+                modified: None,
+                attributes: "-rwx------".to_string(),
+                selected: false,
+            };
 
-        assert!(is_executable(&fake_path, &user_exec_entry));
+            assert!(is_executable(&fake_path, &user_exec_entry));
+        }
+
+        #[cfg(windows)]
+        {
+            // Test executable detection by file extension on Windows
+            let fake_path = std::path::PathBuf::from("C:\\nonexistent\\file.exe");
+
+            let exe_entry = FileEntry {
+                name: "program.exe".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: Some(1024),
+                modified: None,
+                attributes: "<FILE>".to_string(),
+                selected: false,
+            };
+
+            assert!(is_executable(&fake_path, &exe_entry));
+
+            let bat_entry = FileEntry {
+                name: "script.bat".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: Some(512),
+                modified: None,
+                attributes: "<FILE>".to_string(),
+                selected: false,
+            };
+
+            assert!(is_executable(&fake_path, &bat_entry));
+
+            let cmd_entry = FileEntry {
+                name: "command.cmd".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: Some(256),
+                modified: None,
+                attributes: "<FILE>".to_string(),
+                selected: false,
+            };
+
+            assert!(is_executable(&fake_path, &cmd_entry));
+
+            let txt_entry = FileEntry {
+                name: "document.txt".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: Some(1024),
+                modified: None,
+                attributes: "<FILE>".to_string(),
+                selected: false,
+            };
+
+            assert!(!is_executable(&fake_path, &txt_entry));
+
+            let dir_entry = FileEntry {
+                name: "folder".to_string(),
+                is_dir: true,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: "<DIR>".to_string(),
+                selected: false,
+            };
+
+            assert!(!is_executable(&fake_path, &dir_entry));
+        }
     }
 
     #[test]
