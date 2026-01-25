@@ -20,6 +20,7 @@ pub mod fs_sftp;
 pub mod fuzzy_search_ui;
 pub mod handlers;
 pub mod help_ui;
+pub mod icons;
 pub mod quit_ui;
 pub mod remote_edit_ui;
 pub mod rename_ui;

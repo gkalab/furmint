@@ -288,6 +288,7 @@ fn draw_ui(
                 left_panel_layout[1],
                 palette,
                 app.global.borders.unwrap_or(false),
+                app.global.icons.unwrap_or(false),
             );
         }
 
@@ -311,6 +312,7 @@ fn draw_ui(
                 right_panel_layout[1],
                 palette,
                 app.global.borders.unwrap_or(false),
+                app.global.icons.unwrap_or(false),
             );
         }
 

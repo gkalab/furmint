@@ -64,6 +64,7 @@ pub struct GlobalConfig {
     pub theme: Option<String>,
     pub terminal: Option<String>,
     pub borders: Option<bool>,
+    pub icons: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -119,6 +120,7 @@ pub fn default_global_config() -> GlobalConfig {
         theme: Some("mariana".to_string()),
         terminal: None,
         borders: Some(false),
+        icons: Some(false),
     }
 }
 
@@ -240,6 +242,7 @@ pub fn merge_global_config(
         .and_then(|g| g.terminal.clone())
         .or_else(|| default.terminal.clone());
     let borders = user.and_then(|g| g.borders).or(default.borders);
+    let icons = user.and_then(|g| g.icons).or(default.icons);
 
     // Validate theme name
     if let Some(ref n) = theme
@@ -256,6 +259,7 @@ pub fn merge_global_config(
         theme,
         terminal,
         borders,
+        icons,
     })
 }
 

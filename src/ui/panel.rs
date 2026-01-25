@@ -79,6 +79,7 @@ pub fn draw_panel(
     area: Rect,
     palette: &ThemePalette,
     borders: bool,
+    icons_enabled: bool,
 ) {
     // Calculate visible rows for scrolling logic
     let visible_rows = area.height.saturating_sub(3) as usize; // -2 for borders, -1 for header
@@ -139,8 +140,10 @@ pub fn draw_panel(
         .take(visible_rows)
         .map(|(idx, e)| {
             // Account for ratatui border: subtract 2 from available width
-            let visible_name_width = if name_col_width > 2 {
-                name_col_width - 2
+            // Also account for icon width (2 chars: icon + space) if icons are enabled
+            let icon_width = if icons_enabled { 2 } else { 0 };
+            let visible_name_width = if name_col_width > (2 + icon_width) {
+                name_col_width - 2 - icon_width
             } else {
                 1
             };
@@ -164,6 +167,16 @@ pub fn draw_panel(
                 let name_chars: Vec<char> = e.name.chars().collect();
                 let name_len = name_chars.len();
                 let mut spans = Vec::new();
+
+                // Add icon if enabled
+                if icons_enabled {
+                    let icon = crate::icons::get_icon(
+                        &e.name,
+                        e.is_dir,
+                        crate::fs::utils::is_executable(&panel.current_dir.join(&e.name), e),
+                    );
+                    spans.push(Span::raw(format!("{} ", icon)));
+                }
 
                 if name_len <= visible_name_width {
                     for (i, c) in name_chars.iter().enumerate() {
@@ -205,7 +218,17 @@ pub fn draw_panel(
                 Cell::from(Line::from(spans)).style(name_style)
             } else {
                 let truncated_name = truncate_middle_with_ellipsis(&e.name, visible_name_width);
-                Cell::from(truncated_name).style(name_style)
+                let display_name = if icons_enabled {
+                    let icon = crate::icons::get_icon(
+                        &e.name,
+                        e.is_dir,
+                        crate::fs::utils::is_executable(&panel.current_dir.join(&e.name), e),
+                    );
+                    format!("{} {}", icon, truncated_name)
+                } else {
+                    truncated_name
+                };
+                Cell::from(display_name).style(name_style)
             };
 
             Row::new(vec![
