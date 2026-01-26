@@ -320,19 +320,25 @@ fn draw_ui(
             f,
             app.left.active_tab(),
             status_chunks[0],
-            palette,
-            app.active == PanelSide::Left,
-            &app.task_manager,
-            PanelSide::Left,
+            &crate::ui::panel::PanelStatusContext {
+                palette,
+                active: app.active == PanelSide::Left,
+                borders: app.global.borders.unwrap_or(false),
+                task_manager: &app.task_manager,
+                side: PanelSide::Left,
+            },
         );
         draw_panel_status(
             f,
             app.right.active_tab(),
             status_chunks[1],
-            palette,
-            app.active == PanelSide::Right,
-            &app.task_manager,
-            PanelSide::Right,
+            &crate::ui::panel::PanelStatusContext {
+                palette,
+                active: app.active == PanelSide::Right,
+                borders: app.global.borders.unwrap_or(false),
+                task_manager: &app.task_manager,
+                side: PanelSide::Right,
+            },
         );
 
         // Draw fuzzy search popup on top of everything

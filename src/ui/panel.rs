@@ -39,8 +39,8 @@ fn sort_indicator(
 }
 
 /// Calculate the background color for a panel based on active state and root status
-fn panel_bg_color(palette: &ThemePalette, active: bool, is_root: bool) -> Color {
-    let base_bg = if active {
+fn panel_bg_color(palette: &ThemePalette, active: bool, is_root: bool, borders: bool) -> Color {
+    let base_bg = if active || borders {
         Color::Rgb(palette.base.r, palette.base.g, palette.base.b)
     } else if palette.is_dark {
         let r = ((palette.base.r as u16 * 3 + palette.surface1.r as u16) / 4) as u8;
@@ -54,7 +54,7 @@ fn panel_bg_color(palette: &ThemePalette, active: bool, is_root: bool) -> Color 
         Color::Rgb(r, g, b)
     };
 
-    if is_root {
+    if is_root && !borders {
         let (r0, g0, b0) = match base_bg {
             Color::Rgb(r, g, b) => (r as u16, g as u16, b as u16),
             _ => (
@@ -253,7 +253,7 @@ pub fn draw_panel(
         Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b)
     };
 
-    let panel_bg = panel_bg_color(palette, active, is_root);
+    let panel_bg = panel_bg_color(palette, active, is_root, borders);
 
     let prefix = panel.provider.display_prefix();
     let path_str = panel.provider.display_path(&panel.current_dir);
@@ -372,14 +372,20 @@ pub fn draw_panel(
     );
 }
 
+/// Context for rendering panel status bar
+pub struct PanelStatusContext<'a> {
+    pub palette: &'a ThemePalette,
+    pub active: bool,
+    pub borders: bool,
+    pub task_manager: &'a crate::tasks::TaskManager,
+    pub side: crate::app::PanelSide,
+}
+
 pub fn draw_panel_status(
     f: &mut ratatui::Frame,
     panel: &Tab,
     area: Rect,
-    palette: &ThemePalette,
-    active: bool,
-    task_manager: &crate::tasks::TaskManager,
-    side: crate::app::PanelSide,
+    ctx: &PanelStatusContext,
 ) {
     let error = panel.error.as_deref().unwrap_or("");
     let file_count = panel.entries.iter().filter(|e| !e.is_dir).count();
@@ -417,16 +423,24 @@ pub fn draw_panel_status(
     // Use the same background as file/directory rows (surface1)
     let fg = if error.is_empty() {
         if !panel.typed_buffer.is_empty() {
-            Color::Rgb(palette.yellow.r, palette.yellow.g, palette.yellow.b)
+            Color::Rgb(
+                ctx.palette.yellow.r,
+                ctx.palette.yellow.g,
+                ctx.palette.yellow.b,
+            )
         } else if let Some((_, instant)) = &panel.clipboard_msg
             && instant.elapsed() < std::time::Duration::from_secs(3)
         {
-            Color::Rgb(palette.yellow.r, palette.yellow.g, palette.yellow.b)
+            Color::Rgb(
+                ctx.palette.yellow.r,
+                ctx.palette.yellow.g,
+                ctx.palette.yellow.b,
+            )
         } else {
-            Color::Rgb(palette.text.r, palette.text.g, palette.text.b)
+            Color::Rgb(ctx.palette.text.r, ctx.palette.text.g, ctx.palette.text.b)
         }
     } else {
-        Color::Rgb(palette.red.r, palette.red.g, palette.red.b)
+        Color::Rgb(ctx.palette.red.r, ctx.palette.red.g, ctx.palette.red.b)
     };
     // Move status line one character to the right and reduce width by 2 (1 for left offset, 1 for right margin)
     let status_area = Rect {
@@ -437,15 +451,15 @@ pub fn draw_panel_status(
     };
 
     let is_root = is_root_user(panel);
-    let panel_bg = panel_bg_color(palette, active, is_root);
+    let panel_bg = panel_bg_color(ctx.palette, ctx.active, is_root, ctx.borders);
 
     // Clear the status area first to prevent artifacts
     f.render_widget(Block::default().style(Style::default().bg(panel_bg)), area);
 
-    match side {
+    match ctx.side {
         crate::app::PanelSide::Left => {
             // Left Panel: Files/Dirs on Left, Running Tasks on Right
-            let tasks = task_manager.get_tasks();
+            let tasks = ctx.task_manager.get_tasks();
             let running_count = tasks
                 .iter()
                 .filter(|(_, _, s, _, _, _, _)| matches!(s, crate::tasks::TaskStatus::Running))
@@ -473,9 +487,9 @@ pub fn draw_panel_status(
                 let p = ratatui::widgets::Paragraph::new(text)
                     .alignment(Alignment::Right)
                     .style(Style::default().fg(Color::Rgb(
-                        palette.yellow.r,
-                        palette.yellow.g,
-                        palette.yellow.b,
+                        ctx.palette.yellow.r,
+                        ctx.palette.yellow.g,
+                        ctx.palette.yellow.b,
                     )));
                 f.render_widget(p, chunks[1]);
             } else {
@@ -488,13 +502,13 @@ pub fn draw_panel_status(
                 if let Some((_, _, status_task, _, _, _, _)) = last_finished {
                     let (text, task_fg) = match status_task {
                         crate::tasks::TaskStatus::Completed => {
-                            ("".to_string(), palette.green) // no text for task completed status
+                            ("".to_string(), ctx.palette.green) // no text for task completed status
                         }
                         crate::tasks::TaskStatus::Failed(e) => {
-                            (format!("Task failed: {e}"), palette.red)
+                            (format!("Task failed: {e}"), ctx.palette.red)
                         }
                         crate::tasks::TaskStatus::Cancelled => {
-                            ("Task cancelled".to_string(), palette.yellow)
+                            ("Task cancelled".to_string(), ctx.palette.yellow)
                         }
                         crate::tasks::TaskStatus::Running => unreachable!(),
                     };
@@ -528,7 +542,7 @@ pub fn draw_panel_status(
             // (Task results are only shown on the left panel status bar)
 
             // Check for active task progress
-            let tasks = task_manager.get_tasks();
+            let tasks = ctx.task_manager.get_tasks();
             let active_task = tasks
                 .iter()
                 .rev()
@@ -556,7 +570,7 @@ pub fn draw_panel_status(
                     byte_progress.as_ref().copied(),
                     current_file.as_deref(),
                     available_progress_width as usize,
-                    palette,
+                    ctx.palette,
                 );
 
                 let text_width = progress_spans
