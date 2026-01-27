@@ -196,19 +196,55 @@ impl Tab {
         Ok(())
     }
 
-    pub fn reload(&mut self) -> anyhow::Result<bool> {
-        let entries = self.provider.list_dir(&self.current_dir)?;
+    /// Reload entries while preserving selection state and cursor position
+    pub fn reload_preserving_state(&mut self, entries: Vec<crate::fs::utils::FileEntry>) -> bool {
         if entries == self.entries {
-            return Ok(false);
+            return false;
         }
+
+        // Preserve selection state before replacing entries
+        let old_cursor_name = self.current_entry().map(|e| e.name.clone());
+        let selected_names: std::collections::HashSet<String> = self
+            .entries
+            .iter()
+            .filter(|e| e.selected)
+            .map(|e| e.name.clone())
+            .collect();
+
         self.entries = entries;
         self.search_highlights.clear();
-        self.sort_entries();
-        // Adjust cursor if out of bounds
-        if self.cursor >= self.entries.len() {
-            self.cursor = self.entries.len().saturating_sub(1);
+
+        // Restore selection state after replacing entries
+        for entry in &mut self.entries {
+            if selected_names.contains(&entry.name) {
+                entry.selected = true;
+            }
         }
-        Ok(true)
+
+        self.sort_entries();
+
+        // Try to restore cursor to same file
+        if let Some(name) = old_cursor_name {
+            if let Some(idx) = self.entries.iter().position(|e| e.name == name) {
+                self.cursor = idx;
+            } else {
+                // File gone, keep cursor within bounds
+                if self.cursor >= self.entries.len() {
+                    self.cursor = self.entries.len().saturating_sub(1);
+                }
+            }
+        } else {
+            // Adjust cursor if out of bounds
+            if self.cursor >= self.entries.len() {
+                self.cursor = self.entries.len().saturating_sub(1);
+            }
+        }
+        true
+    }
+
+    pub fn reload(&mut self) -> anyhow::Result<bool> {
+        let entries = self.provider.list_dir(&self.current_dir)?;
+        Ok(self.reload_preserving_state(entries))
     }
 
     pub fn reload_and_focus(&mut self, name: &str) -> anyhow::Result<()> {
@@ -609,6 +645,60 @@ mod tests {
         // Cannot close the very last tab
         assert!(!manager.close_tab(0));
         assert_eq!(manager.tabs.len(), 1);
+    }
+
+    #[test]
+    fn test_reload_preserves_selection() {
+        use std::env;
+
+        let test_dir = env::temp_dir().join("fm_test_reload_preserves");
+        std::fs::create_dir_all(&test_dir).unwrap();
+
+        // Create test files
+        let file1_path = test_dir.join("file1.txt");
+        let file2_path = test_dir.join("file2.txt");
+        std::fs::File::create(&file1_path).unwrap();
+        std::fs::File::create(&file2_path).unwrap();
+
+        let mut tab = Tab::with_provider(
+            &test_dir,
+            std::sync::Arc::new(crate::fs_local::LocalFs::new()),
+        )
+        .unwrap();
+
+        // Select some files
+        tab.entries[1].selected = true; // file1.txt
+        tab.entries[2].selected = true; // file2.txt
+
+        // Store cursor position
+        let original_cursor = tab.cursor;
+
+        // Reload should preserve selection and cursor
+        let reloaded = tab.reload().unwrap();
+        assert!(reloaded, "Reload should return true when entries change");
+
+        // Verify selection is preserved
+        assert!(
+            tab.entries
+                .iter()
+                .any(|e| e.name == "file1.txt" && e.selected),
+            "file1.txt should remain selected after reload"
+        );
+        assert!(
+            tab.entries
+                .iter()
+                .any(|e| e.name == "file2.txt" && e.selected),
+            "file2.txt should remain selected after reload"
+        );
+
+        // Verify cursor is preserved
+        assert_eq!(
+            tab.cursor, original_cursor,
+            "Cursor position should be preserved"
+        );
+
+        // Clean up
+        std::fs::remove_dir_all(&test_dir).unwrap();
     }
 
     #[test]

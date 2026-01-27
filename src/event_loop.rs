@@ -162,40 +162,8 @@ fn handle_watcher_event(event: crate::watcher::WatcherEvent, app: &mut AppState)
                     .iter()
                     .any(|p| p == &tab.current_dir || p.parent() == Some(&tab.current_dir));
 
-                if needs_reload {
-                    // Try to preserve cursor position
-                    let old_cursor_name = tab.current_entry().map(|e| e.name.clone());
-                    let selected_names: std::collections::HashSet<String> = tab
-                        .entries
-                        .iter()
-                        .filter(|e| e.selected)
-                        .map(|e| e.name.clone())
-                        .collect();
-
-                    if let Ok(entries) = tab.provider.list_dir(&tab.current_dir) {
-                        tab.entries = entries;
-
-                        // Restore selection
-                        for entry in &mut tab.entries {
-                            if selected_names.contains(&entry.name) {
-                                entry.selected = true;
-                            }
-                        }
-
-                        tab.sort_entries();
-
-                        // Try to restore cursor to same file
-                        if let Some(name) = old_cursor_name {
-                            if let Some(idx) = tab.entries.iter().position(|e| e.name == name) {
-                                tab.cursor = idx;
-                            } else {
-                                // File gone, keep cursor within bounds
-                                if tab.cursor >= tab.entries.len() {
-                                    tab.cursor = tab.entries.len().saturating_sub(1);
-                                }
-                            }
-                        }
-                    }
+                if needs_reload && let Ok(entries) = tab.provider.list_dir(&tab.current_dir) {
+                    tab.reload_preserving_state(entries);
                 }
             };
 
