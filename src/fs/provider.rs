@@ -2,6 +2,16 @@ use super::traits::FileSystem;
 use async_trait::async_trait;
 use std::path::Path;
 
+// Helper function to calculate optimal chunk size based on file size
+fn calculate_optimal_chunk_size(file_size: u64) -> usize {
+    match file_size {
+        0..=512_000 => 512 * 1024,              // 512KB for tiny files (≤512KB)
+        512_001..=8_000_000 => 2 * 1024 * 1024, // 2MB for small files (512KB-8MB)
+        8_000_001..=200_000_000 => 8 * 1024 * 1024, // 8MB for medium files (8MB-200MB)
+        _ => 16 * 1024 * 1024,                  // 16MB for large files (>200MB)
+    }
+}
+
 pub struct ProviderFileSystem(pub std::sync::Arc<dyn crate::fs_provider::FileSystemProvider>);
 
 #[async_trait]
@@ -96,7 +106,7 @@ impl FileSystem for ProviderFileSystem {
             let mtime = entry.modified;
             let perms = provider.get_permissions(&src_buf);
 
-            let chunk_size = 32 * 1024 * 1024; // 32MB chunks for streaming
+            let chunk_size = calculate_optimal_chunk_size(total_size); // Dynamic chunk sizing
             let mut offset = 0;
             let mut processed = 0;
 

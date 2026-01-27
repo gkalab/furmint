@@ -391,6 +391,7 @@ impl SshManager {
                 if !sess.authenticated() {
                     return Err(SshError::Auth(AuthError::PasswordAuthFailed));
                 }
+                sess.set_compress(true);
                 sess.set_keepalive(true, keepalive);
                 let fs = crate::fs_sftp::SftpFs::new(sess, host_clone, user_clone);
                 Ok((session_id.clone(), fs))
