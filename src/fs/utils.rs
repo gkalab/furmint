@@ -214,12 +214,12 @@ pub fn format_size(size: Option<u64>, is_dir: bool, is_symlink: bool) -> String 
             format!("{:>7}", "<DIR>")
         }
     } else if let Some(s) = size {
-        if s >= 1_000_000_000 {
-            format!("{:>6.1}G", s as f64 / 1_000_000_000.0)
-        } else if s >= 1_000_000 {
-            format!("{:>6.1}M", s as f64 / 1_000_000.0)
-        } else if s >= 1_000 {
-            format!("{:>6.1}K", s as f64 / 1_000.0)
+        if s >= 1_073_741_824 {
+            format!("{:>6.1}G", s as f64 / 1_073_741_824.0)
+        } else if s >= 1_048_576 {
+            format!("{:>6.1}M", s as f64 / 1_048_576.0)
+        } else if s >= 1_024 {
+            format!("{:>6.1}K", s as f64 / 1_024.0)
         } else {
             format!("{s:>7}")
         }
@@ -287,20 +287,20 @@ mod tests {
 
     #[test]
     fn test_format_size_kilobytes() {
-        assert_eq!(format_size(Some(1000), false, false), "   1.0K");
-        assert_eq!(format_size(Some(1500), false, false), "   1.5K");
+        assert_eq!(format_size(Some(1024), false, false), "   1.0K");
+        assert_eq!(format_size(Some(1536), false, false), "   1.5K");
     }
 
     #[test]
     fn test_format_size_megabytes() {
-        assert_eq!(format_size(Some(1_000_000), false, false), "   1.0M");
-        assert_eq!(format_size(Some(1_500_000), false, false), "   1.5M");
+        assert_eq!(format_size(Some(1_048_576), false, false), "   1.0M");
+        assert_eq!(format_size(Some(1_572_864), false, false), "   1.5M");
     }
 
     #[test]
     fn test_format_size_gigabytes() {
-        assert_eq!(format_size(Some(1_000_000_000), false, false), "   1.0G");
-        assert_eq!(format_size(Some(2_500_000_000), false, false), "   2.5G");
+        assert_eq!(format_size(Some(1_073_741_824), false, false), "   1.0G");
+        assert_eq!(format_size(Some(2_684_354_560), false, false), "   2.5G");
     }
 
     #[test]
