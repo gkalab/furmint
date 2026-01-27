@@ -205,6 +205,7 @@ impl SshManager {
                         agent_identity_count = identities.len();
                         for identity in identities {
                             if agent.userauth(&user, &identity).is_ok() && sess.authenticated() {
+                                sess.set_compress(true);
                                 sess.set_keepalive(true, keepalive);
                                 let fs =
                                     crate::fs_sftp::SftpFs::new(sess, host.clone(), user.clone());
@@ -223,6 +224,7 @@ impl SshManager {
                     if sess.userauth_pubkey_file(&user, None, &key, None).is_ok()
                         && sess.authenticated()
                     {
+                        sess.set_compress(true);
                         sess.set_keepalive(true, keepalive);
                         let fs = crate::fs_sftp::SftpFs::new(sess, host.clone(), user.clone());
                         return Ok((session_id.clone(), fs));
