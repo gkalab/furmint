@@ -236,7 +236,7 @@ pub fn recursive_op<'a>(
                                     async {
                                         let total_size = ctx.src_fs.get_size(&src).await?;
                                         let perms = ctx.src_fs.get_permissions(&src).await;
-                                        let chunk_size = 1024 * 1024; // 1MB
+                                        let chunk_size = 32 * 1024 * 1024;
                                         let mut offset = 0;
 
                                         if total_size == 0 {
