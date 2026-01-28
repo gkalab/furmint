@@ -96,38 +96,18 @@ impl FileSystem for ProviderFileSystem {
             let mtime = entry.modified;
             let perms = provider.get_permissions(&src_buf);
 
-            let chunk_size = 32 * 1024 * 1024; // 32MB chunks for streaming
-            let mut offset = 0;
-            let mut processed = 0;
+            let data = provider.read_file(&src_buf)?;
+            let processed = data.len() as u64;
 
-            if total_size == 0 {
-                // Handle empty file
-                provider.write_file_with_permissions(&dst_buf, &[], perms)?;
-            } else {
-                while offset < total_size {
-                    if cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                        return Ok(());
-                    }
-
-                    let len = (total_size - offset).min(chunk_size as u64) as usize;
-                    let chunk = provider.read_file_at(&src_buf, offset, len)?;
-
-                    if offset == 0 {
-                        // First chunk - create file with permissions
-                        provider.write_file_with_permissions(&dst_buf, &chunk, perms)?;
-                    } else {
-                        // Subsequent chunks - append at offset
-                        provider.write_file_at(&dst_buf, offset, &chunk)?;
-                    }
-
-                    processed += chunk.len() as u64;
-                    offset += chunk.len() as u64;
-
-                    let _ = tx.send(crate::tasks::TaskEvent::UpdateByteProgress(
-                        id, processed, total_size,
-                    ));
-                }
+            if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                return Ok(());
             }
+
+            provider.write_file_with_permissions(&dst_buf, &data, perms)?;
+
+            let _ = tx.send(crate::tasks::TaskEvent::UpdateByteProgress(
+                id, processed, total_size,
+            ));
 
             if let Some(mt) = mtime {
                 provider.set_modified_time(&dst_buf, mt);
