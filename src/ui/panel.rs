@@ -2,26 +2,12 @@ use crate::app::Tab;
 use crate::app_state::tabs::{SortColumn, SortDirection};
 use crate::fs::utils::{format_modified, format_size};
 use crate::theme::ThemePalette;
-use crate::ui_utils::truncate_middle_with_ellipsis;
+use crate::ui_utils::{
+    TabScrollbarContext, draw_tab_scrollbar, is_root_user, lighten_red,
+    truncate_middle_with_ellipsis,
+};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Cell, Row, Table, TableState};
-use std::env;
-
-/// Helper function to create a lighter shade of red for inactive borders
-fn lighten_red(red: crate::theme::Rgb) -> crate::theme::Rgb {
-    crate::theme::Rgb::new(
-        ((red.r as u16 + 255) / 2) as u8,
-        ((red.g as u16 + 255) / 2) as u8,
-        ((red.b as u16 + 255) / 2) as u8,
-    )
-}
-
-/// Check if the current tab is accessing a root location
-fn is_root_user(tab: &Tab) -> bool {
-    let system_user = env::var("USER").unwrap_or_default();
-    tab.provider.display_prefix().starts_with("[root@")
-        || (tab.provider.display_prefix().is_empty() && system_user == "root")
-}
 
 fn sort_indicator(
     column: SortColumn,
@@ -361,14 +347,18 @@ pub fn draw_panel(
         height: visible_rows as u16,
     };
 
-    crate::ui_utils::draw_scrollbar(
+    draw_tab_scrollbar(
         f,
         scroll_area,
         total_entries,
         visible_rows,
         panel.cursor,
-        palette,
-        borders,
+        &TabScrollbarContext {
+            palette,
+            borders,
+            is_root,
+            active,
+        },
     );
 }
 

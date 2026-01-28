@@ -189,7 +189,6 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemeP
         visible_rows,
         app.popups.ssh_connection.selected_history_idx.unwrap_or(0),
         palette,
-        false,
     );
 
     if let Some(error) = &app.popups.ssh_connection.error {

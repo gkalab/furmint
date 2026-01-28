@@ -1,7 +1,10 @@
 // Utility functions for UI truncation, formatting, and generic UI widgets
 
+use crate::app::Tab;
+use crate::theme::ThemePalette;
 use ratatui::prelude::*;
 use ratatui::widgets::Paragraph;
+use std::env;
 
 /// Draws a simple horizontal row of button labels, à la yazi (hotkey style, no focus handling)
 /// - `labels`: List of strings such as ["[Y]es", "(N)o"]
@@ -107,6 +110,22 @@ pub fn truncate_path_with_ellipsis(path: &std::path::Path, max_width: usize) -> 
     last_result
 }
 
+/// Helper function to create a lighter shade of red for inactive borders
+pub fn lighten_red(red: crate::theme::Rgb) -> crate::theme::Rgb {
+    crate::theme::Rgb::new(
+        ((red.r as u16 + 255) / 2) as u8,
+        ((red.g as u16 + 255) / 2) as u8,
+        ((red.b as u16 + 255) / 2) as u8,
+    )
+}
+
+/// Check if the current tab is accessing a root location
+pub fn is_root_user(tab: &Tab) -> bool {
+    let system_user = env::var("USER").unwrap_or_default();
+    tab.provider.display_prefix().starts_with("[root@")
+        || (tab.provider.display_prefix().is_empty() && system_user == "root")
+}
+
 pub fn draw_scrollbar(
     f: &mut ratatui::Frame,
     area: ratatui::layout::Rect,
@@ -114,26 +133,105 @@ pub fn draw_scrollbar(
     visible_length: usize,
     offset: usize,
     palette: &crate::theme::ThemePalette,
-    borders: bool,
 ) {
-    use ratatui::style::{Color, Style};
+    let scrollbar_color = Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b);
+    let track_color = scrollbar_color;
+    let track_symbol = Some(" ");
+
+    draw_rat_scrollbar(
+        f,
+        &ScrollbarContext {
+            area,
+            content_length,
+            visible_length,
+            offset,
+        },
+        track_color,
+        scrollbar_color,
+        track_symbol,
+    );
+}
+
+/// Context for rendering tab scrollbar
+pub struct TabScrollbarContext<'a> {
+    pub palette: &'a ThemePalette,
+    pub borders: bool,
+    pub is_root: bool,
+    pub active: bool,
+}
+
+pub fn draw_tab_scrollbar(
+    f: &mut ratatui::Frame,
+    area: ratatui::layout::Rect,
+    content_length: usize,
+    visible_length: usize,
+    offset: usize,
+    ctx: &TabScrollbarContext,
+) {
+    let scrollbar_color = Color::Rgb(
+        ctx.palette.overlay0.r,
+        ctx.palette.overlay0.g,
+        ctx.palette.overlay0.b,
+    );
+    let track_color = if ctx.is_root && ctx.active {
+        Color::Rgb(ctx.palette.red.r, ctx.palette.red.g, ctx.palette.red.b)
+    } else if ctx.is_root && !ctx.active {
+        let light_red = lighten_red(ctx.palette.red);
+        Color::Rgb(light_red.r, light_red.g, light_red.b)
+    } else if ctx.active {
+        Color::Rgb(ctx.palette.blue.r, ctx.palette.blue.g, ctx.palette.blue.b)
+    } else {
+        Color::Rgb(
+            ctx.palette.overlay0.r,
+            ctx.palette.overlay0.g,
+            ctx.palette.overlay0.b,
+        )
+    };
+    let track_symbol = if ctx.borders { Some("│") } else { Some(" ") };
+    draw_rat_scrollbar(
+        f,
+        &ScrollbarContext {
+            area,
+            content_length,
+            visible_length,
+            offset,
+        },
+        track_color,
+        scrollbar_color,
+        track_symbol,
+    );
+}
+
+struct ScrollbarContext {
+    area: ratatui::layout::Rect,
+    content_length: usize,
+    visible_length: usize,
+    offset: usize,
+}
+
+fn draw_rat_scrollbar(
+    f: &mut ratatui::Frame,
+    ctx: &ScrollbarContext,
+    track_color: Color,
+    scrollbar_color: Color,
+    track_symbol: Option<&str>,
+) {
+    use ratatui::style::Style;
     use ratatui::widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState};
 
-    if content_length > visible_length {
-        let mut scrollbar_state = ScrollbarState::new(content_length)
-            .viewport_content_length(visible_length)
-            .position(offset);
-        let scrollbar_color =
-            Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b);
-        let track_symbol = if borders { Some("│") } else { Some(" ") };
+    if ctx.content_length > ctx.visible_length {
+        let mut scrollbar_state = ScrollbarState::new(ctx.content_length)
+            .viewport_content_length(ctx.visible_length)
+            .position(ctx.offset);
         let scrollbar = Scrollbar::default()
             .orientation(ScrollbarOrientation::VerticalRight)
             .begin_symbol(None)
             .end_symbol(None)
             .track_symbol(track_symbol)
+            .track_style(Style::default().fg(track_color))
             .thumb_symbol("▊")
-            .style(Style::default().fg(scrollbar_color));
-        f.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
+            .thumb_style(Style::default().fg(scrollbar_color));
+        f.render_stateful_widget(scrollbar, ctx.area, &mut scrollbar_state);
     }
 }
 

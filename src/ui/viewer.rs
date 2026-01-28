@@ -1,5 +1,6 @@
 use crate::app::FileViewerState;
 use crate::theme::ThemePalette;
+use crate::ui_utils::TabScrollbarContext;
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders};
 use syntect::easy::HighlightLines;
@@ -19,6 +20,12 @@ pub fn draw_file_viewer(
         } else {
             Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b)
         }));
+
+    let block = if borders {
+        block.border_type(ratatui::widgets::BorderType::Rounded)
+    } else {
+        block.border_set(ratatui::symbols::border::EMPTY)
+    };
 
     let inner_area = block.inner(area);
     f.render_widget(block, area);
@@ -72,14 +79,18 @@ pub fn draw_file_viewer(
         height: area.height.saturating_sub(2),
     };
 
-    crate::ui_utils::draw_scrollbar(
+    crate::ui_utils::draw_tab_scrollbar(
         f,
         scroll_area,
         max_lines,
         visible_lines,
         viewer.scroll_offset,
-        palette,
-        borders,
+        &TabScrollbarContext {
+            palette,
+            borders,
+            is_root: false,
+            active: viewer.focused,
+        },
     );
 }
 
