@@ -217,4 +217,8 @@ impl FileSystem for ProviderFileSystem {
     fn context_key(&self) -> String {
         self.0.context_key()
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self.0.as_any()
+    }
 }

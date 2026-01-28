@@ -247,4 +247,8 @@ impl FileSystem for StdFileSystem {
     fn context_key(&self) -> String {
         "std_local".to_string()
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }

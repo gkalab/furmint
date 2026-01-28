@@ -5,6 +5,13 @@ use ssh2::{FileStat, Session};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+pub struct TaskProgressContext<'a> {
+    pub id: usize,
+    pub tx: &'a tokio::sync::mpsc::UnboundedSender<crate::tasks::TaskEvent>,
+    pub cancel: &'a std::sync::atomic::AtomicBool,
+    pub processed_bytes: &'a std::sync::atomic::AtomicU64,
+}
+
 pub struct SftpFs {
     session: Mutex<Session>,
     _host: String,
@@ -49,6 +56,189 @@ impl SftpFs {
             s = s.replace("//", "/");
         }
         PathBuf::from(s)
+    }
+
+    fn calculate_optimal_chunk_size(file_size: u64) -> usize {
+        match file_size {
+            0..=512_000 => 512 * 1024,              // 512KB for tiny files (≤512KB)
+            512_001..=8_000_000 => 2 * 1024 * 1024, // 2MB for small files (512KB-8MB)
+            8_000_001..=200_000_000 => 8 * 1024 * 1024, // 8MB for medium files (8MB-200MB)
+            _ => 16 * 1024 * 1024,                  // 16MB for large files (>200MB)
+        }
+    }
+
+    /// Optimized copy for SFTP sources. Opens source file once and reads sequentially.
+    pub async fn copy_optimized(
+        &self,
+        src: &Path,
+        dest_fs: &dyn crate::fs::traits::FileSystem,
+        dest: &Path,
+        progress: &TaskProgressContext<'_>,
+    ) -> Result<()> {
+        use std::io::Read;
+
+        let total_size = {
+            let sftp = self
+                .session
+                .lock()
+                .map_err(|_| anyhow!("Session mutex poisoned"))?
+                .sftp()
+                .map_err(|e| anyhow!("Failed to open SFTP channel: {}", e))?;
+
+            let normalized_src = self.normalize_path(src);
+            sftp.stat(&normalized_src)
+                .map_err(|e| anyhow!("Failed to stat file: {}", e))?
+                .size
+                .unwrap_or(0)
+        };
+
+        let src_path = src.to_path_buf();
+        let dest_path = dest.to_path_buf();
+
+        // Open source file once in blocking context
+        let (mut src_file, perms) = self.with_sftp(|sftp| {
+            let normalized_src = self.normalize_path(&src_path);
+            let file = sftp
+                .open(&normalized_src)
+                .map_err(|_| anyhow!("Failed to open source file: {:?}", normalized_src))?;
+            let perms = sftp
+                .stat(&normalized_src)
+                .ok()
+                .and_then(|stat| stat.perm.map(|p| p & 0o777));
+            Ok((file, perms))
+        })?;
+
+        if total_size == 0 {
+            // Handle empty file
+            dest_fs
+                .write_file(&dest_path, &[])
+                .await
+                .map_err(|e| anyhow!("Failed to write empty file: {}", e))?;
+
+            // Copy permissions
+            if let Some(perms) = perms {
+                let _ = dest_fs.set_permissions(&dest_path, perms).await;
+            }
+            return Ok(());
+        }
+
+        // Read and write in chunks
+        let chunk_size = Self::calculate_optimal_chunk_size(total_size);
+        let mut buffer = vec![0; chunk_size];
+        let mut offset = 0u64;
+
+        loop {
+            if progress.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                return Err(anyhow!("Operation cancelled"));
+            }
+
+            // Read chunk from source (sequential read)
+            let bytes_read = src_file
+                .read(&mut buffer)
+                .map_err(|e| anyhow!("Failed to read from source file: {}", e))?;
+
+            if bytes_read == 0 {
+                break; // EOF
+            }
+
+            // Write chunk to destination - use write_chunk for FileSystem
+            let chunk_data = &buffer[..bytes_read];
+            dest_fs
+                .write_chunk(&dest_path, offset, chunk_data)
+                .await
+                .map_err(|e| anyhow!("Failed to write chunk at offset {}: {}", offset, e))?;
+
+            offset += bytes_read as u64;
+            progress
+                .processed_bytes
+                .fetch_add(bytes_read as u64, std::sync::atomic::Ordering::Relaxed);
+
+            // Send progress updates
+            let _ = progress
+                .tx
+                .send(crate::tasks::TaskEvent::UpdateByteProgress(
+                    progress.id,
+                    offset,
+                    total_size,
+                ));
+        }
+
+        // Copy permissions
+        if let Some(perms) = perms {
+            let _ = dest_fs.set_permissions(&dest_path, perms).await;
+        }
+
+        Ok(())
+    }
+
+    /// Optimized upload for SFTP destinations. Opens destination file once and writes sequentially.
+    pub async fn upload_optimized(
+        &self,
+        src_fs: &dyn crate::fs::traits::FileSystem,
+        src: &Path,
+        dest: &Path,
+        progress: &TaskProgressContext<'_>,
+    ) -> Result<()> {
+        let total_size = src_fs.get_size(src).await?;
+        let chunk_size = Self::calculate_optimal_chunk_size(total_size);
+        let src_path = src.to_path_buf();
+        let dest_path = dest.to_path_buf();
+        let src_perms = src_fs.get_permissions(&src_path).await;
+        if total_size == 0 {
+            // Handle empty source file
+            let src_data = src_fs.read_file(&src_path).await?;
+            self.write_file(&dest_path, &src_data)
+                .map_err(|e| anyhow!("Failed to write empty file: {}", e))?;
+            return Ok(());
+        }
+        // Open destination file once in blocking context
+        let (mut dest_file, _) = self.with_sftp(|sftp| {
+            let normalized_dest = self.normalize_path(&dest_path);
+            let file = sftp
+                .create(&normalized_dest)
+                .map_err(|_| anyhow!("Failed to create destination file: {:?}", normalized_dest))?;
+
+            Ok((file, ()))
+        })?;
+        // Read and write in chunks
+        let mut offset = 0u64;
+        loop {
+            if progress.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                return Err(anyhow!("Operation cancelled"));
+            }
+            // Read chunk from source
+            let len = (total_size - offset).min(chunk_size as u64) as usize;
+            let chunk_data = src_fs
+                .read_chunk(&src_path, offset, len)
+                .await
+                .map_err(|e| anyhow!("Failed to read from source: {}", e))?;
+            if chunk_data.is_empty() {
+                break; // EOF
+            }
+            // Write chunk to destination (sequential write)
+            use std::io::Write;
+            dest_file
+                .write_all(&chunk_data)
+                .map_err(|e| anyhow!("Failed to write to destination: {}", e))?;
+            offset += chunk_data.len() as u64;
+            progress.processed_bytes.fetch_add(
+                chunk_data.len() as u64,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+            // Send progress updates
+            let _ = progress
+                .tx
+                .send(crate::tasks::TaskEvent::UpdateByteProgress(
+                    progress.id,
+                    offset,
+                    total_size,
+                ));
+        }
+        // Copy permissions
+        if let Some(perms) = src_perms {
+            let _ = self.set_permissions(&dest_path, perms);
+        }
+        Ok(())
     }
 }
 
@@ -372,6 +562,10 @@ impl FileSystemProvider for SftpFs {
             s = s.replace("//", "/");
         }
         s
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 

@@ -775,6 +775,9 @@ mod tests {
             fn display_path(&self, path: &Path) -> String {
                 path.to_string_lossy().to_string()
             }
+            fn as_any(&self) -> &dyn std::any::Any {
+                self
+            }
         }
 
         let local_tab = create_test_tab();

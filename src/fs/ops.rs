@@ -2,6 +2,7 @@
 // use std::path::Path; // Unused
 
 use crate::fs::traits::FileSystem;
+use crate::fs_sftp::SftpFs;
 
 // Helper to count items and total size recursively
 pub async fn count_items_and_size(
@@ -232,15 +233,56 @@ pub fn recursive_op<'a>(
                                         .copy_with_progress(&src, &dest, ctx.id, ctx.tx, ctx.cancel)
                                         .await
                                 } else {
-                                    match ctx.src_fs.read_file(&src).await {
-                                        Ok(data) => {
-                                            // For cross-filesystem copies, preserve permissions
-                                            let perms = ctx.src_fs.get_permissions(&src).await;
-                                            ctx.dest_fs
-                                                .write_file_with_permissions(&dest, &data, perms)
-                                                .await
+                                    // Check if source is SFTP for optimized copy
+                                    if let Some(sftp_src) =
+                                        ctx.src_fs.as_any().downcast_ref::<SftpFs>()
+                                    {
+                                        // Use optimized SFTP copy - opens file once
+                                        sftp_src
+                                            .copy_optimized(
+                                                &src,
+                                                ctx.dest_fs,
+                                                &dest,
+                                                &crate::fs_sftp::TaskProgressContext {
+                                                    id: ctx.id,
+                                                    tx: ctx.tx,
+                                                    cancel: ctx.cancel,
+                                                    processed_bytes: ctx.processed_bytes,
+                                                },
+                                            )
+                                            .await
+                                    } else if let Some(sftp_dest) =
+                                        // Check if destination is SFTP for optimized upload
+                                        ctx.dest_fs.as_any().downcast_ref::<SftpFs>()
+                                    {
+                                        // Use optimized SFTP upload - opens dest file once
+                                        sftp_dest
+                                            .upload_optimized(
+                                                ctx.src_fs,
+                                                &src,
+                                                &dest,
+                                                &crate::fs_sftp::TaskProgressContext {
+                                                    id: ctx.id,
+                                                    tx: ctx.tx,
+                                                    cancel: ctx.cancel,
+                                                    processed_bytes: ctx.processed_bytes,
+                                                },
+                                            )
+                                            .await
+                                    } else {
+                                        // Other, cross-filesystem copies - should currently not be called - dead code?
+                                        match ctx.src_fs.read_file(&src).await {
+                                            Ok(data) => {
+                                                // For cross-filesystem copies, preserve permissions
+                                                let perms = ctx.src_fs.get_permissions(&src).await;
+                                                ctx.dest_fs
+                                                    .write_file_with_permissions(
+                                                        &dest, &data, perms,
+                                                    )
+                                                    .await
+                                            }
+                                            Err(e) => Err(e),
                                         }
-                                        Err(e) => Err(e),
                                     }
                                 };
 
@@ -655,6 +697,10 @@ mod mock_fs_tests {
 
         fn context_key(&self) -> String {
             "mock".to_string()
+        }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
         }
     }
 

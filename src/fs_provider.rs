@@ -112,4 +112,7 @@ pub trait FileSystemProvider: Send + Sync {
     /// For local filesystems: uses native separators.
     /// For remote filesystems (SFTP): normalizes to forward slashes.
     fn display_path(&self, path: &Path) -> String;
+
+    /// Get a reference to self as `Any` for downcasting.
+    fn as_any(&self) -> &dyn std::any::Any;
 }

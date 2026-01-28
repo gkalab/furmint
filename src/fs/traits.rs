@@ -47,4 +47,5 @@ pub trait FileSystem: Send + Sync {
         mode: Option<u32>,
     ) -> anyhow::Result<()>;
     fn context_key(&self) -> String;
+    fn as_any(&self) -> &dyn std::any::Any;
 }
