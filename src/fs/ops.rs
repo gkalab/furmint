@@ -232,60 +232,16 @@ pub fn recursive_op<'a>(
                                         .copy_with_progress(&src, &dest, ctx.id, ctx.tx, ctx.cancel)
                                         .await
                                 } else {
-                                    // Manual chunked cross-filesystem copy
-                                    async {
-                                        let total_size = ctx.src_fs.get_size(&src).await?;
-                                        let perms = ctx.src_fs.get_permissions(&src).await;
-                                        let chunk_size = 32 * 1024 * 1024;
-                                        let mut offset = 0;
-
-                                        if total_size == 0 {
-                                            ctx.dest_fs.write_file(&dest, &[]).await?;
-                                        } else {
-                                            while offset < total_size {
-                                                if ctx
-                                                    .cancel
-                                                    .load(std::sync::atomic::Ordering::Relaxed)
-                                                {
-                                                    return Err(anyhow::anyhow!(
-                                                        "Operation cancelled"
-                                                    ));
-                                                }
-
-                                                let len = (total_size - offset)
-                                                    .min(chunk_size as u64)
-                                                    as usize;
-                                                let chunk = ctx
-                                                    .src_fs
-                                                    .read_chunk(&src, offset, len)
-                                                    .await?;
-                                                ctx.dest_fs
-                                                    .write_chunk(&dest, offset, &chunk)
-                                                    .await?;
-
-                                                let processed = chunk.len() as u64;
-                                                offset += processed;
-
-                                                ctx.processed_bytes.fetch_add(
-                                                    processed,
-                                                    std::sync::atomic::Ordering::Relaxed,
-                                                );
-                                                let _ = ctx.tx.send(
-                                                    crate::tasks::TaskEvent::UpdateByteProgress(
-                                                        ctx.id, offset, total_size,
-                                                    ),
-                                                );
-                                            }
+                                    match ctx.src_fs.read_file(&src).await {
+                                        Ok(data) => {
+                                            // For cross-filesystem copies, preserve permissions
+                                            let perms = ctx.src_fs.get_permissions(&src).await;
+                                            ctx.dest_fs
+                                                .write_file_with_permissions(&dest, &data, perms)
+                                                .await
                                         }
-
-                                        // Set permissions if we have them
-                                        if let Some(mode) = perms {
-                                            let _ = ctx.dest_fs.set_permissions(&dest, mode).await;
-                                        }
-
-                                        Ok::<(), anyhow::Error>(())
+                                        Err(e) => Err(e),
                                     }
-                                    .await
                                 };
 
                                 match copy_res {
