@@ -270,19 +270,17 @@ pub fn recursive_op<'a>(
                                             )
                                             .await
                                     } else {
-                                        // Other, cross-filesystem copies - should currently not be called - dead code?
-                                        match ctx.src_fs.read_file(&src).await {
-                                            Ok(data) => {
-                                                // For cross-filesystem copies, preserve permissions
-                                                let perms = ctx.src_fs.get_permissions(&src).await;
-                                                ctx.dest_fs
-                                                    .write_file_with_permissions(
-                                                        &dest, &data, perms,
-                                                    )
-                                                    .await
-                                            }
-                                            Err(e) => Err(e),
-                                        }
+                                        // Other, cross-filesystem copies - should currently not be reached.
+                                        // Warn in UI just in case this ever triggers.
+                                        let _ = ctx.tx.send(crate::tasks::TaskEvent::Error(
+                                            ctx.id,
+                                            "<unsupported>".to_string(),
+                                            "Unsupported file operation between filesystems"
+                                                .to_string(),
+                                        ));
+                                        Err(anyhow::anyhow!(
+                                            "Unsupported file operation between filesystems"
+                                        ))
                                     }
                                 };
 
