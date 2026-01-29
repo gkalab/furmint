@@ -385,21 +385,7 @@ pub async fn handle_event(
                 .quit
                 .as_ref()
                 .is_some_and(|keys| keys.contains(&shortcut));
-            if quit_match
-                && !app.file_viewer.is_visible
-                && !app.fuzzy_search.is_visible
-                && !app.popups.rename.is_visible
-                && !app.popups.create_directory.is_visible
-                && !app.popups.delete.is_visible
-                && !app.popups.copy_move.is_visible
-                && !app.popups.conflict.is_visible
-                && !app.popups.quit_confirmation.is_visible
-                && !app.popups.error.is_visible
-                && !app.popups.help.is_visible
-                && !app.popups.drive_select.is_visible
-                && !app.popups.remote_edit.is_visible
-                && !app.show_task_manager
-            {
+            if quit_match {
                 if app.task_manager.has_running_tasks() {
                     app.popups.quit_confirmation.is_visible = true;
                     return false;
