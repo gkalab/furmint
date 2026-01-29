@@ -55,26 +55,13 @@ pub trait FileSystemProvider: Send + Sync {
         Ok(())
     }
 
-    /// Read file content as a string, with a size limit and binary detection.
+    /// Read file content as a string. This function does not check file size or file type.
+    /// Any filtering or validation (e.g., max size or binary detection) must be done by caller.
     /// Default implementation uses read_file.
-    fn read_file_content(&self, path: &Path, limit: usize) -> Result<String> {
+    fn read_file_content(&self, path: &Path, _limit: usize) -> Result<String> {
         let buffer = self.read_file(path)?;
 
-        if buffer.len() > limit {
-            return Ok(format!(
-                "File too large to display (size: {}, limit: {})",
-                crate::fs::utils::format_size(Some(buffer.len() as u64), false, false),
-                crate::fs::utils::format_size(Some(limit as u64), false, false)
-            ));
-        }
-
-        // Check for binary content (null bytes in first 8KB)
-        let check_len = buffer.len().min(8192);
-        if buffer[..check_len].contains(&0) {
-            return Ok("Binary file detected".to_string());
-        }
-
-        // Try to convert to string
+        // Always return content as string (lossy)
         Ok(String::from_utf8_lossy(&buffer).to_string())
     }
 

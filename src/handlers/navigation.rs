@@ -196,7 +196,10 @@ pub fn update_viewer_content(app: &mut AppState) {
     } else {
         let full_path = panel.current_dir.join(&entry.name);
         let provider = panel.provider.clone();
-        app.file_viewer.load_content(full_path, provider);
+        let size = entry.size;
+        let max_file_size = 10 * 1024 * 1024;
+        app.file_viewer
+            .load_content(full_path, provider, size, max_file_size);
     }
 }
 

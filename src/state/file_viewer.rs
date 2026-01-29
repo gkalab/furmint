@@ -44,6 +44,8 @@ impl FileViewerState {
         &mut self,
         path: PathBuf,
         provider: std::sync::Arc<dyn crate::fs_provider::FileSystemProvider>,
+        size: Option<u64>,
+        limit_bytes: u64,
     ) {
         self.path.clone_from(&path);
         self.scroll_offset = 0;
@@ -57,8 +59,37 @@ impl FileViewerState {
             .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text());
         self.syntax_name = Some(syntax.name.clone());
 
-        match provider.read_file_content(&self.path, 10 * 1024 * 1024) {
-            // 10MB limit
+        // Configurable file size limit (in bytes)
+        let limit = limit_bytes as usize;
+        let limit_u64 = limit_bytes;
+
+        // Pre-check size if available
+        if let Some(s) = size
+            && s > limit_u64
+        {
+            self.content = vec![format!(
+                "File too large to display (size: {}, limit: {})",
+                crate::fs::utils::format_size(Some(s), false, false),
+                crate::fs::utils::format_size(Some(limit_u64), false, false)
+            )];
+            return;
+        }
+
+        // Read small chunk to check for binary
+        let chunk = match provider.read_file_at(&self.path, 0u64, 8192usize) {
+            Ok(buf) => buf,
+            Err(e) => {
+                self.content = vec![format!("Error reading file: {e}")];
+                return;
+            }
+        };
+        if chunk.contains(&0) {
+            self.content = vec!["Binary file detected".to_string()];
+            return;
+        }
+
+        // Now safe to read content up to limit
+        match provider.read_file_content(&self.path, limit) {
             Ok(content) => {
                 self.content = content.lines().map(String::from).collect();
             }

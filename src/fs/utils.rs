@@ -347,42 +347,6 @@ mod tests {
     }
 
     #[test]
-    fn test_read_file_content_too_large() {
-        use crate::fs_local::LocalFs;
-        use crate::fs_provider::FileSystemProvider;
-        use std::io::Write;
-        let temp_dir = std::env::temp_dir();
-        let test_file = temp_dir.join("fm_test_large.txt");
-        let mut file = std::fs::File::create(&test_file).unwrap();
-        file.write_all(&[b'a'; 100]).unwrap();
-
-        let provider = LocalFs::new();
-        let result = provider.read_file_content(&test_file, 50);
-        assert!(result.is_ok());
-        assert!(result.unwrap().contains("too large"));
-
-        std::fs::remove_file(&test_file).ok();
-    }
-
-    #[test]
-    fn test_read_file_content_binary() {
-        use crate::fs_local::LocalFs;
-        use crate::fs_provider::FileSystemProvider;
-        use std::io::Write;
-        let temp_dir = std::env::temp_dir();
-        let test_file = temp_dir.join("fm_test_binary.bin");
-        let mut file = std::fs::File::create(&test_file).unwrap();
-        file.write_all(&[0u8, 1, 2, 0, 3]).unwrap();
-
-        let provider = LocalFs::new();
-        let result = provider.read_file_content(&test_file, 1024);
-        assert!(result.is_ok());
-        assert!(result.unwrap().contains("Binary"));
-
-        std::fs::remove_file(&test_file).ok();
-    }
-
-    #[test]
     fn test_list_dir_includes_parent() {
         let temp_dir = std::env::temp_dir();
         let result = list_dir(&temp_dir);

@@ -8,7 +8,7 @@ use fm::handlers::navigation::{
     handle_directory_up, handle_down, handle_down_search, handle_end, handle_enter_directory,
     handle_history_next, handle_history_previous, handle_home, handle_open_item, handle_page_down,
     handle_page_up, handle_sort, handle_tab, handle_toggle_selection, handle_type_char, handle_up,
-    handle_up_search, reset_expired_search, reset_search,
+    handle_up_search, reset_expired_search, reset_search, update_viewer_content,
 };
 use fm::ssh_history::SshConnectionHistory;
 use fm::ssh_manager::SshManager;
@@ -804,4 +804,83 @@ fn test_handle_type_char_populates_highlights() {
     // Fuzzy match should highlight 't' (0) and 'f' (5)
     assert!(highlights.contains(&0));
     assert!(highlights.contains(&5));
+}
+
+#[test]
+fn test_update_viewer_content_shows_error_for_large_file() {
+    use std::io::Write;
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file_path = temp_dir.path().join("large.txt");
+    let mut f = std::fs::File::create(&file_path).unwrap();
+    let mb = 11;
+    f.write_all(&vec![b'a'; mb * 1024 * 1024]).unwrap();
+    let mut app = test_app(vec![FileEntry {
+        name: "large.txt".to_string(),
+        is_dir: false,
+        is_symlink: false,
+        size: Some((mb * 1024 * 1024) as u64),
+        modified: None,
+        attributes: String::new(),
+        selected: false,
+    }]);
+    app.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
+    app.file_viewer.is_visible = true;
+    update_viewer_content(&mut app);
+    let msg = &app.file_viewer.content[0];
+    assert!(
+        msg.to_lowercase().contains("too large"),
+        "unexpected error: {}",
+        msg
+    );
+}
+
+#[test]
+fn test_update_viewer_content_shows_error_for_binary() {
+    use std::io::Write;
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file_path = temp_dir.path().join("bin.dat");
+    let mut f = std::fs::File::create(&file_path).unwrap();
+    let mut data = vec![0u8; 9000];
+    data[10] = 0; // null byte early in file
+    f.write_all(&data).unwrap();
+    let mut app = test_app(vec![FileEntry {
+        name: "bin.dat".to_string(),
+        is_dir: false,
+        is_symlink: false,
+        size: Some(9000),
+        modified: None,
+        attributes: String::new(),
+        selected: false,
+    }]);
+    app.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
+    app.file_viewer.is_visible = true;
+    update_viewer_content(&mut app);
+    let msg = &app.file_viewer.content[0];
+
+    assert!(
+        msg.to_lowercase().contains("binary"),
+        "unexpected error: {}",
+        msg
+    );
+}
+
+#[test]
+fn test_update_viewer_content_reads_text_file() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file_path = temp_dir.path().join("hello.txt");
+    std::fs::write(&file_path, "Hello, F3!").unwrap();
+    let mut app = test_app(vec![FileEntry {
+        name: "hello.txt".to_string(),
+
+        is_dir: false,
+        is_symlink: false,
+        size: Some(11),
+        modified: None,
+        attributes: String::new(),
+        selected: false,
+    }]);
+    app.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
+    app.file_viewer.is_visible = true;
+    update_viewer_content(&mut app);
+    assert_eq!(app.file_viewer.content[0], "Hello, F3!");
 }
