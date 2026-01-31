@@ -37,6 +37,30 @@ pub struct DecisionState {
     pub last_update: std::time::Instant,
 }
 
+impl Default for DecisionState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DecisionState {
+    pub fn new() -> Self {
+        Self {
+            overwrite_all: false,
+            skip_all: false,
+            last_update: std::time::Instant::now(),
+        }
+    }
+
+    pub fn should_overwrite(&self) -> bool {
+        self.overwrite_all
+    }
+
+    pub fn should_skip(&self) -> bool {
+        self.skip_all
+    }
+}
+
 // Recursive operation
 // Returns Result<(), String>
 // Iterative operation to avoid stack overflow
@@ -70,6 +94,79 @@ enum WorkItem {
     },
 }
 
+async fn try_rename_move_optimization(
+    ctx: &RecursiveOpContext<'_>,
+    src: &std::path::Path,
+    dest: &std::path::Path,
+) -> Result<bool, String> {
+    let same_fs = ctx.src_fs.context_key() == ctx.dest_fs.context_key();
+    if ctx.action == crate::app::CopyMoveAction::Move && same_fs {
+        let dest_exists = ctx.dest_fs.try_exists(dest).await.unwrap_or(false);
+        if !dest_exists && ctx.src_fs.rename(src, dest).await.is_ok() {
+            // Successfully moved! Update progress.
+            // count_items includes the root, but we've already counted it.
+            // Children will be processed individually, so we add count - 1.
+            let count = count_items(ctx.dest_fs, &[dest.to_path_buf()]).await;
+            let increment = count.saturating_sub(1);
+            let p = ctx
+                .processed
+                .fetch_add(increment, std::sync::atomic::Ordering::Relaxed)
+                + increment;
+            let _ = ctx.tx.send(crate::tasks::TaskEvent::UpdateProgress(
+                ctx.id, p, ctx.total,
+            ));
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+async fn handle_file(
+    ctx: &RecursiveOpContext<'_>,
+    decision_state: &mut DecisionState,
+    src: &std::path::Path,
+    dest: &std::path::Path,
+) -> Result<bool, String> {
+    let mut perform = true;
+    let dest_exists = ctx.dest_fs.try_exists(dest).await.unwrap_or(false);
+
+    if dest_exists {
+        match resolve_conflict(ctx, decision_state, dest).await? {
+            ConflictResult::Perform => perform = true,
+            ConflictResult::Skip => perform = false,
+            ConflictResult::Cancel => return Ok(false),
+        }
+    }
+
+    if perform {
+        // Update current file
+        let _ = ctx.tx.send(crate::tasks::TaskEvent::UpdateCurrentFile(
+            ctx.id,
+            src.file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
+        ));
+
+        if !perform_file_copy(ctx, decision_state, src, dest, dest_exists).await? {
+            perform = false;
+        }
+    }
+
+    if ctx.action == crate::app::CopyMoveAction::Move && perform {
+        let _ = ctx.src_fs.remove_file(src).await;
+    }
+
+    // Update progress
+    let p = ctx
+        .processed
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        + 1;
+    update_progress_if_needed(ctx, decision_state, p);
+
+    Ok(true)
+}
+
 pub fn recursive_op<'a>(
     ctx: RecursiveOpContext<'a>,
     decision_state: &'a mut DecisionState,
@@ -99,68 +196,14 @@ pub fn recursive_op<'a>(
                 }
                 WorkItem::Process { src, dest } => {
                     // Move optimization: Try rename first if it's a move operation and same FS
-                    let same_fs = ctx.src_fs.context_key() == ctx.dest_fs.context_key();
-                    if ctx.action == crate::app::CopyMoveAction::Move && same_fs {
-                        let dest_exists = ctx.dest_fs.try_exists(&dest).await.unwrap_or(false);
-                        if !dest_exists && ctx.src_fs.rename(&src, &dest).await.is_ok() {
-                            // Successfully moved! Update progress and continue.
-                            // count_items includes the root, but we've already counted it.
-                            // Children will be processed individually, so we add count - 1.
-                            let count = count_items(ctx.dest_fs, std::slice::from_ref(&dest)).await;
-                            let increment = count.saturating_sub(1);
-                            let p = ctx
-                                .processed
-                                .fetch_add(increment, std::sync::atomic::Ordering::Relaxed)
-                                + increment;
-                            let _ = ctx.tx.send(crate::tasks::TaskEvent::UpdateProgress(
-                                ctx.id, p, ctx.total,
-                            ));
-                            continue;
-                        }
+                    if try_rename_move_optimization(&ctx, &src, &dest).await? {
+                        continue;
                     }
 
                     if ctx.src_fs.is_dir(&src).await.unwrap_or(false) {
                         handle_directory(&ctx, &src, &dest, &mut stack).await?;
-                    } else {
-                        // File handling
-                        let mut perform = true;
-                        let dest_exists = ctx.dest_fs.try_exists(&dest).await.unwrap_or(false);
-
-                        if dest_exists {
-                            match resolve_conflict(&ctx, decision_state, &dest).await? {
-                                ConflictResult::Perform => perform = true,
-                                ConflictResult::Skip => perform = false,
-                                ConflictResult::Cancel => return Ok(()),
-                            }
-                        }
-
-                        if perform {
-                            // Update current file
-                            let _ = ctx.tx.send(crate::tasks::TaskEvent::UpdateCurrentFile(
-                                ctx.id,
-                                src.file_name()
-                                    .unwrap_or_default()
-                                    .to_string_lossy()
-                                    .into_owned(),
-                            ));
-
-                            if !perform_file_copy(&ctx, decision_state, &src, &dest, dest_exists)
-                                .await?
-                            {
-                                perform = false;
-                            }
-                        }
-
-                        if ctx.action == crate::app::CopyMoveAction::Move && perform {
-                            let _ = ctx.src_fs.remove_file(&src).await;
-                        }
-
-                        // Update progress
-                        let p = ctx
-                            .processed
-                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-                            + 1;
-                        update_progress_if_needed(&ctx, decision_state, p);
+                    } else if !handle_file(&ctx, decision_state, &src, &dest).await? {
+                        return Ok(()); // Cancelled
                     }
                 }
             }
@@ -228,10 +271,10 @@ async fn resolve_conflict(
     decision_state: &mut DecisionState,
     dest: &std::path::Path,
 ) -> Result<ConflictResult, String> {
-    if decision_state.overwrite_all {
+    if decision_state.should_overwrite() {
         return Ok(ConflictResult::Perform);
     }
-    if decision_state.skip_all {
+    if decision_state.should_skip() {
         return Ok(ConflictResult::Skip);
     }
 
@@ -268,6 +311,54 @@ async fn resolve_conflict(
     }
 }
 
+async fn perform_sftp_copy(
+    ctx: &RecursiveOpContext<'_>,
+    src: &std::path::Path,
+    dest: &std::path::Path,
+) -> Option<anyhow::Result<()>> {
+    // Check if source is SFTP for optimized copy
+    if let Some(sftp_src) = ctx.src_fs.as_any().downcast_ref::<SftpFs>() {
+        // Use optimized SFTP copy - opens file once
+        Some(
+            sftp_src
+                .copy_optimized(
+                    src,
+                    ctx.dest_fs,
+                    dest,
+                    &crate::fs_sftp::TaskProgressContext {
+                        id: ctx.id,
+                        tx: ctx.tx,
+                        cancel: ctx.cancel,
+                        processed_bytes: ctx.processed_bytes,
+                    },
+                )
+                .await,
+        )
+    } else if let Some(sftp_dest) =
+        // Check if destination is SFTP for optimized upload
+        ctx.dest_fs.as_any().downcast_ref::<SftpFs>()
+    {
+        // Use optimized SFTP upload - opens dest file once
+        Some(
+            sftp_dest
+                .upload_optimized(
+                    ctx.src_fs,
+                    src,
+                    dest,
+                    &crate::fs_sftp::TaskProgressContext {
+                        id: ctx.id,
+                        tx: ctx.tx,
+                        cancel: ctx.cancel,
+                        processed_bytes: ctx.processed_bytes,
+                    },
+                )
+                .await,
+        )
+    } else {
+        None
+    }
+}
+
 async fn perform_file_copy(
     ctx: &RecursiveOpContext<'_>,
     decision_state: &mut DecisionState,
@@ -287,53 +378,19 @@ async fn perform_file_copy(
             ctx.src_fs
                 .copy_with_progress(src, dest, ctx.id, ctx.tx, ctx.cancel)
                 .await
+        } else if let Some(res) = perform_sftp_copy(ctx, src, dest).await {
+            res
         } else {
-            // Check if source is SFTP for optimized copy
-            if let Some(sftp_src) = ctx.src_fs.as_any().downcast_ref::<SftpFs>() {
-                // Use optimized SFTP copy - opens file once
-                sftp_src
-                    .copy_optimized(
-                        src,
-                        ctx.dest_fs,
-                        dest,
-                        &crate::fs_sftp::TaskProgressContext {
-                            id: ctx.id,
-                            tx: ctx.tx,
-                            cancel: ctx.cancel,
-                            processed_bytes: ctx.processed_bytes,
-                        },
-                    )
-                    .await
-            } else if let Some(sftp_dest) =
-                // Check if destination is SFTP for optimized upload
-                ctx.dest_fs.as_any().downcast_ref::<SftpFs>()
-            {
-                // Use optimized SFTP upload - opens dest file once
-                sftp_dest
-                    .upload_optimized(
-                        ctx.src_fs,
-                        src,
-                        dest,
-                        &crate::fs_sftp::TaskProgressContext {
-                            id: ctx.id,
-                            tx: ctx.tx,
-                            cancel: ctx.cancel,
-                            processed_bytes: ctx.processed_bytes,
-                        },
-                    )
-                    .await
-            } else {
-                // Other, cross-filesystem copies - should currently not be reached.
-                // Warn in UI just in case this ever triggers.
-                let _ = ctx.tx.send(crate::tasks::TaskEvent::Error(
-                    ctx.id,
-                    "<unsupported>".to_string(),
-                    "Unsupported file operation between filesystems".to_string(),
-                ));
-                Err(anyhow::anyhow!(
-                    "Unsupported file operation between filesystems"
-                ))
-            }
+            // Other, cross-filesystem copies - should currently not be reached.
+            // Warn in UI just in case this ever triggers.
+            let _ = ctx.tx.send(crate::tasks::TaskEvent::Error(
+                ctx.id,
+                "<unsupported>".to_string(),
+                "Unsupported file operation between filesystems".to_string(),
+            ));
+            Err(anyhow::anyhow!(
+                "Unsupported file operation between filesystems"
+            ))
         };
 
         match copy_res {
@@ -344,7 +401,7 @@ async fn perform_file_copy(
                 break;
             }
             Err(e) => {
-                if decision_state.skip_all {
+                if decision_state.should_skip() {
                     perform = false;
                     break;
                 }
