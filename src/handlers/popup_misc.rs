@@ -50,6 +50,9 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
         crate::tasks::TaskEvent::UpdateCurrentFile(id, filename) => {
             app.task_manager.update_task_current_file(id, filename);
         }
+        crate::tasks::TaskEvent::SetRsyncMode(id, rsync) => {
+            app.task_manager.update_task_rsync_mode(id, rsync);
+        }
         crate::tasks::TaskEvent::Conflict(id, path, conflict_type) => {
             // Show conflict popup
             app.popups.conflict.task_id = id;

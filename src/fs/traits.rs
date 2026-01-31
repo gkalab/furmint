@@ -55,6 +55,10 @@ pub trait FileSystem: Send + Sync {
         mode: Option<u32>,
     ) -> anyhow::Result<()>;
     fn context_key(&self) -> String;
+    fn is_local(&self) -> bool;
+    fn get_password(&self) -> Option<String> {
+        None
+    }
 
     // Optimized cross-filesystem operations
     async fn download(

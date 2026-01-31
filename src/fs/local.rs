@@ -247,4 +247,8 @@ impl FileSystem for StdFileSystem {
     fn context_key(&self) -> String {
         "std_local".to_string()
     }
+
+    fn is_local(&self) -> bool {
+        true
+    }
 }

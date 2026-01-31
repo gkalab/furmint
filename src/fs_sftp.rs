@@ -9,17 +9,19 @@ pub struct SftpFs {
     session: Mutex<Session>,
     _host: String,
     _user: String,
+    password: Option<String>,
     prefix: String,
 }
 
 impl SftpFs {
-    pub fn new(session: Session, host: String, user: String) -> Self {
+    pub fn new(session: Session, host: String, user: String, password: Option<String>) -> Self {
         let prefix = format!("[{}@{}]", user, host);
 
         Self {
             session: Mutex::new(session),
             _host: host,
             _user: user,
+            password,
             prefix,
         }
     }
@@ -371,6 +373,10 @@ impl FileSystemProvider for SftpFs {
     fn context_key(&self) -> String {
         // prefix is formatted as "[user@host]"
         self.prefix.clone()
+    }
+
+    fn get_password(&self) -> Option<String> {
+        self.password.clone()
     }
 
     fn display_path(&self, path: &Path) -> String {
@@ -1235,7 +1241,7 @@ fn test_display_prefix_and_is_local() {
     use crate::fs_sftp::SftpFs;
     use ssh2::Session;
     let session = Session::new().unwrap();
-    let fs = SftpFs::new(session, "host123".to_string(), "user456".to_string());
+    let fs = SftpFs::new(session, "host123".to_string(), "user456".to_string(), None);
     // Trait methods
     assert_eq!(FileSystemProvider::display_prefix(&fs), "[user456@host123]");
     assert!(!FileSystemProvider::is_local(&fs));
@@ -1247,6 +1253,6 @@ fn test_context_key() {
     use crate::fs_sftp::SftpFs;
     use ssh2::Session;
     let session = Session::new().unwrap();
-    let fs = SftpFs::new(session, "myhost".to_string(), "myuser".to_string());
+    let fs = SftpFs::new(session, "myhost".to_string(), "myuser".to_string(), None);
     assert_eq!(FileSystemProvider::context_key(&fs), "[myuser@myhost]");
 }

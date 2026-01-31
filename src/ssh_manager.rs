@@ -207,8 +207,12 @@ impl SshManager {
                             if agent.userauth(&user, &identity).is_ok() && sess.authenticated() {
                                 sess.set_compress(true);
                                 sess.set_keepalive(true, keepalive);
-                                let fs =
-                                    crate::fs_sftp::SftpFs::new(sess, host.clone(), user.clone());
+                                let fs = crate::fs_sftp::SftpFs::new(
+                                    sess,
+                                    host.clone(),
+                                    user.clone(),
+                                    None,
+                                );
                                 return Ok((session_id.clone(), fs));
                             }
                         }
@@ -226,7 +230,8 @@ impl SshManager {
                     {
                         sess.set_compress(true);
                         sess.set_keepalive(true, keepalive);
-                        let fs = crate::fs_sftp::SftpFs::new(sess, host.clone(), user.clone());
+                        let fs =
+                            crate::fs_sftp::SftpFs::new(sess, host.clone(), user.clone(), None);
                         return Ok((session_id.clone(), fs));
                     }
                 }
@@ -395,7 +400,7 @@ impl SshManager {
                 }
                 sess.set_compress(true);
                 sess.set_keepalive(true, keepalive);
-                let fs = crate::fs_sftp::SftpFs::new(sess, host_clone, user_clone);
+                let fs = crate::fs_sftp::SftpFs::new(sess, host_clone, user_clone, Some(password));
                 Ok((session_id.clone(), fs))
             },
             grace,

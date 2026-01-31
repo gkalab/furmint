@@ -19,6 +19,7 @@ pub struct Task {
     pub status: TaskStatus,
     pub progress: Option<(usize, usize)>,  // (processed, total)
     pub byte_progress: Option<(u64, u64)>, // (processed_bytes, total_bytes)
+    pub rsync: bool,
     pub current_file: Option<String>,
     pub cancel_flag: Arc<AtomicBool>,
     pub completed_at: Option<std::time::Instant>,
@@ -30,6 +31,7 @@ pub enum TaskEvent {
     UpdateProgress(usize, usize, usize), // id, processed, total
     UpdateByteProgress(usize, u64, u64), // id, processed_bytes, total_bytes
     UpdateCurrentFile(usize, String),    // id, filename
+    SetRsyncMode(usize, bool),           // id, is_rsync
     Conflict(usize, std::path::PathBuf, ConflictType),
     Error(usize, String, String), // id, path, error_message
     SshConnected(SshContext),
@@ -102,6 +104,7 @@ impl TaskManager {
             status: TaskStatus::Running,
             progress: None,
             byte_progress: None,
+            rsync: false,
             current_file: None,
             cancel_flag: cancel_flag.clone(),
             completed_at: None,
@@ -177,6 +180,7 @@ impl TaskManager {
         TaskStatus,
         Option<(usize, usize)>,
         Option<(u64, u64)>,
+        bool,
         Option<String>,
         Option<std::time::Instant>,
     )> {
@@ -190,6 +194,7 @@ impl TaskManager {
                     t.status.clone(),
                     t.progress,
                     t.byte_progress,
+                    t.rsync,
                     t.current_file.clone(),
                     t.completed_at,
                 )
@@ -262,6 +267,13 @@ impl TaskManager {
             task.current_file = Some(filename);
         }
     }
+
+    pub fn update_task_rsync_mode(&self, id: usize, rsync: bool) {
+        let mut tasks = self.tasks.lock().unwrap();
+        if let Some(task) = tasks.get_mut(&id) {
+            task.rsync = rsync;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -286,7 +298,7 @@ mod tests {
         // Should NOT be removed immediately
         assert_eq!(manager.get_tasks().len(), 1);
         assert_eq!(manager.get_tasks()[0].2, TaskStatus::Completed);
-        assert!(manager.get_tasks()[0].6.is_some());
+        assert!(manager.get_tasks()[0].7.is_some());
 
         // Cleanup should not remove it yet (it's new)
         manager.cleanup_tasks();
@@ -347,7 +359,7 @@ mod tests {
         tm.update_task_status(id, TaskStatus::Completed);
         let tasks = tm.get_tasks();
         assert!(matches!(tasks[0].2, TaskStatus::Completed));
-        assert!(tasks[0].6.is_some()); // completed_at should be set
+        assert!(tasks[0].7.is_some()); // completed_at should be set
 
         tm.update_task_progress(id, 50, 100);
         let tasks = tm.get_tasks();

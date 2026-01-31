@@ -182,6 +182,7 @@ fn test_handle_reconnect_ssh_sets_up_password_prompt() {
         mock_session,
         "example.com".to_string(),
         "testuser".to_string(),
+        None,
     );
 
     // Replace the provider for left tab FIRST

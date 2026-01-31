@@ -97,6 +97,11 @@ pub trait FileSystemProvider: Send + Sync {
     /// Get a string identifying the context (e.g., "local", "user@host").
     fn context_key(&self) -> String;
 
+    /// Get the password if this is a password-authenticated connection.
+    fn get_password(&self) -> Option<String> {
+        None
+    }
+
     /// Get a display-friendly path string.
     /// For local filesystems: uses native separators.
     /// For remote filesystems (SFTP): normalizes to forward slashes.

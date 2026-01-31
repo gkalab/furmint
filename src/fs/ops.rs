@@ -322,6 +322,17 @@ async fn perform_sftp_copy(
         processed_bytes: ctx.processed_bytes.clone(),
     };
 
+    // Try rsync first for local-remote copy operations
+    let src_is_local = ctx.src_fs.is_local();
+    let dest_is_local = ctx.dest_fs.is_local();
+    if crate::fs_rsync::should_use_rsync(src_is_local, dest_is_local, ctx.action)
+        && let Ok(()) =
+            crate::fs_rsync::rsync_transfer(ctx.src_fs, ctx.dest_fs, src, dest, &progress).await
+    {
+        return Some(Ok(()));
+    }
+    // If rsync fails, fall through to SFTP
+
     // Try source-optimized copy first
     if let Some(res) = ctx.src_fs.download(src, ctx.dest_fs, dest, &progress).await {
         return Some(res);
@@ -767,6 +778,10 @@ mod mock_fs_tests {
 
         fn context_key(&self) -> String {
             "mock".to_string()
+        }
+
+        fn is_local(&self) -> bool {
+            false
         }
     }
 

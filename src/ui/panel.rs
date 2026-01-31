@@ -452,7 +452,7 @@ pub fn draw_panel_status(
             let tasks = ctx.task_manager.get_tasks();
             let running_count = tasks
                 .iter()
-                .filter(|(_, _, s, _, _, _, _)| matches!(s, crate::tasks::TaskStatus::Running))
+                .filter(|(_, _, s, _, _, _, _, _)| matches!(s, crate::tasks::TaskStatus::Running))
                 .count();
 
             if running_count > 0 {
@@ -486,10 +486,10 @@ pub fn draw_panel_status(
                 // Check for recently completed/failed/cancelled tasks
                 let last_finished = tasks
                     .iter()
-                    .filter(|(_, _, _, _, _, _, completed_at)| completed_at.is_some())
-                    .max_by_key(|(_, _, _, _, _, _, completed_at)| *completed_at);
+                    .filter(|(_, _, _, _, _, _, _, completed_at)| completed_at.is_some())
+                    .max_by_key(|(_, _, _, _, _, _, _, completed_at)| *completed_at);
 
-                if let Some((_, _, status_task, _, _, _, _)) = last_finished {
+                if let Some((_, _, status_task, _, _, _, _, _)) = last_finished {
                     let (text, task_fg) = match status_task {
                         crate::tasks::TaskStatus::Completed => {
                             ("".to_string(), ctx.palette.green) // no text for task completed status
@@ -544,6 +544,7 @@ pub fn draw_panel_status(
                 crate::tasks::TaskStatus::Running,
                 progress,
                 byte_progress,
+                rsync,
                 current_file,
                 _,
             )) = active_task
@@ -558,6 +559,7 @@ pub fn draw_panel_status(
                 let progress_spans = get_task_progress_spans(
                     progress.as_ref().copied(),
                     byte_progress.as_ref().copied(),
+                    *rsync,
                     current_file.as_deref(),
                     available_progress_width as usize,
                     ctx.palette,
@@ -598,6 +600,7 @@ pub fn draw_panel_status(
 fn get_task_progress_spans(
     progress: Option<(usize, usize)>,
     byte_progress: Option<(u64, u64)>,
+    rsync: bool,
     current_file: Option<&str>,
     max_width: usize,
     palette: &ThemePalette,
@@ -627,6 +630,9 @@ fn get_task_progress_spans(
     }
 
     let mut used_width = item_progress_str.chars().count() + byte_progress_str.chars().count();
+    let rsync_str = if rsync { " [rsync] " } else { "" };
+    used_width += rsync_str.chars().count();
+
     let mut separator = "";
     if !item_progress_str.is_empty() && current_file.is_some() {
         separator = "| ";
@@ -635,6 +641,13 @@ fn get_task_progress_spans(
 
     if !item_progress_str.is_empty() {
         progress_spans.push(Span::styled(item_progress_str, Style::default().fg(yellow)));
+    }
+
+    if !rsync_str.is_empty() {
+        progress_spans.push(Span::styled(
+            rsync_str,
+            Style::default().fg(Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b)),
+        ));
     }
 
     if let Some(file) = current_file {
@@ -676,6 +689,7 @@ mod tests {
         let spans = get_task_progress_spans(
             Some((5, 10)),
             Some((500, 1000)),
+            false,
             Some("file.txt"),
             max_width,
             &palette,
@@ -692,6 +706,7 @@ mod tests {
         let spans = get_task_progress_spans(
             Some((5, 10)),
             Some((500, 1000)),
+            false,
             Some(long_file),
             case2_width,
             &palette,
@@ -709,6 +724,7 @@ mod tests {
         let spans = get_task_progress_spans(
             Some((5, 10)),
             Some((500, 1000)),
+            false,
             Some("short.txt"),
             narrow_width,
             &palette,

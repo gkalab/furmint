@@ -16,6 +16,7 @@ pub mod fs;
 pub mod fs_local;
 // pub mod fs_ops; // Removed, now fs::ops
 pub mod fs_provider;
+pub mod fs_rsync;
 pub mod fs_sftp;
 pub mod fuzzy_search_ui;
 pub mod handlers;

@@ -70,7 +70,7 @@ pub fn draw_task_manager(
         .add_modifier(Modifier::BOLD);
 
     let mut list_items = Vec::new();
-    for (idx, (id, name, status, progress, byte_progress, current_file, _completed_at)) in
+    for (idx, (id, name, status, progress, byte_progress, rsync, current_file, _completed_at)) in
         tasks.into_iter().enumerate()
     {
         let status_str = match status {
@@ -87,7 +87,8 @@ pub fn draw_task_manager(
         };
 
         // Task Name Line
-        let item_title = format!("[{id}] {name} - {status_str}");
+        let rsync_indicator = if rsync { " [rsync]" } else { "" };
+        let item_title = format!("[{id}] {name}{rsync_indicator} - {status_str}");
 
         // Progress Bar Line
         let progress_line = if let Some((processed, total)) = progress {

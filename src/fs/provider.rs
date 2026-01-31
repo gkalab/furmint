@@ -218,6 +218,14 @@ impl FileSystem for ProviderFileSystem {
         self.0.context_key()
     }
 
+    fn is_local(&self) -> bool {
+        self.0.is_local()
+    }
+
+    fn get_password(&self) -> Option<String> {
+        self.0.get_password()
+    }
+
     async fn download(
         &self,
         src: &std::path::Path,
