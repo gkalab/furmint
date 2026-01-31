@@ -1,5 +1,13 @@
 use async_trait::async_trait;
 
+#[derive(Clone)]
+pub struct TaskProgressContext {
+    pub id: usize,
+    pub tx: tokio::sync::mpsc::UnboundedSender<crate::tasks::TaskEvent>,
+    pub cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub processed_bytes: std::sync::Arc<std::sync::atomic::AtomicU64>,
+}
+
 #[async_trait]
 pub trait FileSystem: Send + Sync {
     async fn try_exists(&self, path: &std::path::Path) -> anyhow::Result<bool>;
@@ -47,5 +55,27 @@ pub trait FileSystem: Send + Sync {
         mode: Option<u32>,
     ) -> anyhow::Result<()>;
     fn context_key(&self) -> String;
-    fn as_any(&self) -> &dyn std::any::Any;
+
+    // Optimized cross-filesystem operations
+    async fn download(
+        &self,
+        src: &std::path::Path,
+        dest_fs: &dyn FileSystem,
+        dest: &std::path::Path,
+        progress: &TaskProgressContext,
+    ) -> Option<anyhow::Result<()>> {
+        let _ = (src, dest_fs, dest, progress);
+        None
+    }
+
+    async fn upload(
+        &self,
+        src_fs: &dyn FileSystem,
+        src: &std::path::Path,
+        dest: &std::path::Path,
+        progress: &TaskProgressContext,
+    ) -> Option<anyhow::Result<()>> {
+        let _ = (src_fs, src, dest, progress);
+        None
+    }
 }

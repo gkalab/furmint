@@ -218,7 +218,23 @@ impl FileSystem for ProviderFileSystem {
         self.0.context_key()
     }
 
-    fn as_any(&self) -> &dyn std::any::Any {
-        self.0.as_any()
+    async fn download(
+        &self,
+        src: &std::path::Path,
+        dest_fs: &dyn FileSystem,
+        dest: &std::path::Path,
+        progress: &super::traits::TaskProgressContext,
+    ) -> Option<anyhow::Result<()>> {
+        self.0.download(src, dest_fs, dest, progress).await
+    }
+
+    async fn upload(
+        &self,
+        src_fs: &dyn FileSystem,
+        src: &std::path::Path,
+        dest: &std::path::Path,
+        progress: &super::traits::TaskProgressContext,
+    ) -> Option<anyhow::Result<()>> {
+        self.0.upload(src_fs, src, dest, progress).await
     }
 }

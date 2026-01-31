@@ -2,7 +2,6 @@
 // use std::path::Path; // Unused
 
 use crate::fs::traits::FileSystem;
-use crate::fs_sftp::SftpFs;
 
 // Helper to count items and total size recursively
 pub async fn count_items_and_size(
@@ -316,47 +315,24 @@ async fn perform_sftp_copy(
     src: &std::path::Path,
     dest: &std::path::Path,
 ) -> Option<anyhow::Result<()>> {
-    // Check if source is SFTP for optimized copy
-    if let Some(sftp_src) = ctx.src_fs.as_any().downcast_ref::<SftpFs>() {
-        // Use optimized SFTP copy - opens file once
-        Some(
-            sftp_src
-                .copy_optimized(
-                    src,
-                    ctx.dest_fs,
-                    dest,
-                    &crate::fs_sftp::TaskProgressContext {
-                        id: ctx.id,
-                        tx: ctx.tx,
-                        cancel: ctx.cancel,
-                        processed_bytes: ctx.processed_bytes,
-                    },
-                )
-                .await,
-        )
-    } else if let Some(sftp_dest) =
-        // Check if destination is SFTP for optimized upload
-        ctx.dest_fs.as_any().downcast_ref::<SftpFs>()
-    {
-        // Use optimized SFTP upload - opens dest file once
-        Some(
-            sftp_dest
-                .upload_optimized(
-                    ctx.src_fs,
-                    src,
-                    dest,
-                    &crate::fs_sftp::TaskProgressContext {
-                        id: ctx.id,
-                        tx: ctx.tx,
-                        cancel: ctx.cancel,
-                        processed_bytes: ctx.processed_bytes,
-                    },
-                )
-                .await,
-        )
-    } else {
-        None
+    let progress = crate::fs::traits::TaskProgressContext {
+        id: ctx.id,
+        tx: ctx.tx.clone(),
+        cancel: ctx.cancel.clone(),
+        processed_bytes: ctx.processed_bytes.clone(),
+    };
+
+    // Try source-optimized copy first
+    if let Some(res) = ctx.src_fs.download(src, ctx.dest_fs, dest, &progress).await {
+        return Some(res);
     }
+
+    // Try destination-optimized upload next
+    if let Some(res) = ctx.dest_fs.upload(ctx.src_fs, src, dest, &progress).await {
+        return Some(res);
+    }
+
+    None
 }
 
 async fn perform_file_copy(
@@ -791,10 +767,6 @@ mod mock_fs_tests {
 
         fn context_key(&self) -> String {
             "mock".to_string()
-        }
-
-        fn as_any(&self) -> &dyn std::any::Any {
-            self
         }
     }
 

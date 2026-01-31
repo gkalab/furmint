@@ -637,10 +637,6 @@ mod tests {
         fn display_path(&self, path: &std::path::Path) -> String {
             path.to_string_lossy().to_string()
         }
-
-        fn as_any(&self) -> &dyn std::any::Any {
-            self
-        }
     }
 
     fn create_test_app() -> AppState {

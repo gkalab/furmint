@@ -9,6 +9,8 @@ use fs_ops::FileEntry;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use async_trait::async_trait;
+
 /// Local filesystem provider.
 #[derive(Clone, Default)]
 pub struct LocalFs;
@@ -19,6 +21,7 @@ impl LocalFs {
     }
 }
 
+#[async_trait]
 impl FileSystemProvider for LocalFs {
     fn list_dir(&self, path: &Path) -> Result<Vec<FileEntry>> {
         fs_ops::list_dir(path)
@@ -216,10 +219,6 @@ impl FileSystemProvider for LocalFs {
 
     fn display_path(&self, path: &Path) -> String {
         path.to_string_lossy().to_string()
-    }
-
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
     }
 }
 

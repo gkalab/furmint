@@ -7,9 +7,11 @@
 
 use crate::fs::utils::FileEntry;
 use anyhow::Result;
+use async_trait::async_trait;
 use std::path::Path;
 
 /// Trait for filesystem operations that can be backed by different implementations.
+#[async_trait]
 pub trait FileSystemProvider: Send + Sync {
     /// List directory contents, returning file entries.
     /// The returned list should include ".." for parent navigation.
@@ -100,6 +102,25 @@ pub trait FileSystemProvider: Send + Sync {
     /// For remote filesystems (SFTP): normalizes to forward slashes.
     fn display_path(&self, path: &Path) -> String;
 
-    /// Get a reference to self as `Any` for downcasting.
-    fn as_any(&self) -> &dyn std::any::Any;
+    /// Optimized copy to another filesystem.
+    async fn download(
+        &self,
+        _src: &Path,
+        _dest_fs: &dyn crate::fs::traits::FileSystem,
+        _dest: &Path,
+        _progress: &crate::fs::traits::TaskProgressContext,
+    ) -> Option<anyhow::Result<()>> {
+        None
+    }
+
+    /// Optimized upload from another filesystem.
+    async fn upload(
+        &self,
+        _src_fs: &dyn crate::fs::traits::FileSystem,
+        _src: &Path,
+        _dest: &Path,
+        _progress: &crate::fs::traits::TaskProgressContext,
+    ) -> Option<anyhow::Result<()>> {
+        None
+    }
 }
