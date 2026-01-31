@@ -59,22 +59,22 @@ pub struct RecursiveOpContext<'a> {
     >,
 }
 
+// Internal enum for stack
+enum WorkItem {
+    Process {
+        src: std::path::PathBuf,
+        dest: std::path::PathBuf,
+    },
+    PostProcessDir {
+        src: std::path::PathBuf,
+    },
+}
+
 pub fn recursive_op<'a>(
     ctx: RecursiveOpContext<'a>,
     decision_state: &'a mut DecisionState,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>> {
     Box::pin(async move {
-        // Internal enum for stack
-        enum WorkItem {
-            Process {
-                src: std::path::PathBuf,
-                dest: std::path::PathBuf,
-            },
-            PostProcessDir {
-                src: std::path::PathBuf,
-            },
-        }
-
         let mut stack = vec![WorkItem::Process {
             src: ctx.src.to_path_buf(),
             dest: ctx.dest.to_path_buf(),
@@ -120,94 +120,17 @@ pub fn recursive_op<'a>(
                     }
 
                     if ctx.src_fs.is_dir(&src).await.unwrap_or(false) {
-                        let dest_exists = ctx.dest_fs.try_exists(&dest).await.unwrap_or(false);
-
-                        if !dest_exists {
-                            if let Err(e) = ctx.dest_fs.create_dir_all(&dest).await {
-                                return Err(format!(
-                                    "Failed to create directory {}: {}",
-                                    dest.display(),
-                                    e
-                                ));
-                            }
-                        } else if !ctx.dest_fs.is_dir(&dest).await.unwrap_or(true) {
-                            return Err(format!(
-                                "Destination {} exists and is not a directory",
-                                dest.display()
-                            ));
-                        }
-
-                        if ctx.action == crate::app::CopyMoveAction::Move {
-                            stack.push(WorkItem::PostProcessDir { src: src.clone() });
-                        }
-
-                        let children = match ctx.src_fs.read_dir(&src).await {
-                            Ok(v) => v,
-                            Err(e) => {
-                                return Err(format!(
-                                    "Failed to read directory {}: {}",
-                                    src.display(),
-                                    e
-                                ));
-                            }
-                        };
-                        for path in children {
-                            let Some(name) = path.file_name() else {
-                                continue;
-                            };
-                            let child_dest = dest.join(name);
-                            stack.push(WorkItem::Process {
-                                src: path,
-                                dest: child_dest,
-                            });
-                        }
+                        handle_directory(&ctx, &src, &dest, &mut stack).await?;
                     } else {
                         // File handling
                         let mut perform = true;
                         let dest_exists = ctx.dest_fs.try_exists(&dest).await.unwrap_or(false);
 
                         if dest_exists {
-                            // Conflict resolution
-                            if decision_state.overwrite_all {
-                                perform = true;
-                            } else if decision_state.skip_all {
-                                perform = false;
-                            } else {
-                                // Ask user
-                                let _ = ctx.tx.send(crate::tasks::TaskEvent::Conflict(
-                                    ctx.id,
-                                    dest.clone(),
-                                    crate::tasks::ConflictType::FileExists,
-                                ));
-
-                                // Wait for decision
-                                let mut decision = None;
-                                if let Some(rx) = ctx.decision_rx.lock().await.recv().await {
-                                    decision = Some(rx);
-                                }
-
-                                match decision {
-                                    Some(crate::tasks::TaskDecision::Overwrite) => perform = true,
-                                    Some(crate::tasks::TaskDecision::OverwriteAll) => {
-                                        decision_state.overwrite_all = true;
-                                        perform = true;
-                                    }
-                                    Some(crate::tasks::TaskDecision::Skip) => perform = false,
-                                    Some(crate::tasks::TaskDecision::SkipAll) => {
-                                        decision_state.skip_all = true;
-                                        perform = false;
-                                    }
-                                    Some(crate::tasks::TaskDecision::Cancel) => {
-                                        ctx.cancel
-                                            .store(true, std::sync::atomic::Ordering::Relaxed);
-                                        let _ = ctx.tx.send(crate::tasks::TaskEvent::UpdateStatus(
-                                            ctx.id,
-                                            crate::tasks::TaskStatus::Cancelled,
-                                        ));
-                                        return Ok(());
-                                    }
-                                    _ => perform = false, // Default skip or error
-                                }
+                            match resolve_conflict(&ctx, decision_state, &dest).await? {
+                                ConflictResult::Perform => perform = true,
+                                ConflictResult::Skip => perform = false,
+                                ConflictResult::Cancel => return Ok(()),
                             }
                         }
 
@@ -221,111 +144,10 @@ pub fn recursive_op<'a>(
                                     .into_owned(),
                             ));
 
-                            loop {
-                                if dest_exists {
-                                    let _ = ctx.dest_fs.remove_file(&dest).await;
-                                }
-
-                                // Check if it's the same filesystem type
-                                let same_fs = ctx.src_fs.context_key() == ctx.dest_fs.context_key();
-                                let copy_res = if same_fs {
-                                    ctx.src_fs
-                                        .copy_with_progress(&src, &dest, ctx.id, ctx.tx, ctx.cancel)
-                                        .await
-                                } else {
-                                    // Check if source is SFTP for optimized copy
-                                    if let Some(sftp_src) =
-                                        ctx.src_fs.as_any().downcast_ref::<SftpFs>()
-                                    {
-                                        // Use optimized SFTP copy - opens file once
-                                        sftp_src
-                                            .copy_optimized(
-                                                &src,
-                                                ctx.dest_fs,
-                                                &dest,
-                                                &crate::fs_sftp::TaskProgressContext {
-                                                    id: ctx.id,
-                                                    tx: ctx.tx,
-                                                    cancel: ctx.cancel,
-                                                    processed_bytes: ctx.processed_bytes,
-                                                },
-                                            )
-                                            .await
-                                    } else if let Some(sftp_dest) =
-                                        // Check if destination is SFTP for optimized upload
-                                        ctx.dest_fs.as_any().downcast_ref::<SftpFs>()
-                                    {
-                                        // Use optimized SFTP upload - opens dest file once
-                                        sftp_dest
-                                            .upload_optimized(
-                                                ctx.src_fs,
-                                                &src,
-                                                &dest,
-                                                &crate::fs_sftp::TaskProgressContext {
-                                                    id: ctx.id,
-                                                    tx: ctx.tx,
-                                                    cancel: ctx.cancel,
-                                                    processed_bytes: ctx.processed_bytes,
-                                                },
-                                            )
-                                            .await
-                                    } else {
-                                        // Other, cross-filesystem copies - should currently not be reached.
-                                        // Warn in UI just in case this ever triggers.
-                                        let _ = ctx.tx.send(crate::tasks::TaskEvent::Error(
-                                            ctx.id,
-                                            "<unsupported>".to_string(),
-                                            "Unsupported file operation between filesystems"
-                                                .to_string(),
-                                        ));
-                                        Err(anyhow::anyhow!(
-                                            "Unsupported file operation between filesystems"
-                                        ))
-                                    }
-                                };
-
-                                match copy_res {
-                                    Ok(()) => {
-                                        if let Some(mtime) =
-                                            ctx.src_fs.get_modified_time(&src).await
-                                        {
-                                            let _ =
-                                                ctx.dest_fs.set_modified_time(&dest, mtime).await;
-                                        }
-                                        break;
-                                    }
-                                    Err(e) => {
-                                        if decision_state.skip_all {
-                                            perform = false;
-                                            break;
-                                        }
-                                        let _ = ctx.tx.send(crate::tasks::TaskEvent::Error(
-                                            ctx.id,
-                                            src.display().to_string(),
-                                            format!("Failed to copy to {}: {}", dest.display(), e),
-                                        ));
-                                        let decision = ctx.decision_rx.lock().await.recv().await;
-                                        match decision {
-                                            Some(crate::tasks::TaskDecision::Retry) => {}
-                                            Some(crate::tasks::TaskDecision::Skip) => {
-                                                perform = false;
-                                                break;
-                                            }
-                                            Some(crate::tasks::TaskDecision::SkipAll) => {
-                                                decision_state.skip_all = true;
-                                                perform = false;
-                                                break;
-                                            }
-                                            Some(crate::tasks::TaskDecision::Cancel) => {
-                                                return Ok(());
-                                            }
-                                            _ => {
-                                                perform = false;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
+                            if !perform_file_copy(&ctx, decision_state, &src, &dest, dest_exists)
+                                .await?
+                            {
+                                perform = false;
                             }
                         }
 
@@ -338,22 +160,239 @@ pub fn recursive_op<'a>(
                             .processed
                             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
                             + 1;
-                        let now = std::time::Instant::now();
-                        if now.duration_since(decision_state.last_update)
-                            > std::time::Duration::from_millis(100)
-                            || p == ctx.total
-                        {
-                            let _ = ctx.tx.send(crate::tasks::TaskEvent::UpdateProgress(
-                                ctx.id, p, ctx.total,
-                            ));
-                            decision_state.last_update = now;
-                        }
+                        update_progress_if_needed(&ctx, decision_state, p);
                     }
                 }
             }
         }
         Ok(())
     })
+}
+
+enum ConflictResult {
+    Perform,
+    Skip,
+    Cancel,
+}
+
+async fn handle_directory(
+    ctx: &RecursiveOpContext<'_>,
+    src: &std::path::Path,
+    dest: &std::path::Path,
+    stack: &mut Vec<WorkItem>,
+) -> Result<(), String> {
+    let dest_exists = ctx.dest_fs.try_exists(dest).await.unwrap_or(false);
+
+    if !dest_exists {
+        if let Err(e) = ctx.dest_fs.create_dir_all(dest).await {
+            return Err(format!(
+                "Failed to create directory {}: {}",
+                dest.display(),
+                e
+            ));
+        }
+    } else if !ctx.dest_fs.is_dir(dest).await.unwrap_or(true) {
+        return Err(format!(
+            "Destination {} exists and is not a directory",
+            dest.display()
+        ));
+    }
+
+    if ctx.action == crate::app::CopyMoveAction::Move {
+        stack.push(WorkItem::PostProcessDir {
+            src: src.to_path_buf(),
+        });
+    }
+
+    let children = match ctx.src_fs.read_dir(src).await {
+        Ok(v) => v,
+        Err(e) => {
+            return Err(format!("Failed to read directory {}: {}", src.display(), e));
+        }
+    };
+    for path in children {
+        let Some(name) = path.file_name() else {
+            continue;
+        };
+        let child_dest = dest.join(name);
+        stack.push(WorkItem::Process {
+            src: path,
+            dest: child_dest,
+        });
+    }
+    Ok(())
+}
+
+async fn resolve_conflict(
+    ctx: &RecursiveOpContext<'_>,
+    decision_state: &mut DecisionState,
+    dest: &std::path::Path,
+) -> Result<ConflictResult, String> {
+    if decision_state.overwrite_all {
+        return Ok(ConflictResult::Perform);
+    }
+    if decision_state.skip_all {
+        return Ok(ConflictResult::Skip);
+    }
+
+    // Ask user
+    let _ = ctx.tx.send(crate::tasks::TaskEvent::Conflict(
+        ctx.id,
+        dest.to_path_buf(),
+        crate::tasks::ConflictType::FileExists,
+    ));
+
+    // Wait for decision
+    let decision = ctx.decision_rx.lock().await.recv().await;
+
+    match decision {
+        Some(crate::tasks::TaskDecision::Overwrite) => Ok(ConflictResult::Perform),
+        Some(crate::tasks::TaskDecision::OverwriteAll) => {
+            decision_state.overwrite_all = true;
+            Ok(ConflictResult::Perform)
+        }
+        Some(crate::tasks::TaskDecision::Skip) => Ok(ConflictResult::Skip),
+        Some(crate::tasks::TaskDecision::SkipAll) => {
+            decision_state.skip_all = true;
+            Ok(ConflictResult::Skip)
+        }
+        Some(crate::tasks::TaskDecision::Cancel) => {
+            ctx.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+            let _ = ctx.tx.send(crate::tasks::TaskEvent::UpdateStatus(
+                ctx.id,
+                crate::tasks::TaskStatus::Cancelled,
+            ));
+            Ok(ConflictResult::Cancel)
+        }
+        _ => Ok(ConflictResult::Skip), // Default skip or error
+    }
+}
+
+async fn perform_file_copy(
+    ctx: &RecursiveOpContext<'_>,
+    decision_state: &mut DecisionState,
+    src: &std::path::Path,
+    dest: &std::path::Path,
+    dest_exists: bool,
+) -> Result<bool, String> {
+    let mut perform = true;
+    loop {
+        if dest_exists {
+            let _ = ctx.dest_fs.remove_file(dest).await;
+        }
+
+        // Check if it's the same filesystem type
+        let same_fs = ctx.src_fs.context_key() == ctx.dest_fs.context_key();
+        let copy_res = if same_fs {
+            ctx.src_fs
+                .copy_with_progress(src, dest, ctx.id, ctx.tx, ctx.cancel)
+                .await
+        } else {
+            // Check if source is SFTP for optimized copy
+            if let Some(sftp_src) = ctx.src_fs.as_any().downcast_ref::<SftpFs>() {
+                // Use optimized SFTP copy - opens file once
+                sftp_src
+                    .copy_optimized(
+                        src,
+                        ctx.dest_fs,
+                        dest,
+                        &crate::fs_sftp::TaskProgressContext {
+                            id: ctx.id,
+                            tx: ctx.tx,
+                            cancel: ctx.cancel,
+                            processed_bytes: ctx.processed_bytes,
+                        },
+                    )
+                    .await
+            } else if let Some(sftp_dest) =
+                // Check if destination is SFTP for optimized upload
+                ctx.dest_fs.as_any().downcast_ref::<SftpFs>()
+            {
+                // Use optimized SFTP upload - opens dest file once
+                sftp_dest
+                    .upload_optimized(
+                        ctx.src_fs,
+                        src,
+                        dest,
+                        &crate::fs_sftp::TaskProgressContext {
+                            id: ctx.id,
+                            tx: ctx.tx,
+                            cancel: ctx.cancel,
+                            processed_bytes: ctx.processed_bytes,
+                        },
+                    )
+                    .await
+            } else {
+                // Other, cross-filesystem copies - should currently not be reached.
+                // Warn in UI just in case this ever triggers.
+                let _ = ctx.tx.send(crate::tasks::TaskEvent::Error(
+                    ctx.id,
+                    "<unsupported>".to_string(),
+                    "Unsupported file operation between filesystems".to_string(),
+                ));
+                Err(anyhow::anyhow!(
+                    "Unsupported file operation between filesystems"
+                ))
+            }
+        };
+
+        match copy_res {
+            Ok(()) => {
+                if let Some(mtime) = ctx.src_fs.get_modified_time(src).await {
+                    let _ = ctx.dest_fs.set_modified_time(dest, mtime).await;
+                }
+                break;
+            }
+            Err(e) => {
+                if decision_state.skip_all {
+                    perform = false;
+                    break;
+                }
+                let _ = ctx.tx.send(crate::tasks::TaskEvent::Error(
+                    ctx.id,
+                    src.display().to_string(),
+                    format!("Failed to copy to {}: {}", dest.display(), e),
+                ));
+                let decision = ctx.decision_rx.lock().await.recv().await;
+                match decision {
+                    Some(crate::tasks::TaskDecision::Retry) => {}
+                    Some(crate::tasks::TaskDecision::Skip) => {
+                        perform = false;
+                        break;
+                    }
+                    Some(crate::tasks::TaskDecision::SkipAll) => {
+                        decision_state.skip_all = true;
+                        perform = false;
+                        break;
+                    }
+                    Some(crate::tasks::TaskDecision::Cancel) => {
+                        return Ok(false);
+                    }
+                    _ => {
+                        perform = false;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    Ok(perform)
+}
+
+fn update_progress_if_needed(
+    ctx: &RecursiveOpContext<'_>,
+    decision_state: &mut DecisionState,
+    p: usize,
+) {
+    let now = std::time::Instant::now();
+    if now.duration_since(decision_state.last_update) > std::time::Duration::from_millis(100)
+        || p == ctx.total
+    {
+        let _ = ctx.tx.send(crate::tasks::TaskEvent::UpdateProgress(
+            ctx.id, p, ctx.total,
+        ));
+        decision_state.last_update = now;
+    }
 }
 
 #[cfg(test)]
