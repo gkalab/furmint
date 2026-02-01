@@ -175,11 +175,11 @@ impl FileSystem for StdFileSystem {
     ) -> anyhow::Result<()> {
         let path = path.to_path_buf();
         tokio::task::spawn_blocking(move || {
-            let duration = mtime
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|_| std::io::Error::other("invalid mtime"))?;
             #[cfg(unix)]
             {
+                let duration = mtime
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_err(|_| std::io::Error::other("invalid mtime"))?;
                 let _sec = duration.as_secs() as libc::time_t;
                 let _nsec = duration.subsec_nanos() as libc::c_long;
                 let path_cstr =
