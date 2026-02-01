@@ -1,11 +1,17 @@
+#[cfg(unix)]
 use anyhow::{Result, anyhow};
+#[cfg(unix)]
 use std::path::Path;
+#[cfg(unix)]
 use std::process::Stdio;
+#[cfg(unix)]
 use tokio::io::{AsyncBufReadExt, BufReader};
+#[cfg(unix)]
 use tokio::process::Command;
 
 /// Detect if rsync should be used for this transfer
 /// Returns true only for local-remote or remote-local COPY operations
+#[cfg(unix)]
 pub fn should_use_rsync(
     src_is_local: bool,
     dest_is_local: bool,
@@ -21,9 +27,19 @@ pub fn should_use_rsync(
     src_is_local != dest_is_local
 }
 
+#[cfg(not(unix))]
+pub fn should_use_rsync(
+    _src_is_local: bool,
+    _dest_is_local: bool,
+    _action: crate::app::CopyMoveAction,
+) -> bool {
+    false
+}
+
 /// Execute rsync for local → remote or remote → local file transfer
 /// Uses SSH agent or key-based authentication to avoid password prompts
 /// Returns Ok(()) if rsync succeeded, Err if it failed or is not applicable
+#[cfg(unix)]
 pub async fn rsync_transfer(
     src_fs: &dyn crate::fs::traits::FileSystem,
     dest_fs: &dyn crate::fs::traits::FileSystem,
@@ -152,8 +168,20 @@ pub async fn rsync_transfer(
     Ok(())
 }
 
+#[cfg(not(unix))]
+pub async fn rsync_transfer(
+    _src_fs: &dyn crate::fs::traits::FileSystem,
+    _dest_fs: &dyn crate::fs::traits::FileSystem,
+    _src: &std::path::Path,
+    _dest: &std::path::Path,
+    _progress_ctx: &crate::fs::traits::TaskProgressContext,
+) -> anyhow::Result<()> {
+    anyhow::bail!("rsync is not supported on this platform")
+}
+
 /// Get SSH options for rsync to use existing SSH authentication
 /// This tells rsync to use SSH agent or available keys without prompting for passwords
+#[cfg(unix)]
 fn get_ssh_options(_fs: &dyn crate::fs::traits::FileSystem, has_password: bool) -> Result<String> {
     // Use SSH with the following options:
     // - BatchMode=yes: Never prompt for password (fail instead) - ONLY if no password provided
@@ -171,7 +199,11 @@ fn get_ssh_options(_fs: &dyn crate::fs::traits::FileSystem, has_password: bool) 
 }
 
 /// Format remote path for rsync (e.g., "user@host:/path/to/file")
-fn format_remote_path(fs: &dyn crate::fs::traits::FileSystem, path: &Path) -> Result<String> {
+#[cfg(unix)]
+fn format_remote_path(
+    fs: &dyn crate::fs::traits::FileSystem,
+    path: &std::path::Path,
+) -> Result<String> {
     // Extract user@host from fs.context_key() which is formatted as "[user@host]"
     let context = fs.context_key();
     let user_host = context
@@ -187,11 +219,13 @@ fn format_remote_path(fs: &dyn crate::fs::traits::FileSystem, path: &Path) -> Re
 }
 
 /// Parse rsync progress output
+#[cfg(unix)]
 struct RsyncProgress {
     bytes_transferred: u64,
     total_bytes: u64,
 }
 
+#[cfg(unix)]
 fn parse_rsync_progress(line: &str) -> Option<RsyncProgress> {
     // rsync --info=progress2 format:
     // "  1,234,567  45%  123.45kB/s    0:00:12"
@@ -222,7 +256,7 @@ fn parse_rsync_progress(line: &str) -> Option<RsyncProgress> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 

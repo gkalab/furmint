@@ -35,7 +35,6 @@ open = "5.3"
 shell-escape = "0.1"
 shell-words = "1.1"
 ssh2 = "0.9"
-openssh = "0.11"
 clipboard = "0.4"
 
 [target.'cfg(windows)'.dependencies]
@@ -47,6 +46,9 @@ windows = { version = "0.62", features = [
     "Win32_System_Memory",
     "Win32_UI_Shell",
 ] }
+
+[target.'cfg(unix)'.dependencies]
+openssh = "0.11"
 
 [profile.release]
 codegen-units = 1
