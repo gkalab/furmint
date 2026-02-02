@@ -51,13 +51,30 @@ pub async fn rsync_transfer(
     let dest_is_local = dest_fs.is_local();
 
     // Determine rsync source and destination arguments
+    let is_dir = src_fs.is_dir(src).await.unwrap_or(false);
+    let src_str = if is_dir {
+        let mut s = src.to_string_lossy().to_string();
+        if !s.ends_with('/') {
+            s.push('/');
+        }
+        s
+    } else {
+        src.to_string_lossy().to_string()
+    };
+
     let (src_arg, dest_arg, remote_fs) = if src_is_local && !dest_is_local {
         // Local → Remote
         let remote_spec = format_remote_path(dest_fs, dest)?;
-        (src.to_string_lossy().to_string(), remote_spec, dest_fs)
+        (src_str, remote_spec, dest_fs)
     } else if !src_is_local && dest_is_local {
         // Remote → Local
         let remote_spec = format_remote_path(src_fs, src)?;
+        // Also add trailing slash to remote spec if it's a directory
+        let remote_spec = if is_dir && !remote_spec.ends_with('/') {
+            format!("{}/", remote_spec)
+        } else {
+            remote_spec
+        };
         (remote_spec, dest.to_string_lossy().to_string(), src_fs)
     } else {
         return Err(anyhow!("rsync only supports local-remote transfers"));
