@@ -322,16 +322,22 @@ async fn perform_sftp_copy(
         processed_bytes: ctx.processed_bytes.clone(),
     };
 
-    // Try rsync first for local-remote copy operations
+    // Try rsync first for local-remote copy operations, but only for larger files
+    // Small files have more overhead with rsync than benefit
+    const RSYNC_MIN_SIZE: u64 = 1024 * 1024; // 1 MB threshold
+
     let src_is_local = ctx.src_fs.is_local();
     let dest_is_local = ctx.dest_fs.is_local();
+    let file_size = ctx.src_fs.get_size(src).await.unwrap_or(0);
+
     if crate::fs_rsync::should_use_rsync(src_is_local, dest_is_local, ctx.action)
+        && file_size >= RSYNC_MIN_SIZE
         && let Ok(()) =
             crate::fs_rsync::rsync_transfer(ctx.src_fs, ctx.dest_fs, src, dest, &progress).await
     {
         return Some(Ok(()));
     }
-    // If rsync fails, fall through to SFTP
+    // If rsync not used or fails, fall through to SFTP
 
     // Try source-optimized copy first
     if let Some(res) = ctx.src_fs.download(src, ctx.dest_fs, dest, &progress).await {
