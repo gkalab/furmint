@@ -1,8 +1,3 @@
-// Clippy allows - these will be addressed in Phase 3 modularization
-#![allow(clippy::too_many_lines)]
-#![allow(clippy::too_many_arguments)]
-#![allow(clippy::match_same_arms)]
-
 use crate::app::{AppState, PanelSide};
 use crate::config::KeyboardConfig;
 use crate::handlers::file_viewer::handle_file_viewer_event;
