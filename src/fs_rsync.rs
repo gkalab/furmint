@@ -80,6 +80,7 @@ pub async fn rsync_transfer(
         .arg("--partial") // keep partial files for resume
         .arg("--progress") // show progress
         .arg("--info=progress2") // better progress format
+        .arg("--no-whole-file") // force delta-transfer algorithm
         .arg("-e")
         .arg(&ssh_opts) // SSH options to reuse authentication
         .arg(&src_arg)

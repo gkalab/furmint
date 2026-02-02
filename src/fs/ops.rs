@@ -147,7 +147,7 @@ async fn handle_file(
                 .into_owned(),
         ));
 
-        if !perform_file_copy(ctx, decision_state, src, dest, dest_exists).await? {
+        if !perform_file_copy(ctx, decision_state, src, dest).await? {
             perform = false;
         }
     }
@@ -351,14 +351,9 @@ async fn perform_file_copy(
     decision_state: &mut DecisionState,
     src: &std::path::Path,
     dest: &std::path::Path,
-    dest_exists: bool,
 ) -> Result<bool, String> {
     let mut perform = true;
     loop {
-        if dest_exists {
-            let _ = ctx.dest_fs.remove_file(dest).await;
-        }
-
         // Check if it's the same filesystem type
         let same_fs = ctx.src_fs.context_key() == ctx.dest_fs.context_key();
         let copy_res = if same_fs {
@@ -911,10 +906,6 @@ mod mock_fs_tests {
         let copies = fs.copies.lock().await;
         assert!(copies.iter().any(|(_, d)| d == &dest_root.join("f1.txt")));
         assert!(copies.iter().any(|(_, d)| d == &dest_root.join("f2.txt")));
-        // Check removed_files for f1 and f2 (overwritten files are removed before copy in the implementation)
-        let removed = fs.removed_files.lock().await;
-        assert!(removed.contains(&dest_root.join("f1.txt")));
-        assert!(removed.contains(&dest_root.join("f2.txt")));
     }
 
     #[tokio::test]
