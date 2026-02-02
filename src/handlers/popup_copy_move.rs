@@ -336,9 +336,23 @@ pub fn spawn_copy_move_task(
             let src_fs = crate::fs::provider::ProviderFileSystem(src_provider);
             let dest_fs = crate::fs::provider::ProviderFileSystem(dest_provider);
             let dest_path = std::path::PathBuf::from(&dest_str);
+
+            use crate::fs::traits::FileSystem;
+
+            // Check if rsync can be used for this transfer
+            let src_is_local = src_fs.is_local();
+            let dest_is_local = dest_fs.is_local();
+            let use_rsync = crate::fs_rsync::should_use_rsync(src_is_local, dest_is_local, action);
+
             // Pre-calculation of total items using the source filesystem
-            let (total_items, total_bytes) =
-                crate::fs::ops::count_items_and_size(&src_fs, &paths).await;
+            // Skip this for rsync-eligible transfers to avoid slow remote directory traversal
+            // (rsync provides its own byte-level progress)
+            let (total_items, total_bytes) = if use_rsync {
+                // For rsync, just count top-level items - rsync handles progress internally
+                (paths.len(), 0)
+            } else {
+                crate::fs::ops::count_items_and_size(&src_fs, &paths).await
+            };
             let processed_items = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
             let processed_bytes = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
 
@@ -355,7 +369,6 @@ pub fn spawn_copy_move_task(
             let decision_rx = std::sync::Arc::new(tokio::sync::Mutex::new(decision_rx));
 
             // Ensure dest dir exists if multiple items or if treated as dir
-            use crate::fs::traits::FileSystem;
 
             // Re-evaluate if destination is a directory using the correct filesystem
             let dest_is_dir = dest_fs.is_dir(&dest_path).await.unwrap_or(false);
@@ -410,7 +423,96 @@ pub fn spawn_copy_move_task(
                     dest_path.clone()
                 };
 
-                // Recursive copy/move
+                // Try rsync for directories when applicable
+                let src_is_dir = src_fs.is_dir(src).await.unwrap_or(false);
+                if use_rsync && src_is_dir {
+                    // Check for conflicts before rsync transfer
+                    let target_exists = dest_fs.try_exists(&target).await.unwrap_or(false);
+                    let mut should_proceed = true;
+
+                    if target_exists {
+                        // Check decision state for overwrite/skip all
+                        if decision_state.skip_all {
+                            should_proceed = false;
+                        } else if !decision_state.overwrite_all {
+                            // Ask user about conflict
+                            let _ = tx.send(crate::tasks::TaskEvent::Conflict(
+                                id,
+                                target.clone(),
+                                crate::tasks::ConflictType::FileExists,
+                            ));
+
+                            // Wait for decision
+                            let decision = decision_rx.lock().await.recv().await;
+                            match decision {
+                                Some(crate::tasks::TaskDecision::Overwrite) => {
+                                    should_proceed = true;
+                                }
+                                Some(crate::tasks::TaskDecision::OverwriteAll) => {
+                                    decision_state.overwrite_all = true;
+                                    should_proceed = true;
+                                }
+                                Some(crate::tasks::TaskDecision::Skip) => {
+                                    should_proceed = false;
+                                }
+                                Some(crate::tasks::TaskDecision::SkipAll) => {
+                                    decision_state.skip_all = true;
+                                    should_proceed = false;
+                                }
+                                Some(crate::tasks::TaskDecision::Cancel) => {
+                                    cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                                    let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
+                                        id,
+                                        crate::tasks::TaskStatus::Cancelled,
+                                    ));
+                                    return;
+                                }
+                                _ => {
+                                    should_proceed = false;
+                                }
+                            }
+                        }
+                    }
+
+                    if should_proceed {
+                        let progress = crate::fs::traits::TaskProgressContext {
+                            id,
+                            tx: tx.clone(),
+                            cancel: cancel.clone(),
+                            processed_bytes: processed_bytes.clone(),
+                        };
+
+                        // Try rsync for the entire directory
+                        if crate::fs_rsync::rsync_transfer(
+                            &src_fs, &dest_fs, src, &target, &progress,
+                        )
+                        .await
+                        .is_ok()
+                        {
+                            // Rsync succeeded - count directory as 1 item for progress
+                            // (rsync already provides byte-level progress)
+                            let p = processed_items
+                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                                + 1;
+                            let _ = tx.send(crate::tasks::TaskEvent::UpdateProgress(
+                                id,
+                                p,
+                                total_items,
+                            ));
+                            continue; // Move to next source path
+                        }
+                        // Rsync failed - fall through to recursive_op
+                    } else {
+                        // Skipped - update progress and continue
+                        let p =
+                            processed_items.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                        let _ =
+                            tx.send(crate::tasks::TaskEvent::UpdateProgress(id, p, total_items));
+                        continue;
+                    }
+                }
+
+                // Recursive copy/move (also handles per-file rsync as fallback)
                 let ctx = crate::fs::ops::RecursiveOpContext {
                     src_fs: &src_fs,
                     dest_fs: &dest_fs,
