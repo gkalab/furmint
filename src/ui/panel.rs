@@ -273,14 +273,9 @@ pub fn draw_panel(
         Constraint::Length(10), // Attributes: always 10
     ];
     let panel_selection_background = if active {
-        Color::Rgb(palette.surface2.r, palette.surface2.g, palette.surface2.b)
+        Color::Rgb(palette.surface0.r, palette.surface0.g, palette.surface0.b)
     } else {
         Color::Rgb(palette.base.r, palette.base.g, palette.base.b)
-    };
-    let panel_selection_foreground = if !palette.is_dark && active {
-        Color::Rgb(palette.base.r, palette.base.g, palette.base.b)
-    } else {
-        Color::Rgb(palette.text.r, palette.text.g, palette.text.b)
     };
     let table = Table::new(rows, widths)
         .header(Row::new(header).style(Style::default().fg(Color::Rgb(
@@ -291,11 +286,7 @@ pub fn draw_panel(
         .block(block);
 
     let table = if active {
-        table.row_highlight_style(
-            Style::default()
-                .bg(panel_selection_background)
-                .fg(panel_selection_foreground),
-        )
+        table.row_highlight_style(Style::default().bg(panel_selection_background))
     } else {
         table
     };
