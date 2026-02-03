@@ -4,6 +4,9 @@ use crate::fs_provider::FileSystemProvider;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
+
+pub const SEARCH_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[derive(Clone)]
 pub struct HistoryEntry {
@@ -212,7 +215,6 @@ impl Tab {
             .collect();
 
         self.entries = entries;
-        self.search_highlights.clear();
 
         // Restore selection state after replacing entries
         for entry in &mut self.entries {
@@ -227,18 +229,31 @@ impl Tab {
         if let Some(name) = old_cursor_name {
             if let Some(idx) = self.entries.iter().position(|e| e.name == name) {
                 self.cursor = idx;
-            } else {
+            } else if self.cursor >= self.entries.len() {
                 // File gone, keep cursor within bounds
-                if self.cursor >= self.entries.len() {
-                    self.cursor = self.entries.len().saturating_sub(1);
-                }
-            }
-        } else {
-            // Adjust cursor if out of bounds
-            if self.cursor >= self.entries.len() {
                 self.cursor = self.entries.len().saturating_sub(1);
             }
+        } else if self.cursor >= self.entries.len() {
+            // Adjust cursor if out of bounds
+            self.cursor = self.entries.len().saturating_sub(1);
         }
+
+        // If search is active, re-apply highlights to new entries
+        if self.is_search_active() {
+            self.apply_search_highlights();
+
+            // Update search_position to match the current cursor in new matching_indices
+            if let Some(pos) = self
+                .matching_indices
+                .iter()
+                .position(|&idx| idx == self.cursor)
+            {
+                self.search_position = pos;
+            }
+        } else {
+            self.search_highlights.clear();
+        }
+
         true
     }
 
@@ -451,6 +466,62 @@ impl Tab {
         let max_scroll = self.entries.len().saturating_sub(visible_rows);
         if self.scroll_offset > max_scroll {
             self.scroll_offset = max_scroll;
+        }
+    }
+
+    pub fn is_search_active(&self) -> bool {
+        !self.typed_buffer.is_empty()
+            && self
+                .last_type_time
+                .is_some_and(|t| t.elapsed() < SEARCH_TIMEOUT)
+    }
+
+    pub fn reset_search(&mut self) {
+        self.typed_buffer.clear();
+        self.last_type_time = None;
+        self.matching_indices.clear();
+        self.search_position = 0;
+        self.search_highlights.clear();
+    }
+
+    pub fn apply_search_highlights(&mut self) {
+        if self.typed_buffer.is_empty() {
+            self.search_highlights.clear();
+            self.matching_indices.clear();
+            return;
+        }
+
+        let query = self.typed_buffer.to_lowercase();
+        self.matching_indices.clear();
+        self.search_highlights.clear();
+
+        // 1. Prefix matches
+        for (i, entry) in self.entries.iter().enumerate() {
+            if entry.name.to_lowercase().starts_with(&query) {
+                self.matching_indices.push(i);
+                // For prefix matches, highlight the prefix
+                let mut matches = Vec::new();
+                for j in 0..self.typed_buffer.chars().count() {
+                    matches.push(j);
+                }
+                self.search_highlights.insert(i, matches);
+            }
+        }
+
+        // 2. Fuzzy matches (if no prefix matches or to supplement)
+        if self.matching_indices.is_empty() {
+            use fuzzy_matcher::FuzzyMatcher;
+            use fuzzy_matcher::skim::SkimMatcherV2;
+            let matcher = SkimMatcherV2::default();
+
+            for (i, entry) in self.entries.iter().enumerate() {
+                if let Some((_, indices)) =
+                    matcher.fuzzy_indices(&entry.name.to_lowercase(), &query)
+                {
+                    self.matching_indices.push(i);
+                    self.search_highlights.insert(i, indices);
+                }
+            }
         }
     }
 }

@@ -402,11 +402,8 @@ fn handle_basic_nav(app: &mut AppState, code: KeyCode, modifiers: KeyModifiers) 
             PanelSide::Right => &mut app.right,
         };
         let panel = tab_manager.active_tab_mut();
-        // Check if search is active (within 1 second timeout)
-        let search_active = !panel.typed_buffer.is_empty()
-            && panel.last_type_time.is_some_and(|t| {
-                std::time::Instant::now().duration_since(t) <= std::time::Duration::from_secs(1)
-            });
+        // Check if search is active
+        let search_active = panel.is_search_active();
 
         // We moved logic here, but handle_tab is missing import?
         // handle_tab is usually in events or navigation.

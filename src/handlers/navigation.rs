@@ -1,8 +1,6 @@
 //! Navigation-related event handlers for directory and panel navigation.
 
 use crate::app::{AppState, PanelSide};
-use fuzzy_matcher::FuzzyMatcher;
-use fuzzy_matcher::skim::SkimMatcherV2;
 
 // Moves the cursor up in the active panel.
 pub fn handle_up(app: &mut AppState) {
@@ -42,62 +40,17 @@ pub fn handle_end(app: &mut AppState) {
 
 // Handles quick type-to-select in the active panel.
 pub fn handle_type_char(app: &mut AppState, c: char) {
-    use std::time::Instant;
     let panel = app.active_tab_mut();
-    let now = Instant::now();
-    let reset_threshold = std::time::Duration::from_secs(1);
-    // If last_type_time is None or too old, reset buffer
-    if panel
-        .last_type_time
-        .is_none_or(|t| now.duration_since(t) > reset_threshold)
-    {
+
+    // If search is not active (timed out or not started), clear buffer
+    if !panel.is_search_active() {
         panel.typed_buffer.clear();
     }
+
     panel.typed_buffer.push(c);
-    panel.last_type_time = Some(now);
-    let typed = panel.typed_buffer.to_lowercase();
-    panel.search_highlights.clear();
+    panel.last_type_time = Some(std::time::Instant::now());
 
-    // Find all entries whose name starts with typed
-    panel.matching_indices = panel
-        .entries
-        .iter()
-        .enumerate()
-        .filter(|(idx, entry)| {
-            if entry.name.to_lowercase().starts_with(&typed) {
-                panel
-                    .search_highlights
-                    .insert(*idx, (0..typed.len()).collect());
-                true
-            } else {
-                false
-            }
-        })
-        .map(|(idx, _)| idx)
-        .collect();
-
-    // If no prefix matches, try fuzzy matching
-    if panel.matching_indices.is_empty() {
-        let matcher = SkimMatcherV2::default();
-        let mut results: Vec<(usize, i64, Vec<usize>)> = panel
-            .entries
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, entry)| {
-                matcher
-                    .fuzzy_indices(&entry.name.to_lowercase(), &typed)
-                    .map(|(score, indices)| (idx, score, indices))
-            })
-            .collect();
-
-        // Sort by score (descending)
-        results.sort_by(|a, b| b.1.cmp(&a.1));
-
-        for (idx, _, indices) in &results {
-            panel.search_highlights.insert(*idx, indices.clone());
-        }
-        panel.matching_indices = results.into_iter().map(|(idx, _, _)| idx).collect();
-    }
+    panel.apply_search_highlights();
 
     // Select first match
     if let Some(&idx) = panel.matching_indices.first() {
@@ -145,27 +98,13 @@ pub fn handle_down_search(app: &mut AppState) {
 
 /// Reset search state (called on Esc or timeout)
 pub fn reset_search(app: &mut AppState) {
-    let panel = app.active_tab_mut();
-    panel.typed_buffer.clear();
-    panel.matching_indices.clear();
-    panel.search_highlights.clear();
-    panel.search_position = 0;
-    panel.last_type_time = None;
+    app.active_tab_mut().reset_search();
 }
 
 /// Reset search state if timeout has expired (called periodically and for navigation keys)
 pub fn reset_expired_search(app: &mut AppState) {
-    let panel = app.active_tab_mut();
-    if !panel.typed_buffer.is_empty()
-        && panel.last_type_time.is_some_and(|t| {
-            std::time::Instant::now().duration_since(t) > std::time::Duration::from_secs(1)
-        })
-    {
-        panel.typed_buffer.clear();
-        panel.matching_indices.clear();
-        panel.search_highlights.clear();
-        panel.search_position = 0;
-        panel.last_type_time = None;
+    if !app.active_tab().is_search_active() {
+        app.active_tab_mut().reset_search();
     }
 }
 
