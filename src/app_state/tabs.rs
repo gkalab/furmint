@@ -201,7 +201,10 @@ impl Tab {
 
     /// Reload entries while preserving selection state and cursor position
     pub fn reload_preserving_state(&mut self, entries: Vec<crate::fs::utils::FileEntry>) -> bool {
-        if entries == self.entries {
+        let mut new_entries = entries;
+        self.sort_entries_list(&mut new_entries);
+
+        if self.entries_equal_ignoring_selection(&new_entries) {
             return false;
         }
 
@@ -214,7 +217,8 @@ impl Tab {
             .map(|e| e.name.clone())
             .collect();
 
-        self.entries = entries;
+        self.entries = new_entries;
+        self.search_highlights.clear();
 
         // Restore selection state after replacing entries
         for entry in &mut self.entries {
@@ -229,13 +233,17 @@ impl Tab {
         if let Some(name) = old_cursor_name {
             if let Some(idx) = self.entries.iter().position(|e| e.name == name) {
                 self.cursor = idx;
-            } else if self.cursor >= self.entries.len() {
+            } else {
                 // File gone, keep cursor within bounds
+                if self.cursor >= self.entries.len() {
+                    self.cursor = self.entries.len().saturating_sub(1);
+                }
+            }
+        } else {
+            // Adjust cursor if out of bounds
+            if self.cursor >= self.entries.len() {
                 self.cursor = self.entries.len().saturating_sub(1);
             }
-        } else if self.cursor >= self.entries.len() {
-            // Adjust cursor if out of bounds
-            self.cursor = self.entries.len().saturating_sub(1);
         }
 
         // If search is active, re-apply highlights to new entries
@@ -342,7 +350,13 @@ impl Tab {
     }
 
     pub fn sort_entries(&mut self) {
-        self.entries.sort_by(|a, b| {
+        let mut entries = std::mem::take(&mut self.entries);
+        self.sort_entries_list(&mut entries);
+        self.entries = entries;
+    }
+
+    pub fn sort_entries_list(&self, entries: &mut [crate::fs::utils::FileEntry]) {
+        entries.sort_by(|a, b| {
             // ".." always first
             if a.name == ".." {
                 return std::cmp::Ordering::Less;
@@ -431,6 +445,29 @@ impl Tab {
                 ord
             }
         });
+    }
+
+    fn entries_equal_ignoring_selection(
+        &self,
+        new_entries: &[crate::fs::utils::FileEntry],
+    ) -> bool {
+        if self.entries.len() != new_entries.len() {
+            return false;
+        }
+
+        for (old, new) in self.entries.iter().zip(new_entries.iter()) {
+            if old.name != new.name
+                || old.is_dir != new.is_dir
+                || old.is_symlink != new.is_symlink
+                || old.size != new.size
+                || old.modified != new.modified
+                || old.attributes != new.attributes
+            {
+                return false;
+            }
+        }
+
+        true
     }
 
     pub fn handle_sort(&mut self, column: SortColumn) {
@@ -743,6 +780,9 @@ mod tests {
 
         // Store cursor position
         let original_cursor = tab.cursor;
+
+        // Change a file to trigger reload
+        std::fs::write(&file1_path, "modified").unwrap();
 
         // Reload should preserve selection and cursor
         let reloaded = tab.reload().unwrap();

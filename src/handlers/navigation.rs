@@ -103,9 +103,16 @@ pub fn reset_search(app: &mut AppState) {
 
 /// Reset search state if timeout has expired (called periodically and for navigation keys)
 pub fn reset_expired_search(app: &mut AppState) {
-    if !app.active_tab().is_search_active() {
-        app.active_tab_mut().reset_search();
-    }
+    let handle_tabs = |tabs: &mut [crate::app::Tab]| {
+        for tab in tabs {
+            if !tab.is_search_active() {
+                tab.reset_search();
+            }
+        }
+    };
+
+    handle_tabs(&mut app.left.tabs);
+    handle_tabs(&mut app.right.tabs);
 }
 
 // Switches between panels or focuses file viewer.
