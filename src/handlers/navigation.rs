@@ -134,19 +134,16 @@ pub fn update_viewer_content(app: &mut AppState) {
     }
     let panel = app.active_tab();
     let Some(entry) = panel.current_entry() else {
-        app.file_viewer.content = vec![];
+        app.file_viewer.reset();
         return;
     };
-    if entry.is_dir {
-        app.file_viewer.content = vec!["Directory".to_string()];
-    } else {
-        let full_path = panel.current_dir.join(&entry.name);
-        let provider = panel.provider.clone();
-        let size = entry.size;
-        let max_file_size = 10 * 1024 * 1024;
-        app.file_viewer
-            .load_content(full_path, provider, size, max_file_size);
-    }
+    let full_path = panel.current_dir.join(&entry.name);
+    let provider = panel.provider.clone();
+    let size = entry.size;
+    let max_file_size = 10 * 1024 * 1024;
+    app.file_viewer
+        .load_content(full_path, provider, size, max_file_size);
+    app.needs_redraw = true;
 }
 
 pub fn handle_enter_directory(app: &mut AppState) {

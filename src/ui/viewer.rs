@@ -2,12 +2,12 @@ use crate::app::FileViewerState;
 use crate::theme::ThemePalette;
 use crate::ui_utils::TabScrollbarContext;
 use ratatui::prelude::*;
-use ratatui::widgets::{Block, Borders};
+use ratatui::widgets::{Block, Borders, Paragraph};
 use syntect::easy::HighlightLines;
 
 pub fn draw_file_viewer(
     f: &mut ratatui::Frame,
-    viewer: &FileViewerState,
+    viewer: &mut FileViewerState,
     area: Rect,
     palette: &ThemePalette,
     borders: bool,
@@ -30,6 +30,13 @@ pub fn draw_file_viewer(
     let inner_area = block.inner(area);
     f.render_widget(block, area);
 
+    if let Some(protocol) = &mut viewer.protocol
+        && protocol.protocol_type().is_some()
+    {
+        f.render_stateful_widget(ratatui_image::StatefulImage::new(), inner_area, protocol);
+        return;
+    }
+
     if viewer.content.is_empty() {
         return;
     }
@@ -49,8 +56,9 @@ pub fn draw_file_viewer(
     let start_line = viewer.scroll_offset.min(max_lines.saturating_sub(1));
     let end_line = (start_line + visible_lines).min(max_lines);
 
-    for (i, line) in viewer.content[start_line..end_line].iter().enumerate() {
-        let ranges: Vec<(syntect::highlighting::Style, &str)> = h
+    let mut lines = Vec::new();
+    for line in viewer.content[start_line..end_line].iter() {
+        let ranges = h
             .highlight_line(line, &viewer.syntax_set)
             .unwrap_or_default();
 
@@ -60,16 +68,10 @@ pub fn draw_file_viewer(
             inner_area.width as usize,
         );
 
-        f.render_widget(
-            Line::from(spans),
-            Rect {
-                x: inner_area.x,
-                y: inner_area.y + i as u16,
-                width: inner_area.width,
-                height: 1,
-            },
-        );
+        lines.push(Line::from(spans));
     }
+
+    f.render_widget(Paragraph::new(lines), inner_area);
 
     // Scrollbar
     let scroll_area = Rect {

@@ -16,6 +16,7 @@ use crate::handlers::popup_ssh::{handle_ssh_connection_event, handle_ssh_passwor
 use crate::handlers::terminal::handle_toggle_console;
 use crate::theme::ThemePalette;
 use crate::ui::{draw_panel, draw_panel_status};
+use tokio::sync::mpsc::UnboundedReceiver;
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::prelude::*;
@@ -51,8 +52,9 @@ pub async fn run_event_loop(
     app: &mut AppState,
     palette: &ThemePalette,
     keyboard: KeyboardConfig,
-    watcher_rx: &mut tokio::sync::mpsc::UnboundedReceiver<crate::watcher::WatcherEvent>,
-    task_rx: &mut tokio::sync::mpsc::UnboundedReceiver<crate::tasks::TaskEvent>,
+    watcher_rx: &mut UnboundedReceiver<crate::watcher::WatcherEvent>,
+    task_rx: &mut UnboundedReceiver<crate::tasks::TaskEvent>,
+    image_load_rx: &mut UnboundedReceiver<crate::state::ImageLoadResult>,
 ) -> anyhow::Result<()> {
     // Create channel for terminal events
     let (input_tx, mut input_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -126,6 +128,28 @@ pub async fn run_event_loop(
                                 if let Some(w) = &mut app.remote_watcher {
                                     let _ = w.poll();
                                 }
+                                draw_ui(terminal, app, palette, &keyboard)?;
+                            }
+                            // Handle image resize requests immediately and off-thread
+                            Some(request) = async {
+                                if let Some(rx) = &mut app.file_viewer.resize_rx {
+                                    rx.recv().await
+                                } else {
+                                    std::future::pending().await
+                                }
+                            } => {
+                                let encoded = tokio::task::spawn_blocking(move || -> Result<ratatui_image::thread::ResizeResponse, _> {
+                                    request.resize_encode()
+                                }).await.ok().and_then(|r| r.ok());
+
+                                if let (Some(encoded), Some(protocol)) = (encoded, &mut app.file_viewer.protocol) {
+                                    let _ = protocol.update_resized_protocol(encoded);
+                                    draw_ui(terminal, app, palette, &keyboard)?;
+                                }
+                            }
+                            // Handle image load results
+                            Some(load_result) = image_load_rx.recv() => {
+                                app.file_viewer.handle_load_result(load_result);
                                 draw_ui(terminal, app, palette, &keyboard)?;
                             }
                             else => break,
@@ -234,7 +258,7 @@ fn draw_ui(
         if app.file_viewer.is_visible && app.active == PanelSide::Right {
             crate::ui::draw_file_viewer(
                 f,
-                &app.file_viewer,
+                &mut app.file_viewer,
                 panel_chunks[0],
                 palette,
                 app.global.borders.unwrap_or(false),
@@ -258,7 +282,7 @@ fn draw_ui(
         if app.file_viewer.is_visible && app.active == PanelSide::Left {
             crate::ui::draw_file_viewer(
                 f,
-                &app.file_viewer,
+                &mut app.file_viewer,
                 panel_chunks[1],
                 palette,
                 app.global.borders.unwrap_or(false),

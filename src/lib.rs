@@ -76,6 +76,8 @@ pub async fn run() -> Result<()> {
 
     let persistent_state = crate::app::AppState::load_state().ok().flatten();
 
+    let (image_load_tx, mut image_load_rx) = tokio::sync::mpsc::unbounded_channel();
+
     let ctx = crate::app::AppConfigContext {
         palette: &palette,
         global: global_config,
@@ -105,6 +107,9 @@ pub async fn run() -> Result<()> {
         )
     };
 
+    app.file_viewer.image_load_tx = Some(image_load_tx);
+    app.file_viewer.init_picker();
+
     let context_key = app.active_tab().provider.context_key();
     app.dir_history.record_visit(&context_key, &cwd);
 
@@ -117,6 +122,7 @@ pub async fn run() -> Result<()> {
         keyboard,
         &mut watcher_rx,
         &mut task_rx,
+        &mut image_load_rx,
     )
     .await?;
 

@@ -36,6 +36,8 @@ shell-escape = "0.1"
 shell-words = "1.1"
 ssh2 = "0.9"
 clipboard = "0.4"
+ratatui-image = { version = "10.0.4", default-features = false, features = ["chafa-static", "tokio"] }
+image = { version = "0.25", features = ["default"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
