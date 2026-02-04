@@ -143,7 +143,6 @@ pub fn update_viewer_content(app: &mut AppState) {
     let max_file_size = 10 * 1024 * 1024;
     app.file_viewer
         .load_content(full_path, provider, size, max_file_size);
-    app.needs_redraw = true;
 }
 
 pub fn handle_enter_directory(app: &mut AppState) {
