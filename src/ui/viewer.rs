@@ -16,7 +16,7 @@ pub fn draw_file_viewer(
         .borders(Borders::ALL)
         .title(viewer.path.to_string_lossy())
         .border_style(Style::default().fg(if viewer.focused {
-            Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b)
+            Color::Rgb(palette.border.r, palette.border.g, palette.border.b)
         } else {
             Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b)
         }));

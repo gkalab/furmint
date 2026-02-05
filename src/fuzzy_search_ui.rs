@@ -116,7 +116,7 @@ pub fn draw_fuzzy_search_popup(
 
     let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
     let field_bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
-    let border_color = Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b);
+    let border_color = Color::Rgb(palette.border.r, palette.border.g, palette.border.b);
 
     // Draw outer block
     f.render_widget(

@@ -29,7 +29,7 @@ pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &RenameState, palette: &
 
     let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
 
-    let border_color = Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b);
+    let border_color = Color::Rgb(palette.border.r, palette.border.g, palette.border.b);
 
     let text_color = if state.error.is_some() {
         Color::Rgb(palette.red.r, palette.red.g, palette.red.b)

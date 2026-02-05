@@ -179,7 +179,7 @@ pub fn draw_tab_scrollbar(
         let light_red = lighten_red(ctx.palette.red);
         Color::Rgb(light_red.r, light_red.g, light_red.b)
     } else if ctx.active {
-        Color::Rgb(ctx.palette.blue.r, ctx.palette.blue.g, ctx.palette.blue.b)
+        Color::Rgb(ctx.palette.border.r, ctx.palette.border.g, ctx.palette.border.b)
     } else {
         Color::Rgb(
             ctx.palette.overlay0.r,
@@ -319,7 +319,7 @@ pub fn draw_input_popup(
 
     let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
     let field_bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
-    let border_color = Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b);
+    let border_color = Color::Rgb(palette.border.r, palette.border.g, palette.border.b);
     let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
     let title_color = Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b);
     let error_color = Color::Rgb(palette.red.r, palette.red.g, palette.red.b);

@@ -27,6 +27,7 @@ Run `fm --create-config` to generate a default configuration.
 ## Default Shortcuts
 - `F1`: Help
 - `F2`: Rename
+- `F3`: File viewer
 - `F4`: Edit
 - `F5`: Copy
 - `F6`: Move

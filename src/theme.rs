@@ -32,6 +32,7 @@ pub struct ThemePalette {
     pub green: Rgb,    // Executables
     pub yellow: Rgb,   // Headers
     pub red: Rgb,      // Errors
+    pub border: Rgb,   // Active border
     pub is_dark: bool, // Dark theme flag
 }
 
@@ -53,6 +54,7 @@ pub fn catppuccin_macchiato() -> ThemePalette {
         green: Rgb::new(166, 218, 149),
         yellow: Rgb::new(238, 212, 159),
         red: Rgb::new(237, 135, 150),
+        border: Rgb::new(183, 189, 248),   // Lavender #b7bdf8
         is_dark: true,
     }
 }
@@ -71,6 +73,7 @@ pub fn catppuccin_latte() -> ThemePalette {
         green: Rgb::new(64, 160, 43),
         yellow: Rgb::new(223, 142, 29),
         red: Rgb::new(210, 15, 57),
+        border: Rgb::new(114, 135, 253),   // Lavender #7287fd
         is_dark: false,
     }
 }
@@ -89,6 +92,7 @@ pub fn catppuccin_frappe() -> ThemePalette {
         green: Rgb::new(166, 209, 137),
         yellow: Rgb::new(229, 200, 144),
         red: Rgb::new(231, 130, 132),
+        border: Rgb::new(186, 187, 241),   // Lavender #babbf1
         is_dark: true,
     }
 }
@@ -107,6 +111,7 @@ pub fn catppuccin_mocha() -> ThemePalette {
         green: Rgb::new(166, 227, 161),
         yellow: Rgb::new(249, 226, 175),
         red: Rgb::new(243, 139, 168),
+        border: Rgb::new(180, 190, 254),   // Lavender #b4befe
         is_dark: true,
     }
 }
@@ -129,6 +134,7 @@ pub fn dracula() -> ThemePalette {
         green: Rgb::new(80, 250, 123),    // Green (executables)
         yellow: Rgb::new(241, 250, 140),  // Yellow (headers)
         red: Rgb::new(255, 85, 85),       // Red (errors)
+        border: Rgb::new(129, 92, 214),   // Functional Purple #815CD6
         is_dark: true,
     }
 }
@@ -151,6 +157,7 @@ pub fn nord() -> ThemePalette {
         green: Rgb::new(163, 190, 140),    // nord14 - Aurora (executables)
         yellow: Rgb::new(235, 203, 139),   // nord13 - Aurora (headers)
         red: Rgb::new(191, 97, 106),       // nord11 - Aurora (errors)
+        border: Rgb::new(136, 192, 208),   // nord8 - Frost
         is_dark: true,
     }
 }
@@ -173,6 +180,7 @@ pub fn solarized_light() -> ThemePalette {
         green: Rgb::new(133, 153, 0),      // green (executables)
         yellow: Rgb::new(181, 137, 0),     // yellow (headers)
         red: Rgb::new(220, 50, 47),        // red (errors)
+        border: Rgb::new(38, 139, 210),    // blue
         is_dark: false,
     }
 }
@@ -195,6 +203,7 @@ pub fn mariana() -> ThemePalette {
         green: Rgb::new(153, 199, 148),    // Green #99c794 (executables)
         yellow: Rgb::new(250, 200, 99),    // Yellow #fac863 (headers)
         red: Rgb::new(236, 95, 103),       // Red #ec5f67 (errors)
+        border: Rgb::new(102, 175, 224),   // Blue #66afe0
         is_dark: true,
     }
 }
@@ -217,6 +226,7 @@ pub fn breakers() -> ThemePalette {
         green: Rgb::new(85, 145, 85),      // Green (executables)
         yellow: Rgb::new(180, 140, 40),    // Yellow/orange (headers)
         red: Rgb::new(200, 60, 70),        // Red (errors)
+        border: Rgb::new(53, 124, 176),    // Blue
         is_dark: false,
     }
 }

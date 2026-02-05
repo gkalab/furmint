@@ -13,7 +13,7 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemeP
 
     let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
     let field_bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
-    let border_color = Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b);
+    let border_color = Color::Rgb(palette.border.r, palette.border.g, palette.border.b);
     let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
     let placeholder_color = Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b);
 
@@ -226,7 +226,7 @@ pub fn draw_ssh_password_popup(f: &mut Frame, app: &AppState, palette: &ThemePal
 
     let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
     let field_bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
-    let border_color = Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b);
+    let border_color = Color::Rgb(palette.border.r, palette.border.g, palette.border.b);
     let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
     let placeholder_color = Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b);
 

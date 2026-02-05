@@ -152,7 +152,7 @@ pub fn draw_drive_select_popup(f: &mut Frame, app: &mut AppState, palette: &Them
 
     let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
     let list_bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
-    let border_color = Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b);
+    let border_color = Color::Rgb(palette.border.r, palette.border.g, palette.border.b);
     let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
 
     let drive_selection_background =

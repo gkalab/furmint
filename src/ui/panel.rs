@@ -234,7 +234,7 @@ pub fn draw_panel(
         let light_red = lighten_red(palette.red);
         Color::Rgb(light_red.r, light_red.g, light_red.b)
     } else if active {
-        Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b)
+        Color::Rgb(palette.border.r, palette.border.g, palette.border.b)
     } else {
         Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b)
     };
