@@ -119,7 +119,7 @@ pub fn default_global_config() -> GlobalConfig {
     GlobalConfig {
         theme: Some("mariana".to_string()),
         terminal: None,
-        borders: Some(false),
+        borders: Some(true),
         icons: Some(false),
     }
 }
