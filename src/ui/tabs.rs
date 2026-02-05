@@ -1,6 +1,7 @@
 use crate::app::TabManager;
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
+use crate::ui::panel_bg_color;
 
 /// Draw the tab bar for a panel
 pub fn draw_tab_bar(
@@ -9,6 +10,7 @@ pub fn draw_tab_bar(
     area: Rect,
     palette: &ThemePalette,
     active: bool,
+    borders: bool,
 ) {
     if area.height == 0 {
         return;
@@ -37,13 +39,18 @@ pub fn draw_tab_bar(
                 Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b),
             )
         } else if is_active_tab {
-            // Active tab in inactive panel - use same background as inactive panel
+            (
+                Color::Rgb(palette.text.r, palette.text.g, palette.text.b),
+                Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b),
+            )
+        } else {
+            // Inactive tab
             if palette.is_dark {
                 let r = ((palette.base.r as u16 * 3 + palette.surface1.r as u16) / 4) as u8; // 75%
                 let g = ((palette.base.g as u16 * 3 + palette.surface1.g as u16) / 4) as u8; // 75%
                 let b = ((palette.base.b as u16 * 3 + palette.surface1.b as u16) / 4) as u8; // 75%
                 (
-                    Color::Rgb(palette.text.r, palette.text.g, palette.text.b),
+                    Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b),
                     Color::Rgb(r, g, b),
                 )
             } else {
@@ -51,16 +58,10 @@ pub fn draw_tab_bar(
                 let g = ((palette.base.g as u16 * 14 + palette.surface1.g as u16) / 15) as u8; // 93%
                 let b = ((palette.base.b as u16 * 14 + palette.surface1.b as u16) / 15) as u8; // 93%
                 (
-                    Color::Rgb(palette.text.r, palette.text.g, palette.text.b),
+                    Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b),
                     Color::Rgb(r, g, b),
                 )
             }
-        } else {
-            // Inactive tab
-            (
-                Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b),
-                Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b),
-            )
         };
 
         // Add tab with padding
@@ -76,7 +77,7 @@ pub fn draw_tab_bar(
     }
 
     let line = Line::from(spans);
-    let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
+    let bg_color = panel_bg_color(palette, active, false, borders);
     let paragraph = ratatui::widgets::Paragraph::new(line).style(Style::default().bg(bg_color));
     f.render_widget(paragraph, area);
 }

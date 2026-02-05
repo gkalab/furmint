@@ -266,7 +266,14 @@ fn draw_ui(
         } else {
             let is_active = app.active == PanelSide::Left && !app.file_viewer.focused;
             if show_tabs {
-                crate::ui::draw_tab_bar(f, &app.left, left_panel_layout[0], palette, is_active);
+                crate::ui::draw_tab_bar(
+                    f,
+                    &app.left,
+                    left_panel_layout[0],
+                    palette,
+                    is_active,
+                    app.global.borders.unwrap_or(false),
+                );
             }
             draw_panel(
                 f,
@@ -290,7 +297,14 @@ fn draw_ui(
         } else {
             let is_active = app.active == PanelSide::Right && !app.file_viewer.focused;
             if show_tabs {
-                crate::ui::draw_tab_bar(f, &app.right, right_panel_layout[0], palette, is_active);
+                crate::ui::draw_tab_bar(
+                    f,
+                    &app.right,
+                    right_panel_layout[0],
+                    palette,
+                    is_active,
+                    app.global.borders.unwrap_or(false),
+                );
             }
             draw_panel(
                 f,

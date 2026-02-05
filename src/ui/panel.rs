@@ -25,7 +25,7 @@ fn sort_indicator(
 }
 
 /// Calculate the background color for a panel based on active state and root status
-fn panel_bg_color(palette: &ThemePalette, active: bool, is_root: bool, borders: bool) -> Color {
+pub fn panel_bg_color(palette: &ThemePalette, active: bool, is_root: bool, borders: bool) -> Color {
     let base_bg = if active || borders {
         Color::Rgb(palette.base.r, palette.base.g, palette.base.b)
     } else if palette.is_dark {
