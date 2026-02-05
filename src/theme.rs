@@ -54,7 +54,7 @@ pub fn catppuccin_macchiato() -> ThemePalette {
         green: Rgb::new(166, 218, 149),
         yellow: Rgb::new(238, 212, 159),
         red: Rgb::new(237, 135, 150),
-        border: Rgb::new(183, 189, 248),   // Lavender #b7bdf8
+        border: Rgb::new(183, 189, 248), // Lavender #b7bdf8
         is_dark: true,
     }
 }
@@ -73,7 +73,7 @@ pub fn catppuccin_latte() -> ThemePalette {
         green: Rgb::new(64, 160, 43),
         yellow: Rgb::new(223, 142, 29),
         red: Rgb::new(210, 15, 57),
-        border: Rgb::new(114, 135, 253),   // Lavender #7287fd
+        border: Rgb::new(114, 135, 253), // Lavender #7287fd
         is_dark: false,
     }
 }
@@ -92,7 +92,7 @@ pub fn catppuccin_frappe() -> ThemePalette {
         green: Rgb::new(166, 209, 137),
         yellow: Rgb::new(229, 200, 144),
         red: Rgb::new(231, 130, 132),
-        border: Rgb::new(186, 187, 241),   // Lavender #babbf1
+        border: Rgb::new(186, 187, 241), // Lavender #babbf1
         is_dark: true,
     }
 }
@@ -111,7 +111,7 @@ pub fn catppuccin_mocha() -> ThemePalette {
         green: Rgb::new(166, 227, 161),
         yellow: Rgb::new(249, 226, 175),
         red: Rgb::new(243, 139, 168),
-        border: Rgb::new(180, 190, 254),   // Lavender #b4befe
+        border: Rgb::new(180, 190, 254), // Lavender #b4befe
         is_dark: true,
     }
 }

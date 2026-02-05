@@ -1,7 +1,7 @@
 use crate::app::TabManager;
 use crate::theme::ThemePalette;
-use ratatui::prelude::*;
 use crate::ui::panel_bg_color;
+use ratatui::prelude::*;
 
 /// Draw the tab bar for a panel
 pub fn draw_tab_bar(
@@ -11,11 +11,13 @@ pub fn draw_tab_bar(
     palette: &ThemePalette,
     active: bool,
     borders: bool,
+    icons: bool,
 ) {
     if area.height == 0 {
         return;
     }
 
+    let bg_color = panel_bg_color(palette, active, false, borders);
     let mut spans = Vec::new();
     let tab_count = tab_manager.tabs.len();
 
@@ -65,10 +67,19 @@ pub fn draw_tab_bar(
         };
 
         // Add tab with padding
-        spans.push(Span::styled(
+        if icons {
+            let left_edge = Span::styled("", Style::default().fg(bg).bg(bg_color));
+            spans.push(left_edge);
+        }
+        let title_span = Span::styled(
             format!(" {truncated_title} "),
             Style::default().fg(fg).bg(bg),
-        ));
+        );
+        spans.push(title_span);
+        if icons {
+            let right_edge = Span::styled("", Style::default().fg(bg).bg(bg_color));
+            spans.push(right_edge);
+        }
 
         // Add separator between tabs
         if idx < tab_count - 1 {
@@ -77,7 +88,6 @@ pub fn draw_tab_bar(
     }
 
     let line = Line::from(spans);
-    let bg_color = panel_bg_color(palette, active, false, borders);
     let paragraph = ratatui::widgets::Paragraph::new(line).style(Style::default().bg(bg_color));
     f.render_widget(paragraph, area);
 }

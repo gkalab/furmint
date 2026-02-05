@@ -273,6 +273,7 @@ fn draw_ui(
                     palette,
                     is_active,
                     app.global.borders.unwrap_or(false),
+                    app.global.icons.unwrap_or(false),
                 );
             }
             draw_panel(
@@ -304,6 +305,7 @@ fn draw_ui(
                     palette,
                     is_active,
                     app.global.borders.unwrap_or(false),
+                    app.global.icons.unwrap_or(false),
                 );
             }
             draw_panel(

@@ -179,7 +179,11 @@ pub fn draw_tab_scrollbar(
         let light_red = lighten_red(ctx.palette.red);
         Color::Rgb(light_red.r, light_red.g, light_red.b)
     } else if ctx.active {
-        Color::Rgb(ctx.palette.border.r, ctx.palette.border.g, ctx.palette.border.b)
+        Color::Rgb(
+            ctx.palette.border.r,
+            ctx.palette.border.g,
+            ctx.palette.border.b,
+        )
     } else {
         Color::Rgb(
             ctx.palette.overlay0.r,
