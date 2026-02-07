@@ -5,7 +5,10 @@ use crossterm::event::KeyCode;
 
 pub(crate) fn handle_quit_popup_event(code: KeyCode, app: &mut AppState) -> bool {
     match code {
-        KeyCode::Char('y' | 'Y') | KeyCode::Enter => true,
+        KeyCode::Char('y' | 'Y') | KeyCode::Enter => {
+            app.task_manager.cancel_all_tasks();
+            true
+        }
         KeyCode::Char('n' | 'N') | KeyCode::Esc => {
             app.popups.quit_confirmation.reset();
             false

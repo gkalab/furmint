@@ -131,6 +131,13 @@ impl TaskManager {
         }
     }
 
+    pub fn cancel_all_tasks(&self) {
+        let tasks = self.tasks.lock().unwrap();
+        for task in tasks.values() {
+            task.cancel_flag.store(true, Ordering::Relaxed);
+        }
+    }
+
     pub fn remove_finished_tasks(&self) {
         let mut tasks = self.tasks.lock().unwrap();
         tasks.retain(|_, task| matches!(task.status, TaskStatus::Running));

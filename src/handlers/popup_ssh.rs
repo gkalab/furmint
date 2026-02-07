@@ -520,10 +520,20 @@ fn start_ssh_auth(app: &mut AppState) {
         let connection_name = name_opt;
 
         app.task_manager
-            .spawn_task(task_title, move |_cancel, tx, id| async move {
-                let result = ssh_manager
-                    .try_connect_with_keys(parsed.host, port, parsed.user)
-                    .await;
+            .spawn_task(task_title, move |cancel, tx, id| async move {
+                let result = tokio::select! {
+                    res = ssh_manager.try_connect_with_keys(parsed.host, port, parsed.user) => Some(res),
+                    _ = async {
+                        while !cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                        }
+                    } => None,
+                };
+
+                let Some(result) = result else {
+                    let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Cancelled));
+                    return;
+                };
 
                 match result {
                     Ok((session_id, fs)) => {
@@ -687,11 +697,22 @@ fn reconnect_ssh(app: &mut AppState, session_id: String, password: String) {
 
     app.task_manager.spawn_task(
         "Reconnecting SSH session".to_string(),
-        move |_cancel, tx, id| async move {
-            let result =
-                ssh_manager.reconnect_session(&session_id, password, |_op| async { Ok(()) });
+        move |cancel, tx, id| async move {
+            let result = tokio::select! {
+                res = ssh_manager.reconnect_session(&session_id, password, |_op| async { Ok(()) }) => Some(res),
+                _ = async {
+                    while !cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                    }
+                } => None,
+            };
 
-            match result.await {
+            let Some(result) = result else {
+                let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Cancelled));
+                return;
+            };
+
+            match result {
                 Ok((new_session_id, fs)) => {
                     ssh_manager.clear_password(&old_session_id);
                     ssh_manager.cache_password(&new_session_id, password_for_cache);
@@ -735,10 +756,20 @@ fn connect_ssh(
     let connection_name_clone = connection_name.clone();
 
     app.task_manager
-        .spawn_task(name, move |_cancel, tx, id| async move {
-            let result = ssh_manager
-                .connect_ssh(host, port, user, password, target_path_clone)
-                .await;
+        .spawn_task(name, move |cancel, tx, id| async move {
+            let result = tokio::select! {
+                res = ssh_manager.connect_ssh(host, port, user, password, target_path_clone) => Some(res),
+                _ = async {
+                    while !cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                    }
+                } => None,
+            };
+
+            let Some(result) = result else {
+                let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Cancelled));
+                return;
+            };
 
             match result {
                 Ok((session_id, fs)) => {
@@ -809,13 +840,24 @@ pub fn handle_reconnect_ssh(app: &mut AppState) {
 
             app.task_manager.spawn_task(
                 "Reconnecting SSH session".to_string(),
-                move |_cancel, tx, id| async move {
-                    let result =
-                        ssh_manager.reconnect_session(&session_id, cached_password, |_op| async {
+                move |cancel, tx, id| async move {
+                    let result = tokio::select! {
+                        res = ssh_manager.reconnect_session(&session_id, cached_password, |_op| async {
                             Ok(())
-                        });
+                        }) => Some(res),
+                        _ = async {
+                            while !cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                            }
+                        } => None,
+                    };
 
-                    match result.await {
+                    let Some(result) = result else {
+                        let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Cancelled));
+                        return;
+                    };
+
+                    match result {
                         Ok((new_session_id, fs)) => {
                             ssh_manager.clear_password(&session_id);
                             ssh_manager.cache_password(&new_session_id, password_for_cache);

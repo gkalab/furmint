@@ -176,6 +176,14 @@ impl SshManager {
         port: u16,
         user: String,
     ) -> Result<(String, crate::fs_sftp::SftpFs), SshError> {
+        let addr = format!("{}:{}", host, port);
+        let tcp = tokio::net::TcpStream::connect(&addr)
+            .await
+            .map_err(|e| SshError::Network(e.into()))?;
+        let tcp = tcp
+            .into_std()
+            .map_err(|e| SshError::Internal(e.to_string()))?;
+
         let grace = Duration::from_secs(self.read_timeout_secs);
         let hard = Duration::from_secs(self.watchdog_secs);
         let keepalive = self.keepalive_interval;
@@ -183,9 +191,6 @@ impl SshManager {
 
         self.spawn_blocking_with_watchdog(
             move || -> Result<(String, crate::fs_sftp::SftpFs), SshError> {
-                use std::net::TcpStream;
-                let tcp = TcpStream::connect(format!("{}:{}", host, port))
-                    .map_err(|e| SshError::Network(e.into()))?;
                 let mut sess =
                     ssh2::Session::new().map_err(|e| SshError::Internal(e.to_string()))?;
                 sess.set_tcp_stream(tcp);
@@ -374,6 +379,14 @@ impl SshManager {
         password: String,
         _target_path: Option<String>,
     ) -> Result<(String, crate::fs_sftp::SftpFs), SshError> {
+        let addr = format!("{}:{}", host, port);
+        let tcp = tokio::net::TcpStream::connect(&addr)
+            .await
+            .map_err(|e| SshError::Network(e.into()))?;
+        let tcp = tcp
+            .into_std()
+            .map_err(|e| SshError::Internal(e.to_string()))?;
+
         let session_id = self.generate_session_id(&host, port);
 
         let grace = Duration::from_secs(self.read_timeout_secs);
@@ -385,9 +398,6 @@ impl SshManager {
 
         self.spawn_blocking_with_watchdog(
             move || -> Result<(String, crate::fs_sftp::SftpFs), SshError> {
-                use std::net::TcpStream;
-                let tcp = TcpStream::connect(format!("{}:{}", host_clone, port))
-                    .map_err(|e| SshError::Network(e.into()))?;
                 let mut sess =
                     ssh2::Session::new().map_err(|e| SshError::Internal(e.to_string()))?;
                 sess.set_tcp_stream(tcp);
