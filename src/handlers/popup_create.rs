@@ -58,6 +58,7 @@ pub fn handle_create_directory_event(
                 modifiers,
                 &mut app.popups.create_directory.new_name,
                 &mut app.popups.create_directory.cursor_position,
+                false,
             );
         }
     }
@@ -163,6 +164,7 @@ pub async fn handle_create_file_event(
                 modifiers,
                 &mut app.popups.create_file.input_value,
                 &mut app.popups.create_file.cursor_position,
+                false,
             );
             // Clear error on any input (consistent with create directory)
             if app.popups.create_file.error.is_some() {

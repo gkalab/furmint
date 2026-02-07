@@ -8,33 +8,24 @@ pub fn handle_text_input(
     modifiers: KeyModifiers,
     text: &mut String,
     cursor_position: &mut usize,
-) {
+    is_numeric: bool,
+) -> bool {
     match code {
         KeyCode::Backspace => {
-            if *cursor_position > 0 {
-                let current_len = text.chars().count();
-                if *cursor_position <= current_len {
-                    // Remove char at cursor_position - 1
-                    let byte_idx = text
-                        .char_indices()
-                        .nth(*cursor_position - 1)
-                        .map(|(i, _)| i)
-                        .unwrap();
+            if *cursor_position > 0
+                && let Some((byte_idx, _)) = text.char_indices().nth(*cursor_position - 1) {
                     text.remove(byte_idx);
                     *cursor_position -= 1;
+                    return true;
                 }
-            }
         }
         KeyCode::Delete => {
             let current_len = text.chars().count();
-            if *cursor_position < current_len {
-                let byte_idx = text
-                    .char_indices()
-                    .nth(*cursor_position)
-                    .map(|(i, _)| i)
-                    .unwrap();
-                text.remove(byte_idx);
-            }
+            if *cursor_position < current_len
+                && let Some((byte_idx, _)) = text.char_indices().nth(*cursor_position) {
+                    text.remove(byte_idx);
+                    return true;
+                }
         }
         KeyCode::Left => {
             if *cursor_position > 0 {
@@ -55,20 +46,31 @@ pub fn handle_text_input(
         }
         KeyCode::Char('v') if modifiers.contains(KeyModifiers::CONTROL) => {
             if let Some(content) = get_clipboard_content() {
-                insert_text_at_cursor_unicode(text, cursor_position, &content);
+                let sanitized = if is_numeric {
+                    content.chars().filter(|c| c.is_ascii_digit()).collect()
+                } else {
+                    content
+                };
+                if !sanitized.is_empty() {
+                    insert_text_at_cursor_unicode(text, cursor_position, &sanitized);
+                    return true;
+                }
             }
         }
         KeyCode::Char(c) => {
-            let idx = *cursor_position;
-            let current_len = text.chars().count();
-            if idx >= current_len {
-                text.push(c);
-            } else {
-                let byte_idx = text.char_indices().nth(idx).map(|(i, _)| i).unwrap();
-                text.insert(byte_idx, c);
+            if !is_numeric || c.is_ascii_digit() {
+                let idx = *cursor_position;
+                let current_len = text.chars().count();
+                if idx >= current_len {
+                    text.push(c);
+                } else if let Some((byte_idx, _)) = text.char_indices().nth(idx) {
+                    text.insert(byte_idx, c);
+                }
+                *cursor_position += 1;
+                return true;
             }
-            *cursor_position += 1;
         }
         _ => {}
     }
+    false
 }

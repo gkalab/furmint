@@ -80,6 +80,7 @@ pub fn handle_rename_event(code: KeyCode, modifiers: KeyModifiers, app: &mut App
                 modifiers,
                 &mut app.popups.rename.new_name,
                 &mut app.popups.rename.cursor_position,
+                false,
             );
             if app.popups.rename.error.is_some() {
                 app.popups.rename.error = None;

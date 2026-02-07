@@ -15,7 +15,11 @@ fn update_fuzzy_search_results(
     state.scroll_offset = 0;
 }
 
-pub(crate) fn handle_fuzzy_search_event(code: KeyCode, app: &mut AppState) -> bool {
+pub(crate) fn handle_fuzzy_search_event(
+    code: KeyCode,
+    modifiers: crossterm::event::KeyModifiers,
+    app: &mut AppState,
+) -> bool {
     let context_key = app.active_tab().provider.context_key();
 
     match code {
@@ -50,34 +54,17 @@ pub(crate) fn handle_fuzzy_search_event(code: KeyCode, app: &mut AppState) -> bo
         KeyCode::PageDown => {
             app.fuzzy_search.move_selection_page_down(10);
         }
-        KeyCode::Left => {
-            app.fuzzy_search.move_cursor_left();
-        }
-        KeyCode::Right => {
-            app.fuzzy_search.move_cursor_right();
-        }
-        KeyCode::Home => {
-            app.fuzzy_search.move_cursor_home();
-        }
-        KeyCode::End => {
-            app.fuzzy_search.move_cursor_end();
-        }
-        KeyCode::Backspace => {
-            if app.fuzzy_search.cursor_position > 0 {
-                app.fuzzy_search.cursor_position -= 1;
-                let char_idx = app.fuzzy_search.cursor_position;
-                app.fuzzy_search.input.remove(char_idx);
+        _ => {
+            if crate::handlers::input_utils::handle_text_input(
+                code,
+                modifiers,
+                &mut app.fuzzy_search.input,
+                &mut app.fuzzy_search.cursor_position,
+                false,
+            ) {
                 update_fuzzy_search_results(&mut app.fuzzy_search, &app.dir_history, &context_key);
             }
         }
-        KeyCode::Char(c) => {
-            app.fuzzy_search
-                .input
-                .insert(app.fuzzy_search.cursor_position, c);
-            app.fuzzy_search.cursor_position += 1;
-            update_fuzzy_search_results(&mut app.fuzzy_search, &app.dir_history, &context_key);
-        }
-        _ => {}
     }
     false
 }

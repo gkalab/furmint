@@ -475,7 +475,7 @@ pub async fn handle_event(
 
             // Handle fuzzy search popup
             if app.fuzzy_search.is_visible {
-                return handle_fuzzy_search_event(code, app);
+                return handle_fuzzy_search_event(code, modifiers, app);
             }
 
             // Handle rename popup

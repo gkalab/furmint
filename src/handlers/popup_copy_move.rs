@@ -459,6 +459,7 @@ pub fn handle_copy_move_event(code: KeyCode, modifiers: KeyModifiers, app: &mut 
                 modifiers,
                 &mut app.popups.copy_move.destination_input,
                 &mut app.popups.copy_move.cursor_position,
+                false,
             );
             // Clear error on any input
             if app.popups.copy_move.error.is_some() {

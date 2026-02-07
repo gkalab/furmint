@@ -1,5 +1,4 @@
 use crate::app::AppState;
-use crate::handlers::clipboard_utils::{get_clipboard_content, insert_text_at_cursor_unicode};
 use crate::tasks::{SshContext, TaskEvent, TaskStatus};
 use crossterm::event::{KeyCode, KeyModifiers};
 use std::sync::Arc;
@@ -187,7 +186,9 @@ pub fn handle_ssh_connection_event(
                 ),
                 _ => unreachable!(),
             };
-            handle_text_input(text, cursor, code, modifiers, is_numeric);
+            crate::handlers::input_utils::handle_text_input(
+                code, modifiers, text, cursor, is_numeric,
+            );
         }
         KeyCode::Left => {
             if app.popups.ssh_connection.active_field == SshField::History {
@@ -200,12 +201,11 @@ pub fn handle_ssh_connection_event(
             }
         }
         KeyCode::Home => {
-            if app.popups.ssh_connection.active_field == SshField::History {
-                if !app.ssh_history.connections.is_empty() {
+            if app.popups.ssh_connection.active_field == SshField::History
+                && !app.ssh_history.connections.is_empty() {
                     app.popups.ssh_connection.selected_history_idx = Some(0);
                     update_fields_from_history(app);
                 }
-            }
         }
         KeyCode::End => {
             if app.popups.ssh_connection.active_field == SshField::History {
@@ -222,8 +222,8 @@ pub fn handle_ssh_connection_event(
             }
         }
         KeyCode::Delete => {
-            if app.popups.ssh_connection.active_field == SshField::History {
-                if let Some(idx) = app.popups.ssh_connection.selected_history_idx
+            if app.popups.ssh_connection.active_field == SshField::History
+                && let Some(idx) = app.popups.ssh_connection.selected_history_idx
                     && let Some(conn) = app.ssh_history.connections.get(idx)
                 {
                     let name = conn.display_string();
@@ -233,7 +233,6 @@ pub fn handle_ssh_connection_event(
                         ConfirmationAction::DeleteSshHistory(idx),
                     ));
                 }
-            }
         }
         KeyCode::Enter => {
             if app.popups.ssh_connection.active_field == SshField::History {
@@ -488,11 +487,11 @@ pub fn handle_ssh_password_event(
         | KeyCode::Char(_)
         | KeyCode::Backspace
         | KeyCode::Delete => {
-            handle_text_input(
-                &mut app.popups.ssh_password.password,
-                &mut app.popups.ssh_password.cursor_position,
+            crate::handlers::input_utils::handle_text_input(
                 code,
                 modifiers,
+                &mut app.popups.ssh_password.password,
+                &mut app.popups.ssh_password.cursor_position,
                 false,
             );
         }
@@ -702,72 +701,4 @@ pub fn handle_reconnect_ssh(app: &mut AppState) {
             show_password_popup_for_reconnect(app, session, None);
         }
     }
-}
-
-pub fn handle_text_input(
-    text: &mut String,
-    cursor: &mut usize,
-    code: KeyCode,
-    modifiers: KeyModifiers,
-    is_numeric: bool,
-) -> bool {
-    match code {
-        KeyCode::Left => {
-            if *cursor > 0 {
-                *cursor -= 1;
-            }
-        }
-        KeyCode::Right => {
-            let len = text.chars().count();
-            if *cursor < len {
-                *cursor += 1;
-            }
-        }
-        KeyCode::Home => {
-            *cursor = 0;
-        }
-        KeyCode::End => {
-            *cursor = text.chars().count();
-        }
-        KeyCode::Char('v') if modifiers.contains(KeyModifiers::CONTROL) => {
-            if let Some(content) = get_clipboard_content() {
-                let sanitized = if is_numeric {
-                    content.chars().filter(|c| c.is_ascii_digit()).collect()
-                } else {
-                    content
-                };
-                insert_text_at_cursor_unicode(text, cursor, &sanitized);
-            }
-        }
-        KeyCode::Char(c) => {
-            if !is_numeric || c.is_ascii_digit() {
-                let idx = *cursor;
-                let current_len = text.chars().count();
-                if idx >= current_len {
-                    text.push(c);
-                } else if let Some((byte_idx, _)) = text.char_indices().nth(idx) {
-                    text.insert(byte_idx, c);
-                }
-                *cursor += 1;
-            }
-        }
-        KeyCode::Backspace => {
-            if *cursor > 0 {
-                if let Some((byte_idx, _)) = text.char_indices().nth(*cursor - 1) {
-                    text.remove(byte_idx);
-                    *cursor -= 1;
-                }
-            }
-        }
-        KeyCode::Delete => {
-            let current_len = text.chars().count();
-            if *cursor < current_len {
-                if let Some((byte_idx, _)) = text.char_indices().nth(*cursor) {
-                    text.remove(byte_idx);
-                }
-            }
-        }
-        _ => return false,
-    }
-    true
 }
