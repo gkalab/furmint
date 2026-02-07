@@ -47,25 +47,34 @@ impl SshConnectionHistory {
         Ok(Self { connections, path })
     }
     pub fn add(&mut self, mut info: SshConnectionInfo) {
-        // If it already exists, preserve sort settings
-        if let Some(existing) = self
-            .connections
-            .iter()
-            .find(|c| c.connection_string == info.connection_string)
-        {
+        // Find existing match by user@host:port
+        if let Some(pos) = self.connections.iter().position(|c| {
+            c.host.to_lowercase() == info.host.to_lowercase()
+                && c.user == info.user
+                && c.port == info.port
+        }) {
+            let mut existing = self.connections.remove(pos);
+
+            // Preserve sort settings
             if info.sort_column.is_none() {
                 info.sort_column = existing.sort_column;
             }
             if info.sort_direction.is_none() {
                 info.sort_direction = existing.sort_direction;
             }
+
+            // Update with new info
+            existing.connection_string = info.connection_string;
+            existing.name = info.name;
+            existing.path = info.path;
+
+            // Add back at the top
+            self.connections.insert(0, existing);
+        } else {
+            // New connection
+            self.connections.insert(0, info);
         }
 
-        // Remove duplicate if it exists based on connection string
-        self.connections
-            .retain(|c| c.connection_string != info.connection_string);
-        // Add to the front
-        self.connections.insert(0, info);
         let _ = self.save();
     }
     pub fn remove_at(&mut self, idx: usize) {

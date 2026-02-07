@@ -246,3 +246,77 @@ fn test_get_sort_settings_by_name() {
     assert!(settings.is_some(), "Should find settings by name");
     assert_eq!(settings.unwrap().0, SortColumn::Extension);
 }
+
+#[test]
+fn test_ssh_history_deduplication() {
+    let tmp = tempdir().unwrap();
+    let mut history = SshConnectionHistory {
+        connections: Vec::new(),
+        path: tmp.path().join("ssh_history.json"),
+    };
+
+    let info1 = SshConnectionInfo {
+        name: None,
+        connection_string: "user@host".to_string(),
+        user: "user".to_string(),
+        host: "host".to_string(),
+        port: 22,
+        path: None,
+        sort_column: None,
+        sort_direction: None,
+    };
+
+    history.add(info1);
+    assert_eq!(history.connections.len(), 1);
+
+    // Same connection, different path
+    let info2 = SshConnectionInfo {
+        name: None,
+        connection_string: "user@host:/path".to_string(),
+        user: "user".to_string(),
+        host: "host".to_string(),
+        port: 22,
+        path: Some("/path".to_string()),
+        sort_column: None,
+        sort_direction: None,
+    };
+
+    history.add(info2);
+    assert_eq!(history.connections.len(), 1);
+    assert_eq!(history.connections[0].path, Some("/path".to_string()));
+    assert_eq!(history.connections[0].connection_string, "user@host:/path");
+
+    // Same connection, explicit root
+    let info3 = SshConnectionInfo {
+        name: None,
+        connection_string: "root@host".to_string(),
+        user: "root".to_string(),
+        host: "host".to_string(),
+        port: 22,
+        path: None,
+        sort_column: None,
+        sort_direction: None,
+    };
+    history.add(info3);
+
+    let info4 = SshConnectionInfo {
+        name: None,
+        connection_string: "host".to_string(),
+        user: "root".to_string(),
+        host: "host".to_string(),
+        port: 22,
+        path: None,
+        sort_column: None,
+        sort_direction: None,
+    };
+    history.add(info4);
+    assert_eq!(history.connections.len(), 2); // user@host and root@host
+
+    // Find positions
+    let root_pos = history
+        .connections
+        .iter()
+        .position(|c| c.user == "root")
+        .unwrap();
+    assert_eq!(root_pos, 0); // Most recent at top
+}

@@ -75,6 +75,9 @@ pub fn handle_ssh_connection_event(
             };
             // Reset cursor position to end of field
             reset_cursor(app);
+            if app.popups.ssh_connection.active_field == SshField::History {
+                update_fields_from_history(app);
+            }
         }
         KeyCode::BackTab => {
             // Cycle fields backwards
@@ -85,6 +88,9 @@ pub fn handle_ssh_connection_event(
                 SshField::History => SshField::Port,
             };
             reset_cursor(app);
+            if app.popups.ssh_connection.active_field == SshField::History {
+                update_fields_from_history(app);
+            }
         }
         KeyCode::Up => {
             if app.popups.ssh_connection.active_field == SshField::History {
@@ -92,6 +98,7 @@ pub fn handle_ssh_connection_event(
                     && idx > 0
                 {
                     app.popups.ssh_connection.selected_history_idx = Some(idx - 1);
+                    update_fields_from_history(app);
                 }
             } else {
                 app.popups.ssh_connection.active_field =
@@ -102,6 +109,9 @@ pub fn handle_ssh_connection_event(
                         SshField::History => SshField::Port,
                     };
                 reset_cursor(app);
+                if app.popups.ssh_connection.active_field == SshField::History {
+                    update_fields_from_history(app);
+                }
             }
         }
         KeyCode::Down => {
@@ -110,10 +120,12 @@ pub fn handle_ssh_connection_event(
                     && idx + 1 < app.ssh_history.connections.len()
                 {
                     app.popups.ssh_connection.selected_history_idx = Some(idx + 1);
+                    update_fields_from_history(app);
                 } else if app.popups.ssh_connection.selected_history_idx.is_none()
                     && !app.ssh_history.connections.is_empty()
                 {
                     app.popups.ssh_connection.selected_history_idx = Some(0);
+                    update_fields_from_history(app);
                 }
             } else {
                 app.popups.ssh_connection.active_field =
@@ -124,6 +136,9 @@ pub fn handle_ssh_connection_event(
                         SshField::History => SshField::ConnectionString,
                     };
                 reset_cursor(app);
+                if app.popups.ssh_connection.active_field == SshField::History {
+                    update_fields_from_history(app);
+                }
             }
         }
         KeyCode::PageUp => {
@@ -131,6 +146,7 @@ pub fn handle_ssh_connection_event(
                 && let Some(idx) = app.popups.ssh_connection.selected_history_idx
             {
                 app.popups.ssh_connection.selected_history_idx = Some(idx.saturating_sub(5));
+                update_fields_from_history(app);
             }
         }
         KeyCode::PageDown => {
@@ -140,6 +156,7 @@ pub fn handle_ssh_connection_event(
                 let count = app.ssh_history.connections.len();
                 if count > 0 {
                     app.popups.ssh_connection.selected_history_idx = Some((idx + 5).min(count - 1));
+                    update_fields_from_history(app);
                 }
             }
         }
@@ -163,6 +180,7 @@ pub fn handle_ssh_connection_event(
             if app.popups.ssh_connection.active_field == SshField::History {
                 if !app.ssh_history.connections.is_empty() {
                     app.popups.ssh_connection.selected_history_idx = Some(0);
+                    update_fields_from_history(app);
                 }
             } else {
                 app.popups.ssh_connection.cursor_position = 0;
@@ -173,6 +191,7 @@ pub fn handle_ssh_connection_event(
                 let count = app.ssh_history.connections.len();
                 if count > 0 {
                     app.popups.ssh_connection.selected_history_idx = Some(count - 1);
+                    update_fields_from_history(app);
                 }
             } else {
                 app.popups.ssh_connection.cursor_position =
@@ -428,8 +447,19 @@ pub fn handle_history_search(app: &mut AppState, c: char) {
         let display = conn.display_string().to_lowercase();
         if display.contains(&query) {
             app.popups.ssh_connection.selected_history_idx = Some(i);
+            update_fields_from_history(app);
             break;
         }
+    }
+}
+
+pub fn update_fields_from_history(app: &mut AppState) {
+    if let Some(idx) = app.popups.ssh_connection.selected_history_idx
+        && let Some(info) = app.ssh_history.connections.get(idx)
+    {
+        app.popups.ssh_connection.connection_string = info.connection_string.clone();
+        app.popups.ssh_connection.name = info.name.clone().unwrap_or_default();
+        app.popups.ssh_connection.port = info.port.to_string();
     }
 }
 
@@ -450,7 +480,10 @@ pub fn parse_connection_string(s: &str) -> Option<ParsedSsh> {
 
     // Parse user
     if let Some(at_idx) = remaining.find('@') {
-        user = remaining[..at_idx].to_string();
+        let user_part = &remaining[..at_idx];
+        if !user_part.is_empty() {
+            user = user_part.to_string();
+        }
         remaining = &remaining[at_idx + 1..];
     }
 
