@@ -28,7 +28,7 @@ pub fn draw_error_popup(f: &mut ratatui::Frame, state: &ErrorState, palette: &Th
     let border_color = Color::Rgb(palette.red.r, palette.red.g, palette.red.b);
     let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
 
-    let message_border = crate::ui_utils::message_border_set();
+    let message_border = crate::ui::ui_utils::message_border_set();
 
     let block = Block::default()
         .borders(Borders::ALL)
@@ -92,7 +92,7 @@ pub fn draw_error_popup(f: &mut ratatui::Frame, state: &ErrorState, palette: &Th
         layout[3],
     );
 
-    crate::ui_utils::draw_button_row(
+    crate::ui::ui_utils::draw_button_row(
         f,
         &["[R]etry", "[S]kip", "Skip [A]ll", "[C]ancel"],
         layout[4],

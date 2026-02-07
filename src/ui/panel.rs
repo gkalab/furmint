@@ -2,7 +2,7 @@ use crate::app::Tab;
 use crate::app_state::tabs::{SortColumn, SortDirection};
 use crate::fs::utils::{format_modified, format_size};
 use crate::theme::ThemePalette;
-use crate::ui_utils::{
+use crate::ui::ui_utils::{
     TabScrollbarContext, draw_tab_scrollbar, is_root_user, lighten_red,
     truncate_middle_with_ellipsis,
 };
@@ -250,7 +250,7 @@ pub fn draw_panel(
     };
     let title_width = area.width.saturating_sub(4) as usize;
     let panel_title = if full_title.len() > title_width {
-        crate::ui_utils::truncate_path_with_ellipsis(&panel.current_dir, title_width)
+        crate::ui::ui_utils::truncate_path_with_ellipsis(&panel.current_dir, title_width)
     } else {
         full_title
     };

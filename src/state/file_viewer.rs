@@ -135,7 +135,7 @@ impl FileViewerState {
     pub fn load_content(
         &mut self,
         path: PathBuf,
-        provider: std::sync::Arc<dyn crate::fs_provider::FileSystemProvider>,
+        provider: std::sync::Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
         size: Option<u64>,
         limit_bytes: u64,
     ) {

@@ -2,8 +2,8 @@ use fm::app::{AppState, PanelSide, Tab, TabManager};
 use fm::clipboard::InMemoryFileClipboard;
 use fm::config::GlobalConfig;
 use fm::dir_history::DirectoryHistory;
+use fm::fs::fs_local::LocalFs;
 use fm::fs::utils::FileEntry;
-use fm::fs_local::LocalFs;
 use fm::handlers::navigation::{
     handle_directory_up, handle_down, handle_down_search, handle_end, handle_enter_directory,
     handle_history_next, handle_history_previous, handle_home, handle_open_item, handle_page_down,
@@ -47,7 +47,7 @@ fn test_app(entries: Vec<FileEntry>) -> AppState {
         },
         active: PanelSide::Left,
         file_viewer: FileViewerState::new(false, "test-theme"),
-        fuzzy_search: fm::fuzzy_search_ui::FuzzySearchState::new(),
+        fuzzy_search: fm::ui::fuzzy_search_ui::FuzzySearchState::new(),
         popups: fm::app::Popups::new(),
         task_manager: TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
         ssh_manager: std::sync::Arc::new(SshManager::default()),

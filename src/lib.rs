@@ -2,39 +2,18 @@ pub mod app;
 pub mod app_state;
 pub mod clipboard;
 pub mod config;
-pub mod conflict_ui;
-pub mod copy_move_ui;
-pub mod create_dir_ui;
-pub mod create_file_ui;
-pub mod delete_ui;
 pub mod dir_history;
 pub mod drive_select_ui;
-pub mod empty_trash_ui;
-pub mod error_ui;
 pub mod event_loop;
 pub mod fs;
-pub mod fs_local;
-// pub mod fs_ops; // Removed, now fs::ops
-pub mod fs_provider;
-pub mod fs_rsync;
-pub mod fs_sftp;
-pub mod fuzzy_search_ui;
 pub mod handlers;
-pub mod help_ui;
 pub mod icons;
-pub mod quit_ui;
-pub mod remote_edit_ui;
-pub mod rename_ui;
 pub mod ssh_history;
 pub mod ssh_manager;
-pub mod ssh_ui;
 pub mod state;
-pub mod task_ui;
 pub mod tasks;
 pub mod theme;
 pub mod ui;
-pub mod ui_utils;
-pub mod watcher;
 
 use crate::config::load_config;
 use crate::event_loop::run_event_loop;
@@ -63,7 +42,7 @@ pub async fn run() -> Result<()> {
     let dir_history = crate::dir_history::DirectoryHistory::new().map_err(anyhow::Error::msg)?;
 
     let (watcher_tx, mut watcher_rx) = tokio::sync::mpsc::unbounded_channel();
-    let watcher = crate::watcher::AppWatcher::new(watcher_tx.clone()).ok();
+    let watcher = fs::watcher::AppWatcher::new(watcher_tx.clone()).ok();
     let watcher = if let Some(mut w) = watcher {
         let _ = w.watch(&cwd);
         Some(w)
@@ -85,10 +64,10 @@ pub async fn run() -> Result<()> {
         viewer_cfg,
         ssh_cfg,
         dir_history,
-        watcher: watcher.map(|w| Box::new(w) as Box<dyn crate::watcher::FileSystemWatcher>),
+        watcher: watcher.map(|w| Box::new(w) as Box<dyn fs::watcher::FileSystemWatcher>),
         remote_watcher: Some(
-            Box::new(crate::watcher::RemoteWatcher::new(watcher_tx.clone()))
-                as Box<dyn crate::watcher::FileSystemWatcher>,
+            Box::new(fs::watcher::RemoteWatcher::new(watcher_tx.clone()))
+                as Box<dyn fs::watcher::FileSystemWatcher>,
         ),
         task_manager,
     };

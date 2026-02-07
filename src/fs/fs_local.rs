@@ -2,8 +2,8 @@
 //!
 //! This wraps the existing `fs_ops` functions to provide the trait interface.
 
+use crate::fs::fs_provider::FileSystemProvider;
 use crate::fs::utils as fs_ops;
-use crate::fs_provider::FileSystemProvider;
 use anyhow::Result;
 use fs_ops::FileEntry;
 use std::fs;

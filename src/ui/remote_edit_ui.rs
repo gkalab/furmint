@@ -16,7 +16,8 @@ pub fn draw_remote_edit_popup(
     // Calculate popup size
     let popup_width = 60;
     let popup_height = 10;
-    let popup_area = crate::ui_utils::centered_rect_absolute(popup_width, popup_height, f.area());
+    let popup_area =
+        crate::ui::ui_utils::centered_rect_absolute(popup_width, popup_height, f.area());
 
     f.render_widget(Clear, popup_area);
 
@@ -93,5 +94,5 @@ pub fn draw_remote_edit_popup(
         layout[2],
     );
 
-    crate::ui_utils::draw_button_row(f, &["[O]K - Upload", "[C]ancel"], layout[3], text_color);
+    crate::ui::ui_utils::draw_button_row(f, &["[O]K - Upload", "[C]ancel"], layout[3], text_color);
 }

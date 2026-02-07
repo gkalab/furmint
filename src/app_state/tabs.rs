@@ -1,6 +1,6 @@
+use crate::fs::fs_local::LocalFs;
+use crate::fs::fs_provider::FileSystemProvider;
 use crate::fs::utils::FileEntry;
-use crate::fs_local::LocalFs;
-use crate::fs_provider::FileSystemProvider;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -770,7 +770,7 @@ mod tests {
 
         let mut tab = Tab::with_provider(
             &test_dir,
-            std::sync::Arc::new(crate::fs_local::LocalFs::new()),
+            std::sync::Arc::new(crate::fs::fs_local::LocalFs::new()),
         )
         .unwrap();
 

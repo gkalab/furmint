@@ -33,7 +33,7 @@ fn test_app_with_entry(name: &str, is_dir: bool, path: &std::path::Path) -> AppS
         right: fm::app::TabManager::new(path).unwrap(),
         active: PanelSide::Left,
         file_viewer: FileViewerState::new(false, ""),
-        fuzzy_search: fm::fuzzy_search_ui::FuzzySearchState::new(),
+        fuzzy_search: fm::ui::fuzzy_search_ui::FuzzySearchState::new(),
         popups: fm::app::Popups::new(),
         task_manager: fm::tasks::TaskManager::new(task_tx),
         ssh_manager: std::sync::Arc::new(SshManager::default()),

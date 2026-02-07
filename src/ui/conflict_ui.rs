@@ -12,7 +12,7 @@ pub fn draw_conflict_popup(f: &mut ratatui::Frame, state: &ConflictState, palett
     let area = f.area();
     let popup_width = 60;
     let popup_height = 9;
-    let popup_area = crate::ui_utils::centered_rect_absolute(popup_width, popup_height, area);
+    let popup_area = crate::ui::ui_utils::centered_rect_absolute(popup_width, popup_height, area);
 
     f.render_widget(Clear, popup_area);
 
@@ -20,7 +20,7 @@ pub fn draw_conflict_popup(f: &mut ratatui::Frame, state: &ConflictState, palett
     let border_color = Color::Rgb(palette.red.r, palette.red.g, palette.red.b); // Red for warning
     let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
 
-    let message_border = crate::ui_utils::message_border_set();
+    let message_border = crate::ui::ui_utils::message_border_set();
 
     f.render_widget(
         Block::default()
@@ -72,14 +72,14 @@ pub fn draw_conflict_popup(f: &mut ratatui::Frame, state: &ConflictState, palett
         .style(Style::default().fg(text_color).bg(field_bg_color));
     f.render_widget(p_text, inner_layout[0]);
 
-    crate::ui_utils::draw_button_row(
+    crate::ui::ui_utils::draw_button_row(
         f,
         &["[O]verwrite", "[S]kip", "[C]ancel"],
         inner_layout[1],
         text_color,
     );
 
-    crate::ui_utils::draw_button_row(
+    crate::ui::ui_utils::draw_button_row(
         f,
         &["Overwrite [Y]All", "Skip [A]ll"],
         inner_layout[2],

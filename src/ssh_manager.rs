@@ -175,7 +175,7 @@ impl SshManager {
         host: String,
         port: u16,
         user: String,
-    ) -> Result<(String, crate::fs_sftp::SftpFs), SshError> {
+    ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
         let addr = format!("{}:{}", host, port);
         let tcp = tokio::net::TcpStream::connect(&addr)
             .await
@@ -190,7 +190,7 @@ impl SshManager {
         let session_id = self.generate_session_id(&host, port);
 
         self.spawn_blocking_with_watchdog(
-            move || -> Result<(String, crate::fs_sftp::SftpFs), SshError> {
+            move || -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
                 let mut sess =
                     ssh2::Session::new().map_err(|e| SshError::Internal(e.to_string()))?;
                 sess.set_tcp_stream(tcp);
@@ -212,7 +212,7 @@ impl SshManager {
                             if agent.userauth(&user, &identity).is_ok() && sess.authenticated() {
                                 sess.set_compress(true);
                                 sess.set_keepalive(true, keepalive);
-                                let fs = crate::fs_sftp::SftpFs::new(
+                                let fs = crate::fs::fs_sftp::SftpFs::new(
                                     sess,
                                     host.clone(),
                                     user.clone(),
@@ -236,7 +236,7 @@ impl SshManager {
                         sess.set_compress(true);
                         sess.set_keepalive(true, keepalive);
                         let fs =
-                            crate::fs_sftp::SftpFs::new(sess, host.clone(), user.clone(), None);
+                            crate::fs::fs_sftp::SftpFs::new(sess, host.clone(), user.clone(), None);
                         return Ok((session_id.clone(), fs));
                     }
                 }
@@ -378,7 +378,7 @@ impl SshManager {
         user: String,
         password: String,
         _target_path: Option<String>,
-    ) -> Result<(String, crate::fs_sftp::SftpFs), SshError> {
+    ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
         let addr = format!("{}:{}", host, port);
         let tcp = tokio::net::TcpStream::connect(&addr)
             .await
@@ -397,7 +397,7 @@ impl SshManager {
         let user_clone = user.clone();
 
         self.spawn_blocking_with_watchdog(
-            move || -> Result<(String, crate::fs_sftp::SftpFs), SshError> {
+            move || -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
                 let mut sess =
                     ssh2::Session::new().map_err(|e| SshError::Internal(e.to_string()))?;
                 sess.set_tcp_stream(tcp);
@@ -410,7 +410,8 @@ impl SshManager {
                 }
                 sess.set_compress(true);
                 sess.set_keepalive(true, keepalive);
-                let fs = crate::fs_sftp::SftpFs::new(sess, host_clone, user_clone, Some(password));
+                let fs =
+                    crate::fs::fs_sftp::SftpFs::new(sess, host_clone, user_clone, Some(password));
                 Ok((session_id.clone(), fs))
             },
             grace,
@@ -502,7 +503,7 @@ impl SshManager {
         session_id: &str,
         password: String,
         mut executor: F,
-    ) -> Result<(String, crate::fs_sftp::SftpFs), SshError>
+    ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError>
     where
         F: FnMut(Operation) -> Fut,
         Fut: std::future::Future<Output = Result<(), anyhow::Error>>,
@@ -546,7 +547,7 @@ impl SshManager {
         password: String,
         target_path: Option<String>,
         max_attempts: Option<u32>,
-    ) -> Result<(String, crate::fs_sftp::SftpFs), SshError> {
+    ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
         let mut attempt = 1u32;
         let max_attempts = max_attempts.unwrap_or(u32::MAX);
 

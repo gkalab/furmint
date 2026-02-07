@@ -1,5 +1,10 @@
+pub mod fs_local;
 pub mod local;
 pub mod ops;
 pub mod provider;
 pub mod traits;
 pub mod utils;
+pub mod fs_provider;
+pub mod fs_rsync;
+pub mod fs_sftp;
+pub mod watcher;

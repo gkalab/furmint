@@ -109,7 +109,7 @@ pub fn draw_fuzzy_search_popup(
     let area = f.area();
     let popup_width = (f32::from(area.width) * 0.6).min(80.0) as u16;
     let popup_height = (f32::from(area.height) * 0.5).min(20.0) as u16;
-    let popup_area = crate::ui_utils::centered_rect_absolute(popup_width, popup_height, area);
+    let popup_area = crate::ui::ui_utils::centered_rect_absolute(popup_width, popup_height, area);
 
     // Clear the popup area first
     f.render_widget(Clear, popup_area);
@@ -143,7 +143,7 @@ pub fn draw_fuzzy_search_popup(
     // Draw input box
     let input_block = Block::default()
         .borders(Borders::ALL)
-        .border_set(crate::ui_utils::field_border_set())
+        .border_set(crate::ui::ui_utils::field_border_set())
         .border_style(Style::default().fg(border_color).bg(field_bg_color))
         .style(Style::default().bg(field_bg_color));
 
@@ -228,7 +228,7 @@ pub fn draw_fuzzy_search_popup(
         let path = &state.filtered_dirs[dir_idx];
         // Truncate path if it's too long
         let max_width = list_inner_area.width as usize;
-        let path_str = crate::ui_utils::truncate_path_with_ellipsis(path, max_width);
+        let path_str = crate::ui::ui_utils::truncate_path_with_ellipsis(path, max_width);
 
         let is_selected = dir_idx == state.selected_index;
         let (fg, bg) = if is_selected {
@@ -269,7 +269,7 @@ pub fn draw_fuzzy_search_popup(
         height: list_inner_area.height,
     };
 
-    crate::ui_utils::draw_scrollbar(
+    crate::ui::ui_utils::draw_scrollbar(
         f,
         scroll_area,
         state.filtered_dirs.len(),

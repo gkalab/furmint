@@ -23,7 +23,7 @@ fn basic_app_state() -> AppState {
         right: fm::app::TabManager::new(Path::new("/tmp")).unwrap(),
         active: PanelSide::Left,
         file_viewer: FileViewerState::new(false, ""),
-        fuzzy_search: fm::fuzzy_search_ui::FuzzySearchState::new(),
+        fuzzy_search: fm::ui::fuzzy_search_ui::FuzzySearchState::new(),
         popups: fm::app::Popups::new(),
         task_manager: TaskManager::new(task_tx),
         ssh_manager: std::sync::Arc::new(SshManager::default()),
@@ -170,7 +170,7 @@ fn test_handle_reconnect_ssh_no_op_for_local() {
 
 #[test]
 fn test_handle_reconnect_ssh_sets_up_password_prompt() {
-    use fm::fs_sftp::SftpFs;
+    use fm::fs::fs_sftp::SftpFs;
     use ssh2::Session;
 
     let mut app = basic_app_state();

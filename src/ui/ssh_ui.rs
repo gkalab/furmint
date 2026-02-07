@@ -7,7 +7,7 @@ use ratatui::widgets::*;
 
 pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemePalette) {
     let area = f.area();
-    let popup_area = crate::ui_utils::centered_rect_percent(70, 80, area);
+    let popup_area = crate::ui::ui_utils::centered_rect_percent(70, 80, area);
 
     f.render_widget(Clear, popup_area);
 
@@ -43,7 +43,7 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemeP
 
     let active_field = app.popups.ssh_connection.active_field;
 
-    let custom_border = crate::ui_utils::field_border_set();
+    let custom_border = crate::ui::ui_utils::field_border_set();
 
     let block_empty = symbols::border::EMPTY;
 
@@ -182,7 +182,7 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemeP
         horizontal: 0,
     });
     let visible_rows = scroll_area.height as usize;
-    crate::ui_utils::draw_scrollbar(
+    crate::ui::ui_utils::draw_scrollbar(
         f,
         scroll_area,
         history_count,
@@ -203,7 +203,7 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemeP
     }
     if let Some(confirmation) = &app.popups.ssh_connection.confirmation {
         let bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
-        crate::ui_utils::draw_confirmation_popup(f, confirmation, palette, 66, 6, bg_color);
+        crate::ui::ui_utils::draw_confirmation_popup(f, confirmation, palette, 66, 6, bg_color);
     }
 }
 
@@ -250,7 +250,7 @@ pub fn draw_ssh_password_popup(f: &mut Frame, app: &AppState, palette: &ThemePal
         .constraints([Constraint::Length(3)])
         .split(popup_area);
 
-    let custom_border = crate::ui_utils::field_border_set();
+    let custom_border = crate::ui::ui_utils::field_border_set();
 
     let input_width = (chunks[0].width as usize).saturating_sub(4);
     let password_mask: String = "•".repeat(app.popups.ssh_password.password.len());

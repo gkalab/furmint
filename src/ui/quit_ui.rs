@@ -21,5 +21,5 @@ pub fn draw_quit_popup(
         action: crate::state::ConfirmationAction::None,
     };
 
-    crate::ui_utils::draw_confirmation_popup(f, &confirmation_state, palette, 50, 7, bg_color);
+    crate::ui::ui_utils::draw_confirmation_popup(f, &confirmation_state, palette, 50, 7, bg_color);
 }

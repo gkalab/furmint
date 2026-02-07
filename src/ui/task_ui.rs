@@ -16,7 +16,8 @@ pub fn draw_task_manager(
     // Calculate popup size
     let popup_width = 80;
     let popup_height = 20;
-    let popup_area = crate::ui_utils::centered_rect_absolute(popup_width, popup_height, f.area());
+    let popup_area =
+        crate::ui::ui_utils::centered_rect_absolute(popup_width, popup_height, f.area());
 
     f.render_widget(Clear, popup_area);
 

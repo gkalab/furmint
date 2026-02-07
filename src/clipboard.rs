@@ -1,4 +1,4 @@
-use crate::fs_provider::FileSystemProvider;
+use crate::fs::fs_provider::FileSystemProvider;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -352,7 +352,7 @@ pub mod win_clipboard {
                 Ok(Some(FileClipboardData {
                     action,
                     paths,
-                    source_provider: Arc::new(crate::fs_local::LocalFs::new()),
+                    source_provider: Arc::new(crate::fs::fs_local::LocalFs::new()),
                 }))
             }
         }
@@ -461,7 +461,7 @@ mod tests {
         let mut cb = unix_clipboard::UnixFileClipboard::new();
         assert!(cb.get().unwrap().is_none());
 
-        let provider = Arc::new(crate::fs_local::LocalFs::new());
+        let provider = Arc::new(crate::fs::fs_local::LocalFs::new());
         let data = FileClipboardData {
             action: FileClipboardAction::Copy,
             paths: vec![PathBuf::from("/test/file")],

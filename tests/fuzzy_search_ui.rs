@@ -1,4 +1,4 @@
-use fm::ui_utils;
+use fm::ui::ui_utils;
 use std::path::Path;
 
 #[test]

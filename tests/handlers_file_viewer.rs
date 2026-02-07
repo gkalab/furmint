@@ -19,7 +19,7 @@ fn test_app(file_lines: usize) -> AppState {
         },
         active: fm::app::PanelSide::Left,
         file_viewer: FileViewerState::new(false, "test-theme"),
-        fuzzy_search: fm::fuzzy_search_ui::FuzzySearchState::new(),
+        fuzzy_search: fm::ui::fuzzy_search_ui::FuzzySearchState::new(),
         popups: fm::app::Popups::new(),
         task_manager: TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
         ssh_manager: std::sync::Arc::new(SshManager::default()),

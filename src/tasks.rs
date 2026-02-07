@@ -42,7 +42,7 @@ pub enum TaskEvent {
 
 #[derive(Clone)]
 pub struct SshContext {
-    pub provider: Arc<dyn crate::fs_provider::FileSystemProvider>,
+    pub provider: Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
     pub path: Option<std::path::PathBuf>,
     pub name: Option<String>,
 }

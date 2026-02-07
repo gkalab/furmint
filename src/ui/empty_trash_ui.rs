@@ -21,7 +21,7 @@ pub fn draw_empty_trash_popup(
         action: crate::state::ConfirmationAction::None,
     };
 
-    crate::ui_utils::draw_confirmation_popup(f, &confirmation_state, palette, 60, 7, bg_color);
+    crate::ui::ui_utils::draw_confirmation_popup(f, &confirmation_state, palette, 60, 7, bg_color);
 }
 
 // Handles empty trash confirmation popup key actions (Y, N, Esc, Enter)

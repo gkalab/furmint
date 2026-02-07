@@ -33,7 +33,7 @@ pub fn draw_delete_popup(f: &mut ratatui::Frame, state: &DeleteState, palette: &
         action: crate::state::ConfirmationAction::None,
     };
 
-    crate::ui_utils::draw_confirmation_popup(f, &confirmation_state, palette, 66, 6, bg_color);
+    crate::ui::ui_utils::draw_confirmation_popup(f, &confirmation_state, palette, 66, 6, bg_color);
 }
 
 #[cfg(test)]

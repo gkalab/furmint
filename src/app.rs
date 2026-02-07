@@ -59,7 +59,7 @@ pub struct AppState {
     pub right: TabManager,
     pub active: PanelSide,
     pub file_viewer: FileViewerState,
-    pub fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState,
+    pub fuzzy_search: crate::ui::fuzzy_search_ui::FuzzySearchState,
     pub popups: Popups,
     pub task_manager: crate::tasks::TaskManager,
     pub ssh_manager: std::sync::Arc<crate::ssh_manager::SshManager>,
@@ -71,8 +71,8 @@ pub struct AppState {
     pub show_task_manager: bool,
     pub dir_history: crate::dir_history::DirectoryHistory,
     // Watchers are trait objects to support both local and remote
-    pub watcher: Option<Box<dyn crate::watcher::FileSystemWatcher>>,
-    pub remote_watcher: Option<Box<dyn crate::watcher::FileSystemWatcher>>,
+    pub watcher: Option<Box<dyn crate::fs::watcher::FileSystemWatcher>>,
+    pub remote_watcher: Option<Box<dyn crate::fs::watcher::FileSystemWatcher>>,
     // Input polling task handle
     pub input_polling_handle: Option<tokio::task::JoinHandle<()>>,
     pub needs_redraw: bool, // <--- Added for explicit redraw after editor
@@ -103,8 +103,8 @@ pub struct AppConfigContext<'a> {
     pub viewer_cfg: crate::config::ViewerConfig,
     pub ssh_cfg: crate::config::SshConfig,
     pub dir_history: crate::dir_history::DirectoryHistory,
-    pub watcher: Option<Box<dyn crate::watcher::FileSystemWatcher>>,
-    pub remote_watcher: Option<Box<dyn crate::watcher::FileSystemWatcher>>,
+    pub watcher: Option<Box<dyn crate::fs::watcher::FileSystemWatcher>>,
+    pub remote_watcher: Option<Box<dyn crate::fs::watcher::FileSystemWatcher>>,
     pub task_manager: crate::tasks::TaskManager,
 }
 
@@ -123,7 +123,7 @@ impl AppState {
                 ctx.palette.is_dark,
                 ctx.global.theme.as_deref().unwrap_or("default"),
             ),
-            fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
+            fuzzy_search: crate::ui::fuzzy_search_ui::FuzzySearchState::new(),
             popups: crate::app::Popups::new(),
             task_manager: ctx.task_manager,
             // Wire up ssh manager with task event channel so it can emit SshConnected events
@@ -437,8 +437,8 @@ mod tests {
     }
     use super::*;
     use crate::app_state::tabs::{HistoryEntry, SortDirection};
+    use crate::fs::fs_local::LocalFs;
     use crate::fs::utils::FileEntry;
-    use crate::fs_local::LocalFs;
     use std::path::PathBuf;
     use std::sync::Arc;
 
@@ -699,7 +699,7 @@ mod tests {
 
     #[test]
     fn test_can_swap_active_tabs() {
-        use crate::fs_provider::FileSystemProvider;
+        use crate::fs::fs_provider::FileSystemProvider;
         use std::path::Path;
 
         // Simple mock provider that is NOT "local"
@@ -809,7 +809,7 @@ mod tests {
             },
             active: PanelSide::Left,
             file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
-            fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
+            fuzzy_search: crate::ui::fuzzy_search_ui::FuzzySearchState::new(),
             popups: crate::app::Popups::new(),
             task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
             ssh_manager: Arc::new(crate::ssh_manager::SshManager::default()),

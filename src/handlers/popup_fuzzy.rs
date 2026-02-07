@@ -1,7 +1,7 @@
 //! Fuzzy search popup event handler
 
 use crate::app::AppState;
-use crate::fuzzy_search_ui::FuzzySearchState;
+use crate::ui::fuzzy_search_ui::FuzzySearchState;
 use crossterm::event::KeyCode;
 
 fn update_fuzzy_search_results(

@@ -2,7 +2,7 @@ use super::traits::FileSystem;
 use async_trait::async_trait;
 use std::path::Path;
 
-pub struct ProviderFileSystem(pub std::sync::Arc<dyn crate::fs_provider::FileSystemProvider>);
+pub struct ProviderFileSystem(pub std::sync::Arc<dyn crate::fs::fs_provider::FileSystemProvider>);
 
 #[async_trait]
 impl FileSystem for ProviderFileSystem {

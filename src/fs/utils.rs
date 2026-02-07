@@ -330,8 +330,8 @@ mod tests {
 
     #[test]
     fn test_read_file_content() {
-        use crate::fs_local::LocalFs;
-        use crate::fs_provider::FileSystemProvider;
+        use crate::fs::fs_local::LocalFs;
+        use crate::fs::fs_provider::FileSystemProvider;
         use std::io::Write;
         let temp_dir = std::env::temp_dir();
         let test_file = temp_dir.join("fm_test_read.txt");

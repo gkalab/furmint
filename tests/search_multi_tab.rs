@@ -1,8 +1,8 @@
 use fm::app::{AppState, PanelSide};
 use fm::app_state::tabs::{SortColumn, SortDirection, Tab, TabManager};
 use fm::clipboard::ClipboardBackend;
+use fm::fs::fs_local::LocalFs;
 use fm::fs::utils::FileEntry;
-use fm::fs_local::LocalFs;
 use fm::state::FileViewerState;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -74,7 +74,7 @@ fn test_multi_tab_search_timeout() {
         },
         active: PanelSide::Right,
         file_viewer: FileViewerState::new(true, "default"),
-        fuzzy_search: fm::fuzzy_search_ui::FuzzySearchState::new(),
+        fuzzy_search: fm::ui::fuzzy_search_ui::FuzzySearchState::new(),
         popups: fm::app::Popups::new(),
         task_manager: fm::tasks::TaskManager::new(tx),
         ssh_manager: Arc::new(fm::ssh_manager::SshManager::new(None, None)),

@@ -9,9 +9,9 @@ pub fn draw_create_file_popup(
         return;
     }
 
-    crate::ui_utils::draw_input_popup(
+    crate::ui::ui_utils::draw_input_popup(
         f,
-        crate::ui_utils::InputPopupOptions {
+        crate::ui::ui_utils::InputPopupOptions {
             title: Some("Create File"),
             input_value: &state.input_value,
             cursor_position: state.cursor_position,

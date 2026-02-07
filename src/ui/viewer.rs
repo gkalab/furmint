@@ -1,6 +1,6 @@
 use crate::app::FileViewerState;
 use crate::theme::ThemePalette;
-use crate::ui_utils::TabScrollbarContext;
+use crate::ui::ui_utils::TabScrollbarContext;
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
 use syntect::easy::HighlightLines;
@@ -81,7 +81,7 @@ pub fn draw_file_viewer(
         height: area.height.saturating_sub(2),
     };
 
-    crate::ui_utils::draw_tab_scrollbar(
+    crate::ui::ui_utils::draw_tab_scrollbar(
         f,
         scroll_area,
         max_lines,

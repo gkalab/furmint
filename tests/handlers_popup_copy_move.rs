@@ -2,8 +2,8 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use fm::app::{AppState, PanelSide, Tab, TabManager};
 use fm::clipboard::InMemoryFileClipboard;
 use fm::clipboard::{FileClipboardAction, FileClipboardData};
+use fm::fs::fs_local::LocalFs;
 use fm::fs::utils::FileEntry;
-use fm::fs_local::LocalFs;
 use fm::handlers::popup_copy_move::{
     handle_copy_move_event, handle_init_copy, handle_init_move, handle_paste,
 };

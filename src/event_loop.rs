@@ -52,7 +52,7 @@ pub async fn run_event_loop(
     app: &mut AppState,
     palette: &ThemePalette,
     keyboard: KeyboardConfig,
-    watcher_rx: &mut UnboundedReceiver<crate::watcher::WatcherEvent>,
+    watcher_rx: &mut UnboundedReceiver<crate::fs::watcher::WatcherEvent>,
     task_rx: &mut UnboundedReceiver<crate::tasks::TaskEvent>,
     image_load_rx: &mut UnboundedReceiver<crate::state::ImageLoadResult>,
 ) -> anyhow::Result<()> {
@@ -159,9 +159,9 @@ pub async fn run_event_loop(
     Ok(())
 }
 
-fn handle_watcher_event(event: crate::watcher::WatcherEvent, app: &mut AppState) {
+fn handle_watcher_event(event: crate::fs::watcher::WatcherEvent, app: &mut AppState) {
     match event {
-        crate::watcher::WatcherEvent::FileSystemChange(paths) => {
+        crate::fs::watcher::WatcherEvent::FileSystemChange(paths) => {
             let handle_tab = |tab: &mut crate::app::Tab| {
                 // Watcher only supports local filesystem
                 if !tab.provider.is_local() {
@@ -193,10 +193,10 @@ fn handle_watcher_event(event: crate::watcher::WatcherEvent, app: &mut AppState)
                 handle_tab(tab);
             }
         }
-        crate::watcher::WatcherEvent::RemoteReloadRequested => {
+        crate::fs::watcher::WatcherEvent::RemoteReloadRequested => {
             app.reload_remote();
         }
-        crate::watcher::WatcherEvent::Error(_) => {}
+        crate::fs::watcher::WatcherEvent::Error(_) => {}
     }
 }
 
@@ -345,39 +345,39 @@ fn draw_ui(
         );
 
         // Draw fuzzy search popup on top of everything
-        crate::fuzzy_search_ui::draw_fuzzy_search_popup(f, &mut app.fuzzy_search, palette);
+        crate::ui::fuzzy_search_ui::draw_fuzzy_search_popup(f, &mut app.fuzzy_search, palette);
 
         // Draw rename popup on top of fuzzy search (though they shouldn't be open at same time)
-        crate::rename_ui::draw_rename_popup(f, &app.popups.rename, palette);
+        crate::ui::rename_ui::draw_rename_popup(f, &app.popups.rename, palette);
 
         // Draw create directory popup
-        crate::create_dir_ui::draw_create_dir_popup(f, &app.popups.create_directory, palette);
+        crate::ui::create_dir_ui::draw_create_dir_popup(f, &app.popups.create_directory, palette);
         // Draw create file popup
-        crate::create_file_ui::draw_create_file_popup(f, &app.popups.create_file, palette);
+        crate::ui::create_file_ui::draw_create_file_popup(f, &app.popups.create_file, palette);
 
         // Draw delete popup
-        crate::delete_ui::draw_delete_popup(f, &app.popups.delete, palette);
+        crate::ui::delete_ui::draw_delete_popup(f, &app.popups.delete, palette);
 
         // Draw copy/move popup
-        crate::copy_move_ui::draw_copy_move_popup(f, &app.popups.copy_move, palette);
+        crate::ui::copy_move_ui::draw_copy_move_popup(f, &app.popups.copy_move, palette);
 
         // Draw conflict popup
-        crate::conflict_ui::draw_conflict_popup(f, &app.popups.conflict, palette);
+        crate::ui::conflict_ui::draw_conflict_popup(f, &app.popups.conflict, palette);
 
         // Draw task manager
-        crate::task_ui::draw_task_manager(f, &app.task_manager, app.show_task_manager, palette);
+        crate::ui::task_ui::draw_task_manager(f, &app.task_manager, app.show_task_manager, palette);
 
         // Draw empty trash popup
-        crate::empty_trash_ui::draw_empty_trash_popup(f, &app.popups.empty_trash, palette);
+        crate::ui::empty_trash_ui::draw_empty_trash_popup(f, &app.popups.empty_trash, palette);
 
         // Draw quit confirmation popup
-        crate::quit_ui::draw_quit_popup(f, &app.popups.quit_confirmation, palette);
+        crate::ui::quit_ui::draw_quit_popup(f, &app.popups.quit_confirmation, palette);
 
         // Draw error popup
-        crate::error_ui::draw_error_popup(f, &app.popups.error, palette);
+        crate::ui::error_ui::draw_error_popup(f, &app.popups.error, palette);
 
         // Draw help popup
-        crate::help_ui::draw_help_popup(f, app, keyboard, palette);
+        crate::ui::help_ui::draw_help_popup(f, app, keyboard, palette);
 
         // Draw drive selection popup
         if app.popups.drive_select.is_visible {
@@ -386,16 +386,16 @@ fn draw_ui(
 
         // Draw SSH connection popup
         if app.popups.ssh_connection.is_visible {
-            crate::ssh_ui::draw_ssh_connection_popup(f, app, palette);
+            crate::ui::ssh_ui::draw_ssh_connection_popup(f, app, palette);
         }
 
         // Draw SSH password popup
         if app.popups.ssh_password.is_visible {
-            crate::ssh_ui::draw_ssh_password_popup(f, app, palette);
+            crate::ui::ssh_ui::draw_ssh_password_popup(f, app, palette);
         }
 
         // Draw remote edit confirmation popup
-        crate::remote_edit_ui::draw_remote_edit_popup(f, &app.popups.remote_edit, palette);
+        crate::ui::remote_edit_ui::draw_remote_edit_popup(f, &app.popups.remote_edit, palette);
     })?;
     Ok(())
 }
@@ -453,13 +453,13 @@ pub async fn handle_event(
 
             // Handle help popup
             if app.popups.help.is_visible {
-                crate::help_ui::handle_help_popup_event(code, app);
+                crate::ui::help_ui::handle_help_popup_event(code, app);
                 return false;
             }
 
             // Handle empty trash popup
             if app.popups.empty_trash.is_visible {
-                if crate::empty_trash_ui::handle_empty_trash_popup_event(code, app) {
+                if crate::ui::empty_trash_ui::handle_empty_trash_popup_event(code, app) {
                     return false;
                 }
                 return false;
@@ -655,11 +655,11 @@ mod tests {
     #[test]
     fn test_handle_watcher_event_filesystem_change() {
         // Setup AppState mock: two tabs, stub current_dir, fake entries
-        use crate::watcher::WatcherEvent;
+        use crate::fs::watcher::WatcherEvent;
         let mut app = crate::app::AppState {
             left: crate::app::TabManager {
                 tabs: vec![crate::app::Tab {
-                    provider: std::sync::Arc::new(crate::fs_local::LocalFs::new()),
+                    provider: std::sync::Arc::new(crate::fs::fs_local::LocalFs::new()),
                     current_dir: std::path::PathBuf::from("/mock"),
                     entries: vec![crate::fs::utils::FileEntry {
                         name: "testfile.txt".to_string(),
@@ -689,7 +689,7 @@ mod tests {
             },
             right: crate::app::TabManager {
                 tabs: vec![crate::app::Tab {
-                    provider: std::sync::Arc::new(crate::fs_local::LocalFs::new()),
+                    provider: std::sync::Arc::new(crate::fs::fs_local::LocalFs::new()),
                     current_dir: std::path::PathBuf::from("/mock"),
                     entries: vec![],
                     cursor: 0,
@@ -711,7 +711,7 @@ mod tests {
             },
             active: crate::app::PanelSide::Left,
             file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
-            fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
+            fuzzy_search: crate::ui::fuzzy_search_ui::FuzzySearchState::new(),
             popups: crate::app::Popups::new(),
             task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
             ssh_manager: std::sync::Arc::new(crate::ssh_manager::SshManager::default()),
@@ -739,11 +739,11 @@ mod tests {
     #[test]
     fn test_handle_watcher_event_preserves_selection() {
         use crate::fs::utils::FileEntry;
-        use crate::watcher::WatcherEvent;
+        use crate::fs::watcher::WatcherEvent;
         let mut app = crate::app::AppState {
             left: crate::app::TabManager {
                 tabs: vec![crate::app::Tab {
-                    provider: std::sync::Arc::new(crate::fs_local::LocalFs::new()),
+                    provider: std::sync::Arc::new(crate::fs::fs_local::LocalFs::new()),
                     current_dir: std::path::PathBuf::from("/mock"),
                     entries: vec![FileEntry {
                         name: "testfile.txt".to_string(),
@@ -773,7 +773,7 @@ mod tests {
             },
             right: crate::app::TabManager {
                 tabs: vec![crate::app::Tab {
-                    provider: std::sync::Arc::new(crate::fs_local::LocalFs::new()),
+                    provider: std::sync::Arc::new(crate::fs::fs_local::LocalFs::new()),
                     current_dir: std::path::PathBuf::from("/mock"),
                     entries: vec![],
                     cursor: 0,
@@ -795,7 +795,7 @@ mod tests {
             },
             active: crate::app::PanelSide::Left,
             file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
-            fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
+            fuzzy_search: crate::ui::fuzzy_search_ui::FuzzySearchState::new(),
             popups: crate::app::Popups::new(),
             task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
             ssh_manager: std::sync::Arc::new(crate::ssh_manager::SshManager::default()),
@@ -851,11 +851,11 @@ mod tests {
 
     #[test]
     fn test_handle_watcher_event_error() {
-        use crate::watcher::WatcherEvent;
+        use crate::fs::watcher::WatcherEvent;
         let mut app = crate::app::AppState {
             left: crate::app::TabManager {
                 tabs: vec![crate::app::Tab {
-                    provider: std::sync::Arc::new(crate::fs_local::LocalFs::new()),
+                    provider: std::sync::Arc::new(crate::fs::fs_local::LocalFs::new()),
                     current_dir: std::path::PathBuf::from("/mock"),
                     entries: vec![],
                     cursor: 0,
@@ -877,7 +877,7 @@ mod tests {
             },
             right: crate::app::TabManager {
                 tabs: vec![crate::app::Tab {
-                    provider: std::sync::Arc::new(crate::fs_local::LocalFs::new()),
+                    provider: std::sync::Arc::new(crate::fs::fs_local::LocalFs::new()),
                     current_dir: std::path::PathBuf::from("/mock"),
                     entries: vec![],
                     cursor: 0,
@@ -899,7 +899,7 @@ mod tests {
             },
             active: crate::app::PanelSide::Left,
             file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
-            fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
+            fuzzy_search: crate::ui::fuzzy_search_ui::FuzzySearchState::new(),
             popups: crate::app::Popups::new(),
             task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
             ssh_manager: std::sync::Arc::new(crate::ssh_manager::SshManager::default()),
@@ -928,7 +928,7 @@ mod tests {
         let mut app = crate::app::AppState {
             left: crate::app::TabManager {
                 tabs: vec![crate::app::Tab {
-                    provider: std::sync::Arc::new(crate::fs_local::LocalFs::new()),
+                    provider: std::sync::Arc::new(crate::fs::fs_local::LocalFs::new()),
                     current_dir: std::path::PathBuf::from("/mock"),
                     entries: vec![
                         FileEntry {
@@ -969,7 +969,7 @@ mod tests {
             },
             right: crate::app::TabManager {
                 tabs: vec![crate::app::Tab {
-                    provider: std::sync::Arc::new(crate::fs_local::LocalFs::new()),
+                    provider: std::sync::Arc::new(crate::fs::fs_local::LocalFs::new()),
                     current_dir: std::path::PathBuf::from("/mock"),
                     entries: vec![],
                     cursor: 0,
@@ -991,7 +991,7 @@ mod tests {
             },
             active: crate::app::PanelSide::Left,
             file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
-            fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
+            fuzzy_search: crate::ui::fuzzy_search_ui::FuzzySearchState::new(),
             popups: crate::app::Popups::new(),
             task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
             ssh_manager: std::sync::Arc::new(crate::ssh_manager::SshManager::default()),

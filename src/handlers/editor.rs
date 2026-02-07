@@ -1,7 +1,7 @@
 //! Editor handlers: open/edit in editor
 
 use crate::app::{AppState, PanelSide};
-use crate::fs_provider::FileSystemProvider;
+use crate::fs::fs_provider::FileSystemProvider;
 use crossterm::event::Event as CrosstermEvent;
 use std::path::Path;
 use std::sync::Arc;
@@ -416,8 +416,8 @@ mod tests {
     use super::*;
     use crate::app::{AppState, PanelSide, Tab, TabManager};
     use crate::config::EditorConfig;
+    use crate::fs::fs_local::LocalFs;
     use crate::fs::utils::FileEntry;
-    use crate::fs_local::LocalFs;
     use std::sync::Arc;
     use tokio::sync::mpsc::unbounded_channel;
 
@@ -463,7 +463,7 @@ mod tests {
             },
             active: PanelSide::Left,
             file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
-            fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
+            fuzzy_search: crate::ui::fuzzy_search_ui::FuzzySearchState::new(),
             popups: crate::app::Popups::new(),
             task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
             ssh_manager: std::sync::Arc::new(crate::ssh_manager::SshManager::default()),
@@ -509,7 +509,7 @@ mod tests {
         }
     }
 
-    impl crate::fs_provider::FileSystemProvider for MockFileSystem {
+    impl crate::fs::fs_provider::FileSystemProvider for MockFileSystem {
         fn is_local(&self) -> bool {
             false
         }
@@ -645,7 +645,7 @@ mod tests {
             right: TabManager::new(std::path::Path::new("/tmp")).unwrap(),
             active: PanelSide::Left,
             file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
-            fuzzy_search: crate::fuzzy_search_ui::FuzzySearchState::new(),
+            fuzzy_search: crate::ui::fuzzy_search_ui::FuzzySearchState::new(),
             popups: crate::app::Popups::new(),
             task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
             ssh_manager: Arc::new(crate::ssh_manager::SshManager::default()),

@@ -16,7 +16,7 @@ pub fn draw_help_popup(
 
     let size = f.area();
     // Using unified centered rect utility
-    let area = crate::ui_utils::centered_rect_percent(40, 80, size);
+    let area = crate::ui::ui_utils::centered_rect_percent(40, 80, size);
 
     let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
     let field_bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
@@ -204,7 +204,7 @@ pub fn draw_help_popup(
         height: table_area.height,
     };
 
-    crate::ui_utils::draw_scrollbar(
+    crate::ui::ui_utils::draw_scrollbar(
         f,
         scroll_area,
         total_rows,

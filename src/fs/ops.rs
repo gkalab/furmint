@@ -330,10 +330,10 @@ async fn perform_sftp_copy(
     let dest_is_local = ctx.dest_fs.is_local();
     let file_size = ctx.src_fs.get_size(src).await.unwrap_or(0);
 
-    if crate::fs_rsync::should_use_rsync(src_is_local, dest_is_local, ctx.action)
+    if crate::fs::fs_rsync::should_use_rsync(src_is_local, dest_is_local, ctx.action)
         && file_size >= RSYNC_MIN_SIZE
         && let Ok(()) =
-            crate::fs_rsync::rsync_transfer(ctx.src_fs, ctx.dest_fs, src, dest, &progress).await
+            crate::fs::fs_rsync::rsync_transfer(ctx.src_fs, ctx.dest_fs, src, dest, &progress).await
     {
         return Some(Ok(()));
     }

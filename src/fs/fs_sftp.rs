@@ -1,5 +1,5 @@
+use crate::fs::fs_provider::FileSystemProvider;
 use crate::fs::utils::FileEntry;
-use crate::fs_provider::FileSystemProvider;
 use anyhow::{Result, anyhow};
 use ssh2::{FileStat, Session};
 use std::path::{Path, PathBuf};
@@ -1237,8 +1237,8 @@ fn test_with_sftp_mutex_poisoned() {
 
 #[test]
 fn test_display_prefix_and_is_local() {
-    use crate::fs_provider::FileSystemProvider;
-    use crate::fs_sftp::SftpFs;
+    use crate::fs::fs_provider::FileSystemProvider;
+    use crate::fs::fs_sftp::SftpFs;
     use ssh2::Session;
     let session = Session::new().unwrap();
     let fs = SftpFs::new(session, "host123".to_string(), "user456".to_string(), None);
@@ -1249,8 +1249,8 @@ fn test_display_prefix_and_is_local() {
 
 #[test]
 fn test_context_key() {
-    use crate::fs_provider::FileSystemProvider;
-    use crate::fs_sftp::SftpFs;
+    use crate::fs::fs_provider::FileSystemProvider;
+    use crate::fs::fs_sftp::SftpFs;
     use ssh2::Session;
     let session = Session::new().unwrap();
     let fs = SftpFs::new(session, "myhost".to_string(), "myuser".to_string(), None);

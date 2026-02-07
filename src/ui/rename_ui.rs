@@ -38,7 +38,7 @@ pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &RenameState, palette: &
     };
 
     if state.show_overwrite_confirm {
-        let message_border = crate::ui_utils::message_border_set();
+        let message_border = crate::ui::ui_utils::message_border_set();
         let message_border_color = Color::Rgb(palette.red.r, palette.red.g, palette.red.b);
         f.render_widget(
             Block::default()
@@ -67,7 +67,8 @@ pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &RenameState, palette: &
         .split(popup_area);
 
     if state.show_overwrite_confirm {
-        let truncated_name = crate::ui_utils::truncate_middle_with_ellipsis(&state.new_name, 35);
+        let truncated_name =
+            crate::ui::ui_utils::truncate_middle_with_ellipsis(&state.new_name, 35);
         let text = format!("Overwrite {truncated_name}?");
 
         f.render_widget(
@@ -86,11 +87,11 @@ pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &RenameState, palette: &
             .alignment(Alignment::Center);
         f.render_widget(p_message, layout[1]);
 
-        crate::ui_utils::draw_button_row(f, &["(Y)es", "(N)o"], layout[2], text_color);
+        crate::ui::ui_utils::draw_button_row(f, &["(Y)es", "(N)o"], layout[2], text_color);
     } else {
-        crate::ui_utils::draw_input_popup(
+        crate::ui::ui_utils::draw_input_popup(
             f,
-            crate::ui_utils::InputPopupOptions {
+            crate::ui::ui_utils::InputPopupOptions {
                 title: None,
                 input_value: &state.new_name,
                 cursor_position: state.cursor_position,

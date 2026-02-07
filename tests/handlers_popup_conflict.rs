@@ -19,7 +19,7 @@ fn app_with_conflict(task_id: usize) -> (AppState, mpsc::Receiver<TaskDecision>)
         right: fm::app::TabManager::new(Path::new("/tmp")).unwrap(),
         active: fm::app::PanelSide::Left,
         file_viewer: FileViewerState::new(false, ""),
-        fuzzy_search: fm::fuzzy_search_ui::FuzzySearchState::new(),
+        fuzzy_search: fm::ui::fuzzy_search_ui::FuzzySearchState::new(),
         popups: fm::app::Popups::new(),
         task_manager: fm::tasks::TaskManager::new(task_tx),
         task_decision_txs: {

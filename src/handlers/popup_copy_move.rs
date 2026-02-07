@@ -2,7 +2,7 @@
 
 use crate::app::AppState;
 use crate::clipboard::FileClipboardData;
-use crate::fs_provider::FileSystemProvider;
+use crate::fs::fs_provider::FileSystemProvider;
 
 use crate::state::CopyMoveAction;
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -379,7 +379,7 @@ async fn try_rsync_directory<F: crate::fs::traits::FileSystem>(
                 processed_bytes: processed_bytes.clone(),
             };
 
-            if crate::fs_rsync::rsync_transfer(src_fs, dest_fs, src, target, &progress)
+            if crate::fs::fs_rsync::rsync_transfer(src_fs, dest_fs, src, target, &progress)
                 .await
                 .is_ok()
             {
@@ -507,7 +507,8 @@ pub fn spawn_copy_move_task(
             // Check if rsync can be used for this transfer
             let src_is_local = src_fs.is_local();
             let dest_is_local = dest_fs.is_local();
-            let use_rsync = crate::fs_rsync::should_use_rsync(src_is_local, dest_is_local, action);
+            let use_rsync =
+                crate::fs::fs_rsync::should_use_rsync(src_is_local, dest_is_local, action);
 
             // Pre-calculation of total items using the source filesystem
             // Skip this for rsync-eligible transfers to avoid slow remote directory traversal
