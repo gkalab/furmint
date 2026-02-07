@@ -1,8 +1,6 @@
 use crate::app::EmptyTrashState;
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
-use ratatui::symbols::border::Set;
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 pub fn draw_empty_trash_popup(
     f: &mut ratatui::Frame,
@@ -13,75 +11,17 @@ pub fn draw_empty_trash_popup(
         return;
     }
 
-    // Calculate popup size
-    // Calculate popup size
-    let popup_width = 60;
-    let popup_height = 7;
-    let popup_area = crate::ui_utils::centered_rect_absolute(popup_width, popup_height, f.area());
-
-    // Clear the popup area
-    f.render_widget(Clear, popup_area);
-
     let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
-    let border_color = Color::Rgb(palette.red.r, palette.red.g, palette.red.b);
-    let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
-    let button_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
-
-    let message_border = Set {
-        top_left: "━",
-        top_right: "━",
-        bottom_left: " ",
-        bottom_right: " ",
-        vertical_left: " ",
-        vertical_right: " ",
-        horizontal_top: "━",
-        horizontal_bottom: " ",
-    };
-
-    // Draw outer block
-    f.render_widget(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(border_color))
-            .border_set(message_border)
-            .style(Style::default().bg(bg_color)),
-        popup_area,
-    );
-
     let message = "Are you sure you want to empty the trash?";
 
-    // Divide popup_area for message and button row
-    let chunk_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .horizontal_margin(2)
-        .vertical_margin(1)
-        .constraints([Constraint::Min(1)])
-        .split(popup_area);
+    let confirmation_state = crate::state::ConfirmationState {
+        is_visible: true,
+        message: message.to_string(),
+        truncate: false,
+        action: crate::state::ConfirmationAction::None,
+    };
 
-    let field_bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
-
-    // Draw inner block with field background
-    let inner_block = Block::default()
-        .borders(Borders::ALL)
-        .border_set(ratatui::symbols::border::EMPTY)
-        .border_style(Style::default().fg(border_color).bg(field_bg_color))
-        .style(Style::default().bg(field_bg_color));
-
-    f.render_widget(inner_block.clone(), chunk_layout[0]);
-    let inner_content_area = inner_block.inner(chunk_layout[0]);
-
-    let layout = ratatui::layout::Layout::vertical([
-        ratatui::layout::Constraint::Min(1),    // Message
-        ratatui::layout::Constraint::Length(1), // Button row
-    ])
-    .split(inner_content_area);
-
-    let p_message = Paragraph::new(message)
-        .style(Style::default().fg(text_color).bg(field_bg_color))
-        .alignment(Alignment::Center);
-    f.render_widget(p_message, layout[0]);
-
-    crate::ui_utils::draw_button_row(f, &["(Y)es", "(N)o"], layout[1], button_color);
+    crate::ui_utils::draw_confirmation_popup(f, &confirmation_state, palette, 60, 7, bg_color);
 }
 
 // Handles empty trash confirmation popup key actions (Y, N, Esc, Enter)

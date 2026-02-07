@@ -30,6 +30,36 @@ pub fn handle_ssh_connection_event(
     modifiers: KeyModifiers,
 ) -> bool {
     use crate::state::ssh::SshField;
+    use crate::state::{ConfirmationAction, ConfirmationState};
+
+    if let Some(confirmation) = &app.popups.ssh_connection.confirmation {
+        match code {
+            KeyCode::Char('y') | KeyCode::Enter => {
+                let action = confirmation.action;
+                app.popups.ssh_connection.confirmation = None;
+                match action {
+                    ConfirmationAction::DeleteSshHistory(idx) => {
+                        app.ssh_history.remove_at(idx);
+                        if let Some(curr_idx) = app.popups.ssh_connection.selected_history_idx {
+                            let count = app.ssh_history.connections.len();
+                            if count == 0 {
+                                app.popups.ssh_connection.selected_history_idx = None;
+                            } else if curr_idx >= count {
+                                app.popups.ssh_connection.selected_history_idx = Some(count - 1);
+                            }
+                        }
+                    }
+                    ConfirmationAction::None => {}
+                }
+                return false;
+            }
+            KeyCode::Char('n') | KeyCode::Esc => {
+                app.popups.ssh_connection.confirmation = None;
+                return false;
+            }
+            _ => return false,
+        }
+    }
 
     match code {
         KeyCode::Esc => {
@@ -336,7 +366,18 @@ pub fn handle_ssh_connection_event(
                     app.popups.ssh_connection.port.remove(byte_idx);
                 }
             }
-            _ => {}
+            SshField::History => {
+                if let Some(idx) = app.popups.ssh_connection.selected_history_idx
+                    && let Some(conn) = app.ssh_history.connections.get(idx)
+                {
+                    let name = conn.display_string();
+                    app.popups.ssh_connection.confirmation = Some(ConfirmationState::new(
+                        format!("Remove '{}' from history?", name),
+                        true,
+                        ConfirmationAction::DeleteSshHistory(idx),
+                    ));
+                }
+            }
         },
         KeyCode::Enter => {
             if app.popups.ssh_connection.active_field == SshField::History {

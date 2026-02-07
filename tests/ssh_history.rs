@@ -34,23 +34,6 @@ fn test_history_deduplication() {
 }
 
 #[test]
-fn test_history_limit() {
-    let temp = tempdir().unwrap();
-    let history_path = temp.path().join("ssh_history.json");
-    let mut history = SshConnectionHistory {
-        connections: Vec::new(),
-        path: history_path,
-    };
-
-    for i in 0..60 {
-        history.add(create_test_info(&format!("host{}", i)));
-    }
-
-    assert_eq!(history.connections.len(), 50);
-    assert_eq!(history.connections[0].connection_string, "host59");
-}
-
-#[test]
 fn test_display_string() {
     let info = SshConnectionInfo {
         name: Some("MyServer".to_string()),

@@ -3,7 +3,7 @@
 use crate::app::Tab;
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
-use ratatui::widgets::Paragraph;
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use std::env;
 
 /// Draws a simple horizontal row of button labels, à la yazi (hotkey style, no focus handling)
@@ -443,4 +443,71 @@ pub fn draw_input_popup(
             .alignment(Alignment::Right);
         f.render_widget(error_paragraph, layout[error_index]);
     }
+}
+
+pub fn draw_confirmation_popup(
+    f: &mut ratatui::Frame,
+    state: &crate::state::ConfirmationState,
+    palette: &ThemePalette,
+    width: u16,
+    height: u16,
+    bg_color: Color,
+) {
+    if !state.is_visible {
+        return;
+    }
+
+    let popup_area = centered_rect_absolute(width, height, f.area());
+
+    f.render_widget(Clear, popup_area);
+
+    let border_color = Color::Rgb(palette.red.r, palette.red.g, palette.red.b);
+    let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
+
+    f.render_widget(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(border_color))
+            .border_set(message_border_set())
+            .style(Style::default().bg(bg_color)),
+        popup_area,
+    );
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .horizontal_margin(2)
+        .constraints([Constraint::Length(1), Constraint::Min(1)])
+        .split(popup_area);
+
+    let inner_block = Block::default()
+        .borders(Borders::ALL)
+        .border_set(ratatui::symbols::border::EMPTY)
+        .border_style(Style::default().fg(border_color).bg(bg_color))
+        .style(Style::default().bg(bg_color));
+
+    f.render_widget(inner_block.clone(), chunks[1]);
+    let inner_content_area = inner_block.inner(chunks[1]);
+
+    let inner_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(2),    // Message
+            Constraint::Length(1), // Button row
+        ])
+        .split(inner_content_area);
+
+    let message = if state.truncate {
+        truncate_middle_with_ellipsis(&state.message, (width - 8) as usize)
+    } else {
+        state.message.clone()
+    };
+
+    f.render_widget(
+        Paragraph::new(message)
+            .style(Style::default().fg(text_color).bg(bg_color))
+            .alignment(Alignment::Center),
+        inner_layout[0],
+    );
+
+    draw_button_row(f, &["(Y)es", "(N)o"], inner_layout[1], text_color);
 }

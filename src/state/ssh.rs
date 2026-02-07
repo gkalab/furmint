@@ -9,6 +9,7 @@ pub struct SshConnectionState {
     pub cursor_position: usize,
     pub search_query: String,
     pub last_key_time: Option<std::time::Instant>,
+    pub confirmation: Option<crate::state::ConfirmationState>,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -32,6 +33,7 @@ impl SshConnectionState {
             cursor_position: 0,
             search_query: String::new(),
             last_key_time: None,
+            confirmation: None,
         }
     }
 }

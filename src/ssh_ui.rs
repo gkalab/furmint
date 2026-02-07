@@ -201,6 +201,10 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemeP
             chunks[6],
         );
     }
+    if let Some(confirmation) = &app.popups.ssh_connection.confirmation {
+        let bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
+        crate::ui_utils::draw_confirmation_popup(f, confirmation, palette, 66, 6, bg_color);
+    }
 }
 
 pub fn draw_ssh_password_popup(f: &mut Frame, app: &AppState, palette: &ThemePalette) {

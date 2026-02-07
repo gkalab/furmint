@@ -66,9 +66,13 @@ impl SshConnectionHistory {
             .retain(|c| c.connection_string != info.connection_string);
         // Add to the front
         self.connections.insert(0, info);
-        // Limit to 50 entries
-        self.connections.truncate(50);
         let _ = self.save();
+    }
+    pub fn remove_at(&mut self, idx: usize) {
+        if idx < self.connections.len() {
+            self.connections.remove(idx);
+            let _ = self.save();
+        }
     }
     pub fn save(&self) -> anyhow::Result<()> {
         let content = serde_json::to_string_pretty(&self.connections)?;

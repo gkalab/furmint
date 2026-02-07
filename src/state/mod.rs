@@ -1,3 +1,4 @@
+mod confirmation;
 mod conflict;
 mod copy_move;
 mod create_dir;
@@ -13,6 +14,7 @@ mod remote_edit;
 mod rename;
 pub mod ssh;
 
+pub use confirmation::{ConfirmationAction, ConfirmationState};
 pub use conflict::ConflictState;
 pub use copy_move::{CopyMoveAction, CopyMoveState};
 pub use create_dir::CreateDirectoryState;
