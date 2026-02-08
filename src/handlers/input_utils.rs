@@ -3,6 +3,41 @@
 use crate::handlers::clipboard_utils::{get_clipboard_content, insert_text_at_cursor_unicode};
 use crossterm::event::{KeyCode, KeyModifiers};
 
+pub fn keyevent_to_string(code: KeyCode, modifiers: KeyModifiers) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if modifiers.contains(KeyModifiers::CONTROL) {
+        parts.push("Ctrl".to_string());
+    }
+    if modifiers.contains(KeyModifiers::ALT) {
+        parts.push("Alt".to_string());
+    }
+    if modifiers.contains(KeyModifiers::SHIFT) {
+        parts.push("Shift".to_string());
+    }
+    let key = match code {
+        KeyCode::Up => "Up".to_string(),
+        KeyCode::Down => "Down".to_string(),
+        KeyCode::Left => "Left".to_string(),
+        KeyCode::Right => "Right".to_string(),
+        KeyCode::PageUp => "PageUp".to_string(),
+        KeyCode::PageDown => "PageDown".to_string(),
+        KeyCode::Home => "Home".to_string(),
+        KeyCode::End => "End".to_string(),
+        KeyCode::Enter => "Enter".to_string(),
+        KeyCode::Backspace => "Backspace".to_string(),
+        KeyCode::Tab => "Tab".to_string(),
+        KeyCode::BackTab => "BackTab".to_string(),
+        KeyCode::Delete => "Delete".to_string(),
+        KeyCode::Esc => "Esc".to_string(),
+        KeyCode::Insert => "Insert".to_string(),
+        KeyCode::Char(c) => c.to_string(),
+        KeyCode::F(n) => format!("F{n}"),
+        _ => String::new(),
+    };
+    parts.push(key);
+    parts.join("-")
+}
+
 pub fn handle_text_input(
     code: KeyCode,
     modifiers: KeyModifiers,

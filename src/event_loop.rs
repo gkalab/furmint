@@ -1,24 +1,11 @@
-use crate::app::{AppState, PanelSide};
+use crate::app::AppState;
 use crate::config::KeyboardConfig;
-use crate::handlers::file_viewer::handle_file_viewer_event;
-use crate::handlers::navigation::{reset_expired_search, update_viewer_content};
-use crate::handlers::popup_conflict::handle_conflict_event;
-use crate::handlers::popup_copy_move::handle_copy_move_event;
-use crate::handlers::popup_create::{handle_create_directory_event, handle_create_file_event};
-use crate::handlers::popup_delete::handle_delete_event;
-use crate::handlers::popup_error::handle_error_event;
-use crate::handlers::popup_fuzzy::handle_fuzzy_search_event;
-use crate::handlers::popup_misc::{
-    handle_quit_popup_event, handle_task_event, handle_task_manager_event,
-};
-use crate::handlers::popup_rename::handle_rename_event;
-use crate::handlers::popup_ssh::{handle_ssh_connection_event, handle_ssh_password_event};
-use crate::handlers::terminal::handle_toggle_console;
+use crate::handlers::navigation::reset_expired_search;
+use crate::handlers::popup_misc::handle_task_event;
 use crate::theme::ThemePalette;
-use crate::ui::{draw_panel, draw_panel_status};
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{self, Event};
 use ratatui::prelude::*;
 
 pub fn spawn_input_polling(
@@ -207,195 +194,8 @@ fn draw_ui(
     keyboard: &KeyboardConfig,
 ) -> anyhow::Result<()> {
     terminal.draw(|f| {
-        let size = f.area();
-        // Fill the entire terminal with the theme background color
-        let bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
-        let bg = ratatui::widgets::Paragraph::new("").style(Style::default().bg(bg_color));
-        f.render_widget(bg, size);
-
-        let vertical_chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Min(1),    // panels
-                Constraint::Length(1), // status lines
-            ])
-            .split(size);
-        let panel_chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-            .split(vertical_chunks[0]);
-        let status_chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-            .split(vertical_chunks[1]);
-
-        let show_tabs = app.left.tabs.len() > 1 || app.right.tabs.len() > 1;
-
-        let left_panel_layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                if show_tabs {
-                    Constraint::Length(1)
-                } else {
-                    Constraint::Length(0)
-                },
-                Constraint::Min(1),
-            ])
-            .split(panel_chunks[0]);
-
-        let right_panel_layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                if show_tabs {
-                    Constraint::Length(1)
-                } else {
-                    Constraint::Length(0)
-                },
-                Constraint::Min(1),
-            ])
-            .split(panel_chunks[1]);
-
-        if app.file_viewer.is_visible && app.active == PanelSide::Right {
-            crate::ui::draw_file_viewer(
-                f,
-                &mut app.file_viewer,
-                panel_chunks[0],
-                palette,
-                app.global.borders.unwrap_or(false),
-            );
-        } else {
-            let is_active = app.active == PanelSide::Left && !app.file_viewer.focused;
-            if show_tabs {
-                crate::ui::draw_tab_bar(
-                    f,
-                    &app.left,
-                    left_panel_layout[0],
-                    palette,
-                    is_active,
-                    app.global.borders.unwrap_or(false),
-                    app.global.icons.unwrap_or(false),
-                );
-            }
-            draw_panel(
-                f,
-                app.left.active_tab_mut(),
-                is_active,
-                left_panel_layout[1],
-                palette,
-                app.global.borders.unwrap_or(false),
-                app.global.icons.unwrap_or(false),
-            );
-        }
-
-        if app.file_viewer.is_visible && app.active == PanelSide::Left {
-            crate::ui::draw_file_viewer(
-                f,
-                &mut app.file_viewer,
-                panel_chunks[1],
-                palette,
-                app.global.borders.unwrap_or(false),
-            );
-        } else {
-            let is_active = app.active == PanelSide::Right && !app.file_viewer.focused;
-            if show_tabs {
-                crate::ui::draw_tab_bar(
-                    f,
-                    &app.right,
-                    right_panel_layout[0],
-                    palette,
-                    is_active,
-                    app.global.borders.unwrap_or(false),
-                    app.global.icons.unwrap_or(false),
-                );
-            }
-            draw_panel(
-                f,
-                app.right.active_tab_mut(),
-                is_active,
-                right_panel_layout[1],
-                palette,
-                app.global.borders.unwrap_or(false),
-                app.global.icons.unwrap_or(false),
-            );
-        }
-
-        draw_panel_status(
-            f,
-            app.left.active_tab(),
-            status_chunks[0],
-            &crate::ui::panel::PanelStatusContext {
-                palette,
-                active: app.active == PanelSide::Left,
-                borders: app.global.borders.unwrap_or(false),
-                task_manager: &app.task_manager,
-                side: PanelSide::Left,
-            },
-        );
-        draw_panel_status(
-            f,
-            app.right.active_tab(),
-            status_chunks[1],
-            &crate::ui::panel::PanelStatusContext {
-                palette,
-                active: app.active == PanelSide::Right,
-                borders: app.global.borders.unwrap_or(false),
-                task_manager: &app.task_manager,
-                side: PanelSide::Right,
-            },
-        );
-
-        // Draw fuzzy search popup on top of everything
-        crate::ui::fuzzy_search_ui::draw_fuzzy_search_popup(f, &mut app.fuzzy_search, palette);
-
-        // Draw rename popup on top of fuzzy search (though they shouldn't be open at same time)
-        crate::ui::rename_ui::draw_rename_popup(f, &app.popups.rename, palette);
-
-        // Draw create directory popup
-        crate::ui::create_dir_ui::draw_create_dir_popup(f, &app.popups.create_directory, palette);
-        // Draw create file popup
-        crate::ui::create_file_ui::draw_create_file_popup(f, &app.popups.create_file, palette);
-
-        // Draw delete popup
-        crate::ui::delete_ui::draw_delete_popup(f, &app.popups.delete, palette);
-
-        // Draw copy/move popup
-        crate::ui::copy_move_ui::draw_copy_move_popup(f, &app.popups.copy_move, palette);
-
-        // Draw conflict popup
-        crate::ui::conflict_ui::draw_conflict_popup(f, &app.popups.conflict, palette);
-
-        // Draw task manager
-        crate::ui::task_ui::draw_task_manager(f, &app.task_manager, app.show_task_manager, palette);
-
-        // Draw empty trash popup
-        crate::ui::empty_trash_ui::draw_empty_trash_popup(f, &app.popups.empty_trash, palette);
-
-        // Draw quit confirmation popup
-        crate::ui::quit_ui::draw_quit_popup(f, &app.popups.quit_confirmation, palette);
-
-        // Draw error popup
-        crate::ui::error_ui::draw_error_popup(f, &app.popups.error, palette);
-
-        // Draw help popup
-        crate::ui::help_ui::draw_help_popup(f, app, keyboard, palette);
-
-        // Draw drive selection popup
-        if app.popups.drive_select.is_visible {
-            crate::drive_select_ui::draw_drive_select_popup(f, app, palette);
-        }
-
-        // Draw SSH connection popup
-        if app.popups.ssh_connection.is_visible {
-            crate::ui::ssh_ui::draw_ssh_connection_popup(f, app, palette);
-        }
-
-        // Draw SSH password popup
-        if app.popups.ssh_password.is_visible {
-            crate::ui::ssh_ui::draw_ssh_password_popup(f, app, palette);
-        }
-
-        // Draw remote edit confirmation popup
-        crate::ui::remote_edit_ui::draw_remote_edit_popup(f, &app.popups.remote_edit, palette);
+        crate::ui::main_ui::draw_main_layout(f, app, palette);
+        crate::ui::main_ui::draw_all_popups(f, app, palette, keyboard);
     })?;
     Ok(())
 }
@@ -407,234 +207,14 @@ pub async fn handle_event(
     keyboard: &KeyboardConfig,
     input_tx: tokio::sync::mpsc::UnboundedSender<crossterm::event::Event>,
 ) -> bool {
-    match ev {
-        Event::Key(KeyEvent {
-            kind: crossterm::event::KeyEventKind::Press,
-            code,
-            modifiers,
-            ..
-        }) => {
-            // Check configurable quit/exit key(s)
-            let shortcut = keyevent_to_string(code, modifiers);
-            let quit_match = keyboard
-                .quit
-                .as_ref()
-                .is_some_and(|keys| keys.contains(&shortcut));
-            if (quit_match && code != KeyCode::Esc)
-                || (quit_match
-                    && !app.file_viewer.is_visible
-                    && !app.fuzzy_search.is_visible
-                    && !app.popups.rename.is_visible
-                    && !app.popups.create_directory.is_visible
-                    && !app.popups.delete.is_visible
-                    && !app.popups.copy_move.is_visible
-                    && !app.popups.conflict.is_visible
-                    && !app.popups.quit_confirmation.is_visible
-                    && !app.popups.error.is_visible
-                    && !app.popups.help.is_visible
-                    && !app.popups.drive_select.is_visible
-                    && !app.popups.remote_edit.is_visible
-                    && !app.show_task_manager)
-            {
-                if app.task_manager.has_running_tasks() {
-                    app.popups.quit_confirmation.is_visible = true;
-                    return false;
-                }
-                return true;
-            }
-
-            // Handle error popup
-            if app.popups.error.is_visible {
-                if handle_error_event(code, app).await {
-                    return true;
-                }
-                return false;
-            }
-
-            // Handle help popup
-            if app.popups.help.is_visible {
-                crate::ui::help_ui::handle_help_popup_event(code, app);
-                return false;
-            }
-
-            // Handle empty trash popup
-            if app.popups.empty_trash.is_visible {
-                if crate::ui::empty_trash_ui::handle_empty_trash_popup_event(code, app) {
-                    return false;
-                }
-                return false;
-            }
-
-            // Handle quit confirmation popup
-            if app.popups.quit_confirmation.is_visible {
-                if handle_quit_popup_event(code, app) {
-                    return true; // Quit confirmed
-                }
-                return false;
-            }
-
-            // Handle fuzzy search popup
-            if app.fuzzy_search.is_visible {
-                return handle_fuzzy_search_event(code, modifiers, app);
-            }
-
-            // Handle rename popup
-            if app.popups.rename.is_visible {
-                return handle_rename_event(code, modifiers, app);
-            }
-
-            // Handle create directory popup
-            if app.popups.create_directory.is_visible {
-                return handle_create_directory_event(code, modifiers, app);
-            }
-
-            if app.popups.create_file.is_visible {
-                return handle_create_file_event(code, modifiers, app, &input_tx).await;
-            }
-
-            // Handle delete popup
-            if app.popups.delete.is_visible {
-                return handle_delete_event(code, app);
-            }
-
-            // Handle copy/move popup
-            if app.popups.copy_move.is_visible {
-                return handle_copy_move_event(code, modifiers, app);
-            }
-
-            // Handle drive selection popup
-            if app.popups.drive_select.is_visible {
-                return crate::drive_select_ui::handle_drive_select_event(code, app);
-            }
-
-            // Handle conflict popup
-            if app.popups.conflict.is_visible {
-                return handle_conflict_event(code, app).await;
-            }
-
-            // Handle SSH connection popup
-            if app.popups.ssh_connection.is_visible {
-                return handle_ssh_connection_event(app, code, modifiers);
-            }
-
-            // Handle SSH password popup
-            if app.popups.ssh_password.is_visible {
-                return handle_ssh_password_event(app, code, modifiers);
-            }
-
-            // Handle remote edit confirmation popup
-            if app.popups.remote_edit.is_visible {
-                return crate::handlers::editor::handle_remote_edit_event(code, app).await;
-            }
-
-            // Handle task manager
-            if app.show_task_manager {
-                return handle_task_manager_event(code, app);
-            }
-
-            if code == KeyCode::F(3) && modifiers == KeyModifiers::NONE {
-                if crate::handlers::file_viewer::handle_external_viewer(app).await {
-                    return false;
-                }
-                app.file_viewer.is_visible = !app.file_viewer.is_visible;
-                if app.file_viewer.is_visible {
-                    update_viewer_content(app);
-                } else {
-                    // If viewer was focused, switch to the panel it was replacing
-                    if app.file_viewer.focused {
-                        app.active = match app.active {
-                            PanelSide::Left => PanelSide::Right,
-                            PanelSide::Right => PanelSide::Left,
-                        };
-                    }
-                    app.file_viewer.focused = false;
-                }
-                return false;
-            }
-            // Esc must always close the file viewer if it's open (even if Esc is not mapped globally)
-            if app.file_viewer.is_visible && code == KeyCode::Esc {
-                app.file_viewer.is_visible = false;
-                app.file_viewer.focused = false;
-                return false;
-            }
-            if app.file_viewer.focused {
-                handle_file_viewer_event(code, app);
-                return false;
-            }
-
-            // Handle toggle console
-            let toggle_console_match = keyboard
-                .toggle_console
-                .as_ref()
-                .is_some_and(|keys| keys.contains(&shortcut));
-            if toggle_console_match {
-                if let Err(e) = handle_toggle_console(app, &input_tx).await {
-                    let tab_manager = match app.active {
-                        PanelSide::Left => &mut app.left,
-                        PanelSide::Right => &mut app.right,
-                    };
-                    tab_manager.active_tab_mut().error =
-                        Some(format!("Error toggling console: {e}"));
-                }
-                return false;
-            }
-
-            handle_main_panel_event(code, modifiers, app, keyboard, input_tx.clone()).await;
-        }
-        Event::Resize(_, _) => {}
-        _ => {}
-    }
-    false
-}
-
-async fn handle_main_panel_event(
-    code: KeyCode,
-    modifiers: KeyModifiers,
-    app: &mut AppState,
-    keyboard: &KeyboardConfig,
-    input_tx: tokio::sync::mpsc::UnboundedSender<crossterm::event::Event>,
-) -> bool {
-    crate::handlers::input::handle_main_panel_event(code, modifiers, app, keyboard, input_tx).await
-}
-
-fn keyevent_to_string(code: KeyCode, modifiers: KeyModifiers) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    if modifiers.contains(KeyModifiers::CONTROL) {
-        parts.push("Ctrl".to_string());
-    }
-    if modifiers.contains(KeyModifiers::ALT) {
-        parts.push("Alt".to_string());
-    }
-    if modifiers.contains(KeyModifiers::SHIFT) {
-        parts.push("Shift".to_string());
-    }
-    let key = match code {
-        KeyCode::Up => "Up".to_string(),
-        KeyCode::Down => "Down".to_string(),
-        KeyCode::Left => "Left".to_string(),
-        KeyCode::Right => "Right".to_string(),
-        KeyCode::PageUp => "PageUp".to_string(),
-        KeyCode::PageDown => "PageDown".to_string(),
-        KeyCode::Home => "Home".to_string(),
-        KeyCode::End => "End".to_string(),
-        KeyCode::Enter => "Enter".to_string(),
-        KeyCode::Backspace => "Backspace".to_string(),
-        KeyCode::Tab => "Tab".to_string(),
-        KeyCode::BackTab => "BackTab".to_string(),
-        KeyCode::Delete => "Delete".to_string(),
-        KeyCode::Esc => "Esc".to_string(),
-        KeyCode::Insert => "Insert".to_string(),
-        KeyCode::Char(c) => c.to_string(),
-        KeyCode::F(n) => format!("F{n}"),
-        _ => String::new(),
-    };
-    parts.push(key);
-    parts.join("-")
+    crate::handlers::main_handler::route_event(ev, app, keyboard, input_tx).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::handlers::input_utils::keyevent_to_string;
+    use crossterm::event::{KeyCode, KeyModifiers};
 
     #[test]
     fn test_keyevent_to_string() {
@@ -907,6 +487,7 @@ mod tests {
     #[tokio::test]
     async fn test_handle_insert_moves_cursor_down() {
         use crate::fs::utils::FileEntry;
+        use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
         let mut app = crate::app::AppState {
             left: crate::app::TabManager {
                 tabs: vec![crate::app::Tab {
@@ -992,9 +573,13 @@ mod tests {
         assert_eq!(app.left.active_tab().cursor, 0);
         assert!(!app.left.active_tab().entries[0].selected);
 
-        handle_main_panel_event(
-            KeyCode::Insert,
-            KeyModifiers::NONE,
+        handle_event(
+            Event::Key(KeyEvent {
+                code: KeyCode::Insert,
+                modifiers: KeyModifiers::NONE,
+                kind: event::KeyEventKind::Press,
+                state: event::KeyEventState::NONE,
+            }),
             &mut app,
             &keyboard,
             input_tx,

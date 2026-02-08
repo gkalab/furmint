@@ -7,6 +7,7 @@ pub mod empty_trash_ui;
 pub mod error_ui;
 pub mod fuzzy_search_ui;
 pub mod help_ui;
+pub mod main_ui;
 pub mod panel;
 pub mod quit_ui;
 pub mod remote_edit_ui;

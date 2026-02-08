@@ -1,3 +1,4 @@
+pub mod main_handler;
 pub mod navigation;
 
 pub mod tabs;
