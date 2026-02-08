@@ -78,7 +78,7 @@ pub fn draw_panel(
         .map(|e| format_size(e.size, e.is_dir, e.is_symlink).len())
         .max()
         .unwrap_or(4);
-    let size_indicator = sort_indicator(SortColumn::Size, panel.sort_column, panel.sort_direction);
+    let size_indicator = sort_indicator(SortColumn::Size, panel.sort.column, panel.sort.direction);
     let size_header_with_indicator = format!("Size{}", size_indicator);
     // Ensure column is wide enough for header + indicator
     let size_header = format!(
@@ -86,12 +86,12 @@ pub fn draw_panel(
         size_header_with_indicator,
         width = size_width.max(size_header_with_indicator.len())
     );
-    let name_indicator = sort_indicator(SortColumn::Name, panel.sort_column, panel.sort_direction);
+    let name_indicator = sort_indicator(SortColumn::Name, panel.sort.column, panel.sort.direction);
     let name_header = format!("Name{}", name_indicator);
     let ext_indicator = sort_indicator(
         SortColumn::Extension,
-        panel.sort_column,
-        panel.sort_direction,
+        panel.sort.column,
+        panel.sort.direction,
     );
     let name_header = if ext_indicator.is_empty() {
         name_header
@@ -100,7 +100,7 @@ pub fn draw_panel(
     };
     let modified_header = format!(
         "Modified{}",
-        sort_indicator(SortColumn::Date, panel.sort_column, panel.sort_direction)
+        sort_indicator(SortColumn::Date, panel.sort.column, panel.sort.direction)
     );
     let header = [
         name_header,
@@ -146,7 +146,7 @@ pub fn draw_panel(
                 Style::default().fg(text_fg)
             };
 
-            let name_cell = if let Some(matches) = panel.search_highlights.get(&idx) {
+            let name_cell = if let Some(matches) = panel.search.highlights.get(&idx) {
                 let yellow = Color::Rgb(palette.yellow.r, palette.yellow.g, palette.yellow.b);
                 let highlight_style = Style::default().fg(yellow).add_modifier(Modifier::BOLD);
 
@@ -379,11 +379,11 @@ pub fn draw_panel_status(
 
     let status = if !error.is_empty() {
         error.to_string()
-    } else if !panel.typed_buffer.is_empty() {
+    } else if !panel.search.buffer.is_empty() {
         format!(
             "{} | {} matches",
-            panel.typed_buffer,
-            panel.matching_indices.len()
+            panel.search.buffer,
+            panel.search.matching_indices.len()
         )
     } else {
         let items_info = if let Some((msg, instant)) = &panel.clipboard_msg
@@ -403,7 +403,7 @@ pub fn draw_panel_status(
 
     // Use the same background as file/directory rows (surface1)
     let fg = if error.is_empty() {
-        if !panel.typed_buffer.is_empty() {
+        if !panel.search.buffer.is_empty() {
             Color::Rgb(
                 ctx.palette.yellow.r,
                 ctx.palette.yellow.g,

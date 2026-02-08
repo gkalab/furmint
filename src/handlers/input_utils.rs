@@ -13,19 +13,21 @@ pub fn handle_text_input(
     match code {
         KeyCode::Backspace => {
             if *cursor_position > 0
-                && let Some((byte_idx, _)) = text.char_indices().nth(*cursor_position - 1) {
-                    text.remove(byte_idx);
-                    *cursor_position -= 1;
-                    return true;
-                }
+                && let Some((byte_idx, _)) = text.char_indices().nth(*cursor_position - 1)
+            {
+                text.remove(byte_idx);
+                *cursor_position -= 1;
+                return true;
+            }
         }
         KeyCode::Delete => {
             let current_len = text.chars().count();
             if *cursor_position < current_len
-                && let Some((byte_idx, _)) = text.char_indices().nth(*cursor_position) {
-                    text.remove(byte_idx);
-                    return true;
-                }
+                && let Some((byte_idx, _)) = text.char_indices().nth(*cursor_position)
+            {
+                text.remove(byte_idx);
+                return true;
+            }
         }
         KeyCode::Left => {
             if *cursor_position > 0 {

@@ -23,27 +23,90 @@ pub struct PersistentTab {
 }
 
 #[derive(Clone)]
+pub struct TabHistory {
+    pub entries: Vec<HistoryEntry>,
+    pub index: usize,
+}
+
+impl TabHistory {
+    pub fn new(path: PathBuf, cursor: usize) -> Self {
+        Self {
+            entries: vec![HistoryEntry { path, cursor }],
+            index: 0,
+        }
+    }
+
+    pub fn current(&self) -> &HistoryEntry {
+        &self.entries[self.index]
+    }
+
+    pub fn push(&mut self, path: PathBuf, cursor: usize) {
+        self.entries.truncate(self.index + 1);
+        self.entries.push(HistoryEntry { path, cursor });
+        self.index = self.entries.len() - 1;
+    }
+
+    pub fn can_go_back(&self) -> bool {
+        self.index > 0
+    }
+
+    pub fn can_go_forward(&self) -> bool {
+        self.index + 1 < self.entries.len()
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct IncrementalSearch {
+    pub buffer: String,
+    pub last_type_time: Option<std::time::Instant>,
+    pub matching_indices: Vec<usize>,
+    pub position: usize,
+    pub highlights: std::collections::HashMap<usize, Vec<usize>>,
+}
+
+impl IncrementalSearch {
+    pub fn is_active(&self) -> bool {
+        !self.buffer.is_empty()
+            && self
+                .last_type_time
+                .is_some_and(|t| t.elapsed() < SEARCH_TIMEOUT)
+    }
+
+    pub fn reset(&mut self) {
+        self.buffer.clear();
+        self.last_type_time = None;
+        self.matching_indices.clear();
+        self.position = 0;
+        self.highlights.clear();
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SortSettings {
+    pub column: SortColumn,
+    pub direction: SortDirection,
+}
+
+impl Default for SortSettings {
+    fn default() -> Self {
+        Self {
+            column: SortColumn::Name,
+            direction: SortDirection::Ascending,
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct Tab {
     pub provider: Arc<dyn FileSystemProvider>,
     pub current_dir: PathBuf,
     pub entries: Vec<FileEntry>,
     pub cursor: usize,
-    pub history: Vec<HistoryEntry>,
-    pub history_index: usize,
-    pub error: Option<String>,
-    // For incremental search
-    pub typed_buffer: String,
-    pub last_type_time: Option<std::time::Instant>,
-    // For tracking search matches and navigation position
-    pub matching_indices: Vec<usize>,
-    pub search_position: usize,
-    // (EntryIndex, HighlightIndices)
-    pub search_highlights: std::collections::HashMap<usize, Vec<usize>>,
-    // Sorting
-    pub sort_column: SortColumn,
-    pub sort_direction: SortDirection,
+    pub history: TabHistory,
+    pub search: IncrementalSearch,
+    pub sort: SortSettings,
     pub scroll_offset: usize,
-    // Custom tab title (e.g., SSH connection name)
+    pub error: Option<String>,
     pub custom_title: Option<String>,
     pub clipboard_msg: Option<(String, std::time::Instant)>,
 }
@@ -65,20 +128,11 @@ impl Tab {
             current_dir: path.to_path_buf(),
             entries,
             cursor: 0,
-            history: vec![HistoryEntry {
-                path: path.to_path_buf(),
-                cursor: 0,
-            }],
-            history_index: 0,
-            error: None,
-            typed_buffer: String::new(),
-            last_type_time: None,
-            matching_indices: Vec::new(),
-            search_position: 0,
-            search_highlights: std::collections::HashMap::new(),
-            sort_column: SortColumn::Name,
-            sort_direction: SortDirection::Ascending,
+            history: TabHistory::new(path.to_path_buf(), 0),
+            search: IncrementalSearch::default(),
+            sort: SortSettings::default(),
             scroll_offset: 0,
+            error: None,
             custom_title: None,
             clipboard_msg: None,
         };
@@ -89,8 +143,8 @@ impl Tab {
     pub fn from_persistent(p: PersistentTab) -> anyhow::Result<Self> {
         let path = crate::app::ensure_dir_exists(p.path);
         let mut tab = Tab::new(&path)?;
-        tab.sort_column = p.sort_column;
-        tab.sort_direction = p.sort_direction;
+        tab.sort.column = p.sort_column;
+        tab.sort.direction = p.sort_direction;
         tab.sort_entries();
         if p.cursor < tab.entries.len() {
             tab.cursor = p.cursor;
@@ -102,8 +156,8 @@ impl Tab {
         PersistentTab {
             path: self.current_dir.clone(),
             cursor: self.cursor,
-            sort_column: self.sort_column,
-            sort_direction: self.sort_direction,
+            sort_column: self.sort.column,
+            sort_direction: self.sort.direction,
         }
     }
 
@@ -170,7 +224,7 @@ impl Tab {
     }
 
     pub fn save_cursor_to_history(&mut self) {
-        if let Some(entry) = self.history.get_mut(self.history_index) {
+        if let Some(entry) = self.history.entries.get_mut(self.history.index) {
             entry.cursor = self.cursor;
         }
     }
@@ -179,21 +233,13 @@ impl Tab {
         let entries = self.provider.list_dir(path)?;
         self.save_cursor_to_history();
 
-        // Truncate forward history if we're navigating to a new place
-        self.history.truncate(self.history_index + 1);
-
         self.current_dir = path.to_path_buf();
         self.entries = entries;
         self.cursor = 0;
         self.scroll_offset = 0;
-        self.typed_buffer.clear();
-        self.search_highlights.clear();
+        self.search.reset();
 
-        self.history.push(HistoryEntry {
-            path: path.to_path_buf(),
-            cursor: 0,
-        });
-        self.history_index = self.history.len() - 1;
+        self.history.push(path.to_path_buf(), 0);
 
         self.sort_entries();
         Ok(())
@@ -218,7 +264,7 @@ impl Tab {
             .collect();
 
         self.entries = new_entries;
-        self.search_highlights.clear();
+        self.search.highlights.clear();
 
         // Restore selection state after replacing entries
         for entry in &mut self.entries {
@@ -247,19 +293,20 @@ impl Tab {
         }
 
         // If search is active, re-apply highlights to new entries
-        if self.is_search_active() {
+        if self.search.is_active() {
             self.apply_search_highlights();
 
             // Update search_position to match the current cursor in new matching_indices
             if let Some(pos) = self
+                .search
                 .matching_indices
                 .iter()
                 .position(|&idx| idx == self.cursor)
             {
-                self.search_position = pos;
+                self.search.position = pos;
             }
         } else {
-            self.search_highlights.clear();
+            self.search.highlights.clear();
         }
 
         true
@@ -300,32 +347,30 @@ impl Tab {
     }
 
     pub fn go_back(&mut self) -> anyhow::Result<()> {
-        if self.history_index > 0 {
+        if self.history.can_go_back() {
             self.save_cursor_to_history();
-            self.history_index -= 1;
-            let entry = self.history[self.history_index].clone();
+            self.history.index -= 1;
+            let entry = self.history.current().clone();
             self.current_dir = entry.path.clone();
             self.entries = self.provider.list_dir(&entry.path)?;
             self.cursor = entry.cursor;
             self.scroll_offset = 0; // Will be adjusted by scroll_to_cursor if needed
-            self.typed_buffer.clear();
-            self.search_highlights.clear();
+            self.search.reset();
             self.sort_entries();
         }
         Ok(())
     }
 
     pub fn go_forward(&mut self) -> anyhow::Result<()> {
-        if self.history_index + 1 < self.history.len() {
+        if self.history.can_go_forward() {
             self.save_cursor_to_history();
-            self.history_index += 1;
-            let entry = self.history[self.history_index].clone();
+            self.history.index += 1;
+            let entry = self.history.current().clone();
             self.current_dir = entry.path.clone();
             self.entries = self.provider.list_dir(&entry.path)?;
             self.cursor = entry.cursor;
             self.scroll_offset = 0;
-            self.typed_buffer.clear();
-            self.search_highlights.clear();
+            self.search.reset();
             self.sort_entries();
         }
         Ok(())
@@ -375,10 +420,10 @@ impl Tab {
 
             // Specific directory sorting logic
             if a.is_dir && b.is_dir {
-                match self.sort_column {
+                match self.sort.column {
                     SortColumn::Name => {
                         let ord = a.name.to_lowercase().cmp(&b.name.to_lowercase());
-                        return if self.sort_direction == SortDirection::Descending {
+                        return if self.sort.direction == SortDirection::Descending {
                             ord.reverse()
                         } else {
                             ord
@@ -390,7 +435,7 @@ impl Tab {
                         let ord = date_a
                             .cmp(&date_b)
                             .then(a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-                        return if self.sort_direction == SortDirection::Descending {
+                        return if self.sort.direction == SortDirection::Descending {
                             ord.reverse()
                         } else {
                             ord
@@ -403,7 +448,7 @@ impl Tab {
                 }
             }
 
-            let ord = match self.sort_column {
+            let ord = match self.sort.column {
                 SortColumn::Name => {
                     // Case-insensitive natural sort would be better, but let's start with basic
                     a.name.to_lowercase().cmp(&b.name.to_lowercase())
@@ -439,7 +484,7 @@ impl Tab {
                 }
             };
 
-            if self.sort_direction == SortDirection::Descending {
+            if self.sort.direction == SortDirection::Descending {
                 ord.reverse()
             } else {
                 ord
@@ -471,14 +516,14 @@ impl Tab {
     }
 
     pub fn handle_sort(&mut self, column: SortColumn) {
-        if self.sort_column == column {
-            self.sort_direction = match self.sort_direction {
+        if self.sort.column == column {
+            self.sort.direction = match self.sort.direction {
                 SortDirection::Ascending => SortDirection::Descending,
                 SortDirection::Descending => SortDirection::Ascending,
             };
         } else {
-            self.sort_column = column;
-            self.sort_direction = match column {
+            self.sort.column = column;
+            self.sort.direction = match column {
                 SortColumn::Name | SortColumn::Extension => SortDirection::Ascending,
                 SortColumn::Size | SortColumn::Date => SortDirection::Descending,
             };
@@ -507,46 +552,39 @@ impl Tab {
     }
 
     pub fn is_search_active(&self) -> bool {
-        !self.typed_buffer.is_empty()
-            && self
-                .last_type_time
-                .is_some_and(|t| t.elapsed() < SEARCH_TIMEOUT)
+        self.search.is_active()
     }
 
     pub fn reset_search(&mut self) {
-        self.typed_buffer.clear();
-        self.last_type_time = None;
-        self.matching_indices.clear();
-        self.search_position = 0;
-        self.search_highlights.clear();
+        self.search.reset();
     }
 
     pub fn apply_search_highlights(&mut self) {
-        if self.typed_buffer.is_empty() {
-            self.search_highlights.clear();
-            self.matching_indices.clear();
+        if self.search.buffer.is_empty() {
+            self.search.highlights.clear();
+            self.search.matching_indices.clear();
             return;
         }
 
-        let query = self.typed_buffer.to_lowercase();
-        self.matching_indices.clear();
-        self.search_highlights.clear();
+        let query = self.search.buffer.to_lowercase();
+        self.search.matching_indices.clear();
+        self.search.highlights.clear();
 
         // 1. Prefix matches
         for (i, entry) in self.entries.iter().enumerate() {
             if entry.name.to_lowercase().starts_with(&query) {
-                self.matching_indices.push(i);
+                self.search.matching_indices.push(i);
                 // For prefix matches, highlight the prefix
                 let mut matches = Vec::new();
-                for j in 0..self.typed_buffer.chars().count() {
+                for j in 0..self.search.buffer.chars().count() {
                     matches.push(j);
                 }
-                self.search_highlights.insert(i, matches);
+                self.search.highlights.insert(i, matches);
             }
         }
 
         // 2. Fuzzy matches (if no prefix matches or to supplement)
-        if self.matching_indices.is_empty() {
+        if self.search.matching_indices.is_empty() {
             use fuzzy_matcher::FuzzyMatcher;
             use fuzzy_matcher::skim::SkimMatcherV2;
             let matcher = SkimMatcherV2::default();
@@ -555,8 +593,8 @@ impl Tab {
                 if let Some((_, indices)) =
                     matcher.fuzzy_indices(&entry.name.to_lowercase(), &query)
                 {
-                    self.matching_indices.push(i);
-                    self.search_highlights.insert(i, indices);
+                    self.search.matching_indices.push(i);
+                    self.search.highlights.insert(i, indices);
                 }
             }
         }
@@ -681,8 +719,7 @@ impl TabManager {
         // Inherit sort settings from current active tab
         {
             let active = self.active_tab();
-            tab.sort_column = active.sort_column;
-            tab.sort_direction = active.sort_direction;
+            tab.sort = active.sort;
         }
         tab.sort_entries();
 

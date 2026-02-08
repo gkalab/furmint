@@ -28,22 +28,17 @@ fn make_fileentry(name: &str, selected: bool, is_dir: bool) -> FileEntry {
 }
 
 fn make_tab(path: &str, entries: Vec<FileEntry>, cursor: usize) -> Tab {
+    let current_dir = PathBuf::from(path);
     Tab {
         provider: Arc::new(LocalFs::new()),
-        current_dir: PathBuf::from(path),
+        current_dir: current_dir.clone(),
         entries,
         cursor,
-        history: vec![],
-        history_index: 0,
-        error: None,
-        typed_buffer: String::new(),
-        last_type_time: None,
-        matching_indices: Vec::new(),
-        search_position: 0,
-        search_highlights: std::collections::HashMap::new(),
-        sort_column: fm::app::SortColumn::Name,
-        sort_direction: fm::app_state::tabs::SortDirection::Ascending,
+        history: fm::app_state::tabs::TabHistory::new(current_dir, cursor),
+        search: fm::app_state::tabs::IncrementalSearch::default(),
+        sort: fm::app_state::tabs::SortSettings::default(),
         scroll_offset: 0,
+        error: None,
         custom_title: None,
         clipboard_msg: None,
     }

@@ -419,7 +419,7 @@ fn handle_basic_nav(app: &mut AppState, code: KeyCode, modifiers: KeyModifiers) 
                 if search_active {
                     handle_up_search(app);
                 } else {
-                    if !panel.typed_buffer.is_empty() {
+                    if !panel.search.buffer.is_empty() {
                         reset_search(app);
                     }
                     handle_up(app);
@@ -429,7 +429,7 @@ fn handle_basic_nav(app: &mut AppState, code: KeyCode, modifiers: KeyModifiers) 
                 if search_active {
                     handle_down_search(app);
                 } else {
-                    if !panel.typed_buffer.is_empty() {
+                    if !panel.search.buffer.is_empty() {
                         reset_search(app);
                     }
                     handle_down(app);

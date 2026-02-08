@@ -202,10 +202,11 @@ pub fn handle_ssh_connection_event(
         }
         KeyCode::Home => {
             if app.popups.ssh_connection.active_field == SshField::History
-                && !app.ssh_history.connections.is_empty() {
-                    app.popups.ssh_connection.selected_history_idx = Some(0);
-                    update_fields_from_history(app);
-                }
+                && !app.ssh_history.connections.is_empty()
+            {
+                app.popups.ssh_connection.selected_history_idx = Some(0);
+                update_fields_from_history(app);
+            }
         }
         KeyCode::End => {
             if app.popups.ssh_connection.active_field == SshField::History {
@@ -224,15 +225,15 @@ pub fn handle_ssh_connection_event(
         KeyCode::Delete => {
             if app.popups.ssh_connection.active_field == SshField::History
                 && let Some(idx) = app.popups.ssh_connection.selected_history_idx
-                    && let Some(conn) = app.ssh_history.connections.get(idx)
-                {
-                    let name = conn.display_string();
-                    app.popups.ssh_connection.confirmation = Some(ConfirmationState::new(
-                        format!("Remove '{}' from history?", name),
-                        true,
-                        ConfirmationAction::DeleteSshHistory(idx),
-                    ));
-                }
+                && let Some(conn) = app.ssh_history.connections.get(idx)
+            {
+                let name = conn.display_string();
+                app.popups.ssh_connection.confirmation = Some(ConfirmationState::new(
+                    format!("Remove '{}' from history?", name),
+                    true,
+                    ConfirmationAction::DeleteSshHistory(idx),
+                ));
+            }
         }
         KeyCode::Enter => {
             if app.popups.ssh_connection.active_field == SshField::History {

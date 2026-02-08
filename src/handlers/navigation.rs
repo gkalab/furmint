@@ -44,18 +44,18 @@ pub fn handle_type_char(app: &mut AppState, c: char) {
 
     // If search is not active (timed out or not started), clear buffer
     if !panel.is_search_active() {
-        panel.typed_buffer.clear();
+        panel.search.buffer.clear();
     }
 
-    panel.typed_buffer.push(c);
-    panel.last_type_time = Some(std::time::Instant::now());
+    panel.search.buffer.push(c);
+    panel.search.last_type_time = Some(std::time::Instant::now());
 
     panel.apply_search_highlights();
 
     // Select first match
-    if let Some(&idx) = panel.matching_indices.first() {
+    if let Some(&idx) = panel.search.matching_indices.first() {
         panel.cursor = idx;
-        panel.search_position = 0;
+        panel.search.position = 0;
     }
     update_viewer_content(app);
 }
@@ -64,19 +64,19 @@ pub fn handle_type_char(app: &mut AppState, c: char) {
 pub fn handle_up_search(app: &mut AppState) {
     let panel = app.active_tab_mut();
     // Restart timer
-    panel.last_type_time = Some(std::time::Instant::now());
+    panel.search.last_type_time = Some(std::time::Instant::now());
     // If only one match or no matches, do nothing
-    if panel.matching_indices.len() <= 1 {
+    if panel.search.matching_indices.len() <= 1 {
         return;
     }
     // Decrement position with wrap-around
-    if panel.search_position == 0 {
-        panel.search_position = panel.matching_indices.len() - 1;
+    if panel.search.position == 0 {
+        panel.search.position = panel.search.matching_indices.len() - 1;
     } else {
-        panel.search_position -= 1;
+        panel.search.position -= 1;
     }
     // Move cursor to the matched index
-    panel.cursor = panel.matching_indices[panel.search_position];
+    panel.cursor = panel.search.matching_indices[panel.search.position];
     update_viewer_content(app);
 }
 
@@ -84,15 +84,15 @@ pub fn handle_up_search(app: &mut AppState) {
 pub fn handle_down_search(app: &mut AppState) {
     let panel = app.active_tab_mut();
     // Restart timer
-    panel.last_type_time = Some(std::time::Instant::now());
+    panel.search.last_type_time = Some(std::time::Instant::now());
     // If only one match or no matches, do nothing
-    if panel.matching_indices.len() <= 1 {
+    if panel.search.matching_indices.len() <= 1 {
         return;
     }
     // Increment position with wrap-around
-    panel.search_position = (panel.search_position + 1) % panel.matching_indices.len();
+    panel.search.position = (panel.search.position + 1) % panel.search.matching_indices.len();
     // Move cursor to the matched index
-    panel.cursor = panel.matching_indices[panel.search_position];
+    panel.cursor = panel.search.matching_indices[panel.search.position];
     update_viewer_content(app);
 }
 
@@ -270,8 +270,8 @@ pub fn handle_sort(app: &mut AppState, column: crate::app::SortColumn) {
         let tab = app.active_tab_mut();
         tab.handle_sort(column);
         (
-            tab.sort_column,
-            tab.sort_direction,
+            tab.sort.column,
+            tab.sort.direction,
             tab.provider.context_key(),
         )
     };

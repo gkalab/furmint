@@ -22,17 +22,11 @@ fn test_app(entries: Vec<FileEntry>) -> AppState {
         current_dir: std::path::PathBuf::from("/tmp"),
         entries,
         cursor: 0,
-        history: vec![],
-        history_index: 0,
-        error: None,
-        typed_buffer: String::new(),
-        last_type_time: None,
-        matching_indices: Vec::new(),
-        search_position: 0,
-        search_highlights: std::collections::HashMap::new(),
-        sort_column: fm::app::SortColumn::Name,
-        sort_direction: fm::app_state::tabs::SortDirection::Ascending,
+        history: fm::app_state::tabs::TabHistory::new(std::path::PathBuf::from("/tmp"), 0),
+        search: fm::app_state::tabs::IncrementalSearch::default(),
+        sort: fm::app_state::tabs::SortSettings::default(),
         scroll_offset: 0,
+        error: None,
         custom_title: None,
         clipboard_msg: None,
     };
@@ -247,7 +241,7 @@ fn test_handle_type_char() {
     // 'ba' doesn't match anything, so cursor should stay at 1 (previous match)
     assert_eq!(app.left.active_tab().cursor, 1);
 
-    app.left.active_tab_mut().typed_buffer.clear();
+    app.left.active_tab_mut().search.buffer.clear();
     handle_type_char(&mut app, 'a');
     assert_eq!(app.left.active_tab().cursor, 0);
 }
@@ -298,10 +292,10 @@ fn test_handle_type_char_fuzzy_fallback() {
             .to_lowercase()
             .starts_with("ct")
     );
-    assert!(app.active_tab().matching_indices.contains(&2));
+    assert!(app.active_tab().search.matching_indices.contains(&2));
 
     // Test with something that ONLY matches fuzzy
-    app.left.active_tab_mut().typed_buffer.clear();
+    app.left.active_tab_mut().search.buffer.clear();
     handle_type_char(&mut app, 'b');
     handle_type_char(&mut app, 't'); // 'bt' doesn't match 'apple', 'banana', 'Cargo' via prefix
     // 'bt' matches 'banana.txt' (b...t) and 'apple.txt' (p...t...x...t)
@@ -344,7 +338,7 @@ fn test_handle_sort_and_toggle() {
     assert!(app.left.active_tab().entries[0].selected);
 
     handle_sort(&mut app, fm::app::SortColumn::Size);
-    assert_eq!(app.left.active_tab().sort_column, fm::app::SortColumn::Size);
+    assert_eq!(app.left.active_tab().sort.column, fm::app::SortColumn::Size);
 }
 
 #[test]
@@ -403,8 +397,8 @@ fn test_handle_type_char_populates_matching_indices() {
     handle_type_char(&mut app, 'b');
 
     // Should have 3 matches: ab, abcd, abce
-    assert_eq!(app.left.active_tab().matching_indices.len(), 3);
-    assert_eq!(app.left.active_tab().search_position, 0);
+    assert_eq!(app.left.active_tab().search.matching_indices.len(), 3);
+    assert_eq!(app.left.active_tab().search.position, 0);
     // First match (ab) should be selected
     assert_eq!(app.left.active_tab().cursor, 0);
 }
@@ -455,32 +449,32 @@ fn test_search_navigation_multiple_matches() {
     handle_type_char(&mut app, 'a');
     handle_type_char(&mut app, 'b');
     assert_eq!(app.left.active_tab().cursor, 0);
-    assert_eq!(app.left.active_tab().search_position, 0);
+    assert_eq!(app.left.active_tab().search.position, 0);
 
     // Down -> cursor on 'abcd' (index 1)
     handle_down_search(&mut app);
     assert_eq!(app.left.active_tab().cursor, 1);
-    assert_eq!(app.left.active_tab().search_position, 1);
+    assert_eq!(app.left.active_tab().search.position, 1);
 
     // Down -> cursor on 'abce' (index 2)
     handle_down_search(&mut app);
     assert_eq!(app.left.active_tab().cursor, 2);
-    assert_eq!(app.left.active_tab().search_position, 2);
+    assert_eq!(app.left.active_tab().search.position, 2);
 
     // Up -> cursor back on 'abcd' (index 1)
     handle_up_search(&mut app);
     assert_eq!(app.left.active_tab().cursor, 1);
-    assert_eq!(app.left.active_tab().search_position, 1);
+    assert_eq!(app.left.active_tab().search.position, 1);
 
     // Up -> cursor on 'ab' (index 0)
     handle_up_search(&mut app);
     assert_eq!(app.left.active_tab().cursor, 0);
-    assert_eq!(app.left.active_tab().search_position, 0);
+    assert_eq!(app.left.active_tab().search.position, 0);
 
     // Up -> wraps to 'abce' (index 2)
     handle_up_search(&mut app);
     assert_eq!(app.left.active_tab().cursor, 2);
-    assert_eq!(app.left.active_tab().search_position, 2);
+    assert_eq!(app.left.active_tab().search.position, 2);
 }
 
 #[test]
@@ -521,18 +515,18 @@ fn test_search_navigation_wrap_around() {
 
     // At first match (aaa)
     assert_eq!(app.left.active_tab().cursor, 0);
-    assert_eq!(app.left.active_tab().search_position, 0);
+    assert_eq!(app.left.active_tab().search.position, 0);
 
     // Down twice to get to last match (aac)
     handle_down_search(&mut app);
     handle_down_search(&mut app);
     assert_eq!(app.left.active_tab().cursor, 2);
-    assert_eq!(app.left.active_tab().search_position, 2);
+    assert_eq!(app.left.active_tab().search.position, 2);
 
     // Down again wraps to first (aaa)
     handle_down_search(&mut app);
     assert_eq!(app.left.active_tab().cursor, 0);
-    assert_eq!(app.left.active_tab().search_position, 0);
+    assert_eq!(app.left.active_tab().search.position, 0);
 }
 
 #[test]
@@ -562,8 +556,8 @@ fn test_search_single_match_ignores_arrows() {
     handle_type_char(&mut app, 'x');
 
     assert_eq!(app.left.active_tab().cursor, 0);
-    assert_eq!(app.left.active_tab().matching_indices.len(), 1);
-    assert_eq!(app.left.active_tab().search_position, 0);
+    assert_eq!(app.left.active_tab().search.matching_indices.len(), 1);
+    assert_eq!(app.left.active_tab().search.position, 0);
 
     // Down -> stays on 'xyz'
     handle_down_search(&mut app);
@@ -600,14 +594,14 @@ fn test_esc_resets_search() {
 
     handle_type_char(&mut app, 'b');
     assert_eq!(app.left.active_tab().cursor, 1);
-    assert!(!app.left.active_tab().typed_buffer.is_empty());
+    assert!(!app.left.active_tab().search.buffer.is_empty());
 
     reset_search(&mut app);
 
-    assert!(app.left.active_tab().typed_buffer.is_empty());
-    assert!(app.left.active_tab().matching_indices.is_empty());
-    assert_eq!(app.left.active_tab().search_position, 0);
-    assert!(app.left.active_tab().last_type_time.is_none());
+    assert!(app.left.active_tab().search.buffer.is_empty());
+    assert!(app.left.active_tab().search.matching_indices.is_empty());
+    assert_eq!(app.left.active_tab().search.position, 0);
+    assert!(app.left.active_tab().search.last_type_time.is_none());
 }
 
 #[test]
@@ -646,12 +640,12 @@ fn test_search_restarts_timer() {
     handle_type_char(&mut app, 'a');
     handle_type_char(&mut app, 'b');
 
-    let first_type_time = app.left.active_tab().last_type_time;
+    let first_type_time = app.left.active_tab().search.last_type_time;
 
     // Navigate down (should restart timer)
     handle_down_search(&mut app);
 
-    let second_type_time = app.left.active_tab().last_type_time;
+    let second_type_time = app.left.active_tab().search.last_type_time;
     assert!(second_type_time > first_type_time);
 }
 
@@ -692,22 +686,22 @@ fn test_timeout_resets_search_state() {
     handle_type_char(&mut app, 'b');
 
     // Verify search is active
-    assert!(!app.left.active_tab().typed_buffer.is_empty());
-    assert_eq!(app.left.active_tab().matching_indices.len(), 2);
+    assert!(!app.left.active_tab().search.buffer.is_empty());
+    assert_eq!(app.left.active_tab().search.matching_indices.len(), 2);
     assert_eq!(app.left.active_tab().cursor, 0);
 
     // Simulate timeout by setting last_type_time to old value
-    app.left.active_tab_mut().last_type_time =
+    app.left.active_tab_mut().search.last_type_time =
         Some(std::time::Instant::now() - std::time::Duration::from_secs(2));
 
     // Call reset_search as event loop would when timeout expired
     reset_search(&mut app);
 
     // Verify search state is cleared
-    assert!(app.left.active_tab().typed_buffer.is_empty());
-    assert!(app.left.active_tab().matching_indices.is_empty());
-    assert_eq!(app.left.active_tab().search_position, 0);
-    assert!(app.left.active_tab().last_type_time.is_none());
+    assert!(app.left.active_tab().search.buffer.is_empty());
+    assert!(app.left.active_tab().search.matching_indices.is_empty());
+    assert_eq!(app.left.active_tab().search.position, 0);
+    assert!(app.left.active_tab().search.last_type_time.is_none());
 }
 
 #[test]
@@ -738,20 +732,20 @@ fn test_periodic_reset_expired_search() {
     handle_type_char(&mut app, 'b');
 
     // Verify search is active
-    assert!(!app.left.active_tab().typed_buffer.is_empty());
-    assert_eq!(app.left.active_tab().matching_indices.len(), 2);
+    assert!(!app.left.active_tab().search.buffer.is_empty());
+    assert_eq!(app.left.active_tab().search.matching_indices.len(), 2);
 
     // Simulate timeout by setting last_type_time to old value
-    app.left.active_tab_mut().last_type_time =
+    app.left.active_tab_mut().search.last_type_time =
         Some(std::time::Instant::now() - std::time::Duration::from_secs(2));
 
     // Call reset_expired_search as periodic check would
     reset_expired_search(&mut app);
 
     // Verify search state is cleared
-    assert!(app.left.active_tab().typed_buffer.is_empty());
-    assert!(app.left.active_tab().matching_indices.is_empty());
-    assert_eq!(app.left.active_tab().search_position, 0);
+    assert!(app.left.active_tab().search.buffer.is_empty());
+    assert!(app.left.active_tab().search.matching_indices.is_empty());
+    assert_eq!(app.left.active_tab().search.position, 0);
 }
 
 #[test]
@@ -784,23 +778,23 @@ fn test_handle_type_char_populates_highlights() {
     }
 
     let panel = app.active_tab();
-    assert!(!panel.matching_indices.is_empty());
-    assert!(panel.search_highlights.contains_key(&0)); // "test_file.txt" is at index 0
-    let highlights = panel.search_highlights.get(&0).unwrap();
+    assert!(!panel.search.matching_indices.is_empty());
+    assert!(panel.search.highlights.contains_key(&0)); // "test_file.txt" is at index 0
+    let highlights = panel.search.highlights.get(&0).unwrap();
     assert_eq!(highlights, &vec![0, 1, 2, 3]);
 
     // Reset
     reset_search(&mut app);
-    assert!(app.active_tab().search_highlights.is_empty());
+    assert!(app.active_tab().search.highlights.is_empty());
 
     // 2. Fuzzy match "tf"
     handle_type_char(&mut app, 't');
     handle_type_char(&mut app, 'f');
 
     let panel = app.active_tab();
-    assert!(!panel.matching_indices.is_empty());
-    assert!(panel.search_highlights.contains_key(&0));
-    let highlights = panel.search_highlights.get(&0).unwrap();
+    assert!(!panel.search.matching_indices.is_empty());
+    assert!(panel.search.highlights.contains_key(&0));
+    let highlights = panel.search.highlights.get(&0).unwrap();
     // Fuzzy match should highlight 't' (0) and 'f' (5)
     assert!(highlights.contains(&0));
     assert!(highlights.contains(&5));

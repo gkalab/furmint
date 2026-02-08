@@ -1,4 +1,7 @@
-pub use crate::app_state::tabs::{PanelSide, PersistentTab, SortColumn, Tab, TabManager};
+pub use crate::app_state::tabs::{
+    IncrementalSearch, PanelSide, PersistentTab, SortColumn, SortSettings, Tab, TabHistory,
+    TabManager,
+};
 use crate::clipboard::{ClipboardBackend, FileClipboard};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -334,8 +337,8 @@ impl AppState {
                             user,
                             connection_name.as_deref(),
                         ) {
-                            tab.sort_column = col;
-                            tab.sort_direction = dir;
+                            tab.sort.column = col;
+                            tab.sort.direction = dir;
                             tab.sort_entries();
                         }
                     }
@@ -378,8 +381,8 @@ impl AppState {
         tab.provider = ctx.provider;
 
         if let Some((col, dir)) = sort_settings {
-            tab.sort_column = col;
-            tab.sort_direction = dir;
+            tab.sort.column = col;
+            tab.sort.direction = dir;
         }
 
         // Navigate to the preserved directory
@@ -436,7 +439,7 @@ mod tests {
         assert!(!s.is_visible);
     }
     use super::*;
-    use crate::app_state::tabs::{HistoryEntry, SortDirection};
+    use crate::app_state::tabs::SortDirection;
     use crate::fs::fs_local::LocalFs;
     use crate::fs::utils::FileEntry;
     use std::path::PathBuf;
@@ -487,20 +490,11 @@ mod tests {
             current_dir: PathBuf::from("/tmp"),
             entries,
             cursor: 0,
-            history: vec![HistoryEntry {
-                path: PathBuf::from("/tmp"),
-                cursor: 0,
-            }],
-            history_index: 0,
-            error: None,
-            typed_buffer: String::new(),
-            last_type_time: None,
-            matching_indices: Vec::new(),
-            search_position: 0,
-            search_highlights: std::collections::HashMap::new(),
-            sort_column: SortColumn::Name,
-            sort_direction: SortDirection::Ascending,
+            history: TabHistory::new(PathBuf::from("/tmp"), 0),
+            search: IncrementalSearch::default(),
+            sort: SortSettings::default(),
             scroll_offset: 0,
+            error: None,
             custom_title: None,
             clipboard_msg: None,
         }
@@ -622,8 +616,8 @@ mod tests {
 
         // Sort by Size (Defaults to Descending)
         panel.handle_sort(SortColumn::Size);
-        assert_eq!(panel.sort_column, SortColumn::Size);
-        assert_eq!(panel.sort_direction, SortDirection::Descending);
+        assert_eq!(panel.sort.column, SortColumn::Size);
+        assert_eq!(panel.sort.direction, SortDirection::Descending);
         // Directories first. For Size sort, directories use Name Ascending ALWAYS.
         // .. is top. dir1 is next.
         // Files sorted Descending: file2.txt (200), file1.txt (100)
@@ -634,7 +628,7 @@ mod tests {
 
         // Toggle Size (Ascending)
         panel.handle_sort(SortColumn::Size);
-        assert_eq!(panel.sort_direction, SortDirection::Ascending);
+        assert_eq!(panel.sort.direction, SortDirection::Ascending);
         // Directories first. For Size sort, directories use Name Ascending ALWAYS.
         // .. is top. dir1 is next.
         // Files sorted Ascending: file1.txt (100), file2.txt (200)
@@ -646,8 +640,8 @@ mod tests {
         // Sort by Extension Descending
         panel.handle_sort(SortColumn::Extension);
         panel.handle_sort(SortColumn::Extension); // Toggle to Descending
-        assert_eq!(panel.sort_column, SortColumn::Extension);
-        assert_eq!(panel.sort_direction, SortDirection::Descending);
+        assert_eq!(panel.sort.column, SortColumn::Extension);
+        assert_eq!(panel.sort.direction, SortDirection::Descending);
         // Directories first. For Extension sort, directories use Name Ascending ALWAYS.
         // .. is top. dir1 is next.
         // Files sorted Descending (txt): file2.txt, file1.txt (stable sort or name fallback if extensions equal)
@@ -666,18 +660,18 @@ mod tests {
         let mut panel = create_test_tab();
 
         // Initial state: Name Ascending
-        assert_eq!(panel.sort_column, SortColumn::Name);
-        assert_eq!(panel.sort_direction, SortDirection::Ascending);
+        assert_eq!(panel.sort.column, SortColumn::Name);
+        assert_eq!(panel.sort.direction, SortDirection::Ascending);
 
         // Switch to Date -> Should default to Descending
         panel.handle_sort(SortColumn::Date);
-        assert_eq!(panel.sort_column, SortColumn::Date);
-        assert_eq!(panel.sort_direction, SortDirection::Descending);
+        assert_eq!(panel.sort.column, SortColumn::Date);
+        assert_eq!(panel.sort.direction, SortDirection::Descending);
 
         // Switch to Size -> Should default to Descending
         panel.handle_sort(SortColumn::Size);
-        assert_eq!(panel.sort_column, SortColumn::Size);
-        assert_eq!(panel.sort_direction, SortDirection::Descending);
+        assert_eq!(panel.sort.column, SortColumn::Size);
+        assert_eq!(panel.sort.direction, SortDirection::Descending);
     }
 
     #[test]
@@ -685,16 +679,16 @@ mod tests {
         let mut manager = TabManager::new(&std::env::temp_dir()).unwrap();
 
         // Change sort on active tab
-        manager.active_tab_mut().sort_column = SortColumn::Size;
-        manager.active_tab_mut().sort_direction = SortDirection::Descending;
+        manager.active_tab_mut().sort.column = SortColumn::Size;
+        manager.active_tab_mut().sort.direction = SortDirection::Descending;
 
         // Create new tab
         manager.new_tab(&std::env::temp_dir(), None).unwrap();
 
         // Check new tab (which is now active)
         let new_tab = manager.active_tab();
-        assert_eq!(new_tab.sort_column, SortColumn::Size);
-        assert_eq!(new_tab.sort_direction, SortDirection::Descending);
+        assert_eq!(new_tab.sort.column, SortColumn::Size);
+        assert_eq!(new_tab.sort.direction, SortDirection::Descending);
     }
 
     #[test]
@@ -783,17 +777,11 @@ mod tests {
             current_dir: PathBuf::from("/remote"),
             entries: vec![],
             cursor: 0,
-            history: vec![],
-            history_index: 0,
-            error: None,
-            typed_buffer: String::new(),
-            last_type_time: None,
-            matching_indices: Vec::new(),
-            search_position: 0,
-            search_highlights: std::collections::HashMap::new(),
-            sort_column: SortColumn::Name,
-            sort_direction: SortDirection::Ascending,
+            history: TabHistory::new(PathBuf::from("/remote"), 0),
+            search: IncrementalSearch::default(),
+            sort: SortSettings::default(),
             scroll_offset: 0,
+            error: None,
             custom_title: None,
             clipboard_msg: None,
         };

@@ -1,5 +1,5 @@
 use fm::app::{AppState, PanelSide};
-use fm::app_state::tabs::{SortColumn, SortDirection, Tab, TabManager};
+use fm::app_state::tabs::{Tab, TabManager};
 use fm::clipboard::ClipboardBackend;
 use fm::fs::fs_local::LocalFs;
 use fm::fs::utils::FileEntry;
@@ -9,22 +9,17 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 fn create_test_tab(name: &str, entries: Vec<FileEntry>) -> Tab {
+    let current_dir = PathBuf::from(format!("/tmp/{}", name));
     Tab {
         provider: Arc::new(LocalFs::new()),
-        current_dir: PathBuf::from(format!("/tmp/{}", name)),
+        current_dir: current_dir.clone(),
         entries,
         cursor: 0,
-        history: vec![],
-        history_index: 0,
-        error: None,
-        typed_buffer: String::new(),
-        last_type_time: None,
-        matching_indices: vec![],
-        search_position: 0,
-        search_highlights: std::collections::HashMap::new(),
-        sort_column: SortColumn::Name,
-        sort_direction: SortDirection::Ascending,
+        history: fm::app_state::tabs::TabHistory::new(current_dir, 0),
+        search: fm::app_state::tabs::IncrementalSearch::default(),
+        sort: fm::app_state::tabs::SortSettings::default(),
         scroll_offset: 0,
+        error: None,
         custom_title: None,
         clipboard_msg: None,
     }
@@ -44,8 +39,8 @@ fn test_multi_tab_search_timeout() {
             selected: false,
         }],
     );
-    left_tab.typed_buffer = "a".to_string();
-    left_tab.last_type_time = Some(Instant::now() - Duration::from_secs(2)); // Expired
+    left_tab.search.buffer = "a".to_string();
+    left_tab.search.last_type_time = Some(Instant::now() - Duration::from_secs(2)); // Expired
 
     let mut right_tab = create_test_tab(
         "right",
@@ -59,8 +54,8 @@ fn test_multi_tab_search_timeout() {
             selected: false,
         }],
     );
-    right_tab.typed_buffer = "b".to_string();
-    right_tab.last_type_time = Some(Instant::now()); // Still active
+    right_tab.search.buffer = "b".to_string();
+    right_tab.search.last_type_time = Some(Instant::now()); // Still active
 
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
     let mut app = AppState {
@@ -93,19 +88,19 @@ fn test_multi_tab_search_timeout() {
     };
 
     // Before reset
-    assert!(!app.left.tabs[0].typed_buffer.is_empty());
-    assert!(!app.right.tabs[0].typed_buffer.is_empty());
+    assert!(!app.left.tabs[0].search.buffer.is_empty());
+    assert!(!app.right.tabs[0].search.buffer.is_empty());
 
     // Run reset logic
     fm::handlers::navigation::reset_expired_search(&mut app);
 
     // After reset: left (background, expired) should be cleared. right (active, not expired) should remain.
     assert!(
-        app.left.tabs[0].typed_buffer.is_empty(),
+        app.left.tabs[0].search.buffer.is_empty(),
         "Expired background tab should be cleared"
     );
     assert!(
-        !app.right.tabs[0].typed_buffer.is_empty(),
+        !app.right.tabs[0].search.buffer.is_empty(),
         "Active valid tab should NOT be cleared"
     );
 }
@@ -137,10 +132,10 @@ fn test_reload_optimization_and_persistence() {
     );
 
     // Simulate active search
-    tab.typed_buffer = "ap".to_string();
-    tab.last_type_time = Some(Instant::now());
+    tab.search.buffer = "ap".to_string();
+    tab.search.last_type_time = Some(Instant::now());
     tab.apply_search_highlights();
-    assert!(!tab.search_highlights.is_empty());
+    assert!(!tab.search.highlights.is_empty());
 
     // 1. Reload with logically same entries (reordered)
     let reordered_entries = vec![
@@ -169,7 +164,7 @@ fn test_reload_optimization_and_persistence() {
         "Should skip reload for logically equivalent entries"
     );
     assert!(
-        !tab.search_highlights.is_empty(),
+        !tab.search.highlights.is_empty(),
         "Highlights should persist"
     );
 
@@ -197,7 +192,7 @@ fn test_reload_optimization_and_persistence() {
     let reloaded = tab.reload_preserving_state(changed_entries);
     assert!(reloaded, "Should reload for metadata change");
     assert!(
-        !tab.search_highlights.is_empty(),
+        !tab.search.highlights.is_empty(),
         "Highlights should NOT be cleared during actual reload if search is active"
     );
 }
