@@ -1,6 +1,6 @@
 use crate::app::Tab;
 use crate::app_state::tabs::{SortColumn, SortDirection};
-use crate::fs::utils::{format_modified, format_size};
+use crate::fs::utils::{FileEntry, format_modified, format_size};
 use crate::theme::ThemePalette;
 use crate::ui::ui_utils::{
     TabScrollbarContext, draw_tab_scrollbar, is_root_user, lighten_red,
@@ -8,6 +8,22 @@ use crate::ui::ui_utils::{
 };
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Cell, Row, Table, TableState};
+use std::collections::HashMap;
+use std::path::Path;
+
+/// Holds calculated column widths for the panel table
+struct ColumnWidths {
+    name: usize,         // Available width for name column
+    size_header: String, // Formatted size header with sort indicator
+}
+
+/// Context for rendering an entry row
+struct EntryRowContext<'a> {
+    palette: &'a ThemePalette,
+    icons_enabled: bool,
+    current_dir: &'a Path,
+    name_col_width: usize,
+}
 
 fn sort_indicator(
     column: SortColumn,
@@ -22,6 +38,274 @@ fn sort_indicator(
     } else {
         ""
     }
+}
+
+/// Calculate column widths and headers for the panel
+fn calculate_column_widths(panel: &Tab, area: Rect, icons_enabled: bool) -> ColumnWidths {
+    // Compute max width for Size column
+    let size_width = panel
+        .entries
+        .iter()
+        .map(|e| format_size(e.size, e.is_dir, e.is_symlink).len())
+        .max()
+        .unwrap_or(4);
+
+    let size_indicator = sort_indicator(SortColumn::Size, panel.sort.column, panel.sort.direction);
+    let size_header_with_indicator = format!("Size{}", size_indicator);
+    let size_header = format!(
+        "{:>width$}",
+        size_header_with_indicator,
+        width = size_width.max(size_header_with_indicator.len())
+    );
+    let _ = size_width; // size_width is used in size_header calculation
+
+    // Calculate available width for name column
+    let total_table_width = area.width as usize;
+    let icon_width = if icons_enabled { 2 } else { 0 };
+    let name_col_width = if total_table_width > (10 + 19 + 10) {
+        total_table_width - (10 + 19 + 10) - icon_width
+    } else {
+        10 // minimum width for name
+    };
+
+    ColumnWidths {
+        name: name_col_width,
+        size_header,
+    }
+}
+
+/// Get style for a file entry based on its type
+fn style_for_entry(entry: &FileEntry, current_dir: &Path, palette: &ThemePalette) -> Style {
+    let text_fg = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
+
+    if entry.is_dir {
+        Style::default().fg(Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b))
+    } else if crate::fs::utils::is_executable(&current_dir.join(&entry.name), entry) {
+        Style::default().fg(Color::Rgb(
+            palette.green.r,
+            palette.green.g,
+            palette.green.b,
+        ))
+    } else {
+        Style::default().fg(text_fg)
+    }
+}
+
+/// Render a single entry row
+fn render_entry_row<'a>(
+    entry: &'a FileEntry,
+    idx: usize,
+    ctx: &'a EntryRowContext<'a>,
+    search_highlights: &'a HashMap<usize, Vec<usize>>,
+) -> Row<'a> {
+    let text_fg = Color::Rgb(ctx.palette.text.r, ctx.palette.text.g, ctx.palette.text.b);
+    let name_style = style_for_entry(entry, ctx.current_dir, ctx.palette);
+
+    // Account for ratatui border: subtract 2 from available width
+    // Also account for icon width (2 chars: icon + space) if icons are enabled
+    let icon_width = if ctx.icons_enabled { 2 } else { 0 };
+    let visible_name_width = if ctx.name_col_width > (2 + icon_width) {
+        ctx.name_col_width - 2 - icon_width
+    } else {
+        1
+    };
+
+    let name_cell = if let Some(matches) = search_highlights.get(&idx) {
+        let yellow = Color::Rgb(
+            ctx.palette.yellow.r,
+            ctx.palette.yellow.g,
+            ctx.palette.yellow.b,
+        );
+        let highlight_style = Style::default().fg(yellow).add_modifier(Modifier::BOLD);
+
+        let name_chars: Vec<char> = entry.name.chars().collect();
+        let name_len = name_chars.len();
+        let mut spans = Vec::new();
+
+        // Add icon if enabled
+        if ctx.icons_enabled {
+            let icon = crate::icons::get_icon(
+                &entry.name,
+                entry.is_dir,
+                crate::fs::utils::is_executable(&ctx.current_dir.join(&entry.name), entry),
+            );
+            spans.push(Span::raw(format!("{} ", icon)));
+        }
+
+        if name_len <= visible_name_width {
+            for (i, c) in name_chars.iter().enumerate() {
+                if matches.contains(&i) {
+                    spans.push(Span::styled(c.to_string(), highlight_style));
+                } else {
+                    spans.push(Span::raw(c.to_string()));
+                }
+            }
+        } else {
+            // Truncate logic
+            let ellipsis = "…";
+            let ellipsis_len = 1;
+            let keep = visible_name_width.saturating_sub(ellipsis_len);
+            let left = keep / 2;
+            let right = keep - left;
+
+            // Left part
+            for (i, c) in name_chars.iter().take(left).enumerate() {
+                if matches.contains(&i) {
+                    spans.push(Span::styled(c.to_string(), highlight_style));
+                } else {
+                    spans.push(Span::raw(c.to_string()));
+                }
+            }
+            // Ellipsis
+            spans.push(Span::raw(ellipsis));
+            // Right part
+            let start_right = name_len.saturating_sub(right);
+            for (i, c) in name_chars.iter().skip(start_right).enumerate() {
+                let original_idx = start_right + i;
+                if matches.contains(&original_idx) {
+                    spans.push(Span::styled(c.to_string(), highlight_style));
+                } else {
+                    spans.push(Span::raw(c.to_string()));
+                }
+            }
+        }
+        Cell::from(Line::from(spans)).style(name_style)
+    } else {
+        let truncated_name = truncate_middle_with_ellipsis(&entry.name, visible_name_width);
+        let display_name = if ctx.icons_enabled {
+            let icon = crate::icons::get_icon(
+                &entry.name,
+                entry.is_dir,
+                crate::fs::utils::is_executable(&ctx.current_dir.join(&entry.name), entry),
+            );
+            format!("{} {}", icon, truncated_name)
+        } else {
+            truncated_name
+        };
+        Cell::from(display_name).style(name_style)
+    };
+
+    Row::new(vec![
+        name_cell,
+        Cell::from(format_size(entry.size, entry.is_dir, entry.is_symlink))
+            .style(Style::default().fg(text_fg)),
+        Cell::from(format_modified(entry.modified)).style(Style::default().fg(text_fg)),
+        Cell::from(entry.attributes.clone()).style(Style::default().fg(text_fg)),
+    ])
+}
+
+/// Build the panel block with title and borders
+fn build_panel_block(
+    area: Rect,
+    palette: &ThemePalette,
+    active: bool,
+    borders: bool,
+    is_root: bool,
+    panel: &Tab,
+) -> Block<'static> {
+    let border_color = if is_root && active {
+        Color::Rgb(palette.red.r, palette.red.g, palette.red.b)
+    } else if is_root && !active {
+        let light_red = lighten_red(palette.red);
+        Color::Rgb(light_red.r, light_red.g, light_red.b)
+    } else if active {
+        Color::Rgb(palette.border.r, palette.border.g, palette.border.b)
+    } else {
+        Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b)
+    };
+
+    let panel_bg = panel_bg_color(palette, active, is_root, borders);
+
+    let prefix = panel.provider.display_prefix();
+    let path_str = panel.provider.display_path(&panel.current_dir);
+    let full_title = if prefix.is_empty() {
+        format!("{} ", path_str)
+    } else {
+        format!("{}:{} ", prefix, path_str)
+    };
+    let title_width = area.width.saturating_sub(4) as usize;
+    let panel_title = if full_title.len() > title_width {
+        crate::ui::ui_utils::truncate_path_with_ellipsis(&panel.current_dir, title_width)
+    } else {
+        full_title
+    };
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(panel_title)
+        .border_style(Style::default().fg(border_color).bg(panel_bg))
+        .style(Style::default().bg(panel_bg));
+
+    if borders {
+        block.border_type(ratatui::widgets::BorderType::Rounded)
+    } else {
+        block.border_set(ratatui::symbols::border::EMPTY)
+    }
+}
+
+/// Draw selection markers on the left side
+fn draw_selection_markers(
+    frame: &mut ratatui::Frame,
+    area: Rect,
+    panel: &Tab,
+    visible_rows: usize,
+    palette: &ThemePalette,
+) {
+    let yellow_color = Color::Rgb(palette.yellow.r, palette.yellow.g, palette.yellow.b);
+
+    for (idx, entry) in panel
+        .entries
+        .iter()
+        .enumerate()
+        .skip(panel.scroll_offset)
+        .take(visible_rows)
+    {
+        let row_y = area.y + 2 + (idx - panel.scroll_offset) as u16; // +2 for border and header
+
+        if row_y >= area.y + area.height - 1 {
+            break;
+        }
+
+        if entry.selected {
+            let marker = Span::styled("▊", Style::default().fg(yellow_color));
+            frame.render_widget(
+                Line::from(marker),
+                Rect {
+                    x: area.x,
+                    y: row_y,
+                    width: 1,
+                    height: 1,
+                },
+            );
+        }
+    }
+}
+
+/// Draw vertical scrollbar
+fn draw_scrollbar(
+    frame: &mut ratatui::Frame,
+    area: Rect,
+    panel: &Tab,
+    visible_rows: usize,
+    ctx: &TabScrollbarContext,
+) {
+    let total_entries = panel.entries.len();
+
+    let scroll_area = Rect {
+        x: area.x + area.width - 1,
+        y: area.y + 2, // +2 for border and header
+        width: 1,
+        height: visible_rows as u16,
+    };
+
+    draw_tab_scrollbar(
+        frame,
+        scroll_area,
+        total_entries,
+        visible_rows,
+        panel.cursor,
+        ctx,
+    );
 }
 
 /// Calculate the background color for a panel based on active state and root status
@@ -71,21 +355,9 @@ pub fn draw_panel(
     let visible_rows = area.height.saturating_sub(3) as usize; // -2 for borders, -1 for header
     panel.scroll_to_cursor(visible_rows);
 
-    // Compute max width for Size column
-    let size_width = panel
-        .entries
-        .iter()
-        .map(|e| format_size(e.size, e.is_dir, e.is_symlink).len())
-        .max()
-        .unwrap_or(4);
-    let size_indicator = sort_indicator(SortColumn::Size, panel.sort.column, panel.sort.direction);
-    let size_header_with_indicator = format!("Size{}", size_indicator);
-    // Ensure column is wide enough for header + indicator
-    let size_header = format!(
-        "{:>width$}",
-        size_header_with_indicator,
-        width = size_width.max(size_header_with_indicator.len())
-    );
+    let col_widths = calculate_column_widths(panel, area, icons_enabled);
+
+    // Build header row
     let name_indicator = sort_indicator(SortColumn::Name, panel.sort.column, panel.sort.direction);
     let name_header = format!("Name{}", name_indicator);
     let ext_indicator = sort_indicator(
@@ -104,179 +376,45 @@ pub fn draw_panel(
     );
     let header = [
         name_header,
-        size_header,
+        col_widths.size_header,
         modified_header,
         "Attributes".to_string(),
     ];
 
-    let text_fg = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
-    // Calculate available width for name column
-    let total_table_width = area.width as usize;
-    let name_col_width = if total_table_width > (10 + 19 + 10) {
-        total_table_width - (10 + 19 + 10)
-    } else {
-        10 // minimum width for name
+    // Build entry rows
+    let ctx = EntryRowContext {
+        palette,
+        icons_enabled,
+        current_dir: &panel.current_dir,
+        name_col_width: col_widths.name,
     };
 
-    let rows = panel
+    let rows: Vec<Row> = panel
         .entries
         .iter()
         .enumerate()
         .skip(panel.scroll_offset)
         .take(visible_rows)
-        .map(|(idx, e)| {
-            // Account for ratatui border: subtract 2 from available width
-            // Also account for icon width (2 chars: icon + space) if icons are enabled
-            let icon_width = if icons_enabled { 2 } else { 0 };
-            let visible_name_width = if name_col_width > (2 + icon_width) {
-                name_col_width - 2 - icon_width
-            } else {
-                1
-            };
+        .map(|(idx, entry)| render_entry_row(entry, idx, &ctx, &panel.search.highlights))
+        .collect();
 
-            let name_style = if e.is_dir {
-                Style::default().fg(Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b))
-            } else if crate::fs::utils::is_executable(&panel.current_dir.join(&e.name), e) {
-                Style::default().fg(Color::Rgb(
-                    palette.green.r,
-                    palette.green.g,
-                    palette.green.b,
-                ))
-            } else {
-                Style::default().fg(text_fg)
-            };
-
-            let name_cell = if let Some(matches) = panel.search.highlights.get(&idx) {
-                let yellow = Color::Rgb(palette.yellow.r, palette.yellow.g, palette.yellow.b);
-                let highlight_style = Style::default().fg(yellow).add_modifier(Modifier::BOLD);
-
-                let name_chars: Vec<char> = e.name.chars().collect();
-                let name_len = name_chars.len();
-                let mut spans = Vec::new();
-
-                // Add icon if enabled
-                if icons_enabled {
-                    let icon = crate::icons::get_icon(
-                        &e.name,
-                        e.is_dir,
-                        crate::fs::utils::is_executable(&panel.current_dir.join(&e.name), e),
-                    );
-                    spans.push(Span::raw(format!("{} ", icon)));
-                }
-
-                if name_len <= visible_name_width {
-                    for (i, c) in name_chars.iter().enumerate() {
-                        if matches.contains(&i) {
-                            spans.push(Span::styled(c.to_string(), highlight_style));
-                        } else {
-                            spans.push(Span::raw(c.to_string()));
-                        }
-                    }
-                } else {
-                    // Truncate logic
-                    let ellipsis = "…";
-                    let ellipsis_len = 1;
-                    let keep = visible_name_width.saturating_sub(ellipsis_len);
-                    let left = keep / 2;
-                    let right = keep - left;
-
-                    // Left part
-                    for (i, c) in name_chars.iter().take(left).enumerate() {
-                        if matches.contains(&i) {
-                            spans.push(Span::styled(c.to_string(), highlight_style));
-                        } else {
-                            spans.push(Span::raw(c.to_string()));
-                        }
-                    }
-                    // Ellipsis
-                    spans.push(Span::raw(ellipsis));
-                    // Right part
-                    let start_right = name_len.saturating_sub(right);
-                    for (i, c) in name_chars.iter().skip(start_right).enumerate() {
-                        let original_idx = start_right + i;
-                        if matches.contains(&original_idx) {
-                            spans.push(Span::styled(c.to_string(), highlight_style));
-                        } else {
-                            spans.push(Span::raw(c.to_string()));
-                        }
-                    }
-                }
-                Cell::from(Line::from(spans)).style(name_style)
-            } else {
-                let truncated_name = truncate_middle_with_ellipsis(&e.name, visible_name_width);
-                let display_name = if icons_enabled {
-                    let icon = crate::icons::get_icon(
-                        &e.name,
-                        e.is_dir,
-                        crate::fs::utils::is_executable(&panel.current_dir.join(&e.name), e),
-                    );
-                    format!("{} {}", icon, truncated_name)
-                } else {
-                    truncated_name
-                };
-                Cell::from(display_name).style(name_style)
-            };
-
-            Row::new(vec![
-                name_cell,
-                Cell::from(format_size(e.size, e.is_dir, e.is_symlink))
-                    .style(Style::default().fg(text_fg)),
-                Cell::from(format_modified(e.modified)).style(Style::default().fg(text_fg)),
-                Cell::from(e.attributes.clone()).style(Style::default().fg(text_fg)),
-            ])
-        });
-
+    // Build and render the table
     let is_root = is_root_user(panel);
+    let block = build_panel_block(area, palette, active, borders, is_root, panel);
 
-    let border_color = if is_root && active {
-        Color::Rgb(palette.red.r, palette.red.g, palette.red.b)
-    } else if is_root && !active {
-        let light_red = lighten_red(palette.red);
-        Color::Rgb(light_red.r, light_red.g, light_red.b)
-    } else if active {
-        Color::Rgb(palette.border.r, palette.border.g, palette.border.b)
-    } else {
-        Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b)
-    };
-
-    let panel_bg = panel_bg_color(palette, active, is_root, borders);
-
-    let prefix = panel.provider.display_prefix();
-    let path_str = panel.provider.display_path(&panel.current_dir);
-    let full_title = if prefix.is_empty() {
-        format!("{} ", path_str)
-    } else {
-        format!("{}:{} ", prefix, path_str)
-    };
-    let title_width = area.width.saturating_sub(4) as usize;
-    let panel_title = if full_title.len() > title_width {
-        crate::ui::ui_utils::truncate_path_with_ellipsis(&panel.current_dir, title_width)
-    } else {
-        full_title
-    };
-
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title(panel_title)
-        .border_style(Style::default().fg(border_color).bg(panel_bg))
-        .style(Style::default().bg(panel_bg));
-
-    let block = if borders {
-        block.border_type(ratatui::widgets::BorderType::Rounded)
-    } else {
-        block.border_set(ratatui::symbols::border::EMPTY)
-    };
     let widths = [
         Constraint::Min(10),    // Name: dynamic, at least 10
         Constraint::Length(7),  // Size: always 7 (right-aligned)
         Constraint::Length(19), // Modified: always 19
         Constraint::Length(10), // Attributes: always 10
     ];
+
     let panel_selection_background = if active {
         Color::Rgb(palette.surface0.r, palette.surface0.g, palette.surface0.b)
     } else {
         Color::Rgb(palette.base.r, palette.base.g, palette.base.b)
     };
+
     let table = Table::new(rows, widths)
         .header(Row::new(header).style(Style::default().fg(Color::Rgb(
             palette.yellow.r,
@@ -298,52 +436,13 @@ pub fn draw_panel(
             .with_selected(Some(panel.cursor.saturating_sub(panel.scroll_offset))),
     );
 
-    // Draw selection markers using half-block
-    let yellow_color = Color::Rgb(palette.yellow.r, palette.yellow.g, palette.yellow.b);
+    draw_selection_markers(f, area, panel, visible_rows, palette);
 
-    for (idx, entry) in panel
-        .entries
-        .iter()
-        .enumerate()
-        .skip(panel.scroll_offset)
-        .take(visible_rows)
-    {
-        let row_y = area.y + 2 + (idx - panel.scroll_offset) as u16; // +2 for border and header
-
-        if row_y >= area.y + area.height - 1 {
-            break;
-        }
-
-        if entry.selected {
-            let marker = Span::styled("▊", Style::default().fg(yellow_color));
-            f.render_widget(
-                Line::from(marker),
-                Rect {
-                    x: area.x,
-                    y: row_y,
-                    width: 1,
-                    height: 1,
-                },
-            );
-        }
-    }
-
-    // Draw vertical scrollbar if needed
-    let total_entries = panel.entries.len();
-
-    let scroll_area = Rect {
-        x: area.x + area.width - 1,
-        y: area.y + 2, // +2 for border and header
-        width: 1,
-        height: visible_rows as u16,
-    };
-
-    draw_tab_scrollbar(
+    draw_scrollbar(
         f,
-        scroll_area,
-        total_entries,
+        area,
+        panel,
         visible_rows,
-        panel.cursor,
         &TabScrollbarContext {
             palette,
             borders,
