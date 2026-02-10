@@ -414,9 +414,8 @@ pub async fn handle_remote_edit_event(code: crossterm::event::KeyCode, app: &mut
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::{AppState, PanelSide, Tab, TabManager};
+    use crate::app::AppState;
     use crate::config::EditorConfig;
-    use crate::fs::fs_local::LocalFs;
     use crate::fs::utils::FileEntry;
     use std::sync::Arc;
     use tokio::sync::mpsc::unbounded_channel;
@@ -433,49 +432,12 @@ mod tests {
             attributes: String::new(),
             selected: false,
         };
-        let tab = Tab {
-            provider: Arc::new(LocalFs::new()),
-            current_dir: std::path::PathBuf::from("/tmp"),
-            entries: vec![entry],
-            cursor: 0,
-            history: crate::app_state::tabs::TabHistory::new(std::path::PathBuf::from("/tmp"), 0),
-            search: crate::app_state::tabs::IncrementalSearch::default(),
-            sort: crate::app_state::tabs::SortSettings::default(),
-            scroll_offset: 0,
-            error: None,
-            custom_title: None,
-            clipboard_msg: None,
-        };
-        let mut app = AppState {
-            left: TabManager {
-                tabs: vec![tab.clone()],
-                active_tab_index: 0,
-            },
-            right: TabManager {
-                tabs: vec![tab],
-                active_tab_index: 0,
-            },
-            active: PanelSide::Left,
-            file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
-            fuzzy_search: crate::ui::fuzzy_search_ui::FuzzySearchState::new(),
-            popups: crate::app::Popups::new(),
-            task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
-            ssh_manager: std::sync::Arc::new(crate::ssh_manager::SshManager::default()),
-            task_decision_txs: std::collections::HashMap::new(),
-            show_task_manager: false,
-            dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
-            watcher: None,
-            remote_watcher: None,
-            input_polling_handle: None,
-            needs_redraw: false,
-            global: crate::config::GlobalConfig::default(),
-            editor_cfg: EditorConfig {
-                command: Some("".to_string()),
-                in_terminal: Some(true),
-            },
-            viewer_cfg: crate::config::ViewerConfig::default(),
-            ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
-            clipboard: Box::new(crate::clipboard::InMemoryFileClipboard::new()),
+        let mut app = AppState::test_default();
+        app.left.tabs[0].entries = vec![entry];
+        app.left.tabs[0].current_dir = std::path::PathBuf::from("/tmp");
+        app.editor_cfg = EditorConfig {
+            command: Some("".to_string()),
+            in_terminal: Some(true),
         };
         handle_edit(&mut app, tx).await;
         let error = app.left.active_tab().error.clone();
@@ -634,28 +596,7 @@ mod tests {
     }
 
     fn create_test_app() -> AppState {
-        AppState {
-            left: TabManager::new(std::path::Path::new("/tmp")).unwrap(),
-            right: TabManager::new(std::path::Path::new("/tmp")).unwrap(),
-            active: PanelSide::Left,
-            file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
-            fuzzy_search: crate::ui::fuzzy_search_ui::FuzzySearchState::new(),
-            popups: crate::app::Popups::new(),
-            task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
-            ssh_manager: Arc::new(crate::ssh_manager::SshManager::default()),
-            task_decision_txs: std::collections::HashMap::new(),
-            show_task_manager: false,
-            dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
-            watcher: None,
-            remote_watcher: None,
-            input_polling_handle: None,
-            needs_redraw: false,
-            global: crate::config::GlobalConfig::default(),
-            editor_cfg: EditorConfig::default(),
-            viewer_cfg: crate::config::ViewerConfig::default(),
-            ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
-            clipboard: Box::new(crate::clipboard::InMemoryFileClipboard::new()),
-        }
+        AppState::test_default()
     }
 
     #[tokio::test]

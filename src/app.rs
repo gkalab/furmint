@@ -395,6 +395,54 @@ impl AppState {
         // Sync watcher if needed (though SFTP won't be watched by local watcher)
         self.sync_watcher();
     }
+
+    #[cfg(test)]
+    pub fn test_default() -> Self {
+        use std::sync::Arc;
+
+        let test_tab = Tab {
+            provider: Arc::new(crate::fs::fs_local::LocalFs::new()),
+            current_dir: std::path::PathBuf::from("/test"),
+            entries: vec![],
+            cursor: 0,
+            history: TabHistory::new(std::path::PathBuf::from("/test"), 0),
+            search: IncrementalSearch::default(),
+            sort: SortSettings::default(),
+            scroll_offset: 0,
+            error: None,
+            custom_title: None,
+            clipboard_msg: None,
+        };
+
+        Self {
+            left: TabManager {
+                tabs: vec![test_tab.clone()],
+                active_tab_index: 0,
+            },
+            right: TabManager {
+                tabs: vec![test_tab],
+                active_tab_index: 0,
+            },
+            active: PanelSide::Left,
+            file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
+            fuzzy_search: crate::ui::fuzzy_search_ui::FuzzySearchState::new(),
+            popups: Popups::new(),
+            task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
+            ssh_manager: Arc::new(crate::ssh_manager::SshManager::default()),
+            task_decision_txs: std::collections::HashMap::new(),
+            show_task_manager: false,
+            dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
+            watcher: None,
+            remote_watcher: None,
+            input_polling_handle: None,
+            needs_redraw: false,
+            global: crate::config::GlobalConfig::default(),
+            editor_cfg: crate::config::EditorConfig::default(),
+            viewer_cfg: crate::config::ViewerConfig::default(),
+            ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
+            clipboard: Box::new(crate::clipboard::InMemoryFileClipboard::new()),
+        }
+    }
 }
 
 // Popup state structs moved to src/state/ module
@@ -786,34 +834,9 @@ mod tests {
             clipboard_msg: None,
         };
 
-        let mut app = AppState {
-            left: TabManager {
-                tabs: vec![local_tab.clone()],
-                active_tab_index: 0,
-            },
-            right: TabManager {
-                tabs: vec![remote_tab.clone()],
-                active_tab_index: 0,
-            },
-            active: PanelSide::Left,
-            file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
-            fuzzy_search: crate::ui::fuzzy_search_ui::FuzzySearchState::new(),
-            popups: crate::app::Popups::new(),
-            task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
-            ssh_manager: Arc::new(crate::ssh_manager::SshManager::default()),
-            task_decision_txs: std::collections::HashMap::new(),
-            show_task_manager: false,
-            dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
-            watcher: None,
-            remote_watcher: None,
-            input_polling_handle: None,
-            needs_redraw: false,
-            global: crate::config::GlobalConfig::default(),
-            editor_cfg: crate::config::EditorConfig::default(),
-            viewer_cfg: crate::config::ViewerConfig::default(),
-            ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
-            clipboard: Box::new(crate::clipboard::InMemoryFileClipboard::new()),
-        };
+        let mut app = AppState::test_default();
+        app.left.tabs = vec![local_tab.clone()];
+        app.right.tabs = vec![remote_tab.clone()];
 
         // Case 1: Left has 1 local, Right has 0 local. Swapping Left (local) with Right (remote) would leave Left with 0 local.
         assert!(app.can_swap_active_tabs().is_err());

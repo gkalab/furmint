@@ -236,72 +236,18 @@ mod tests {
     fn test_handle_watcher_event_filesystem_change() {
         // Setup AppState mock: two tabs, stub current_dir, fake entries
         use crate::fs::watcher::WatcherEvent;
-        let mut app = crate::app::AppState {
-            left: crate::app::TabManager {
-                tabs: vec![crate::app::Tab {
-                    provider: std::sync::Arc::new(crate::fs::fs_local::LocalFs::new()),
-                    current_dir: std::path::PathBuf::from("/mock"),
-                    entries: vec![crate::fs::utils::FileEntry {
-                        name: "testfile.txt".to_string(),
-                        is_dir: false,
-                        is_symlink: false,
-                        size: Some(12),
-                        modified: None,
-                        attributes: "".to_string(),
-                        selected: false,
-                    }],
-                    cursor: 0,
-                    history: crate::app_state::tabs::TabHistory::new(
-                        std::path::PathBuf::from("/mock"),
-                        0,
-                    ),
-                    search: crate::app_state::tabs::IncrementalSearch::default(),
-                    sort: crate::app_state::tabs::SortSettings::default(),
-                    scroll_offset: 0,
-                    error: None,
-                    custom_title: None,
-                    clipboard_msg: None,
-                }],
-                active_tab_index: 0,
-            },
-            right: crate::app::TabManager {
-                tabs: vec![crate::app::Tab {
-                    provider: std::sync::Arc::new(crate::fs::fs_local::LocalFs::new()),
-                    current_dir: std::path::PathBuf::from("/mock"),
-                    entries: vec![],
-                    cursor: 0,
-                    history: crate::app_state::tabs::TabHistory::new(
-                        std::path::PathBuf::from("/mock"),
-                        0,
-                    ),
-                    search: crate::app_state::tabs::IncrementalSearch::default(),
-                    sort: crate::app_state::tabs::SortSettings::default(),
-                    scroll_offset: 0,
-                    error: None,
-                    custom_title: None,
-                    clipboard_msg: None,
-                }],
-                active_tab_index: 0,
-            },
-            active: crate::app::PanelSide::Left,
-            file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
-            fuzzy_search: crate::ui::fuzzy_search_ui::FuzzySearchState::new(),
-            popups: crate::app::Popups::new(),
-            task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
-            ssh_manager: std::sync::Arc::new(crate::ssh_manager::SshManager::default()),
-            task_decision_txs: std::collections::HashMap::new(),
-            show_task_manager: false,
-            dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
-            watcher: None,
-            remote_watcher: None,
-            input_polling_handle: None,
-            needs_redraw: false,
-            global: crate::config::GlobalConfig::default(),
-            editor_cfg: crate::config::EditorConfig::default(),
-            viewer_cfg: crate::config::ViewerConfig::default(),
-            ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
-            clipboard: Box::new(crate::clipboard::InMemoryFileClipboard::new()),
-        };
+        let mut app = crate::app::AppState::test_default();
+        app.left.active_tab_mut().current_dir = std::path::PathBuf::from("/mock");
+        app.left.active_tab_mut().entries = vec![crate::fs::utils::FileEntry {
+            name: "testfile.txt".to_string(),
+            is_dir: false,
+            is_symlink: false,
+            size: Some(12),
+            modified: None,
+            attributes: "".to_string(),
+            selected: false,
+        }];
+        app.right.active_tab_mut().current_dir = std::path::PathBuf::from("/mock");
         let paths = vec![std::path::PathBuf::from("/mock")];
         let event = WatcherEvent::FileSystemChange(paths);
         super::handle_watcher_event(event, &mut app);
@@ -314,72 +260,7 @@ mod tests {
     fn test_handle_watcher_event_preserves_selection() {
         use crate::fs::utils::FileEntry;
         use crate::fs::watcher::WatcherEvent;
-        let mut app = crate::app::AppState {
-            left: crate::app::TabManager {
-                tabs: vec![crate::app::Tab {
-                    provider: std::sync::Arc::new(crate::fs::fs_local::LocalFs::new()),
-                    current_dir: std::path::PathBuf::from("/mock"),
-                    entries: vec![FileEntry {
-                        name: "testfile.txt".to_string(),
-                        is_dir: false,
-                        is_symlink: false,
-                        size: Some(12),
-                        modified: None,
-                        attributes: "".to_string(),
-                        selected: true, // Initially selected
-                    }],
-                    cursor: 0,
-                    history: crate::app_state::tabs::TabHistory::new(
-                        std::path::PathBuf::from("/mock"),
-                        0,
-                    ),
-                    search: crate::app_state::tabs::IncrementalSearch::default(),
-                    sort: crate::app_state::tabs::SortSettings::default(),
-                    scroll_offset: 0,
-                    error: None,
-                    custom_title: None,
-                    clipboard_msg: None,
-                }],
-                active_tab_index: 0,
-            },
-            right: crate::app::TabManager {
-                tabs: vec![crate::app::Tab {
-                    provider: std::sync::Arc::new(crate::fs::fs_local::LocalFs::new()),
-                    current_dir: std::path::PathBuf::from("/mock"),
-                    entries: vec![],
-                    cursor: 0,
-                    history: crate::app_state::tabs::TabHistory::new(
-                        std::path::PathBuf::from("/mock"),
-                        0,
-                    ),
-                    search: crate::app_state::tabs::IncrementalSearch::default(),
-                    sort: crate::app_state::tabs::SortSettings::default(),
-                    scroll_offset: 0,
-                    error: None,
-                    custom_title: None,
-                    clipboard_msg: None,
-                }],
-                active_tab_index: 0,
-            },
-            active: crate::app::PanelSide::Left,
-            file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
-            fuzzy_search: crate::ui::fuzzy_search_ui::FuzzySearchState::new(),
-            popups: crate::app::Popups::new(),
-            task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
-            ssh_manager: std::sync::Arc::new(crate::ssh_manager::SshManager::default()),
-            task_decision_txs: std::collections::HashMap::new(),
-            show_task_manager: false,
-            dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
-            watcher: None,
-            remote_watcher: None,
-            input_polling_handle: None,
-            needs_redraw: false,
-            global: crate::config::GlobalConfig::default(),
-            editor_cfg: crate::config::EditorConfig::default(),
-            viewer_cfg: crate::config::ViewerConfig::default(),
-            ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
-            clipboard: Box::new(crate::clipboard::InMemoryFileClipboard::new()),
-        };
+        let mut app = crate::app::AppState::test_default();
 
         // Note: we need to mock list_dir or ensure it returns what we expect.
         // In this test, handle_watcher_event will call list_dir("/mock").
@@ -420,64 +301,7 @@ mod tests {
     #[test]
     fn test_handle_watcher_event_error() {
         use crate::fs::watcher::WatcherEvent;
-        let mut app = crate::app::AppState {
-            left: crate::app::TabManager {
-                tabs: vec![crate::app::Tab {
-                    provider: std::sync::Arc::new(crate::fs::fs_local::LocalFs::new()),
-                    current_dir: std::path::PathBuf::from("/mock"),
-                    entries: vec![],
-                    cursor: 0,
-                    history: crate::app_state::tabs::TabHistory::new(
-                        std::path::PathBuf::from("/mock"),
-                        0,
-                    ),
-                    search: crate::app_state::tabs::IncrementalSearch::default(),
-                    sort: crate::app_state::tabs::SortSettings::default(),
-                    scroll_offset: 0,
-                    error: None,
-                    custom_title: None,
-                    clipboard_msg: None,
-                }],
-                active_tab_index: 0,
-            },
-            right: crate::app::TabManager {
-                tabs: vec![crate::app::Tab {
-                    provider: std::sync::Arc::new(crate::fs::fs_local::LocalFs::new()),
-                    current_dir: std::path::PathBuf::from("/mock"),
-                    entries: vec![],
-                    cursor: 0,
-                    history: crate::app_state::tabs::TabHistory::new(
-                        std::path::PathBuf::from("/mock"),
-                        0,
-                    ),
-                    search: crate::app_state::tabs::IncrementalSearch::default(),
-                    sort: crate::app_state::tabs::SortSettings::default(),
-                    scroll_offset: 0,
-                    error: None,
-                    custom_title: None,
-                    clipboard_msg: None,
-                }],
-                active_tab_index: 0,
-            },
-            active: crate::app::PanelSide::Left,
-            file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
-            fuzzy_search: crate::ui::fuzzy_search_ui::FuzzySearchState::new(),
-            popups: crate::app::Popups::new(),
-            task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
-            ssh_manager: std::sync::Arc::new(crate::ssh_manager::SshManager::default()),
-            task_decision_txs: std::collections::HashMap::new(),
-            show_task_manager: false,
-            dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
-            watcher: None,
-            remote_watcher: None,
-            input_polling_handle: None,
-            needs_redraw: false,
-            global: crate::config::GlobalConfig::default(),
-            editor_cfg: crate::config::EditorConfig::default(),
-            viewer_cfg: crate::config::ViewerConfig::default(),
-            ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
-            clipboard: Box::new(crate::clipboard::InMemoryFileClipboard::new()),
-        };
+        let mut app = crate::app::AppState::test_default();
         let event = WatcherEvent::Error("test error".to_string());
         super::handle_watcher_event(event, &mut app);
         // Should not panic or change error field
@@ -488,83 +312,29 @@ mod tests {
     async fn test_handle_insert_moves_cursor_down() {
         use crate::fs::utils::FileEntry;
         use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
-        let mut app = crate::app::AppState {
-            left: crate::app::TabManager {
-                tabs: vec![crate::app::Tab {
-                    provider: std::sync::Arc::new(crate::fs::fs_local::LocalFs::new()),
-                    current_dir: std::path::PathBuf::from("/mock"),
-                    entries: vec![
-                        FileEntry {
-                            name: "file1.txt".to_string(),
-                            is_dir: false,
-                            is_symlink: false,
-                            size: Some(10),
-                            modified: None,
-                            attributes: "".to_string(),
-                            selected: false,
-                        },
-                        FileEntry {
-                            name: "file2.txt".to_string(),
-                            is_dir: false,
-                            is_symlink: false,
-                            size: Some(10),
-                            modified: None,
-                            attributes: "".to_string(),
-                            selected: false,
-                        },
-                    ],
-                    cursor: 0,
-                    history: crate::app_state::tabs::TabHistory::new(
-                        std::path::PathBuf::from("/mock"),
-                        0,
-                    ),
-                    search: crate::app_state::tabs::IncrementalSearch::default(),
-                    sort: crate::app_state::tabs::SortSettings::default(),
-                    scroll_offset: 0,
-                    error: None,
-                    custom_title: None,
-                    clipboard_msg: None,
-                }],
-                active_tab_index: 0,
+        let mut app = crate::app::AppState::test_default();
+        app.left.active_tab_mut().current_dir = std::path::PathBuf::from("/mock");
+        app.left.active_tab_mut().entries = vec![
+            FileEntry {
+                name: "file1.txt".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: Some(10),
+                modified: None,
+                attributes: "".to_string(),
+                selected: false,
             },
-            right: crate::app::TabManager {
-                tabs: vec![crate::app::Tab {
-                    provider: std::sync::Arc::new(crate::fs::fs_local::LocalFs::new()),
-                    current_dir: std::path::PathBuf::from("/mock"),
-                    entries: vec![],
-                    cursor: 0,
-                    history: crate::app_state::tabs::TabHistory::new(
-                        std::path::PathBuf::from("/mock"),
-                        0,
-                    ),
-                    search: crate::app_state::tabs::IncrementalSearch::default(),
-                    sort: crate::app_state::tabs::SortSettings::default(),
-                    scroll_offset: 0,
-                    error: None,
-                    custom_title: None,
-                    clipboard_msg: None,
-                }],
-                active_tab_index: 0,
+            FileEntry {
+                name: "file2.txt".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: Some(10),
+                modified: None,
+                attributes: "".to_string(),
+                selected: false,
             },
-            active: crate::app::PanelSide::Left,
-            file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
-            fuzzy_search: crate::ui::fuzzy_search_ui::FuzzySearchState::new(),
-            popups: crate::app::Popups::new(),
-            task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
-            ssh_manager: std::sync::Arc::new(crate::ssh_manager::SshManager::default()),
-            task_decision_txs: std::collections::HashMap::new(),
-            show_task_manager: false,
-            dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
-            watcher: None,
-            remote_watcher: None,
-            input_polling_handle: None,
-            needs_redraw: false,
-            global: crate::config::GlobalConfig::default(),
-            editor_cfg: crate::config::EditorConfig::default(),
-            viewer_cfg: crate::config::ViewerConfig::default(),
-            ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
-            clipboard: Box::new(crate::clipboard::InMemoryFileClipboard::new()),
-        };
+        ];
+        app.right.active_tab_mut().current_dir = std::path::PathBuf::from("/mock");
 
         let keyboard = KeyboardConfig::default();
         let (input_tx, _) = tokio::sync::mpsc::unbounded_channel();
