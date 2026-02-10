@@ -412,11 +412,3 @@ fn handle_basic_nav(app: &mut AppState, code: KeyCode, modifiers: KeyModifiers) 
         }
     }
 }
-
-// These functions were local in event_loop.rs or imported?
-// handle_sort was called in event_loop.rs line 847.
-// handle_tab was called in event_loop.rs line 894.
-
-// I need to implement them or find them.
-// event_loop.rs didn't show them in the outline. They might be private functions in event_loop.rs?
-// I'll assume they were local and I need to copy them here.
