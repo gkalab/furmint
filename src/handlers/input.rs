@@ -1,4 +1,4 @@
-use crate::app::{AppState, PanelSide, SortColumn};
+use crate::app::{AppState, SortColumn};
 use crate::config::KeyboardConfig;
 use crate::handlers::{
     editor::handle_edit,
@@ -41,11 +41,7 @@ pub async fn handle_main_panel_event(
 
     // Clear error on any interaction in the main panel
     {
-        let tab_manager = match app.active {
-            PanelSide::Left => &mut app.left,
-            PanelSide::Right => &mut app.right,
-        };
-        tab_manager.active_tab_mut().error = None;
+        app.active_tab_mut().error = None;
     }
 
     // Tab management shortcuts
@@ -145,11 +141,7 @@ pub async fn handle_main_panel_event(
     if let Some(keys) = &keyboard.select_all
         && keys.contains(&shortcut)
     {
-        let tab_manager = match app.active {
-            crate::app::PanelSide::Left => &mut app.left,
-            crate::app::PanelSide::Right => &mut app.right,
-        };
-        tab_manager.active_tab_mut().select_all();
+        app.active_tab_mut().select_all();
         return false;
     }
 
@@ -363,21 +355,11 @@ fn handle_basic_nav(app: &mut AppState, code: KeyCode, modifiers: KeyModifiers) 
     if let (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) = (code, modifiers) {
         handle_type_char(app, c);
     } else {
-        let tab_manager = match app.active {
-            PanelSide::Left => &mut app.left,
-            PanelSide::Right => &mut app.right,
+        // Extract values needed from panel, then drop the borrow
+        let (search_active, search_buffer_empty) = {
+            let panel = app.active_tab_mut();
+            (panel.is_search_active(), panel.search.buffer.is_empty())
         };
-        let panel = tab_manager.active_tab_mut();
-        // Check if search is active
-        let search_active = panel.is_search_active();
-
-        // We moved logic here, but handle_tab is missing import?
-        // handle_tab is usually in events or navigation.
-        // It was called in event_loop.rs line 894.
-        // It seems `handle_tab` is not in navigation.rs based on my imports?
-        // Wait, event_loop.rs calls `handle_tab(app)`.
-        // I need to find where `handle_tab` is.
-        // I will assume it's in navigation.rs for now and verify.
 
         match (code, modifiers) {
             (KeyCode::Tab, KeyModifiers::NONE) => handle_tab(app),
@@ -385,7 +367,7 @@ fn handle_basic_nav(app: &mut AppState, code: KeyCode, modifiers: KeyModifiers) 
                 if search_active {
                     handle_up_search(app);
                 } else {
-                    if !panel.search.buffer.is_empty() {
+                    if !search_buffer_empty {
                         reset_search(app);
                     }
                     handle_up(app);
@@ -395,7 +377,7 @@ fn handle_basic_nav(app: &mut AppState, code: KeyCode, modifiers: KeyModifiers) 
                 if search_active {
                     handle_down_search(app);
                 } else {
-                    if !panel.search.buffer.is_empty() {
+                    if !search_buffer_empty {
                         reset_search(app);
                     }
                     handle_down(app);

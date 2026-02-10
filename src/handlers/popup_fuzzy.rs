@@ -29,12 +29,8 @@ pub(crate) fn handle_fuzzy_search_event(
         }
         KeyCode::Enter => {
             if let Some(selected_dir) = app.fuzzy_search.get_selected_dir() {
-                let tab_manager = match app.active {
-                    crate::app::PanelSide::Left => &mut app.left,
-                    crate::app::PanelSide::Right => &mut app.right,
-                };
-                if let Err(e) = tab_manager.active_tab_mut().navigate_to(&selected_dir) {
-                    tab_manager.active_tab_mut().error = Some(format!("Error: {e}"));
+                if let Err(e) = app.active_tab_mut().navigate_to(&selected_dir) {
+                    app.active_tab_mut().error = Some(format!("Error: {e}"));
                 } else {
                     app.dir_history.record_visit(&context_key, &selected_dir);
                 }

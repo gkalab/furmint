@@ -1,6 +1,6 @@
 //! Editor handlers: open/edit in editor
 
-use crate::app::{AppState, PanelSide};
+use crate::app::AppState;
 use crate::fs::fs_provider::FileSystemProvider;
 use crossterm::event::Event as CrosstermEvent;
 use std::path::Path;
@@ -309,14 +309,7 @@ pub async fn open_file_in_editor_with_env_handling(
     if let Some(handle) = app.input_polling_handle.take() {
         handle.abort();
     }
-    let panel_current_dir = {
-        let tab_manager = match app.active {
-            PanelSide::Left => &mut app.left,
-            PanelSide::Right => &mut app.right,
-        };
-        let panel = tab_manager.active_tab_mut();
-        panel.current_dir.clone()
-    };
+    let panel_current_dir = app.active_tab().current_dir.clone();
     if let Some(watcher) = &mut app.watcher {
         let paths = watcher.watched_paths();
         for path in &paths {
@@ -337,11 +330,7 @@ pub async fn open_file_in_editor_with_env_handling(
         let _ = watcher.watch(&panel_current_dir);
     }
     app.sync_watcher();
-    let tab_manager = match app.active {
-        PanelSide::Left => &mut app.left,
-        PanelSide::Right => &mut app.right,
-    };
-    let panel = tab_manager.active_tab_mut();
+    let panel = app.active_tab_mut();
     if let Ok(entries) = panel.provider.list_dir(&panel_current_dir) {
         panel.entries = entries;
         panel.sort_entries();

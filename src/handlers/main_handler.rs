@@ -1,4 +1,4 @@
-use crate::app::{AppState, PanelSide};
+use crate::app::AppState;
 use crate::config::KeyboardConfig;
 use crate::handlers::file_viewer::handle_file_viewer_event;
 use crate::handlers::input_utils::keyevent_to_string;
@@ -175,10 +175,7 @@ async fn handle_global_interceptors(
             update_viewer_content(app);
         } else {
             if app.file_viewer.focused {
-                app.active = match app.active {
-                    PanelSide::Left => PanelSide::Right,
-                    PanelSide::Right => PanelSide::Left,
-                };
+                app.toggle_active_panel();
             }
             app.file_viewer.focused = false;
         }
@@ -206,12 +203,7 @@ async fn handle_global_interceptors(
 
     if toggle_console_match {
         if let Err(e) = handle_toggle_console(app, input_tx).await {
-            let side = app.active;
-            let tab_manager = match side {
-                PanelSide::Left => &mut app.left,
-                PanelSide::Right => &mut app.right,
-            };
-            tab_manager.active_tab_mut().error = Some(format!("Error toggling console: {e}"));
+            app.active_tab_mut().error = Some(format!("Error toggling console: {e}"));
         }
         return Some(false);
     }

@@ -1,6 +1,6 @@
 //! Navigation-related event handlers for directory and panel navigation.
 
-use crate::app::{AppState, PanelSide};
+use crate::app::AppState;
 
 // Moves the cursor up in the active panel.
 pub fn handle_up(app: &mut AppState) {
@@ -120,10 +120,7 @@ pub fn handle_tab(app: &mut AppState) {
     if app.file_viewer.is_visible {
         app.file_viewer.focused = true;
     } else {
-        app.active = match app.active {
-            PanelSide::Left => PanelSide::Right,
-            PanelSide::Right => PanelSide::Left,
-        };
+        app.toggle_active_panel();
     }
 }
 

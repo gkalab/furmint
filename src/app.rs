@@ -315,12 +315,15 @@ impl AppState {
         self.inactive_tab_manager().active_tab()
     }
 
-    pub fn handle_ssh_connected(&mut self, ctx: crate::tasks::SshContext) {
-        let tab_manager = match self.active {
-            PanelSide::Left => &mut self.left,
-            PanelSide::Right => &mut self.right,
+    /// Toggle the active panel between Left and Right
+    pub fn toggle_active_panel(&mut self) {
+        self.active = match self.active {
+            PanelSide::Left => PanelSide::Right,
+            PanelSide::Right => PanelSide::Left,
         };
+    }
 
+    pub fn handle_ssh_connected(&mut self, ctx: crate::tasks::SshContext) {
         let path = ctx.path.unwrap_or_else(|| std::path::PathBuf::from("/"));
         let connection_name = ctx.name;
         match Tab::with_provider(&path, ctx.provider) {
@@ -345,11 +348,12 @@ impl AppState {
                 }
 
                 tab.custom_title = connection_name;
+                let tab_manager = self.active_tab_manager_mut();
                 tab_manager.tabs.push(tab);
                 tab_manager.active_tab_index = tab_manager.tabs.len() - 1;
             }
             Err(e) => {
-                tab_manager.active_tab_mut().error = Some(format!("Failed to browse SFTP: {}", e));
+                self.active_tab_mut().error = Some(format!("Failed to browse SFTP: {}", e));
             }
         }
         self.needs_redraw = true;

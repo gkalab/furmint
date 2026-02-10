@@ -1,6 +1,6 @@
 //! Terminal event handlers for opening/spawning terminals and toggling console
 
-use crate::app::{AppState, PanelSide};
+use crate::app::AppState;
 use crossterm::ExecutableCommand;
 use crossterm::terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode};
 use std::process::Command;
@@ -189,15 +189,11 @@ pub fn spawn_terminal(
 }
 
 pub fn handle_open_terminal(app: &mut AppState) {
-    let tab_manager = match app.active {
-        PanelSide::Left => &mut app.left,
-        PanelSide::Right => &mut app.right,
-    };
-    let current_dir = tab_manager.active_tab().current_dir.clone();
+    let current_dir = app.active_tab().current_dir.clone();
     let configured_terminal = app.global.terminal.clone();
 
     if let Err(e) = spawn_terminal(&current_dir, configured_terminal, Vec::new(), false) {
-        tab_manager.active_tab_mut().error = Some(format!("Error opening terminal: {e}"));
+        app.active_tab_mut().error = Some(format!("Error opening terminal: {e}"));
     }
 }
 
@@ -219,14 +215,7 @@ pub async fn handle_toggle_console(
         .map_err(|e| anyhow::anyhow!("Failed to reset terminal: {e}"))?;
 
     // 3. Pause watcher
-    let panel_current_dir = {
-        let tab_manager = match app.active {
-            PanelSide::Left => &mut app.left,
-            PanelSide::Right => &mut app.right,
-        };
-        let panel = tab_manager.active_tab_mut();
-        panel.current_dir.clone()
-    };
+    let panel_current_dir = app.active_tab().current_dir.clone();
     if let Some(watcher) = &mut app.watcher {
         let paths = watcher.watched_paths();
         for path in &paths {
