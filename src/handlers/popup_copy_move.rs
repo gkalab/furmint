@@ -3,8 +3,8 @@
 use crate::app::AppState;
 use crate::clipboard::FileClipboardData;
 use crate::fs::fs_provider::FileSystemProvider;
-
 use crate::state::CopyMoveAction;
+use anyhow::{Result, anyhow};
 use crossterm::event::{KeyCode, KeyModifiers};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -123,13 +123,13 @@ pub fn handle_paste(app: &mut AppState) {
         let dest_provider = app.active_tab().provider.clone();
         let dest_path = app.active_tab().current_dir.clone();
 
-        if let Some(err) = validate_copy_move(
+        if let Err(err) = validate_copy_move(
             &data.paths,
             &data.source_provider,
             &dest_path,
             &dest_provider,
         ) {
-            app.active_tab_mut().error = Some(err);
+            app.active_tab_mut().error = Some(err.to_string());
             return;
         }
 
@@ -150,15 +150,15 @@ pub fn handle_paste(app: &mut AppState) {
 }
 
 /// Validates that source paths are not being copied/moved into themselves or subdirectories of themselves.
-/// Returns Some(error_message) if validation fails, None otherwise.
+/// Returns Err(error_message) if validation fails, Ok(()) otherwise.
 fn validate_copy_move(
     src_paths: &[PathBuf],
     src_provider: &Arc<dyn FileSystemProvider>,
     dest_path: &std::path::Path,
     dest_provider: &Arc<dyn FileSystemProvider>,
-) -> Option<String> {
+) -> Result<()> {
     if src_provider.context_key() != dest_provider.context_key() {
-        return None;
+        return Ok(());
     }
 
     let dest_abs = if let Ok(p) = dest_provider.canonicalize(dest_path) {
@@ -192,7 +192,7 @@ fn validate_copy_move(
             let (n_src_norm, n_dest_norm) = (n_src, n_dest);
 
             if n_src_norm == n_dest_norm {
-                return Some("Cannot copy/move source into itself".to_string());
+                return Err(anyhow!("Cannot copy/move source into itself"));
             }
 
             // For subdirectory check, ensure we check with trailing separator to avoid false prefixes
@@ -204,7 +204,7 @@ fn validate_copy_move(
             };
 
             if n_dest_norm.starts_with(&n_src_sep) {
-                return Some("Cannot copy/move into subdirectory of itself".to_string());
+                return Err(anyhow!("Cannot copy/move into subdirectory of itself"));
             }
 
             if let Some(file_name) = src_abs.file_name() {
@@ -220,13 +220,13 @@ fn validate_copy_move(
                     let n_eff = s_eff.to_string();
 
                     if n_eff == n_src_norm {
-                        return Some("Source and destination are the same".to_string());
+                        return Err(anyhow!("Source and destination are the same"));
                     }
                 }
             }
         }
     }
-    None
+    Ok(())
 }
 
 /// Compute the target path for a source file/directory
@@ -429,13 +429,13 @@ pub fn handle_copy_move_event(code: KeyCode, modifiers: KeyModifiers, app: &mut 
                 dest_path.clone()
             };
             let src_provider = app.active_tab().provider.clone();
-            if let Some(err) = validate_copy_move(
+            if let Err(err) = validate_copy_move(
                 &app.popups.copy_move.source_paths,
                 &src_provider,
                 &dest_abs,
                 &dest_provider,
             ) {
-                app.popups.copy_move.error = Some(err);
+                app.popups.copy_move.error = Some(err.to_string());
                 return false;
             }
 

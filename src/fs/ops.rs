@@ -2,6 +2,7 @@
 // use std::path::Path; // Unused
 
 use crate::fs::traits::FileSystem;
+use anyhow::{Result, anyhow};
 
 // Helper to count items and total size recursively
 pub async fn count_items_and_size(
@@ -97,7 +98,7 @@ async fn try_rename_move_optimization(
     ctx: &RecursiveOpContext<'_>,
     src: &std::path::Path,
     dest: &std::path::Path,
-) -> Result<bool, String> {
+) -> Result<bool> {
     let same_fs = ctx.src_fs.context_key() == ctx.dest_fs.context_key();
     if ctx.action == crate::app::CopyMoveAction::Move && same_fs {
         let dest_exists = ctx.dest_fs.try_exists(dest).await.unwrap_or(false);
@@ -125,7 +126,7 @@ async fn handle_file(
     decision_state: &mut DecisionState,
     src: &std::path::Path,
     dest: &std::path::Path,
-) -> Result<bool, String> {
+) -> Result<bool> {
     let mut perform = true;
     let dest_exists = ctx.dest_fs.try_exists(dest).await.unwrap_or(false);
 
@@ -169,7 +170,7 @@ async fn handle_file(
 pub fn recursive_op<'a>(
     ctx: RecursiveOpContext<'a>,
     decision_state: &'a mut DecisionState,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>> {
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
     Box::pin(async move {
         let mut stack = vec![WorkItem::Process {
             src: ctx.src.to_path_buf(),
@@ -222,19 +223,19 @@ async fn handle_directory(
     src: &std::path::Path,
     dest: &std::path::Path,
     stack: &mut Vec<WorkItem>,
-) -> Result<(), String> {
+) -> Result<()> {
     let dest_exists = ctx.dest_fs.try_exists(dest).await.unwrap_or(false);
 
     if !dest_exists {
         if let Err(e) = ctx.dest_fs.create_dir_all(dest).await {
-            return Err(format!(
+            return Err(anyhow!(
                 "Failed to create directory {}: {}",
                 dest.display(),
                 e
             ));
         }
     } else if !ctx.dest_fs.is_dir(dest).await.unwrap_or(true) {
-        return Err(format!(
+        return Err(anyhow!(
             "Destination {} exists and is not a directory",
             dest.display()
         ));
@@ -249,7 +250,7 @@ async fn handle_directory(
     let children = match ctx.src_fs.read_dir(src).await {
         Ok(v) => v,
         Err(e) => {
-            return Err(format!("Failed to read directory {}: {}", src.display(), e));
+            return Err(anyhow!("Failed to read directory {}: {}", src.display(), e));
         }
     };
     for path in children {
@@ -269,7 +270,7 @@ async fn resolve_conflict(
     ctx: &RecursiveOpContext<'_>,
     decision_state: &mut DecisionState,
     dest: &std::path::Path,
-) -> Result<ConflictResult, String> {
+) -> Result<ConflictResult> {
     if decision_state.should_overwrite() {
         return Ok(ConflictResult::Perform);
     }
@@ -357,7 +358,7 @@ async fn perform_file_copy(
     decision_state: &mut DecisionState,
     src: &std::path::Path,
     dest: &std::path::Path,
-) -> Result<bool, String> {
+) -> Result<bool> {
     let mut perform = true;
     loop {
         // Check if it's the same filesystem type

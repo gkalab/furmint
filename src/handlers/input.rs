@@ -109,7 +109,7 @@ pub async fn handle_main_panel_event(
     {
         match app.can_swap_active_tabs() {
             Ok(_) => app.swap_active_tabs(),
-            Err(e) => app.active_tab_mut().error = Some(e),
+            Err(e) => app.active_tab_mut().error = Some(e.to_string()),
         }
         return false;
     }

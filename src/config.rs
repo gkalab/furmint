@@ -1,3 +1,4 @@
+use anyhow::{Result, anyhow};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -234,7 +235,7 @@ pub fn merge_keyboard_config(
 pub fn merge_global_config(
     user: Option<&GlobalConfig>,
     default: &GlobalConfig,
-) -> Result<GlobalConfig, String> {
+) -> Result<GlobalConfig> {
     let theme = user
         .and_then(|g| g.theme.clone())
         .or_else(|| default.theme.clone());
@@ -248,7 +249,7 @@ pub fn merge_global_config(
     if let Some(ref n) = theme
         && !crate::theme::THEME_NAMES.contains(&n.as_str())
     {
-        return Err(format!(
+        return Err(anyhow!(
             "Invalid theme '{}'. Available themes: {:?}",
             n,
             crate::theme::THEME_NAMES
@@ -263,7 +264,7 @@ pub fn merge_global_config(
     })
 }
 
-pub fn validate_keyboard_config(config: &KeyboardConfig) -> Result<(), String> {
+pub fn validate_keyboard_config(config: &KeyboardConfig) -> Result<()> {
     use std::collections::HashMap;
     let mut keys_to_actions: HashMap<String, String> = HashMap::new();
 
@@ -309,7 +310,7 @@ pub fn validate_keyboard_config(config: &KeyboardConfig) -> Result<(), String> {
                 if let Some(other_action) = keys_to_actions.insert(key.clone(), name.to_string())
                     && other_action != name
                 {
-                    return Err(format!(
+                    return Err(anyhow!(
                         "Keybinding conflict: '{key}' is assigned to both '{other_action}' and '{name}'"
                     ));
                 }
@@ -399,92 +400,91 @@ pub fn parse_command(cmd: &str) -> (String, Vec<String>) {
     }
 }
 
-pub fn validate_editor_config(config: &EditorConfig) -> Result<(), String> {
+pub fn validate_editor_config(config: &EditorConfig) -> Result<()> {
     if let Some(cmd) = &config.command {
         if cmd.trim().is_empty() {
-            return Err("Editor command cannot be empty".to_string());
+            return Err(anyhow!("Editor command cannot be empty"));
         }
         let (program, _) = parse_command(cmd);
         let path = std::path::Path::new(&program);
         if path.is_absolute() && check_program_exists(&program).is_none() {
-            return Err(format!("Editor command path does not exist: {program}"));
+            return Err(anyhow!("Editor command path does not exist: {program}"));
         }
     }
     Ok(())
 }
 
-pub fn validate_viewer_config(config: &ViewerConfig) -> Result<(), String> {
+pub fn validate_viewer_config(config: &ViewerConfig) -> Result<()> {
     if let Some(cmd) = &config.command {
         if cmd.trim().is_empty() {
-            return Err("Viewer command cannot be empty".to_string());
+            return Err(anyhow!("Viewer command cannot be empty"));
         }
         let (program, _) = parse_command(cmd);
         let path = std::path::Path::new(&program);
         if path.is_absolute() && check_program_exists(&program).is_none() {
-            return Err(format!("Viewer command path does not exist: {program}"));
+            return Err(anyhow!("Viewer command path does not exist: {program}"));
         }
     }
     Ok(())
 }
 
-pub fn validate_ssh_config(config: &SshConfig) -> Result<(), String> {
+pub fn validate_ssh_config(config: &SshConfig) -> Result<()> {
     if let Some(keepalive) = config.keepalive_interval {
         if keepalive == 0 {
-            return Err("SSH keepalive_interval must be greater than 0".to_string());
+            return Err(anyhow!("SSH keepalive_interval must be greater than 0"));
         }
         if keepalive > 3600 {
-            return Err(
+            return Err(anyhow!(
                 "SSH keepalive_interval must be less than or equal to 3600 seconds (1 hour)"
-                    .to_string(),
-            );
+            ));
         }
     }
 
     if let Some(timeout) = config.read_timeout_secs {
         if timeout == 0 {
-            return Err("SSH read_timeout_secs must be greater than 0".to_string());
+            return Err(anyhow!("SSH read_timeout_secs must be greater than 0"));
         }
         if timeout > 3600 {
-            return Err(
+            return Err(anyhow!(
                 "SSH read_timeout_secs must be less than or equal to 3600 seconds (1 hour)"
-                    .to_string(),
-            );
+            ));
         }
     }
 
     if let Some(watchdog) = config.watchdog_secs {
         if watchdog == 0 {
-            return Err("SSH watchdog_secs must be greater than 0".to_string());
+            return Err(anyhow!("SSH watchdog_secs must be greater than 0"));
         }
         if watchdog > 3600 {
-            return Err(
-                "SSH watchdog_secs must be less than or equal to 3600 seconds (1 hour)".to_string(),
-            );
+            return Err(anyhow!(
+                "SSH watchdog_secs must be less than or equal to 3600 seconds (1 hour)"
+            ));
         }
     }
 
     if let (Some(timeout), Some(watchdog)) = (config.read_timeout_secs, config.watchdog_secs)
         && timeout > watchdog
     {
-        return Err(format!(
+        return Err(anyhow!(
             "SSH read_timeout_secs ({}) must be less than or equal to watchdog_secs ({})",
-            timeout, watchdog
+            timeout,
+            watchdog
         ));
     }
 
     Ok(())
 }
 
-pub fn validate_global_config(config: &GlobalConfig) -> Result<(), String> {
-    let check_cmd = |cmd: &Option<String>, name: &str| -> Result<(), String> {
+pub fn validate_global_config(config: &GlobalConfig) -> Result<()> {
+    let check_cmd = |cmd: &Option<String>, name: &str| -> Result<()> {
         if let Some(c) = cmd {
             if c.trim().is_empty() {
-                return Err(format!("Global {name} command cannot be empty"));
+                return Err(anyhow!("Global {name} command cannot be empty"));
             }
             let (program, _) = parse_command(c);
             let path = std::path::Path::new(&program);
             if path.is_absolute() && check_program_exists(&program).is_none() {
-                return Err(format!(
+                return Err(anyhow!(
                     "Global {name} command path does not exist: {program}"
                 ));
             }
@@ -496,17 +496,14 @@ pub fn validate_global_config(config: &GlobalConfig) -> Result<(), String> {
     Ok(())
 }
 
-pub fn load_config() -> Result<
-    (
-        KeyboardConfig,
-        GlobalConfig,
-        EditorConfig,
-        ViewerConfig,
-        SshConfig,
-    ),
-    String,
-> {
-    let path = config_path().ok_or("Could not determine config directory")?;
+pub fn load_config() -> Result<(
+    KeyboardConfig,
+    GlobalConfig,
+    EditorConfig,
+    ViewerConfig,
+    SshConfig,
+)> {
+    let path = config_path().ok_or_else(|| anyhow!("Could not determine config directory"))?;
     let default_keyboard = default_keyboard_config();
     let default_global = default_global_config();
     let default_editor = EditorConfig {
@@ -524,9 +521,9 @@ pub fn load_config() -> Result<
     };
     let (keyboard, global, editor, viewer, ssh) = if path.exists() {
         let content =
-            fs::read_to_string(&path).map_err(|e| format!("Failed to read config file: {e}"))?;
+            fs::read_to_string(&path).map_err(|e| anyhow!("Failed to read config file: {e}"))?;
         let user_config: AppConfig =
-            toml::from_str(&content).map_err(|e| format!("Config file is invalid: {e}"))?;
+            toml::from_str(&content).map_err(|e| anyhow!("Config file is invalid: {e}"))?;
         let keyboard = merge_keyboard_config(user_config.keyboard.as_ref(), &default_keyboard);
         let global = merge_global_config(user_config.global.as_ref(), &default_global)?;
         let editor = user_config.editor.unwrap_or(default_editor);
@@ -555,15 +552,15 @@ pub fn load_config() -> Result<
 pub fn config_path() -> Option<PathBuf> {
     ProjectDirs::from("org", "fm", "fm").map(|proj_dirs| proj_dirs.config_dir().join("config.toml"))
 }
-pub fn create_default_config() -> Result<PathBuf, String> {
-    let path = config_path().ok_or("Could not determine config directory")?;
+pub fn create_default_config() -> Result<PathBuf> {
+    let path = config_path().ok_or_else(|| anyhow!("Could not determine config directory"))?;
     if path.exists() {
-        return Err(format!("Config file already exists at {}", path.display()));
+        return Err(anyhow!("Config file already exists at {}", path.display()));
     }
 
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create config directory: {e}"))?;
+            .map_err(|e| anyhow!("Failed to create config directory: {e}"))?;
     }
 
     let default_config = AppConfig {
@@ -575,9 +572,9 @@ pub fn create_default_config() -> Result<PathBuf, String> {
     };
 
     let toml_content = toml::to_string_pretty(&default_config)
-        .map_err(|e| format!("Failed to serialize default config: {e}"))?;
+        .map_err(|e| anyhow!("Failed to serialize default config: {e}"))?;
 
-    fs::write(&path, toml_content).map_err(|e| format!("Failed to write config file: {e}"))?;
+    fs::write(&path, toml_content).map_err(|e| anyhow!("Failed to write config file: {e}"))?;
 
     Ok(path)
 }

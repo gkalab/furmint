@@ -3,6 +3,7 @@ pub use crate::app_state::tabs::{
     TabManager,
 };
 use crate::clipboard::{ClipboardBackend, FileClipboard};
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -258,7 +259,7 @@ impl AppState {
     }
 
     /// Checks if swapping active tabs is allowed (each panel must have at least one local tab)
-    pub fn can_swap_active_tabs(&self) -> Result<(), String> {
+    pub fn can_swap_active_tabs(&self) -> Result<()> {
         let left_tab = self.left.active_tab();
         let right_tab = self.right.active_tab();
 
@@ -266,11 +267,15 @@ impl AppState {
         let right_is_local = right_tab.provider.context_key() == "local";
 
         if left_is_local && !right_is_local && self.left.local_tab_count() <= 1 {
-            return Err("Cannot swap: at least one local tab is required per panel".to_string());
+            return Err(anyhow!(
+                "Cannot swap: at least one local tab is required per panel"
+            ));
         }
 
         if right_is_local && !left_is_local && self.right.local_tab_count() <= 1 {
-            return Err("Cannot swap: at least one local tab is required per panel".to_string());
+            return Err(anyhow!(
+                "Cannot swap: at least one local tab is required per panel"
+            ));
         }
 
         Ok(())

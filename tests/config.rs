@@ -84,7 +84,12 @@ fn test_validate_keyboard_config_conflict() {
     config.new_file = Some(vec!["q".to_string()]);
     let result = validate_keyboard_config(&config);
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("Keybinding conflict"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("Keybinding conflict")
+    );
 }
 
 #[test]
@@ -196,6 +201,7 @@ fn test_validate_ssh_config_invalid_keepalive_zero() {
     assert!(
         result
             .unwrap_err()
+            .to_string()
             .contains("keepalive_interval must be greater than 0")
     );
 }
@@ -212,6 +218,7 @@ fn test_validate_ssh_config_invalid_keepalive_too_large() {
     assert!(
         result
             .unwrap_err()
+            .to_string()
             .contains("keepalive_interval must be less than or equal to 3600")
     );
 }
@@ -228,6 +235,7 @@ fn test_validate_ssh_config_invalid_timeout_zero() {
     assert!(
         result
             .unwrap_err()
+            .to_string()
             .contains("read_timeout_secs must be greater than 0")
     );
 }
@@ -244,6 +252,7 @@ fn test_validate_ssh_config_invalid_watchdog_zero() {
     assert!(
         result
             .unwrap_err()
+            .to_string()
             .contains("watchdog_secs must be greater than 0")
     );
 }
@@ -260,6 +269,7 @@ fn test_validate_ssh_config_timeout_greater_than_watchdog() {
     assert!(
         result
             .unwrap_err()
+            .to_string()
             .contains("read_timeout_secs (60) must be less than or equal to watchdog_secs (30)")
     );
 }
