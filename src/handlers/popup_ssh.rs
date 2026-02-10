@@ -23,14 +23,10 @@ pub fn handle_ssh_connection_init(app: &mut AppState) {
     app.popups.ssh_connection.last_key_time = None;
 }
 
-pub fn handle_ssh_connection_event(
-    app: &mut AppState,
-    code: KeyCode,
-    modifiers: KeyModifiers,
-) -> bool {
-    use crate::state::ssh::SshField;
-    use crate::state::{ConfirmationAction, ConfirmationState};
+use crate::state::ssh::SshField;
+use crate::state::{ConfirmationAction, ConfirmationState};
 
+fn handle_ssh_confirmation(app: &mut AppState, code: KeyCode) -> bool {
     if let Some(confirmation) = &app.popups.ssh_connection.confirmation {
         match code {
             KeyCode::Char('y') | KeyCode::Enter => {
@@ -50,36 +46,33 @@ pub fn handle_ssh_connection_event(
                     }
                     ConfirmationAction::None => {}
                 }
-                return false;
+                return true;
             }
             KeyCode::Char('n') | KeyCode::Esc => {
                 app.popups.ssh_connection.confirmation = None;
-                return false;
+                return true;
             }
-            _ => return false,
+            _ => return true,
         }
     }
+    false
+}
 
+fn handle_ssh_field_navigation(app: &mut AppState, code: KeyCode) {
     match code {
-        KeyCode::Esc => {
-            app.popups.ssh_connection.is_visible = false;
-        }
         KeyCode::Tab => {
-            // Cycle fields
             app.popups.ssh_connection.active_field = match app.popups.ssh_connection.active_field {
                 SshField::ConnectionString => SshField::Name,
                 SshField::Name => SshField::Port,
                 SshField::Port => SshField::History,
                 SshField::History => SshField::ConnectionString,
             };
-            // Reset cursor position to end of field
             reset_cursor(app);
             if app.popups.ssh_connection.active_field == SshField::History {
                 update_fields_from_history(app);
             }
         }
         KeyCode::BackTab => {
-            // Cycle fields backwards
             app.popups.ssh_connection.active_field = match app.popups.ssh_connection.active_field {
                 SshField::ConnectionString => SshField::History,
                 SshField::Name => SshField::ConnectionString,
@@ -91,6 +84,12 @@ pub fn handle_ssh_connection_event(
                 update_fields_from_history(app);
             }
         }
+        _ => {}
+    }
+}
+
+fn handle_ssh_history_navigation(app: &mut AppState, code: KeyCode) {
+    match code {
         KeyCode::Up => {
             if app.popups.ssh_connection.active_field == SshField::History {
                 if let Some(idx) = app.popups.ssh_connection.selected_history_idx
@@ -159,47 +158,6 @@ pub fn handle_ssh_connection_event(
                 }
             }
         }
-        KeyCode::Left
-        | KeyCode::Right
-        | KeyCode::Home
-        | KeyCode::End
-        | KeyCode::Char('v')
-        | KeyCode::Char(_)
-        | KeyCode::Backspace
-        | KeyCode::Delete
-            if app.popups.ssh_connection.active_field != SshField::History =>
-        {
-            let is_numeric =
-                app.popups.ssh_connection.active_field == crate::state::ssh::SshField::Port;
-            let (text, cursor) = match app.popups.ssh_connection.active_field {
-                SshField::ConnectionString => (
-                    &mut app.popups.ssh_connection.connection_string,
-                    &mut app.popups.ssh_connection.cursor_position,
-                ),
-                SshField::Name => (
-                    &mut app.popups.ssh_connection.name,
-                    &mut app.popups.ssh_connection.cursor_position,
-                ),
-                SshField::Port => (
-                    &mut app.popups.ssh_connection.port,
-                    &mut app.popups.ssh_connection.cursor_position,
-                ),
-                _ => unreachable!(),
-            };
-            crate::handlers::input_utils::handle_text_input(
-                code, modifiers, text, cursor, is_numeric,
-            );
-        }
-        KeyCode::Left => {
-            if app.popups.ssh_connection.active_field == SshField::History {
-                // Ignore left in history
-            }
-        }
-        KeyCode::Right => {
-            if app.popups.ssh_connection.active_field == SshField::History {
-                // Ignore right in history
-            }
-        }
         KeyCode::Home => {
             if app.popups.ssh_connection.active_field == SshField::History
                 && !app.ssh_history.connections.is_empty()
@@ -217,43 +175,107 @@ pub fn handle_ssh_connection_event(
                 }
             }
         }
+        _ => {}
+    }
+}
+
+fn handle_ssh_text_input(app: &mut AppState, code: KeyCode, modifiers: KeyModifiers) {
+    let is_numeric = app.popups.ssh_connection.active_field == SshField::Port;
+    let (text, cursor) = match app.popups.ssh_connection.active_field {
+        SshField::ConnectionString => (
+            &mut app.popups.ssh_connection.connection_string,
+            &mut app.popups.ssh_connection.cursor_position,
+        ),
+        SshField::Name => (
+            &mut app.popups.ssh_connection.name,
+            &mut app.popups.ssh_connection.cursor_position,
+        ),
+        SshField::Port => (
+            &mut app.popups.ssh_connection.port,
+            &mut app.popups.ssh_connection.cursor_position,
+        ),
+        _ => unreachable!(),
+    };
+    crate::handlers::input_utils::handle_text_input(code, modifiers, text, cursor, is_numeric);
+}
+
+fn handle_ssh_delete_history_item(app: &mut AppState) {
+    if app.popups.ssh_connection.active_field == SshField::History
+        && let Some(idx) = app.popups.ssh_connection.selected_history_idx
+        && let Some(conn) = app.ssh_history.connections.get(idx)
+    {
+        let name = conn.display_string();
+        app.popups.ssh_connection.confirmation = Some(ConfirmationState::new(
+            format!("Remove '{}' from history?", name),
+            true,
+            ConfirmationAction::DeleteSshHistory(idx),
+        ));
+    }
+}
+
+fn handle_ssh_enter(app: &mut AppState) {
+    if app.popups.ssh_connection.active_field == SshField::History {
+        if let Some(idx) = app.popups.ssh_connection.selected_history_idx
+            && let Some(info) = app.ssh_history.connections.get(idx)
+        {
+            app.popups.ssh_connection.connection_string = info.connection_string.clone();
+            app.popups.ssh_connection.name = info.name.clone().unwrap_or_default();
+            app.popups.ssh_connection.port = info.port.to_string();
+            app.popups.ssh_connection.cursor_position =
+                app.popups.ssh_connection.connection_string.chars().count();
+            start_ssh_auth(app);
+        }
+    } else {
+        start_ssh_auth(app);
+    }
+}
+
+pub fn handle_ssh_connection_event(app: &mut AppState, code: KeyCode, modifiers: KeyModifiers) {
+    if handle_ssh_confirmation(app, code) {
+        return;
+    }
+
+    match code {
+        KeyCode::Esc => {
+            app.popups.ssh_connection.is_visible = false;
+        }
+        KeyCode::Tab | KeyCode::BackTab => {
+            handle_ssh_field_navigation(app, code);
+        }
+        KeyCode::Up | KeyCode::Down | KeyCode::PageUp | KeyCode::PageDown => {
+            handle_ssh_history_navigation(app, code);
+        }
+        KeyCode::Left
+        | KeyCode::Right
+        | KeyCode::Home
+        | KeyCode::End
+        | KeyCode::Char('v')
+        | KeyCode::Char(_)
+        | KeyCode::Backspace
+        | KeyCode::Delete
+            if app.popups.ssh_connection.active_field != SshField::History =>
+        {
+            handle_ssh_text_input(app, code, modifiers);
+        }
+        KeyCode::Left | KeyCode::Right => {
+            // Ignore cursor keys in history field
+        }
+        KeyCode::Home | KeyCode::End => {
+            handle_ssh_history_navigation(app, code);
+        }
         KeyCode::Char(c) => {
             if app.popups.ssh_connection.active_field == SshField::History {
                 handle_history_search(app, c);
             }
         }
         KeyCode::Delete => {
-            if app.popups.ssh_connection.active_field == SshField::History
-                && let Some(idx) = app.popups.ssh_connection.selected_history_idx
-                && let Some(conn) = app.ssh_history.connections.get(idx)
-            {
-                let name = conn.display_string();
-                app.popups.ssh_connection.confirmation = Some(ConfirmationState::new(
-                    format!("Remove '{}' from history?", name),
-                    true,
-                    ConfirmationAction::DeleteSshHistory(idx),
-                ));
-            }
+            handle_ssh_delete_history_item(app);
         }
         KeyCode::Enter => {
-            if app.popups.ssh_connection.active_field == SshField::History {
-                if let Some(idx) = app.popups.ssh_connection.selected_history_idx
-                    && let Some(info) = app.ssh_history.connections.get(idx)
-                {
-                    app.popups.ssh_connection.connection_string = info.connection_string.clone();
-                    app.popups.ssh_connection.name = info.name.clone().unwrap_or_default();
-                    app.popups.ssh_connection.port = info.port.to_string();
-                    app.popups.ssh_connection.cursor_position =
-                        app.popups.ssh_connection.connection_string.chars().count();
-                    start_ssh_auth(app);
-                }
-            } else {
-                start_ssh_auth(app);
-            }
+            handle_ssh_enter(app);
         }
         _ => {}
     }
-    false
 }
 
 fn reset_cursor(app: &mut AppState) {

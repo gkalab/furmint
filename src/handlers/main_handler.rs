@@ -143,7 +143,8 @@ async fn handle_popup_events(
         return Some(handle_conflict_event(code, app).await);
     }
     if app.popups.ssh_connection.is_visible {
-        return Some(handle_ssh_connection_event(app, code, modifiers));
+        handle_ssh_connection_event(app, code, modifiers);
+        return Some(false);
     }
     if app.popups.ssh_password.is_visible {
         return Some(handle_ssh_password_event(app, code, modifiers));
