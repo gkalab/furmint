@@ -1,10 +1,14 @@
+#[cfg(test)]
 use super::traits::FileSystem;
+#[cfg(test)]
 use async_trait::async_trait;
+#[cfg(test)]
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
-#[allow(dead_code)]
+#[cfg(test)]
 pub struct StdFileSystem;
 
+#[cfg(test)]
 #[async_trait]
 impl FileSystem for StdFileSystem {
     async fn try_exists(&self, path: &std::path::Path) -> anyhow::Result<bool> {
