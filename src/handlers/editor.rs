@@ -454,6 +454,7 @@ mod tests {
         }
     }
 
+    #[async_trait::async_trait]
     impl crate::fs::fs_provider::FileSystemProvider for MockFileSystem {
         fn is_local(&self) -> bool {
             false
@@ -581,6 +582,11 @@ mod tests {
 
         fn display_path(&self, path: &std::path::Path) -> String {
             path.to_string_lossy().to_string()
+        }
+
+        #[allow(clippy::unused_async)]
+        async fn calc_dir_size(&self, _path: &std::path::Path) -> anyhow::Result<u64> {
+            Ok(0)
         }
     }
 

@@ -23,6 +23,8 @@ struct EntryRowContext<'a> {
     icons_enabled: bool,
     current_dir: &'a Path,
     name_col_width: usize,
+    /// Cached directory sizes: path -> size in bytes
+    dir_sizes: &'a std::collections::HashMap<std::path::PathBuf, u64>,
 }
 
 fn sort_indicator(
@@ -185,10 +187,22 @@ fn render_entry_row<'a>(
         Cell::from(display_name).style(name_style)
     };
 
+    // Check if we have a cached size for this directory
+    let size_to_display = if entry.is_dir && entry.name != ".." {
+        let full_path = ctx.current_dir.join(&entry.name);
+        ctx.dir_sizes.get(&full_path).copied()
+    } else {
+        None
+    };
+
     Row::new(vec![
         name_cell,
-        Cell::from(format_size(entry.size, entry.is_dir, entry.is_symlink))
-            .style(Style::default().fg(text_fg)),
+        Cell::from(format_size(
+            size_to_display.or(entry.size),
+            entry.is_dir && size_to_display.is_none(),
+            entry.is_symlink,
+        ))
+        .style(Style::default().fg(text_fg)),
         Cell::from(format_modified(entry.modified)).style(Style::default().fg(text_fg)),
         Cell::from(entry.attributes.clone()).style(Style::default().fg(text_fg)),
     ])
@@ -388,6 +402,7 @@ pub fn draw_panel(
         icons_enabled,
         current_dir: &panel.current_dir,
         name_col_width: col_widths.name,
+        dir_sizes: &panel.dir_sizes,
     };
 
     let rows: Vec<Row> = panel

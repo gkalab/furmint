@@ -31,6 +31,7 @@ pub fn keyevent_to_string(code: KeyCode, modifiers: KeyModifiers) -> String {
         KeyCode::Delete => "Delete".to_string(),
         KeyCode::Esc => "Esc".to_string(),
         KeyCode::Insert => "Insert".to_string(),
+        KeyCode::Char(' ') => "Space".to_string(),
         KeyCode::Char(c) => c.to_string(),
         KeyCode::F(n) => format!("F{n}"),
         _ => String::new(),

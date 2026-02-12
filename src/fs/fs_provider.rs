@@ -107,6 +107,11 @@ pub trait FileSystemProvider: Send + Sync {
     /// For remote filesystems (SFTP): normalizes to forward slashes.
     fn display_path(&self, path: &Path) -> String;
 
+    /// Calculate the total size of a directory and its contents.
+    /// This recursively walks the directory and sums all file sizes.
+    /// Returns the total size in bytes.
+    async fn calc_dir_size(&self, path: &Path) -> anyhow::Result<u64>;
+
     /// Optimized copy to another filesystem.
     async fn download(
         &self,

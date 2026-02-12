@@ -221,6 +221,40 @@ impl FileSystemProvider for LocalFs {
     fn display_path(&self, path: &Path) -> String {
         path.to_string_lossy().to_string()
     }
+
+    async fn calc_dir_size(&self, path: &Path) -> anyhow::Result<u64> {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use tokio::task;
+
+        let path = path.to_path_buf();
+
+        // Spawn blocking task for directory traversal
+        let total_size = task::spawn_blocking(move || {
+            let total = Arc::new(AtomicU64::new(0));
+
+            fn walk_dir(dir: &Path, total: Arc<AtomicU64>) -> anyhow::Result<()> {
+                for entry in std::fs::read_dir(dir)? {
+                    let entry = entry?;
+                    let metadata = entry.metadata()?;
+
+                    if metadata.is_file() {
+                        total.fetch_add(metadata.len(), Ordering::Relaxed);
+                    } else if metadata.is_dir() {
+                        walk_dir(&entry.path(), total.clone())?;
+                    }
+                }
+                Ok(())
+            }
+
+            walk_dir(&path, total.clone())?;
+            Ok::<u64, anyhow::Error>(total.load(Ordering::Relaxed))
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Task join error: {e}"))??;
+
+        Ok(total_size)
+    }
 }
 
 #[cfg(test)]
@@ -374,5 +408,42 @@ mod tests {
 
         assert!(fs.exists(&temp_dir));
         assert!(fs.is_dir(&temp_dir));
+    }
+
+    #[tokio::test]
+    async fn test_calc_dir_size() {
+        let fs = LocalFs::new();
+        let temp_dir = std::env::temp_dir();
+        let test_dir = temp_dir.join("fm_test_calc_dir_size");
+
+        // Clean up if exists
+        if test_dir.exists() {
+            std::fs::remove_dir_all(&test_dir).ok();
+        }
+
+        // Create test directory structure
+        std::fs::create_dir(&test_dir).unwrap();
+        let subdir = test_dir.join("subdir");
+        std::fs::create_dir(&subdir).unwrap();
+
+        // Create files with known sizes
+        let file1 = test_dir.join("file1.txt");
+        let file2 = subdir.join("file2.txt");
+        std::fs::write(&file1, "Hello, World!").unwrap(); // 13 bytes
+        std::fs::write(&file2, "Test content").unwrap(); // 12 bytes
+
+        // Calculate directory size
+        let size = fs.calc_dir_size(&test_dir).await.unwrap();
+
+        // Should be at least 25 bytes (file contents)
+        // Note: actual size may vary due to filesystem block allocation
+        assert!(
+            size >= 25,
+            "Directory size should be at least 25 bytes, got {}",
+            size
+        );
+
+        // Clean up
+        std::fs::remove_dir_all(&test_dir).ok();
     }
 }

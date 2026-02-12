@@ -114,6 +114,8 @@ pub struct Tab {
     pub error: Option<String>,
     pub custom_title: Option<String>,
     pub clipboard_msg: Option<(String, std::time::Instant)>,
+    /// Cache of calculated directory sizes: path -> size in bytes
+    pub dir_sizes: std::collections::HashMap<PathBuf, u64>,
 }
 
 impl Tab {
@@ -140,6 +142,7 @@ impl Tab {
             error: None,
             custom_title: None,
             clipboard_msg: None,
+            dir_sizes: std::collections::HashMap::new(),
         };
         tab.sort_entries();
         Ok(tab)
@@ -246,6 +249,7 @@ impl Tab {
         self.cursor = 0;
         self.scroll_offset = 0;
         self.search.reset();
+        self.dir_sizes.clear(); // Clear cached sizes when navigating
 
         self.history.push(path.to_path_buf(), 0);
 
@@ -367,6 +371,7 @@ impl Tab {
             self.cursor = entry.cursor;
             self.scroll_offset = 0; // Will be adjusted by scroll_to_cursor if needed
             self.search.reset();
+            self.dir_sizes.clear(); // Clear cached sizes when navigating
             self.sort_entries();
         }
         Ok(())
@@ -382,6 +387,7 @@ impl Tab {
             self.cursor = entry.cursor;
             self.scroll_offset = 0;
             self.search.reset();
+            self.dir_sizes.clear(); // Clear cached sizes when navigating
             self.sort_entries();
         }
         Ok(())
@@ -611,6 +617,17 @@ impl Tab {
                 }
             }
         }
+    }
+
+    /// Get the cached size for a directory path
+    #[must_use]
+    pub fn get_dir_size(&self, path: &Path) -> Option<u64> {
+        self.dir_sizes.get(path).copied()
+    }
+
+    /// Set the cached size for a directory path
+    pub fn set_dir_size(&mut self, path: PathBuf, size: u64) {
+        self.dir_sizes.insert(path, size);
     }
 }
 

@@ -41,6 +41,7 @@ fn make_tab(path: &str, entries: Vec<FileEntry>, cursor: usize) -> Tab {
         error: None,
         custom_title: None,
         clipboard_msg: None,
+        dir_sizes: HashMap::new(),
     }
 }
 

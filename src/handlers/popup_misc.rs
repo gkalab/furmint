@@ -118,6 +118,17 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
                     crate::state::ssh::SshField::ConnectionString;
             }
         },
+        crate::tasks::TaskEvent::DirSizeCalculated(_id, path, size) => {
+            // Update the cached size for this directory in the active tab
+            // Note: The path may belong to either left or right panel
+            // We update both panels to be safe
+            let path_buf = path;
+            for panel in [&mut app.left, &mut app.right] {
+                for tab in &mut panel.tabs {
+                    tab.set_dir_size(path_buf.clone(), size);
+                }
+            }
+        }
     }
 }
 

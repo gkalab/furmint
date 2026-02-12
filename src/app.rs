@@ -422,6 +422,7 @@ impl AppState {
             error: None,
             custom_title: None,
             clipboard_msg: None,
+            dir_sizes: std::collections::HashMap::new(),
         };
 
         Self {
@@ -555,6 +556,7 @@ mod tests {
             error: None,
             custom_title: None,
             clipboard_msg: None,
+            dir_sizes: std::collections::HashMap::new(),
         }
     }
 
@@ -756,6 +758,7 @@ mod tests {
 
         // Simple mock provider that is NOT "local"
         struct RemoteProvider;
+        #[async_trait::async_trait]
         impl FileSystemProvider for RemoteProvider {
             fn list_dir(&self, _path: &Path) -> anyhow::Result<Vec<FileEntry>> {
                 Ok(vec![])
@@ -827,6 +830,11 @@ mod tests {
             fn display_path(&self, path: &Path) -> String {
                 path.to_string_lossy().to_string()
             }
+
+            #[allow(clippy::unused_async)]
+            async fn calc_dir_size(&self, _path: &Path) -> anyhow::Result<u64> {
+                Ok(0)
+            }
         }
 
         let local_tab = create_test_tab();
@@ -842,6 +850,7 @@ mod tests {
             error: None,
             custom_title: None,
             clipboard_msg: None,
+            dir_sizes: std::collections::HashMap::new(),
         };
 
         let mut app = AppState::test_default();

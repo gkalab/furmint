@@ -29,6 +29,7 @@ fn test_app(entries: Vec<FileEntry>) -> AppState {
         error: None,
         custom_title: None,
         clipboard_msg: None,
+        dir_sizes: std::collections::HashMap::new(),
     };
     AppState {
         left: TabManager {

@@ -38,6 +38,8 @@ pub enum TaskEvent {
     SshReconnected(SshContext),
     SshReconnectFailed(String, String), // session_id, error_message
     SshError(String, String, crate::ssh_manager::SshError), // host, user, error
+    /// Directory size calculation completed: (`task_id`, path, `size_in_bytes`)
+    DirSizeCalculated(usize, std::path::PathBuf, u64),
 }
 
 #[derive(Clone)]

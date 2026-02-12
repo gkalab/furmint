@@ -21,6 +21,7 @@ use crate::handlers::{
     terminal::handle_open_terminal,
 };
 use crossterm::event::{KeyCode, KeyModifiers};
+use std::sync::Arc;
 
 pub async fn handle_main_panel_event(
     code: KeyCode,
@@ -274,7 +275,80 @@ fn handle_file_ops_shortcuts(
         handle_init_move(app);
         return true;
     }
+    if let Some(keys) = &keyboard.calc_dir_size
+        && keys.iter().any(|s| s == shortcut)
+    {
+        handle_calc_dir_size(app);
+        return true;
+    }
     false
+}
+
+fn handle_calc_dir_size(app: &mut AppState) {
+    // First, collect all the information we need from the tab
+    let (_current_dir, dirs_to_calc) = {
+        let tab = app.active_tab();
+        let current_dir = tab.current_dir.clone();
+
+        // Get the directories to calculate size for
+        // If there are selected entries that are directories, use those
+        // Otherwise use the entry under the cursor (if it's a directory)
+        let mut dirs_to_calc: Vec<(
+            std::path::PathBuf,
+            String,
+            Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
+        )> = Vec::new();
+
+        let selected_dirs: Vec<_> = tab
+            .entries
+            .iter()
+            .filter(|e| e.selected && e.is_dir && e.name != "..")
+            .collect();
+
+        if !selected_dirs.is_empty() {
+            // Calculate size for all selected directories
+            for entry in selected_dirs {
+                let full_path = current_dir.join(&entry.name);
+                dirs_to_calc.push((full_path, entry.name.clone(), tab.provider.clone()));
+            }
+        } else if let Some(entry) = tab.current_entry()
+            && entry.is_dir
+            && entry.name != ".."
+        {
+            let full_path = current_dir.join(&entry.name);
+            dirs_to_calc.push((full_path, entry.name.clone(), tab.provider.clone()));
+        }
+
+        (current_dir, dirs_to_calc)
+    };
+
+    // Spawn a task for each directory
+    for (path, name, provider) in dirs_to_calc {
+        let path_clone = path.clone();
+
+        app.task_manager.spawn_task(
+            format!("Calculate size: {name}"),
+            move |_cancel_flag, tx, id| async move {
+                match provider.calc_dir_size(&path_clone).await {
+                    Ok(size) => {
+                        let _ = tx.send(crate::tasks::TaskEvent::DirSizeCalculated(
+                            id, path_clone, size,
+                        ));
+                        let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
+                            id,
+                            crate::tasks::TaskStatus::Completed,
+                        ));
+                    }
+                    Err(e) => {
+                        let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
+                            id,
+                            crate::tasks::TaskStatus::Failed(e.to_string()),
+                        ));
+                    }
+                }
+            },
+        );
+    }
 }
 
 fn handle_ssh_shortcuts(app: &mut AppState, keyboard: &KeyboardConfig, shortcut: &str) -> bool {

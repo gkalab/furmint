@@ -39,6 +39,7 @@ pub struct KeyboardConfig {
     pub swap_tabs: Option<Vec<String>>,
     pub open_ssh: Option<Vec<String>>,
     pub reconnect_ssh: Option<Vec<String>>,
+    pub calc_dir_size: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -114,6 +115,7 @@ pub fn default_keyboard_config() -> KeyboardConfig {
         swap_tabs: Some(vec!["Ctrl-u".to_string()]),
         open_ssh: Some(vec!["Ctrl-n".to_string()]),
         reconnect_ssh: Some(vec!["Ctrl-r".to_string()]),
+        calc_dir_size: Some(vec!["Ctrl-Space".to_string()]),
     }
 }
 
@@ -232,6 +234,9 @@ pub fn merge_keyboard_config(
         reconnect_ssh: user
             .and_then(|k| k.reconnect_ssh.clone())
             .or_else(|| default.reconnect_ssh.clone()),
+        calc_dir_size: user
+            .and_then(|k| k.calc_dir_size.clone())
+            .or_else(|| default.calc_dir_size.clone()),
     }
 }
 
@@ -305,6 +310,7 @@ pub fn validate_keyboard_config(config: &KeyboardConfig) -> Result<()> {
         ("swap_tabs", &config.swap_tabs),
         ("open_ssh", &config.open_ssh),
         ("reconnect_ssh", &config.reconnect_ssh),
+        ("calc_dir_size", &config.calc_dir_size),
     ];
 
     for (name, keys) in fields {

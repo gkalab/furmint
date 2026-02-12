@@ -384,6 +384,50 @@ impl FileSystemProvider for SftpFs {
         s
     }
 
+    async fn calc_dir_size(&self, path: &Path) -> anyhow::Result<u64> {
+        use std::io::Read;
+
+        let normalized_path = self.normalize_path(path);
+        let path_str = normalized_path.to_string_lossy();
+
+        // Use du -sb for accurate byte count (follows symlinks by default, -s for summary)
+        let cmd = format!(
+            "du -sb '{}' 2>/dev/null || echo 0",
+            shell_escape::escape(path_str)
+        );
+
+        let session = self
+            .session
+            .lock()
+            .map_err(|_| anyhow!("Session mutex poisoned"))?;
+
+        let mut channel = session
+            .channel_session()
+            .map_err(|e| anyhow!("Failed to create SSH channel: {e}"))?;
+
+        channel
+            .exec(&cmd)
+            .map_err(|e| anyhow!("Failed to execute du command: {e}"))?;
+
+        let mut output = String::new();
+        channel
+            .read_to_string(&mut output)
+            .map_err(|e| anyhow!("Failed to read command output: {e}"))?;
+
+        channel
+            .wait_close()
+            .map_err(|e| anyhow!("Failed to close channel: {e}"))?;
+
+        // Parse the output - du -sb returns "<size>\t<path>"
+        let size_str = output.split('\t').next().unwrap_or("0").trim();
+
+        let size: u64 = size_str
+            .parse()
+            .map_err(|e| anyhow!("Failed to parse du output '{}': {e}", output.trim()))?;
+
+        Ok(size)
+    }
+
     async fn download(
         &self,
         src: &Path,
