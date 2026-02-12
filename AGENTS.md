@@ -53,7 +53,7 @@ Norton Commander-style TUI file manager in Rust using ratatui + crossterm. Featu
 - Consider terminal differences in crossterm
 
 ## Development Best Practices
-- **Always run `cargo clippy --all -- -W clippy::all -W clippy::pedantic` and `cargo fmt` before committing**
+- **Always run `cargo test --all-targets` `cargo clippy --all -- -W clippy::all -W clippy::pedantic` and `cargo fmt` before committing**
 - **Fix simple pedantic warnings by running `cargo clippy --fix --allow-dirty --all -- -W clippy::all -W clippy::pedantic` 
 - Fix all warnings; treat warnings as errors
 - Remove unused imports and dead code
