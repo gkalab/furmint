@@ -3,6 +3,7 @@
 use crate::handlers::clipboard_utils::{get_clipboard_content, insert_text_at_cursor_unicode};
 use crossterm::event::{KeyCode, KeyModifiers};
 
+#[must_use]
 pub fn keyevent_to_string(code: KeyCode, modifiers: KeyModifiers) -> String {
     let mut parts: Vec<String> = Vec::new();
     if modifiers.contains(KeyModifiers::CONTROL) {
@@ -84,7 +85,7 @@ pub fn handle_text_input(
         KeyCode::Char('v') if modifiers.contains(KeyModifiers::CONTROL) => {
             if let Some(content) = get_clipboard_content() {
                 let sanitized = if is_numeric {
-                    content.chars().filter(|c| c.is_ascii_digit()).collect()
+                    content.chars().filter(char::is_ascii_digit).collect()
                 } else {
                     content
                 };

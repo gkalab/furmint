@@ -17,6 +17,7 @@ pub struct CopyMoveState {
 }
 
 impl CopyMoveState {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             is_visible: false,

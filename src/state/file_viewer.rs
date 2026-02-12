@@ -29,6 +29,7 @@ pub struct ImageLoadResult {
 }
 
 impl FileViewerState {
+    #[must_use]
     pub fn new(is_dark_theme: bool, app_theme_name: &str) -> Self {
         let syntax_set = syntect::parsing::SyntaxSet::load_defaults_newlines();
         let theme_set = syntect::highlighting::ThemeSet::load_defaults();
@@ -102,6 +103,7 @@ impl FileViewerState {
         });
     }
 
+    #[must_use]
     pub fn is_image(path: &std::path::Path) -> bool {
         if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
             let ext = ext.to_lowercase();

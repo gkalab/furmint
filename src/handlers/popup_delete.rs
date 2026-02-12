@@ -74,20 +74,20 @@ pub fn handle_confirm_delete(app: &mut AppState) {
                 let result = if is_permanent {
                     tokio::task::spawn_blocking(move || provider_clone.delete(&path_buf, true))
                         .await
-                        .unwrap_or_else(|e| Err(anyhow::anyhow!("Task join error: {}", e)))
+                        .unwrap_or_else(|e| Err(anyhow::anyhow!("Task join error: {e}")))
                         .map_err(|e| e.to_string())
                 } else {
                     tokio::task::spawn_blocking(move || {
                         trash::delete(&path_buf).map_err(|e| anyhow::anyhow!(e))
                     })
                     .await
-                    .unwrap_or_else(|e| Err(anyhow::anyhow!("Task join error: {}", e)))
+                    .unwrap_or_else(|e| Err(anyhow::anyhow!("Task join error: {e}")))
                     .map_err(|e| e.to_string())
                 };
 
                 match result {
                     Ok(()) => success += 1,
-                    Err(e) => failures.push(format!("{}: {}", path.display(), e)),
+                    Err(e) => failures.push(format!("{}: {e}", path.display())),
                 }
                 let _ = tx.send(crate::tasks::TaskEvent::UpdateProgress(id, i + 1, total));
             }

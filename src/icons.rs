@@ -10,6 +10,7 @@
 ///
 /// # Returns
 /// A string containing the nerd font icon character
+#[must_use]
 pub fn get_icon(name: &str, is_dir: bool, is_executable: bool) -> &'static str {
     // Directories get folder icon
     if is_dir {

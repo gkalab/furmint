@@ -23,7 +23,7 @@ pub trait FileClipboard: Send {
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub mod unix_clipboard {
-    use super::*;
+    use super::{FileClipboard, FileClipboardData};
     use std::sync::{Arc, Mutex};
 
     #[derive(Clone, Default)]
@@ -32,6 +32,7 @@ pub mod unix_clipboard {
     }
 
     impl UnixFileClipboard {
+        #[must_use]
         pub fn new() -> Self {
             Self::default()
         }
@@ -162,7 +163,7 @@ pub mod win_clipboard {
     unsafe fn alloc_global_from_bytes(bytes: &[u8]) -> anyhow::Result<isize> {
         let hglobal = unsafe {
             GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, bytes.len())
-                .map_err(|e| anyhow::anyhow!("GlobalAlloc failed: {}", e))?
+                .map_err(|e| anyhow::anyhow!("GlobalAlloc failed: {e}"))?
         };
 
         if hglobal.0.is_null() {
@@ -248,7 +249,7 @@ pub mod win_clipboard {
                     let hglobal_effect =
                         GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, std::mem::size_of::<u32>())
                             .map_err(|e| {
-                                anyhow::anyhow!("GlobalAlloc for DropEffect failed: {}", e)
+                                anyhow::anyhow!("GlobalAlloc for DropEffect failed: {e}")
                             })?;
 
                     if !hglobal_effect.0.is_null() {
@@ -259,10 +260,9 @@ pub mod win_clipboard {
                             if let Err(e) = SetClipboardData(format, Some(HANDLE(hglobal_effect.0)))
                             {
                                 let _ = GlobalFree(Some(hglobal_effect));
-                                return Err(anyhow::anyhow!(
-                                    "SetClipboardData format failed: {}",
-                                    e
-                                ));
+                                return Err(
+                                    anyhow::anyhow!("SetClipboardData format failed: {e}",),
+                                );
                             }
                         } else {
                             let _ = GlobalFree(Some(hglobal_effect));
@@ -376,6 +376,7 @@ pub struct InMemoryFileClipboard {
 }
 
 impl InMemoryFileClipboard {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -405,6 +406,7 @@ pub enum ClipboardBackend {
 }
 
 impl ClipboardBackend {
+    #[must_use]
     pub fn new() -> Self {
         #[cfg(target_os = "windows")]
         {

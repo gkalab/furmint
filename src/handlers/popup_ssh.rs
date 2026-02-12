@@ -13,10 +13,10 @@ pub fn handle_ssh_connection_init(app: &mut AppState) {
     app.popups.ssh_connection.connection_string.clear();
     app.popups.ssh_connection.name.clear();
     app.popups.ssh_connection.port = "22".to_string();
-    app.popups.ssh_connection.selected_history_idx = if !app.ssh_history.connections.is_empty() {
-        Some(0)
-    } else {
+    app.popups.ssh_connection.selected_history_idx = if app.ssh_history.connections.is_empty() {
         None
+    } else {
+        Some(0)
     };
     app.popups.ssh_connection.cursor_position = 0;
     app.popups.ssh_connection.search_query.clear();
@@ -206,7 +206,7 @@ fn handle_ssh_delete_history_item(app: &mut AppState) {
     {
         let name = conn.display_string();
         app.popups.ssh_connection.confirmation = Some(ConfirmationState::new(
-            format!("Remove '{}' from history?", name),
+            format!("Remove '{name}' from history?"),
             true,
             ConfirmationAction::DeleteSshHistory(idx),
         ));
@@ -249,8 +249,7 @@ pub fn handle_ssh_connection_event(app: &mut AppState, code: KeyCode, modifiers:
         | KeyCode::Right
         | KeyCode::Home
         | KeyCode::End
-        | KeyCode::Char('v')
-        | KeyCode::Char(_)
+        | KeyCode::Char('v' | _)
         | KeyCode::Backspace
         | KeyCode::Delete
             if app.popups.ssh_connection.active_field != SshField::History =>
@@ -329,6 +328,7 @@ pub struct ParsedSsh {
     pub path: Option<String>,
 }
 
+#[must_use]
 pub fn parse_connection_string(s: &str) -> Option<ParsedSsh> {
     if s.is_empty() {
         return None;
@@ -378,12 +378,11 @@ fn start_ssh_auth(app: &mut AppState) {
     }
 
     let port_str = app.popups.ssh_connection.port.trim();
-    let port = match port_str.parse::<u16>() {
-        Ok(p) => p,
-        Err(_) => {
-            app.popups.ssh_connection.error = Some("Invalid port number".to_string());
-            return;
-        }
+    let port = if let Ok(p) = port_str.parse::<u16>() {
+        p
+    } else {
+        app.popups.ssh_connection.error = Some("Invalid port number".to_string());
+        return;
     };
 
     if let Some(parsed) = parse_connection_string(conn_str) {
@@ -415,7 +414,7 @@ fn start_ssh_auth(app: &mut AppState) {
             .spawn_task(task_title, move |cancel, tx, id| async move {
                 let result = tokio::select! {
                     res = ssh_manager.try_connect_with_keys(parsed.host, port, parsed.user) => Some(res),
-                    _ = async {
+                    () = async {
                         while !cancel.load(std::sync::atomic::Ordering::Relaxed) {
                             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                         }
@@ -475,9 +474,7 @@ pub fn handle_ssh_password_event(
 
             app.popups.ssh_password.is_visible = false;
 
-            if !session_id.is_empty() {
-                reconnect_ssh(app, session_id, password);
-            } else {
+            if session_id.is_empty() {
                 let host = app.popups.ssh_password.host.clone();
                 let user = app.popups.ssh_password.user.clone();
                 let port = app.popups.ssh_connection.port.parse::<u16>().unwrap_or(22);
@@ -500,14 +497,15 @@ pub fn handle_ssh_password_event(
                     target_path,
                     connection_name,
                 );
+            } else {
+                reconnect_ssh(app, session_id, password);
             }
         }
         KeyCode::Left
         | KeyCode::Right
         | KeyCode::Home
         | KeyCode::End
-        | KeyCode::Char('v')
-        | KeyCode::Char(_)
+        | KeyCode::Char('v' | _)
         | KeyCode::Backspace
         | KeyCode::Delete => {
             crate::handlers::input_utils::handle_text_input(
@@ -535,7 +533,7 @@ fn reconnect_ssh(app: &mut AppState, session_id: String, password: String) {
         move |cancel, tx, id| async move {
             let result = tokio::select! {
                 res = ssh_manager.reconnect_session(&session_id, password, |_op| async { Ok(()) }) => Some(res),
-                _ = async {
+                () = async {
                     while !cancel.load(std::sync::atomic::Ordering::Relaxed) {
                         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                     }
@@ -561,7 +559,7 @@ fn reconnect_ssh(app: &mut AppState, session_id: String, password: String) {
                 Err(e) => {
                     let _ = tx.send(TaskEvent::UpdateStatus(
                         id,
-                        TaskStatus::Failed(format!("Reconnection failed: {}", e)),
+                        TaskStatus::Failed(format!("Reconnection failed: {e}")),
                     ));
                     let _ = tx.send(TaskEvent::SshReconnectFailed(
                         old_session_id.clone(),
@@ -582,7 +580,7 @@ fn connect_ssh(
     target_path: Option<String>,
     connection_name: Option<String>,
 ) {
-    let name = format!("Connecting to {}@{}", user, host);
+    let name = format!("Connecting to {user}@{host}");
     let ssh_manager = app.ssh_manager.clone();
     let target_path_clone = target_path.clone();
     let host_for_reg = host.clone();
@@ -594,7 +592,7 @@ fn connect_ssh(
         .spawn_task(name, move |cancel, tx, id| async move {
             let result = tokio::select! {
                 res = ssh_manager.connect_ssh(host, port, user, password, target_path_clone) => Some(res),
-                _ = async {
+                () = async {
                     while !cancel.load(std::sync::atomic::Ordering::Relaxed) {
                         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                     }
@@ -680,7 +678,7 @@ pub fn handle_reconnect_ssh(app: &mut AppState) {
                         res = ssh_manager.reconnect_session(&session_id, cached_password, |_op| async {
                             Ok(())
                         }) => Some(res),
-                        _ = async {
+                        () = async {
                             while !cancel.load(std::sync::atomic::Ordering::Relaxed) {
                                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                             }
@@ -713,7 +711,7 @@ pub fn handle_reconnect_ssh(app: &mut AppState) {
                             }
                             let _ = tx.send(TaskEvent::UpdateStatus(
                                 id,
-                                TaskStatus::Failed(format!("Reconnection failed: {}", e)),
+                                TaskStatus::Failed(format!("Reconnection failed: {e}")),
                             ));
                         }
                     }

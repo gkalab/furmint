@@ -32,6 +32,7 @@ pub struct Popups {
 }
 
 impl Popups {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             rename: RenameState::new(),
@@ -358,7 +359,7 @@ impl AppState {
                 tab_manager.active_tab_index = tab_manager.tabs.len() - 1;
             }
             Err(e) => {
-                self.active_tab_mut().error = Some(format!("Failed to browse SFTP: {}", e));
+                self.active_tab_mut().error = Some(format!("Failed to browse SFTP: {e}"));
             }
         }
         self.needs_redraw = true;
@@ -396,7 +397,7 @@ impl AppState {
 
         // Navigate to the preserved directory
         if let Err(e) = tab.navigate_to(&path) {
-            tab.error = Some(format!("Failed to navigate to {}: {}", path.display(), e));
+            tab.error = Some(format!("Failed to navigate to {}: {e}", path.display()));
         }
 
         self.needs_redraw = true;

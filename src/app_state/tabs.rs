@@ -29,6 +29,7 @@ pub struct TabHistory {
 }
 
 impl TabHistory {
+    #[must_use]
     pub fn new(path: PathBuf, cursor: usize) -> Self {
         Self {
             entries: vec![HistoryEntry { path, cursor }],
@@ -36,6 +37,7 @@ impl TabHistory {
         }
     }
 
+    #[must_use]
     pub fn current(&self) -> &HistoryEntry {
         &self.entries[self.index]
     }
@@ -46,10 +48,12 @@ impl TabHistory {
         self.index = self.entries.len() - 1;
     }
 
+    #[must_use]
     pub fn can_go_back(&self) -> bool {
         self.index > 0
     }
 
+    #[must_use]
     pub fn can_go_forward(&self) -> bool {
         self.index + 1 < self.entries.len()
     }
@@ -65,6 +69,7 @@ pub struct IncrementalSearch {
 }
 
 impl IncrementalSearch {
+    #[must_use]
     pub fn is_active(&self) -> bool {
         !self.buffer.is_empty()
             && self
@@ -152,6 +157,7 @@ impl Tab {
         Ok(tab)
     }
 
+    #[must_use]
     pub fn to_persistent(&self) -> PersistentTab {
         PersistentTab {
             path: self.current_dir.clone(),
@@ -162,11 +168,13 @@ impl Tab {
     }
 
     /// Returns the currently selected entry, if any.
+    #[must_use]
     pub fn current_entry(&self) -> Option<&FileEntry> {
         self.entries.get(self.cursor)
     }
 
-    /// Returns the tab title - custom_title if set, otherwise last component of path
+    /// Returns the tab title - `custom_title` if set, otherwise last component of path
+    #[must_use]
     pub fn title(&self) -> &str {
         if let Some(ref custom) = self.custom_title {
             custom
@@ -328,7 +336,10 @@ impl Tab {
     pub fn go_up(&mut self) -> anyhow::Result<()> {
         if let Some(parent) = self.current_dir.parent() {
             let parent_path = parent.to_path_buf();
-            let current_name = self.current_dir.file_name().map(|n| n.to_os_string());
+            let current_name = self
+                .current_dir
+                .file_name()
+                .map(std::ffi::OsStr::to_os_string);
 
             let cursor_before = self.cursor;
             self.navigate_to(&parent_path)?;
@@ -382,6 +393,7 @@ impl Tab {
         }
     }
 
+    #[must_use]
     pub fn get_selected_entries(&self) -> Vec<&FileEntry> {
         self.entries.iter().filter(|e| e.selected).collect()
     }
@@ -551,6 +563,7 @@ impl Tab {
         }
     }
 
+    #[must_use]
     pub fn is_search_active(&self) -> bool {
         self.search.is_active()
     }
@@ -663,12 +676,13 @@ impl TabManager {
         })
     }
 
+    #[must_use]
     pub fn to_persistent(&self) -> crate::app::PersistentPanel {
         let tabs: Vec<PersistentTab> = self
             .tabs
             .iter()
             .filter(|t| t.provider.context_key() == "local")
-            .map(|t| t.to_persistent())
+            .map(Tab::to_persistent)
             .collect();
 
         // If all tabs were remote, ensure we save at least one local tab (CWD or Home)
@@ -682,9 +696,7 @@ impl TabManager {
         // Or if the active tab was local, map its index.
 
         let active_tab_opt = self.tabs.get(self.active_tab_index);
-        let active_is_local = active_tab_opt
-            .map(|t| t.provider.context_key() == "local")
-            .unwrap_or(false);
+        let active_is_local = active_tab_opt.is_some_and(|t| t.provider.context_key() == "local");
 
         // Recalculate new active index
         let new_active_index = if active_is_local {
@@ -706,6 +718,7 @@ impl TabManager {
         }
     }
 
+    #[must_use]
     pub fn active_tab(&self) -> &Tab {
         &self.tabs[self.active_tab_index]
     }
@@ -732,6 +745,7 @@ impl TabManager {
         Ok(())
     }
 
+    #[must_use]
     pub fn local_tab_count(&self) -> usize {
         self.tabs
             .iter()

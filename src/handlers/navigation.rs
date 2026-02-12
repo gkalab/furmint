@@ -210,7 +210,7 @@ pub fn handle_open_item(app: &mut AppState) {
                 #[cfg(not(target_os = "linux"))]
                 {
                     if let Err(e) = open::that(&full_path) {
-                        app.active_tab_mut().error = Some(format!("Error opening file: {}", e));
+                        app.active_tab_mut().error = Some(format!("Error opening file: {e}"));
                     }
                 }
             }
@@ -223,7 +223,7 @@ pub fn handle_directory_up(app: &mut AppState) {
         .active_tab()
         .current_dir
         .parent()
-        .map(|p| p.to_path_buf());
+        .map(std::path::Path::to_path_buf);
 
     let context_key = app.active_tab().provider.context_key();
 

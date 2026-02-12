@@ -12,6 +12,7 @@ pub enum ConfirmationAction {
 }
 
 impl ConfirmationState {
+    #[must_use]
     pub fn new(message: String, truncate: bool, action: ConfirmationAction) -> Self {
         Self {
             is_visible: true,

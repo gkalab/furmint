@@ -23,6 +23,7 @@ pub fn draw_button_row(f: &mut ratatui::Frame<'_>, labels: &[&str], area: Rect, 
     }
 }
 
+#[must_use]
 pub fn truncate_middle_with_ellipsis(name: &str, max_width: usize) -> String {
     let ellipsis = "…"; // Unicode ellipsis
     let ellipsis_len = ellipsis.chars().count();
@@ -48,6 +49,7 @@ pub fn truncate_middle_with_ellipsis(name: &str, max_width: usize) -> String {
     result
 }
 
+#[must_use]
 pub fn truncate_path_with_ellipsis(path: &std::path::Path, max_width: usize) -> String {
     let path_str = path.to_string_lossy();
     if path_str.chars().count() <= max_width {
@@ -111,15 +113,17 @@ pub fn truncate_path_with_ellipsis(path: &std::path::Path, max_width: usize) -> 
 }
 
 /// Helper function to create a lighter shade of red for inactive borders
+#[must_use]
 pub fn lighten_red(red: crate::theme::Rgb) -> crate::theme::Rgb {
     crate::theme::Rgb::new(
-        ((red.r as u16 + 255) / 2) as u8,
-        ((red.g as u16 + 255) / 2) as u8,
-        ((red.b as u16 + 255) / 2) as u8,
+        u16::midpoint(u16::from(red.r), 255) as u8,
+        u16::midpoint(u16::from(red.g), 255) as u8,
+        u16::midpoint(u16::from(red.b), 255) as u8,
     )
 }
 
 /// Check if the current tab is accessing a root location
+#[must_use]
 pub fn is_root_user(tab: &Tab) -> bool {
     let system_user = env::var("USER").unwrap_or_default();
     tab.provider.display_prefix().starts_with("[root@")
@@ -239,6 +243,7 @@ fn draw_rat_scrollbar(
     }
 }
 
+#[must_use]
 pub fn centered_rect_percent(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     let popup_layout = Layout::default()
         .direction(Direction::Vertical)
@@ -259,6 +264,7 @@ pub fn centered_rect_percent(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         .split(popup_layout[1])[1]
 }
 
+#[must_use]
 pub fn centered_rect_absolute(width: u16, height: u16, r: Rect) -> Rect {
     let popup_x = (r.width.saturating_sub(width)) / 2;
     let popup_y = (r.height.saturating_sub(height)) / 2;
@@ -271,6 +277,7 @@ pub fn centered_rect_absolute(width: u16, height: u16, r: Rect) -> Rect {
     }
 }
 
+#[must_use]
 pub fn field_border_set() -> ratatui::symbols::border::Set<'static> {
     ratatui::symbols::border::Set {
         top_left: "▎",
@@ -284,6 +291,7 @@ pub fn field_border_set() -> ratatui::symbols::border::Set<'static> {
     }
 }
 
+#[must_use]
 pub fn message_border_set() -> ratatui::symbols::border::Set<'static> {
     ratatui::symbols::border::Set {
         top_left: "━",

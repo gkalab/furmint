@@ -21,6 +21,7 @@ pub enum SshField {
 }
 
 impl SshConnectionState {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             is_visible: false,
@@ -55,6 +56,7 @@ pub struct SshPasswordState {
 }
 
 impl SshPasswordState {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             is_visible: false,

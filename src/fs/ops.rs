@@ -44,6 +44,7 @@ impl Default for DecisionState {
 }
 
 impl DecisionState {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             overwrite_all: false,
@@ -52,10 +53,12 @@ impl DecisionState {
         }
     }
 
+    #[must_use]
     pub fn should_overwrite(&self) -> bool {
         self.overwrite_all
     }
 
+    #[must_use]
     pub fn should_skip(&self) -> bool {
         self.skip_all
     }
@@ -229,9 +232,8 @@ async fn handle_directory(
     if !dest_exists {
         if let Err(e) = ctx.dest_fs.create_dir_all(dest).await {
             return Err(anyhow!(
-                "Failed to create directory {}: {}",
+                "Failed to create directory {}: {e}",
                 dest.display(),
-                e
             ));
         }
     } else if !ctx.dest_fs.is_dir(dest).await.unwrap_or(true) {
@@ -250,7 +252,7 @@ async fn handle_directory(
     let children = match ctx.src_fs.read_dir(src).await {
         Ok(v) => v,
         Err(e) => {
-            return Err(anyhow!("Failed to read directory {}: {}", src.display(), e));
+            return Err(anyhow!("Failed to read directory {}: {e}", src.display()));
         }
     };
     for path in children {
@@ -397,7 +399,7 @@ async fn perform_file_copy(
                 let _ = ctx.tx.send(crate::tasks::TaskEvent::Error(
                     ctx.id,
                     src.display().to_string(),
-                    format!("Failed to copy to {}: {}", dest.display(), e),
+                    format!("Failed to copy to {}: {e}", dest.display()),
                 ));
                 let decision = ctx.decision_rx.lock().await.recv().await;
                 match decision {

@@ -4,6 +4,7 @@ pub struct HelpState {
 }
 
 impl HelpState {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             is_visible: false,

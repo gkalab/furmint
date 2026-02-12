@@ -56,7 +56,7 @@ pub fn handle_file_viewer_event(code: KeyCode, app: &mut AppState) {
 }
 
 pub async fn handle_external_viewer(app: &mut AppState) -> bool {
-    let viewer_cmd = app.viewer_cfg.command.as_ref().cloned();
+    let viewer_cmd = app.viewer_cfg.command.clone();
 
     if let Some(cmd_str) = viewer_cmd {
         if let Some(entry) = app.active_tab().current_entry().cloned()

@@ -3,6 +3,7 @@ pub struct QuitConfirmationState {
 }
 
 impl QuitConfirmationState {
+    #[must_use]
     pub fn new() -> Self {
         Self { is_visible: false }
     }

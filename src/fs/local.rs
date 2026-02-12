@@ -181,7 +181,7 @@ impl FileSystem for StdFileSystem {
                     .duration_since(std::time::UNIX_EPOCH)
                     .map_err(|_| std::io::Error::other("invalid mtime"))?;
                 let _sec = duration.as_secs() as libc::time_t;
-                let _nsec = duration.subsec_nanos() as libc::c_long;
+                let _nsec = libc::c_long::from(duration.subsec_nanos());
                 let path_cstr =
                     std::ffi::CString::new(path.to_string_lossy().as_bytes()).map_err(|_| {
                         std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid path")

@@ -15,12 +15,13 @@ pub struct SshConnectionInfo {
 }
 
 impl SshConnectionInfo {
+    #[must_use]
     pub fn display_string(&self) -> String {
         let conn = format!("{}@{}:{}", self.user, self.host, self.port);
         if let Some(name) = &self.name
             && !name.is_empty()
         {
-            return format!("[{}] {}", name, conn);
+            return format!("[{name}] {conn}");
         }
         conn
     }
@@ -31,9 +32,10 @@ pub struct SshConnectionHistory {
 }
 impl SshConnectionHistory {
     pub fn new() -> anyhow::Result<Self> {
-        let mut path = directories::ProjectDirs::from("", "", "fm")
-            .map(|dirs| dirs.config_dir().to_path_buf())
-            .unwrap_or_else(|| PathBuf::from("."));
+        let mut path = directories::ProjectDirs::from("", "", "fm").map_or_else(
+            || PathBuf::from("."),
+            |dirs| dirs.config_dir().to_path_buf(),
+        );
         if !path.exists() {
             let _ = fs::create_dir_all(&path);
         }
@@ -125,6 +127,7 @@ impl SshConnectionHistory {
         }
     }
 
+    #[must_use]
     pub fn get_sort_settings(
         &self,
         host: &str,

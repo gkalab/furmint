@@ -78,6 +78,7 @@ pub struct AppConfig {
 }
 
 // Default key bindings
+#[must_use]
 pub fn default_keyboard_config() -> KeyboardConfig {
     KeyboardConfig {
         new_file: Some(vec!["Shift-F4".to_string()]),
@@ -116,6 +117,7 @@ pub fn default_keyboard_config() -> KeyboardConfig {
     }
 }
 
+#[must_use]
 pub fn default_global_config() -> GlobalConfig {
     GlobalConfig {
         theme: Some("mariana".to_string()),
@@ -125,6 +127,7 @@ pub fn default_global_config() -> GlobalConfig {
     }
 }
 
+#[must_use]
 pub fn merge_keyboard_config(
     user: Option<&KeyboardConfig>,
     default: &KeyboardConfig,
@@ -349,6 +352,7 @@ fn check_program_exists(p: &str) -> Option<String> {
 
 /// Parses a command string into (program, args).
 /// Handles Windows paths with spaces by trying progressively longer prefixes.
+#[must_use]
 pub fn parse_command(cmd: &str) -> (String, Vec<String>) {
     let trimmed = cmd.trim();
     if trimmed.is_empty() {
@@ -361,11 +365,13 @@ pub fn parse_command(cmd: &str) -> (String, Vec<String>) {
         && trimmed
             .chars()
             .next()
-            .map(|c| c.is_ascii_alphabetic())
-            .unwrap_or(false);
+            .is_some_and(|c| c.is_ascii_alphabetic());
 
     if is_windows_abs && !trimmed.starts_with('"') && !trimmed.contains('\'') {
-        let parts: Vec<String> = trimmed.split_whitespace().map(|s| s.to_string()).collect();
+        let parts: Vec<String> = trimmed
+            .split_whitespace()
+            .map(std::string::ToString::to_string)
+            .collect();
 
         // Try progressively longer prefixes (from longest to shortest)
         for i in (0..parts.len()).rev() {
@@ -391,7 +397,10 @@ pub fn parse_command(cmd: &str) -> (String, Vec<String>) {
             (parts[0].clone(), parts[1..].to_vec())
         }
     } else {
-        let parts: Vec<String> = trimmed.split_whitespace().map(|s| s.to_string()).collect();
+        let parts: Vec<String> = trimmed
+            .split_whitespace()
+            .map(std::string::ToString::to_string)
+            .collect();
         if parts.is_empty() {
             (String::new(), vec![])
         } else {
@@ -466,9 +475,7 @@ pub fn validate_ssh_config(config: &SshConfig) -> Result<()> {
         && timeout > watchdog
     {
         return Err(anyhow!(
-            "SSH read_timeout_secs ({}) must be less than or equal to watchdog_secs ({})",
-            timeout,
-            watchdog
+            "SSH read_timeout_secs ({timeout}) must be less than or equal to watchdog_secs ({watchdog})"
         ));
     }
 
@@ -549,6 +556,7 @@ pub fn load_config() -> Result<(
     Ok((keyboard, global, editor, viewer, ssh))
 }
 
+#[must_use]
 pub fn config_path() -> Option<PathBuf> {
     ProjectDirs::from("org", "fm", "fm").map(|proj_dirs| proj_dirs.config_dir().join("config.toml"))
 }

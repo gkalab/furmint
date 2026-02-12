@@ -13,6 +13,7 @@ unsafe extern "system" {
     fn GetLogicalDrives() -> u32;
 }
 
+#[must_use]
 pub fn get_available_drives() -> Vec<String> {
     #[cfg(windows)]
     {

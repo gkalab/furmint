@@ -48,17 +48,20 @@ pub fn draw_tab_bar(
         } else {
             // Inactive tab
             if palette.is_dark {
-                let r = ((palette.base.r as u16 * 3 + palette.surface1.r as u16) / 4) as u8; // 75%
-                let g = ((palette.base.g as u16 * 3 + palette.surface1.g as u16) / 4) as u8; // 75%
-                let b = ((palette.base.b as u16 * 3 + palette.surface1.b as u16) / 4) as u8; // 75%
+                let r = ((u16::from(palette.base.r) * 3 + u16::from(palette.surface1.r)) / 4) as u8; // 75%
+                let g = ((u16::from(palette.base.g) * 3 + u16::from(palette.surface1.g)) / 4) as u8; // 75%
+                let b = ((u16::from(palette.base.b) * 3 + u16::from(palette.surface1.b)) / 4) as u8; // 75%
                 (
                     Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b),
                     Color::Rgb(r, g, b),
                 )
             } else {
-                let r = ((palette.base.r as u16 * 14 + palette.surface1.r as u16) / 15) as u8; // 93%
-                let g = ((palette.base.g as u16 * 14 + palette.surface1.g as u16) / 15) as u8; // 93%
-                let b = ((palette.base.b as u16 * 14 + palette.surface1.b as u16) / 15) as u8; // 93%
+                let r =
+                    ((u16::from(palette.base.r) * 14 + u16::from(palette.surface1.r)) / 15) as u8; // 93%
+                let g =
+                    ((u16::from(palette.base.g) * 14 + u16::from(palette.surface1.g)) / 15) as u8; // 93%
+                let b =
+                    ((u16::from(palette.base.b) * 14 + u16::from(palette.surface1.b)) / 15) as u8; // 93%
                 (
                     Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b),
                     Color::Rgb(r, g, b),

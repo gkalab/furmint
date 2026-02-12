@@ -91,7 +91,7 @@ async fn edit_file_remote(
         std::fs::create_dir_all(&temp_dir)?;
     }
     let nonce = rand::random::<u64>();
-    let temp_path = temp_dir.join(format!("fm_{}_{:x}", filename, nonce));
+    let temp_path = temp_dir.join(format!("fm_{filename}_{nonce:x}"));
     tokio::fs::write(&temp_path, &data).await?;
 
     if in_terminal {

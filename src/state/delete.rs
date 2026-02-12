@@ -8,6 +8,7 @@ pub struct DeleteState {
 }
 
 impl DeleteState {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             is_visible: false,

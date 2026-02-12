@@ -11,6 +11,7 @@ pub struct Rgb {
 }
 
 impl Rgb {
+    #[must_use]
     pub const fn new(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b }
     }
@@ -40,6 +41,7 @@ pub struct ThemePalette {
 // Catppuccin Themes (using catppuccin crate values)
 // ============================================================================
 
+#[must_use]
 pub fn catppuccin_macchiato() -> ThemePalette {
     ThemePalette {
         base: Rgb::new(36, 39, 58),
@@ -59,6 +61,7 @@ pub fn catppuccin_macchiato() -> ThemePalette {
     }
 }
 
+#[must_use]
 pub fn catppuccin_latte() -> ThemePalette {
     ThemePalette {
         base: Rgb::new(239, 241, 245),
@@ -78,6 +81,7 @@ pub fn catppuccin_latte() -> ThemePalette {
     }
 }
 
+#[must_use]
 pub fn catppuccin_frappe() -> ThemePalette {
     ThemePalette {
         base: Rgb::new(48, 52, 70),
@@ -97,6 +101,7 @@ pub fn catppuccin_frappe() -> ThemePalette {
     }
 }
 
+#[must_use]
 pub fn catppuccin_mocha() -> ThemePalette {
     ThemePalette {
         base: Rgb::new(30, 30, 46),
@@ -120,6 +125,7 @@ pub fn catppuccin_mocha() -> ThemePalette {
 // Dracula Theme
 // ============================================================================
 
+#[must_use]
 pub fn dracula() -> ThemePalette {
     ThemePalette {
         base: Rgb::new(40, 42, 54),     // Background
@@ -143,6 +149,7 @@ pub fn dracula() -> ThemePalette {
 // Nord Theme
 // ============================================================================
 
+#[must_use]
 pub fn nord() -> ThemePalette {
     ThemePalette {
         base: Rgb::new(46, 52, 64),        // nord0 - Polar Night
@@ -166,6 +173,7 @@ pub fn nord() -> ThemePalette {
 // Solarized Light Theme
 // ============================================================================
 
+#[must_use]
 pub fn solarized_light() -> ThemePalette {
     ThemePalette {
         base: Rgb::new(253, 246, 227),     // base3 - Background
@@ -189,6 +197,7 @@ pub fn solarized_light() -> ThemePalette {
 // Mariana Theme
 // ============================================================================
 
+#[must_use]
 pub fn mariana() -> ThemePalette {
     ThemePalette {
         base: Rgb::new(48, 56, 65),        // Background #303841
@@ -212,6 +221,7 @@ pub fn mariana() -> ThemePalette {
 // Breakers Theme
 // ============================================================================
 
+#[must_use]
 pub fn breakers() -> ThemePalette {
     ThemePalette {
         base: Rgb::new(248, 248, 248),     // Light background #f8f8f8
@@ -232,6 +242,7 @@ pub fn breakers() -> ThemePalette {
 }
 
 /// Get theme palette by name
+#[must_use]
 pub fn get_theme(name: &str) -> Option<ThemePalette> {
     match name {
         "catppuccin macchiato" => Some(catppuccin_macchiato()),
@@ -248,6 +259,7 @@ pub fn get_theme(name: &str) -> Option<ThemePalette> {
 }
 
 /// Get default theme
+#[must_use]
 pub fn default_theme() -> ThemePalette {
     catppuccin_macchiato()
 }

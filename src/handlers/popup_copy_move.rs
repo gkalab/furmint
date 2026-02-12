@@ -150,7 +150,7 @@ pub fn handle_paste(app: &mut AppState) {
 }
 
 /// Validates that source paths are not being copied/moved into themselves or subdirectories of themselves.
-/// Returns Err(error_message) if validation fails, Ok(()) otherwise.
+/// Returns `Err(error_message)` if validation fails, Ok(()) otherwise.
 fn validate_copy_move(
     src_paths: &[PathBuf],
     src_provider: &Arc<dyn FileSystemProvider>,
@@ -200,7 +200,7 @@ fn validate_copy_move(
             let n_src_sep = if n_src_norm.ends_with(sep) {
                 n_src_norm.clone()
             } else {
-                format!("{}{}", n_src_norm, sep)
+                format!("{n_src_norm}{sep}")
             };
 
             if n_dest_norm.starts_with(&n_src_sep) {
@@ -245,7 +245,7 @@ fn compute_target_path(
             // For remote, use string join to avoid Windows PathBuf join issues
             let base = dest_str.trim_end_matches('/');
             let fname = file_name.to_string_lossy();
-            PathBuf::from(format!("{}/{}", base, fname))
+            PathBuf::from(format!("{base}/{fname}"))
         }
     } else {
         dest_path.to_path_buf()
@@ -267,8 +267,7 @@ async fn ensure_dest_directory<F: crate::fs::traits::FileSystem>(
             let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
                 id,
                 crate::tasks::TaskStatus::Failed(format!(
-                    "Failed to create destination directory: {}",
-                    e
+                    "Failed to create destination directory: {e}",
                 )),
             ));
             return false;
@@ -340,7 +339,7 @@ async fn handle_rsync_conflict<F: crate::fs::traits::FileSystem>(
 }
 
 /// Try rsync for directory transfer
-/// Returns: Some(true) if rsync succeeded, Some(false) if skipped, None if should fall through to recursive_op
+/// Returns: Some(true) if rsync succeeded, Some(false) if skipped, None if should fall through to `recursive_op`
 #[allow(clippy::too_many_arguments)]
 async fn try_rsync_directory<F: crate::fs::traits::FileSystem>(
     src_fs: &F,

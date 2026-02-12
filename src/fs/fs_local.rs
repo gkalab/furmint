@@ -1,4 +1,4 @@
-//! Local filesystem implementation of FileSystemProvider.
+//! Local filesystem implementation of `FileSystemProvider`.
 //!
 //! This wraps the existing `fs_ops` functions to provide the trait interface.
 
@@ -16,6 +16,7 @@ use async_trait::async_trait;
 pub struct LocalFs;
 
 impl LocalFs {
+    #[must_use]
     pub fn new() -> Self {
         Self
     }
@@ -104,7 +105,7 @@ impl FileSystemProvider for LocalFs {
         Ok(())
     }
 
-    fn display_prefix(&self) -> &str {
+    fn display_prefix(&self) -> &'static str {
         ""
     }
 
@@ -170,7 +171,7 @@ impl FileSystemProvider for LocalFs {
             Err(_) => return false,
         };
         let _sec = duration.as_secs() as libc::time_t;
-        let _nsec = duration.subsec_nanos() as libc::c_long;
+        let _nsec = libc::c_long::from(duration.subsec_nanos());
 
         #[cfg(unix)]
         {

@@ -3,6 +3,7 @@ pub struct EmptyTrashState {
 }
 
 impl EmptyTrashState {
+    #[must_use]
     pub fn new() -> Self {
         Self { is_visible: false }
     }

@@ -1,3 +1,4 @@
+#[must_use]
 pub fn get_clipboard_content() -> Option<String> {
     use clipboard::ClipboardContext;
     use clipboard::ClipboardProvider;

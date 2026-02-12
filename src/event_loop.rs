@@ -8,6 +8,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use crossterm::event::{self, Event};
 use ratatui::prelude::*;
 
+#[must_use]
 pub fn spawn_input_polling(
     input_tx: tokio::sync::mpsc::UnboundedSender<crossterm::event::Event>,
 ) -> tokio::task::JoinHandle<()> {
@@ -127,7 +128,7 @@ pub async fn run_event_loop(
                             } => {
                                 let encoded = tokio::task::spawn_blocking(move || -> Result<ratatui_image::thread::ResizeResponse, _> {
                                     request.resize_encode()
-                                }).await.ok().and_then(|r| r.ok());
+                                }).await.ok().and_then(std::result::Result::ok);
 
                                 if let (Some(encoded), Some(protocol)) = (encoded, &mut app.file_viewer.protocol) {
                                     let _ = protocol.update_resized_protocol(encoded);

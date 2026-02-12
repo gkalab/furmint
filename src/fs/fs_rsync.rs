@@ -12,6 +12,7 @@ use tokio::process::Command;
 /// Detect if rsync should be used for this transfer
 /// Returns true only for local-remote or remote-local COPY operations
 #[cfg(unix)]
+#[must_use]
 pub fn should_use_rsync(
     src_is_local: bool,
     dest_is_local: bool,
@@ -71,7 +72,7 @@ pub async fn rsync_transfer(
         let remote_spec = format_remote_path(src_fs, src)?;
         // Also add trailing slash to remote spec if it's a directory
         let remote_spec = if is_dir && !remote_spec.ends_with('/') {
-            format!("{}/", remote_spec)
+            format!("{remote_spec}/")
         } else {
             remote_spec
         };
@@ -112,7 +113,7 @@ pub async fn rsync_transfer(
 
     let mut child = cmd
         .spawn()
-        .map_err(|e| anyhow!("Failed to spawn rsync: {}", e))?;
+        .map_err(|e| anyhow!("Failed to spawn rsync: {e}"))?;
 
     // Monitor progress from stdout
     let stdout = child
@@ -156,7 +157,7 @@ pub async fn rsync_transfer(
     let status = child
         .wait()
         .await
-        .map_err(|e| anyhow!("Failed to wait for rsync: {}", e))?;
+        .map_err(|e| anyhow!("Failed to wait for rsync: {e}"))?;
 
     progress_task.abort();
 
@@ -176,11 +177,7 @@ pub async fn rsync_transfer(
         } else {
             "Unknown error".to_string()
         };
-        return Err(anyhow!(
-            "rsync failed with status {}: {}",
-            status,
-            error_msg
-        ));
+        return Err(anyhow!("rsync failed with status {status}: {error_msg}",));
     }
 
     Ok(())
@@ -211,8 +208,7 @@ fn get_ssh_options(_fs: &dyn crate::fs::traits::FileSystem, has_password: bool) 
     // This ensures rsync uses only SSH agent or key-based auth from the existing session
     let batch_mode = if has_password { "no" } else { "yes" };
     Ok(format!(
-        "ssh -o BatchMode={} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=10",
-        batch_mode
+        "ssh -o BatchMode={batch_mode} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=10"
     ))
 }
 

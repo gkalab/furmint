@@ -14,6 +14,7 @@ pub struct FuzzySearchState {
 }
 
 impl FuzzySearchState {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             is_visible: false,
@@ -62,6 +63,7 @@ impl FuzzySearchState {
         }
     }
 
+    #[must_use]
     pub fn get_selected_dir(&self) -> Option<PathBuf> {
         self.filtered_dirs.get(self.selected_index).cloned()
     }

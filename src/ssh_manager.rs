@@ -44,7 +44,10 @@ pub enum NetworkError {
 
 impl From<std::io::Error> for NetworkError {
     fn from(e: std::io::Error) -> Self {
-        use std::io::ErrorKind::*;
+        use std::io::ErrorKind::{
+            AddrInUse, AddrNotAvailable, BrokenPipe, ConnectionRefused, ConnectionReset,
+            HostUnreachable, NetworkUnreachable, NotConnected, TimedOut,
+        };
 
         match e.kind() {
             ConnectionRefused => NetworkError::ConnectionRefused,
@@ -77,10 +80,10 @@ pub enum SshError {
 impl std::fmt::Display for SshError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SshError::Network(e) => write!(f, "Network error: {}", e),
-            SshError::Auth(e) => write!(f, "Authentication error: {}", e),
-            SshError::InvalidInput(s) => write!(f, "Invalid input: {}", s),
-            SshError::Internal(s) => write!(f, "Internal error: {}", s),
+            SshError::Network(e) => write!(f, "Network error: {e}"),
+            SshError::Auth(e) => write!(f, "Authentication error: {e}"),
+            SshError::InvalidInput(s) => write!(f, "Invalid input: {s}"),
+            SshError::Internal(s) => write!(f, "Internal error: {s}"),
         }
     }
 }
@@ -93,7 +96,7 @@ impl std::fmt::Display for NetworkError {
             NetworkError::HostUnreachable => write!(f, "Host unreachable"),
             NetworkError::NoRoute => write!(f, "No route to host"),
             NetworkError::InvalidAddress => write!(f, "Invalid address"),
-            NetworkError::Other(s) => write!(f, "{}", s),
+            NetworkError::Other(s) => write!(f, "{s}"),
         }
     }
 }
@@ -104,7 +107,7 @@ impl std::fmt::Display for AuthError {
             AuthError::KeyAuthFailed => write!(f, "Key authentication failed"),
             AuthError::PasswordAuthFailed => write!(f, "Password authentication failed"),
             AuthError::NoAuthMethodsAvailable => write!(f, "No authentication methods available"),
-            AuthError::AgentError(s) => write!(f, "Agent error: {}", s),
+            AuthError::AgentError(s) => write!(f, "Agent error: {s}"),
         }
     }
 }
@@ -124,13 +127,15 @@ pub struct SshManager {
 }
 
 impl SshManager {
+    #[must_use]
     pub fn new(base_dir: Option<PathBuf>, ssh_config: Option<&SshConfig>) -> Self {
         let base = if let Some(p) = base_dir {
             p
         } else {
-            ProjectDirs::from("org", "fm", "fm")
-                .map(|d| d.data_dir().to_path_buf())
-                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+            ProjectDirs::from("org", "fm", "fm").map_or_else(
+                || std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+                |d| d.data_dir().to_path_buf(),
+            )
         };
 
         let keepalive_interval = ssh_config.and_then(|c| c.keepalive_interval).unwrap_or(10);
@@ -154,6 +159,7 @@ impl SshManager {
     }
 
     #[allow(dead_code)]
+    #[must_use]
     pub fn with_params(
         base_dir: Option<PathBuf>,
         ssh_config: Option<&SshConfig>,
@@ -176,7 +182,7 @@ impl SshManager {
         port: u16,
         user: String,
     ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
-        let addr = format!("{}:{}", host, port);
+        let addr = format!("{host}:{port}");
         let tcp = tokio::net::TcpStream::connect(&addr)
             .await
             .map_err(|e| SshError::Network(e.into()))?;
@@ -253,7 +259,7 @@ impl SshManager {
             hard,
         )
         .await
-        .map_err(|e| SshError::Internal(format!("Connection error: {:?}", e)))?
+        .map_err(|e| SshError::Internal(format!("Connection error: {e:?}")))?
     }
 
     fn find_default_ssh_keys() -> Vec<PathBuf> {
@@ -278,6 +284,7 @@ impl SshManager {
             .collect()
     }
 
+    #[must_use]
     pub fn session_dir(&self, session_id: &str) -> PathBuf {
         let mut p = self.base_dir.clone();
         p.push("ssh");
@@ -323,10 +330,11 @@ impl SshManager {
         Ok(ops)
     }
 
+    #[must_use]
     pub fn compute_backoff(&self, attempt: u32) -> Duration {
         let attempt = attempt.max(1);
         let mut secs =
-            self.base_backoff.as_secs_f64() * self.backoff_factor.powf((attempt - 1) as f64);
+            self.base_backoff.as_secs_f64() * self.backoff_factor.powf(f64::from(attempt - 1));
         if secs > self.max_backoff.as_secs_f64() {
             secs = self.max_backoff.as_secs_f64();
         }
@@ -335,7 +343,7 @@ impl SshManager {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.subsec_nanos())
             .unwrap_or(0);
-        let seed = (nanos as i64 % 1000) as f64 / 1000.0; // 0..1
+        let seed = (i64::from(nanos) % 1000) as f64 / 1000.0; // 0..1
         let jitter = 1.0 + (seed * 2.0 - 1.0) * self.jitter_pct;
         secs *= jitter;
         if secs < 0.0 {
@@ -362,13 +370,14 @@ impl SshManager {
         Ok(())
     }
 
+    #[must_use]
     pub fn generate_session_id(&self, host: &str, port: u16) -> String {
         use std::time::SystemTime;
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        format!("ssh_{}_{}_{}", host, port, now)
+        format!("ssh_{host}_{port}_{now}")
     }
 
     pub async fn connect_ssh(
@@ -379,7 +388,7 @@ impl SshManager {
         password: String,
         _target_path: Option<String>,
     ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
-        let addr = format!("{}:{}", host, port);
+        let addr = format!("{host}:{port}");
         let tcp = tokio::net::TcpStream::connect(&addr)
             .await
             .map_err(|e| SshError::Network(e.into()))?;
@@ -418,7 +427,7 @@ impl SshManager {
             hard,
         )
         .await
-        .map_err(|e| SshError::Internal(format!("Connection failed: {:?}", e)))?
+        .map_err(|e| SshError::Internal(format!("Connection failed: {e:?}")))?
     }
 
     pub fn register_session(
@@ -455,17 +464,20 @@ impl SshManager {
         }
     }
 
+    #[must_use]
     pub fn get_session(&self, session_id: &str) -> Option<SessionState> {
         let sessions = self.sessions.read().unwrap();
         sessions.get(session_id).cloned()
     }
 
+    #[must_use]
     pub fn get_all_sessions(&self) -> Vec<SessionState> {
         let sessions = self.sessions.read().unwrap();
         sessions.values().cloned().collect()
     }
 
     #[allow(dead_code)]
+    #[must_use]
     pub fn has_pending_operations(&self, session_id: &str) -> bool {
         self.read_queue(session_id)
             .map(|q| !q.is_empty())
@@ -473,6 +485,7 @@ impl SshManager {
     }
 
     #[allow(dead_code)]
+    #[must_use]
     pub fn get_pending_operation_count(&self, session_id: &str) -> usize {
         self.read_queue(session_id).map(|q| q.len()).unwrap_or(0)
     }
@@ -483,6 +496,7 @@ impl SshManager {
     }
 
     #[allow(dead_code)]
+    #[must_use]
     pub fn get_cached_password(&self, session_id: &str) -> Option<String> {
         let cache = self.password_cache.read().unwrap();
         cache.get(session_id).cloned()
@@ -509,7 +523,7 @@ impl SshManager {
         Fut: std::future::Future<Output = Result<(), anyhow::Error>>,
     {
         let session = self.get_session(session_id).ok_or_else(|| {
-            SshError::InvalidInput(format!("Session {} not found for reconnection", session_id))
+            SshError::InvalidInput(format!("Session {session_id} not found for reconnection"))
         })?;
 
         let (new_session_id, fs) = self
@@ -565,8 +579,7 @@ impl SshManager {
                 Ok(result) => return Ok(result),
                 Err(e) if attempt >= max_attempts => {
                     return Err(SshError::Internal(format!(
-                        "Reconnection failed after {} attempts: {}",
-                        attempt, e
+                        "Reconnection failed after {attempt} attempts: {e}"
                     )));
                 }
                 Err(_) => {
@@ -597,7 +610,7 @@ impl SshManager {
                     Err(e) => Err(SshManagerError::JoinError(e)),
                 }
             }
-            _ = tokio::time::sleep(grace) => {
+            () = tokio::time::sleep(grace) => {
                 // Grace exceeded; attempt abort and wait for hard duration
                 jh.abort();
                 tokio::select! {
@@ -607,7 +620,7 @@ impl SshManager {
                             Err(e) => Err(SshManagerError::JoinError(e)),
                         }
                     }
-                    _ = tokio::time::sleep(hard) => {
+                    () = tokio::time::sleep(hard) => {
                         Err(SshManagerError::HardKill)
                     }
                 }

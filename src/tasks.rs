@@ -82,6 +82,7 @@ pub struct TaskManager {
 }
 
 impl TaskManager {
+    #[must_use]
     pub fn new(event_tx: mpsc::UnboundedSender<TaskEvent>) -> Self {
         Self {
             tasks: Arc::new(Mutex::new(HashMap::new())),
@@ -100,7 +101,7 @@ impl TaskManager {
         let cancel_flag = Arc::new(AtomicBool::new(false));
 
         let task = Task {
-            name: name.to_string(),
+            name: name.clone(),
             status: TaskStatus::Running,
             progress: None,
             byte_progress: None,

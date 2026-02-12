@@ -128,6 +128,7 @@ pub struct RemoteWatcher {
 }
 
 impl RemoteWatcher {
+    #[must_use]
     pub fn new(tx: UnboundedSender<WatcherEvent>) -> Self {
         Self {
             tx,

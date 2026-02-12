@@ -43,7 +43,7 @@ pub trait FileSystemProvider: Send + Sync {
     fn write_file_at(&self, path: &Path, offset: u64, data: &[u8]) -> Result<()>;
 
     /// Write data to a file with specific permissions (Unix mode).
-    /// Default implementation calls write_file and then set_permissions.
+    /// Default implementation calls `write_file` and then `set_permissions`.
     fn write_file_with_permissions(
         &self,
         path: &Path,
@@ -59,7 +59,7 @@ pub trait FileSystemProvider: Send + Sync {
 
     /// Read file content as a string. This function does not check file size or file type.
     /// Any filtering or validation (e.g., max size or binary detection) must be done by caller.
-    /// Default implementation uses read_file.
+    /// Default implementation uses `read_file`.
     fn read_file_content(&self, path: &Path, _limit: usize) -> Result<String> {
         let buffer = self.read_file(path)?;
 

@@ -3,7 +3,7 @@ use crate::state::ssh::SshField;
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
 
-use ratatui::widgets::*;
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
 
 pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemePalette) {
     let area = f.area();
@@ -263,7 +263,7 @@ pub fn draw_ssh_password_popup(f: &mut Frame, app: &AppState, palette: &ThemePal
     };
 
     let display_text: String = if app.popups.ssh_password.password.is_empty() {
-        title.to_string()
+        title.clone()
     } else {
         password_mask
             .chars()

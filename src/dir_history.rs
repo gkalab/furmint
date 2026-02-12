@@ -68,6 +68,7 @@ impl DirectoryHistory {
     }
 
     /// Get all directories sorted by score (frequency + recency) for a context
+    #[must_use]
     pub fn get_sorted_dirs(&self, context: &str) -> Vec<PathBuf> {
         let Some(context_entries) = self.entries.get(context) else {
             return Vec::new();
@@ -106,6 +107,7 @@ impl DirectoryHistory {
     }
 
     /// Perform fuzzy search on directory paths within a context
+    #[must_use]
     pub fn fuzzy_search(&self, context: &str, query: &str) -> Vec<(PathBuf, i64)> {
         if query.is_empty() {
             // Return all directories sorted by score

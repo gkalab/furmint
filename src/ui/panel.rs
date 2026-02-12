@@ -51,7 +51,7 @@ fn calculate_column_widths(panel: &Tab, area: Rect, icons_enabled: bool) -> Colu
         .unwrap_or(4);
 
     let size_indicator = sort_indicator(SortColumn::Size, panel.sort.column, panel.sort.direction);
-    let size_header_with_indicator = format!("Size{}", size_indicator);
+    let size_header_with_indicator = format!("Size{size_indicator}");
     let size_header = format!(
         "{:>width$}",
         size_header_with_indicator,
@@ -129,7 +129,7 @@ fn render_entry_row<'a>(
                 entry.is_dir,
                 crate::fs::utils::is_executable(&ctx.current_dir.join(&entry.name), entry),
             );
-            spans.push(Span::raw(format!("{} ", icon)));
+            spans.push(Span::raw(format!("{icon} ")));
         }
 
         if name_len <= visible_name_width {
@@ -178,7 +178,7 @@ fn render_entry_row<'a>(
                 entry.is_dir,
                 crate::fs::utils::is_executable(&ctx.current_dir.join(&entry.name), entry),
             );
-            format!("{} {}", icon, truncated_name)
+            format!("{icon} {truncated_name}")
         } else {
             truncated_name
         };
@@ -219,9 +219,9 @@ fn build_panel_block(
     let prefix = panel.provider.display_prefix();
     let path_str = panel.provider.display_path(&panel.current_dir);
     let full_title = if prefix.is_empty() {
-        format!("{} ", path_str)
+        format!("{path_str} ")
     } else {
-        format!("{}:{} ", prefix, path_str)
+        format!("{prefix}:{path_str} ")
     };
     let title_width = area.width.saturating_sub(4) as usize;
     let panel_title = if full_title.len() > title_width {
@@ -309,33 +309,34 @@ fn draw_scrollbar(
 }
 
 /// Calculate the background color for a panel based on active state and root status
+#[must_use]
 pub fn panel_bg_color(palette: &ThemePalette, active: bool, is_root: bool, borders: bool) -> Color {
     let base_bg = if active || borders {
         Color::Rgb(palette.base.r, palette.base.g, palette.base.b)
     } else if palette.is_dark {
-        let r = ((palette.base.r as u16 * 3 + palette.surface1.r as u16) / 4) as u8;
-        let g = ((palette.base.g as u16 * 3 + palette.surface1.g as u16) / 4) as u8;
-        let b = ((palette.base.b as u16 * 3 + palette.surface1.b as u16) / 4) as u8;
+        let r = ((u16::from(palette.base.r) * 3 + u16::from(palette.surface1.r)) / 4) as u8;
+        let g = ((u16::from(palette.base.g) * 3 + u16::from(palette.surface1.g)) / 4) as u8;
+        let b = ((u16::from(palette.base.b) * 3 + u16::from(palette.surface1.b)) / 4) as u8;
         Color::Rgb(r, g, b)
     } else {
-        let r = ((palette.base.r as u16 * 14 + palette.surface1.r as u16) / 15) as u8;
-        let g = ((palette.base.g as u16 * 14 + palette.surface1.g as u16) / 15) as u8;
-        let b = ((palette.base.b as u16 * 14 + palette.surface1.b as u16) / 15) as u8;
+        let r = ((u16::from(palette.base.r) * 14 + u16::from(palette.surface1.r)) / 15) as u8;
+        let g = ((u16::from(palette.base.g) * 14 + u16::from(palette.surface1.g)) / 15) as u8;
+        let b = ((u16::from(palette.base.b) * 14 + u16::from(palette.surface1.b)) / 15) as u8;
         Color::Rgb(r, g, b)
     };
 
     if is_root && !borders {
         let (r0, g0, b0) = match base_bg {
-            Color::Rgb(r, g, b) => (r as u16, g as u16, b as u16),
+            Color::Rgb(r, g, b) => (u16::from(r), u16::from(g), u16::from(b)),
             _ => (
-                palette.base.r as u16,
-                palette.base.g as u16,
-                palette.base.b as u16,
+                u16::from(palette.base.r),
+                u16::from(palette.base.g),
+                u16::from(palette.base.b),
             ),
         };
-        let r = ((r0 * 9 + palette.red.r as u16) / 10) as u8;
-        let g = ((g0 * 9 + palette.red.g as u16) / 10) as u8;
-        let b = ((b0 * 9 + palette.red.b as u16) / 10) as u8;
+        let r = ((r0 * 9 + u16::from(palette.red.r)) / 10) as u8;
+        let g = ((g0 * 9 + u16::from(palette.red.g)) / 10) as u8;
+        let b = ((b0 * 9 + u16::from(palette.red.b)) / 10) as u8;
         Color::Rgb(r, g, b)
     } else {
         base_bg
@@ -359,7 +360,7 @@ pub fn draw_panel(
 
     // Build header row
     let name_indicator = sort_indicator(SortColumn::Name, panel.sort.column, panel.sort.direction);
-    let name_header = format!("Name{}", name_indicator);
+    let name_header = format!("Name{name_indicator}");
     let ext_indicator = sort_indicator(
         SortColumn::Extension,
         panel.sort.column,
@@ -368,7 +369,7 @@ pub fn draw_panel(
     let name_header = if ext_indicator.is_empty() {
         name_header
     } else {
-        format!("Name{}", ext_indicator)
+        format!("Name{ext_indicator}")
     };
     let modified_header = format!(
         "Modified{}",
@@ -582,7 +583,7 @@ pub fn draw_panel_status(
                 if let Some((_, _, status_task, _, _, _, _, _)) = last_finished {
                     let (text, task_fg) = match status_task {
                         crate::tasks::TaskStatus::Completed => {
-                            ("".to_string(), ctx.palette.green) // no text for task completed status
+                            (String::new(), ctx.palette.green) // no text for task completed status
                         }
                         crate::tasks::TaskStatus::Failed(e) => {
                             (format!("Task failed: {e}"), ctx.palette.red)
@@ -704,7 +705,7 @@ fn get_task_progress_spans(
     {
         let percent = (p as f32 / t as f32 * 100.0) as usize;
         let left = t.saturating_sub(p);
-        item_progress_str = format!("{}% ({} left) ", percent, left);
+        item_progress_str = format!("{percent}% ({left} left) ");
     }
 
     let mut byte_progress_str = String::new();

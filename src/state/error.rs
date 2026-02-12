@@ -6,6 +6,7 @@ pub struct ErrorState {
 }
 
 impl ErrorState {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             is_visible: false,

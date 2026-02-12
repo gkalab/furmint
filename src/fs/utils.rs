@@ -126,6 +126,7 @@ impl FileEntry {
     }
 }
 
+#[must_use]
 pub fn get_attributes(_meta: &Metadata, is_dir: bool) -> String {
     #[cfg(unix)]
     {
@@ -205,6 +206,7 @@ pub fn create_directory(path: &std::path::Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[must_use]
 pub fn format_size(size: Option<u64>, is_dir: bool, is_symlink: bool) -> String {
     // Use up to 1 decimal precision, units G/M/K, no space, pad <DIR>/<LNK> to 7 chars
     if is_dir {
@@ -228,6 +230,7 @@ pub fn format_size(size: Option<u64>, is_dir: bool, is_symlink: bool) -> String 
     }
 }
 
+#[must_use]
 pub fn format_modified(modified: Option<SystemTime>) -> String {
     if let Some(m) = modified {
         let dt: DateTime<Local> = m.into();
@@ -239,6 +242,7 @@ pub fn format_modified(modified: Option<SystemTime>) -> String {
 }
 
 // Helper to detect executables
+#[must_use]
 pub fn is_executable(_full_path: &std::path::Path, e: &FileEntry) -> bool {
     // Directories are never considered executable for icon purposes
     if e.is_dir {

@@ -57,7 +57,7 @@ pub fn draw_file_viewer(
     let end_line = (start_line + visible_lines).min(max_lines);
 
     let mut lines = Vec::new();
-    for line in viewer.content[start_line..end_line].iter() {
+    for line in &viewer.content[start_line..end_line] {
         let ranges = h
             .highlight_line(line, &viewer.syntax_set)
             .unwrap_or_default();
@@ -98,6 +98,7 @@ pub fn draw_file_viewer(
 
 /// Generates spans for a single line, handling horizontal scrolling and width constraints
 /// taking into account tab widths and wide characters.
+#[must_use]
 pub fn generate_line_spans(
     ranges: Vec<(syntect::highlighting::Style, &str)>,
     h_offset: usize,
