@@ -53,7 +53,8 @@ Norton Commander-style TUI file manager in Rust using ratatui + crossterm. Featu
 - Consider terminal differences in crossterm
 
 ## Development Best Practices
-- **Always run `cargo clippy` and `cargo fmt` before committing**
+- **Always run `cargo clippy --all -- -W clippy::all -W clippy::pedantic` and `cargo fmt` before committing**
+- **Fix simple pedantic warnings by running `cargo clippy --fix --allow-dirty --all -- -W clippy::all -W clippy::pedantic` 
 - Fix all warnings; treat warnings as errors
 - Remove unused imports and dead code
 - Add `///` documentation for public APIs
@@ -63,6 +64,6 @@ Norton Commander-style TUI file manager in Rust using ratatui + crossterm. Featu
 - Maintain keyboard shortcut consistency
 
 ## Common Patterns
-- New popups: state in `src/state/`, UI in `src/*_ui.rs`, handlers in `src/handlers/`
+- New popups: state in `src/state/`, UI in `src/ui/*_ui.rs`, handlers in `src/handlers/`
 - Use clipboard system for copy/paste
 - Use fuzzy search system for file selection
