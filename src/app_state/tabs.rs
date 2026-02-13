@@ -459,8 +459,33 @@ impl Tab {
                             ord
                         };
                     }
+                    SortColumn::Size => {
+                        // Get effective size for sorting: use calculated size if available, otherwise use raw size
+                        let size_a = if a.is_dir {
+                            self.get_dir_size(&self.current_dir.join(&a.name))
+                                .map(Some)
+                                .unwrap_or(a.size)
+                        } else {
+                            a.size
+                        };
+                        let size_b = if b.is_dir {
+                            self.get_dir_size(&self.current_dir.join(&b.name))
+                                .map(Some)
+                                .unwrap_or(b.size)
+                        } else {
+                            b.size
+                        };
+                        let ord = size_a
+                            .cmp(&size_b)
+                            .then(a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+                        return if self.sort.direction == SortDirection::Descending {
+                            ord.reverse()
+                        } else {
+                            ord
+                        };
+                    }
                     _ => {
-                        // Extension, Size: Directories always Name Ascending
+                        // Extension: Directories always Name Ascending
                         return a.name.to_lowercase().cmp(&b.name.to_lowercase());
                     }
                 }
@@ -486,13 +511,10 @@ impl Tab {
                         .cmp(&ext_b)
                         .then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
                 }
-                SortColumn::Size => {
-                    // For directories, we might want to calculate total size, but for now just use what's there
-                    // which is likely 4096 or similar.
-                    a.size
-                        .cmp(&b.size)
-                        .then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-                }
+                SortColumn::Size => a
+                    .size
+                    .cmp(&b.size)
+                    .then(a.name.to_lowercase().cmp(&b.name.to_lowercase())),
                 SortColumn::Date => {
                     let date_a = a.modified.unwrap_or(std::time::SystemTime::UNIX_EPOCH);
                     let date_b = b.modified.unwrap_or(std::time::SystemTime::UNIX_EPOCH);
