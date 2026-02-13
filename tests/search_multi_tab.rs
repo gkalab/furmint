@@ -90,6 +90,7 @@ fn test_multi_tab_search_timeout() {
         viewer_cfg: fm::config::ViewerConfig::default(),
         ssh_history: fm::ssh_history::SshConnectionHistory::new().unwrap(),
         clipboard: Box::new(ClipboardBackend::new()),
+        archive_cache: std::collections::HashMap::new(),
     };
 
     // Before reset

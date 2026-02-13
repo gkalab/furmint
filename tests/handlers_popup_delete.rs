@@ -50,6 +50,7 @@ fn basic_app_with_entry(name: &str) -> AppState {
         ssh_history: fm::ssh_history::SshConnectionHistory::new().unwrap(),
         clipboard: Box::new(InMemoryFileClipboard::new()),
         remote_watcher: None,
+        archive_cache: std::collections::HashMap::new(),
     }
 }
 

@@ -35,6 +35,7 @@ fn test_app(file_lines: usize) -> AppState {
         ssh_history: SshConnectionHistory::new().unwrap(),
         clipboard: Box::new(InMemoryFileClipboard::new()),
         remote_watcher: None,
+        archive_cache: std::collections::HashMap::new(),
     };
     // Populate content lines
     app.file_viewer.content = vec!["line".to_string(); file_lines];

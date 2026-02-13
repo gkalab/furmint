@@ -47,7 +47,7 @@ fn archive_path_and_ext(app: &mut AppState) -> Option<(PathBuf, String, String)>
             let path = panel.current_dir.join(&entry.name);
             if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                 let ext = ext.to_lowercase();
-                if ["zip", "tar", "gz", "bz2", "xz"].contains(&ext.as_str()) {
+                if ["zip", "tar", "gz", "tgz", "bz2", "tbz2"].contains(&ext.as_str()) {
                     Some((path, ext, entry.name.clone()))
                 } else {
                     None
@@ -240,8 +240,51 @@ fn handle_open_archive(app: &mut AppState, path: PathBuf, filename: String) {
         crate::app::PanelSide::Right => 1,
     };
 
+    // Check cache first
+    if let Ok(metadata) = std::fs::metadata(&path)
+        && let Some((cached_mtime, cached_size, provider)) = app.archive_cache.get(&path)
+    {
+        let current_mtime = metadata
+            .modified()
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        let current_size = metadata.len();
+
+        if *cached_mtime == current_mtime && *cached_size == current_size {
+            let provider = provider.clone();
+            // Create tab immediately
+            let manager = if side_index == 0 {
+                &mut app.left
+            } else {
+                &mut app.right
+            };
+
+            match crate::app::Tab::with_provider(&std::path::PathBuf::from("/"), provider) {
+                Ok(mut tab) => {
+                    tab.custom_title = Some(filename);
+                    manager.tabs.push(tab);
+                    manager.active_tab_index = manager.tabs.len() - 1;
+                    // Set active panel
+                    app.active = if side_index == 0 {
+                        crate::app::PanelSide::Left
+                    } else {
+                        crate::app::PanelSide::Right
+                    };
+                }
+                Err(e) => {
+                    manager.active_tab_mut().error =
+                        Some(format!("Failed to create archive tab from cache: {}", e));
+                }
+            }
+            return;
+        } else {
+            // Cache invalid
+            app.archive_cache.remove(&path);
+        }
+    }
+
     let path_clone = path.clone();
     let filename_clone = filename.clone();
+    let path_for_event = path.clone();
 
     let task_name = format!("Opening {}", filename);
 
@@ -259,6 +302,7 @@ fn handle_open_archive(app: &mut AppState, path: PathBuf, filename: String) {
                         side_index,
                         wrapper,
                         filename_clone,
+                        path_for_event,
                     ));
                     let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
                         id,

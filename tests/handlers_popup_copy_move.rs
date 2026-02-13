@@ -83,6 +83,7 @@ fn minimal_state_with_entries(
         ssh_history: SshConnectionHistory::new().unwrap(),
         clipboard: Box::new(InMemoryFileClipboard::new()),
         remote_watcher: None,
+        archive_cache: std::collections::HashMap::new(),
     }
 }
 

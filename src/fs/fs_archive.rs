@@ -35,6 +35,8 @@ impl ArchiveFs {
 
     fn scan_archive(&self) -> Result<()> {
         let file = File::open(&self.archive_path).context("Failed to open archive")?;
+        let reader = std::io::BufReader::new(file);
+
         let ext = self
             .archive_path
             .extension()
@@ -43,16 +45,42 @@ impl ArchiveFs {
             .to_lowercase();
 
         if ext == "zip" {
-            self.scan_zip(file)?;
+            self.scan_zip(reader)?;
         } else if ext == "tar" {
-            self.scan_tar(file)?;
+            self.scan_tar(reader)?;
         } else if ext == "gz" || ext == "tgz" {
-            // Assume tar.gz
-            let tar = flate2::read::GzDecoder::new(file);
-            self.scan_tar(tar)?;
+            // Use system gzip for better performance
+            use std::process::{Command, Stdio};
+
+            let child = Command::new("gzip")
+                .arg("-dc")
+                .arg(&self.archive_path)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn();
+
+            match child {
+                Ok(mut child) => {
+                    if let Some(stdout) = child.stdout.take() {
+                        let reader = std::io::BufReader::new(stdout);
+                        let res = self.scan_tar(reader);
+                        let _ = child.wait(); // extensive wait might not be strictly necessary if we drop stdout, but good practice
+                        res?;
+                    } else {
+                        return Err(anyhow::anyhow!("Failed to open stdout of gzip process"));
+                    }
+                }
+                Err(_e) => {
+                    let file = File::open(&self.archive_path)
+                        .context("Failed to open archive for fallback")?;
+                    let reader = std::io::BufReader::new(file);
+                    let tar = flate2::read::GzDecoder::new(reader);
+                    self.scan_tar(tar)?;
+                }
+            }
         } else if ext == "bz2" || ext == "tbz2" {
             // Assume tar.bz2
-            let tar = bzip2::read::BzDecoder::new(file);
+            let tar = bzip2::read::BzDecoder::new(reader);
             self.scan_tar(tar)?;
         } else {
             return Err(anyhow::anyhow!("Unsupported archive format: {}", ext));
@@ -61,8 +89,8 @@ impl ArchiveFs {
         Ok(())
     }
 
-    fn scan_zip(&self, file: File) -> Result<()> {
-        let mut archive = zip::ZipArchive::new(file).context("Failed to read zip archive")?;
+    fn scan_zip<R: Read + std::io::Seek>(&self, reader: R) -> Result<()> {
+        let mut archive = zip::ZipArchive::new(reader).context("Failed to read zip archive")?;
         let mut entries_map = HashMap::new();
         let mut tree_map: HashMap<PathBuf, HashSet<PathBuf>> = HashMap::new();
 

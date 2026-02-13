@@ -129,8 +129,18 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
                 }
             }
         }
-        crate::tasks::TaskEvent::ArchiveLoaded(side_index, wrapper, filename) => {
+        crate::tasks::TaskEvent::ArchiveLoaded(side_index, wrapper, filename, path) => {
             let provider = wrapper.0;
+            // Cache the provider with metadata
+            if let Ok(metadata) = std::fs::metadata(&path) {
+                let mtime = metadata
+                    .modified()
+                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                let size = metadata.len();
+                app.archive_cache
+                    .insert(path, (mtime, size, provider.clone()));
+            }
+
             let manager = if side_index == 0 {
                 &mut app.left
             } else {

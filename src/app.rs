@@ -2,7 +2,7 @@ pub use crate::app_state::tabs::{
     IncrementalSearch, PanelSide, PersistentTab, SortColumn, SortSettings, Tab, TabHistory,
     TabManager,
 };
-use crate::clipboard::{ClipboardBackend, FileClipboard};
+use crate::clipboard::FileClipboard;
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -86,6 +86,14 @@ pub struct AppState {
     pub viewer_cfg: crate::config::ViewerConfig,
     pub ssh_history: crate::ssh_history::SshConnectionHistory,
     pub clipboard: Box<dyn FileClipboard + Send>,
+    pub archive_cache: std::collections::HashMap<
+        std::path::PathBuf,
+        (
+            std::time::SystemTime,
+            u64,
+            std::sync::Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
+        ),
+    >,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -147,7 +155,8 @@ impl AppState {
             editor_cfg: ctx.editor_cfg,
             viewer_cfg: ctx.viewer_cfg,
             ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
-            clipboard: Box::new(ClipboardBackend::new()),
+            clipboard: Box::new(crate::clipboard::ClipboardBackend::new()),
+            archive_cache: std::collections::HashMap::new(),
         }
     }
 
@@ -456,6 +465,7 @@ impl AppState {
             viewer_cfg: crate::config::ViewerConfig::default(),
             ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
             clipboard: Box::new(crate::clipboard::InMemoryFileClipboard::new()),
+            archive_cache: std::collections::HashMap::new(),
         }
     }
 }
