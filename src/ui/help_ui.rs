@@ -120,6 +120,7 @@ pub fn draw_help_popup(
                 ("Delete", &keyboard.delete),
                 ("Force Delete", &keyboard.delete_force),
                 ("Empty Trash", &keyboard.empty_trash),
+                ("Calculate Directory Size", &keyboard.calc_dir_size),
             ],
         ),
         (
