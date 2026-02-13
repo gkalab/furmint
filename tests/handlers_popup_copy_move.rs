@@ -84,6 +84,7 @@ fn minimal_state_with_entries(
         clipboard: Box::new(InMemoryFileClipboard::new()),
         remote_watcher: None,
         archive_cache: std::collections::HashMap::new(),
+        opener: Arc::new(fm::opener::SystemOpener),
     }
 }
 

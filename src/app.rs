@@ -94,6 +94,7 @@ pub struct AppState {
             std::sync::Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
         ),
     >,
+    pub opener: std::sync::Arc<dyn crate::opener::FileOpener + Send + Sync>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -157,6 +158,7 @@ impl AppState {
             ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
             clipboard: Box::new(crate::clipboard::ClipboardBackend::new()),
             archive_cache: std::collections::HashMap::new(),
+            opener: std::sync::Arc::new(crate::opener::SystemOpener),
         }
     }
 
@@ -466,6 +468,7 @@ impl AppState {
             ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
             clipboard: Box::new(crate::clipboard::InMemoryFileClipboard::new()),
             archive_cache: std::collections::HashMap::new(),
+            opener: std::sync::Arc::new(crate::opener::SystemOpener),
         }
     }
 }

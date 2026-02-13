@@ -91,6 +91,7 @@ fn test_multi_tab_search_timeout() {
         ssh_history: fm::ssh_history::SshConnectionHistory::new().unwrap(),
         clipboard: Box::new(ClipboardBackend::new()),
         archive_cache: std::collections::HashMap::new(),
+        opener: Arc::new(fm::opener::SystemOpener),
     };
 
     // Before reset

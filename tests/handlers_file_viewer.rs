@@ -36,6 +36,7 @@ fn test_app(file_lines: usize) -> AppState {
         clipboard: Box::new(InMemoryFileClipboard::new()),
         remote_watcher: None,
         archive_cache: std::collections::HashMap::new(),
+        opener: std::sync::Arc::new(fm::opener::SystemOpener),
     };
     // Populate content lines
     app.file_viewer.content = vec!["line".to_string(); file_lines];

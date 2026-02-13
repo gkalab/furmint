@@ -50,6 +50,7 @@ fn test_app_with_entry(name: &str, is_dir: bool, path: &std::path::Path) -> AppS
         clipboard: Box::new(InMemoryFileClipboard::new()),
         remote_watcher: None,
         archive_cache: std::collections::HashMap::new(),
+        opener: std::sync::Arc::new(fm::opener::SystemOpener),
     }
 }
 

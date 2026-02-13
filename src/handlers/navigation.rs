@@ -357,22 +357,8 @@ pub fn handle_open_item(app: &mut AppState) {
                 ) {
                     app.active_tab_mut().error = Some(format!("Error launching in terminal: {e}"));
                 }
-            } else {
-                #[cfg(target_os = "linux")]
-                {
-                    let _ = std::process::Command::new("xdg-open")
-                        .arg(&full_path)
-                        .stdin(std::process::Stdio::null())
-                        .stdout(std::process::Stdio::null())
-                        .stderr(std::process::Stdio::null())
-                        .spawn();
-                }
-                #[cfg(not(target_os = "linux"))]
-                {
-                    if let Err(e) = open::that(&full_path) {
-                        app.active_tab_mut().error = Some(format!("Error opening file: {e}"));
-                    }
-                }
+            } else if let Err(e) = app.opener.open(&full_path) {
+                app.active_tab_mut().error = Some(format!("Error opening file: {e}"));
             }
         }
     }

@@ -40,6 +40,7 @@ fn app_with_conflict(task_id: usize) -> (AppState, mpsc::Receiver<TaskDecision>)
         remote_watcher: None,
         archive_cache: std::collections::HashMap::new(),
         ssh_manager: std::sync::Arc::new(SshManager::default()),
+        opener: std::sync::Arc::new(fm::opener::SystemOpener),
     };
 
     app.popups.conflict.is_visible = true;

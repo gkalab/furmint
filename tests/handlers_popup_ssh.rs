@@ -40,6 +40,7 @@ fn basic_app_state() -> AppState {
         clipboard: Box::new(InMemoryFileClipboard::new()),
         remote_watcher: None,
         archive_cache: std::collections::HashMap::new(),
+        opener: std::sync::Arc::new(fm::opener::SystemOpener),
     }
 }
 
