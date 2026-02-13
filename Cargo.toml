@@ -38,6 +38,10 @@ ssh2 = "0.9"
 clipboard = "0.4"
 image = { version = "0.25", features = ["default"] }
 ratatui-image = { version = "10.0.4", default-features = false, features = ["tokio", "image-defaults", "crossterm"] }
+zip = "0.6"
+tar = "0.4"
+flate2 = "1.0"
+bzip2 = "0.4"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"

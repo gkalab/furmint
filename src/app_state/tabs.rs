@@ -12,6 +12,7 @@ pub const SEARCH_TIMEOUT: Duration = Duration::from_secs(1);
 pub struct HistoryEntry {
     pub path: PathBuf,
     pub cursor: usize,
+    pub provider: Arc<dyn FileSystemProvider>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -30,9 +31,13 @@ pub struct TabHistory {
 
 impl TabHistory {
     #[must_use]
-    pub fn new(path: PathBuf, cursor: usize) -> Self {
+    pub fn new(path: PathBuf, cursor: usize, provider: Arc<dyn FileSystemProvider>) -> Self {
         Self {
-            entries: vec![HistoryEntry { path, cursor }],
+            entries: vec![HistoryEntry {
+                path,
+                cursor,
+                provider,
+            }],
             index: 0,
         }
     }
@@ -42,9 +47,13 @@ impl TabHistory {
         &self.entries[self.index]
     }
 
-    pub fn push(&mut self, path: PathBuf, cursor: usize) {
+    pub fn push(&mut self, path: PathBuf, cursor: usize, provider: Arc<dyn FileSystemProvider>) {
         self.entries.truncate(self.index + 1);
-        self.entries.push(HistoryEntry { path, cursor });
+        self.entries.push(HistoryEntry {
+            path,
+            cursor,
+            provider,
+        });
         self.index = self.entries.len() - 1;
     }
 
@@ -131,11 +140,11 @@ impl Tab {
     ) -> anyhow::Result<Self> {
         let entries = provider.list_dir(path)?;
         let mut tab = Self {
-            provider,
+            provider: provider.clone(),
             current_dir: path.to_path_buf(),
             entries,
             cursor: 0,
-            history: TabHistory::new(path.to_path_buf(), 0),
+            history: TabHistory::new(path.to_path_buf(), 0, provider),
             search: IncrementalSearch::default(),
             sort: SortSettings::default(),
             scroll_offset: 0,
@@ -251,7 +260,8 @@ impl Tab {
         self.search.reset();
         self.dir_sizes.clear(); // Clear cached sizes when navigating
 
-        self.history.push(path.to_path_buf(), 0);
+        self.history
+            .push(path.to_path_buf(), 0, self.provider.clone());
 
         self.sort_entries();
         Ok(())
@@ -366,6 +376,7 @@ impl Tab {
             self.save_cursor_to_history();
             self.history.index -= 1;
             let entry = self.history.current().clone();
+            self.provider = entry.provider.clone();
             self.current_dir = entry.path.clone();
             self.entries = self.provider.list_dir(&entry.path)?;
             self.cursor = entry.cursor;
@@ -382,6 +393,7 @@ impl Tab {
             self.save_cursor_to_history();
             self.history.index += 1;
             let entry = self.history.current().clone();
+            self.provider = entry.provider.clone();
             self.current_dir = entry.path.clone();
             self.entries = self.provider.list_dir(&entry.path)?;
             self.cursor = entry.cursor;

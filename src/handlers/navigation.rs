@@ -1,6 +1,9 @@
 //! Navigation-related event handlers for directory and panel navigation.
 
 use crate::app::AppState;
+use crate::fs::fs_archive::ArchiveFs;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 // Moves the cursor up in the active panel.
 pub fn handle_up(app: &mut AppState) {
@@ -24,6 +27,59 @@ pub fn handle_page_up(app: &mut AppState) {
 pub fn handle_page_down(app: &mut AppState) {
     app.active_tab_mut().move_cursor_page_down(20);
     update_viewer_content(app);
+}
+
+// Enters the selected directory or opens the file.
+pub fn handle_enter(app: &mut AppState) {
+    if let Some((path, _, filename)) = archive_path_and_ext(app) {
+        handle_open_archive(app, path, filename);
+        return;
+    }
+
+    handle_open_item(app);
+}
+
+fn archive_path_and_ext(app: &mut AppState) -> Option<(PathBuf, String, String)> {
+    // Check if we are selecting a file that is a supported archive
+    let panel = app.active_tab();
+    if let Some(entry) = panel.current_entry() {
+        if !entry.is_dir {
+            let path = panel.current_dir.join(&entry.name);
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                let ext = ext.to_lowercase();
+                if ["zip", "tar", "gz", "bz2", "xz"].contains(&ext.as_str()) {
+                    Some((path, ext, entry.name.clone()))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+// Moves up to the parent directory.
+pub fn handle_left(app: &mut AppState) {
+    let panel = app.active_tab_mut();
+    // If we are at the root of an archive, we might want to exit it?
+    // Current go_up implementation handles ".." logic typically.
+    // But if we are at "/" of an archive, go_up might do nothing or we might want to "leave" the provider.
+    // However, the standard `enter_dir` on ".." handles going up.
+    // If we want Left Arrow to go to parent:
+    if let Err(e) = panel.go_up() {
+        panel.error = Some(e.to_string());
+    }
+    update_viewer_content(app);
+}
+
+// Enters the selected directory (same as Enter for now).
+pub fn handle_right(app: &mut AppState) {
+    handle_enter(app);
 }
 
 // Moves the cursor to the home position.
@@ -171,6 +227,66 @@ pub fn handle_enter_directory(app: &mut AppState) {
     }
 }
 
+fn handle_open_archive(app: &mut AppState, path: PathBuf, filename: String) {
+    let panel = app.active_tab_mut();
+    if !panel.provider.is_local() {
+        panel.error = Some("Opening archives from remote connections is not supported".to_string());
+        update_viewer_content(app);
+        return;
+    }
+
+    let side_index = match app.active {
+        crate::app::PanelSide::Left => 0,
+        crate::app::PanelSide::Right => 1,
+    };
+
+    let path_clone = path.clone();
+    let filename_clone = filename.clone();
+
+    let task_name = format!("Opening {}", filename);
+
+    app.task_manager
+        .spawn_task(task_name, move |_cancel, tx, id| async move {
+            let path_for_task = path_clone.clone();
+            // We need to run blocking IO
+            let res = tokio::task::spawn_blocking(move || ArchiveFs::new(&path_for_task)).await;
+
+            match res {
+                Ok(Ok(archive_fs)) => {
+                    let provider = Arc::new(archive_fs);
+                    let wrapper = crate::tasks::ProviderWrapper(provider);
+                    let _ = tx.send(crate::tasks::TaskEvent::ArchiveLoaded(
+                        side_index,
+                        wrapper,
+                        filename_clone,
+                    ));
+                    let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
+                        id,
+                        crate::tasks::TaskStatus::Completed,
+                    ));
+                }
+                Ok(Err(e)) => {
+                    let _ = tx.send(crate::tasks::TaskEvent::Error(
+                        id,
+                        path_clone.to_string_lossy().to_string(),
+                        e.to_string(),
+                    ));
+                    let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
+                        id,
+                        crate::tasks::TaskStatus::Failed(e.to_string()),
+                    ));
+                }
+                Err(e) => {
+                    // Join error
+                    let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
+                        id,
+                        crate::tasks::TaskStatus::Failed(e.to_string()),
+                    ));
+                }
+            }
+        });
+}
+
 pub fn handle_open_item(app: &mut AppState) {
     let entry_opt = app.active_tab().current_entry().cloned();
 
@@ -231,7 +347,9 @@ pub fn handle_directory_up(app: &mut AppState) {
         if let Err(e) = app.active_tab_mut().go_up() {
             app.active_tab_mut().error = Some(format!("Error: {e}"));
         } else {
-            app.dir_history.record_visit(&context_key, &path);
+            if !context_key.starts_with("archive:") {
+                app.dir_history.record_visit(&context_key, &path);
+            }
             update_viewer_content(app);
         }
     }
@@ -245,7 +363,9 @@ pub fn handle_history_previous(app: &mut AppState) {
         app.active_tab_mut().error = Some(format!("Error: {e}"));
     } else {
         let current_dir = app.active_tab().current_dir.clone();
-        app.dir_history.record_visit(&context_key, &current_dir);
+        if !context_key.starts_with("archive:") {
+            app.dir_history.record_visit(&context_key, &current_dir);
+        }
         update_viewer_content(app);
     }
 }
@@ -257,7 +377,9 @@ pub fn handle_history_next(app: &mut AppState) {
         app.active_tab_mut().error = Some(format!("Error: {e}"));
     } else {
         let current_dir = app.active_tab().current_dir.clone();
-        app.dir_history.record_visit(&context_key, &current_dir);
+        if !context_key.starts_with("archive:") {
+            app.dir_history.record_visit(&context_key, &current_dir);
+        }
         update_viewer_content(app);
     }
 }

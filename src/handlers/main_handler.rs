@@ -50,6 +50,12 @@ pub async fn route_event(
                 return handled;
             }
 
+            // Handle Enter key specifically before default main panel
+            if code == KeyCode::Enter {
+                crate::handlers::navigation::handle_enter(app);
+                return false; // Return false as Enter key is handled
+            }
+
             // 4. Default to main panel
             crate::handlers::input::handle_main_panel_event(
                 code, modifiers, app, keyboard, input_tx,

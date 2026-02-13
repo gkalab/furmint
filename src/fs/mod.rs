@@ -1,3 +1,4 @@
+pub mod fs_archive;
 pub mod fs_local;
 pub mod fs_provider;
 pub mod fs_rsync;

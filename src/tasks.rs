@@ -40,6 +40,16 @@ pub enum TaskEvent {
     SshError(String, String, crate::ssh_manager::SshError), // host, user, error
     /// Directory size calculation completed: (`task_id`, path, `size_in_bytes`)
     DirSizeCalculated(usize, std::path::PathBuf, u64),
+    ArchiveLoaded(usize, ProviderWrapper, String), // side_index, provider, filename
+}
+
+#[derive(Clone)]
+pub struct ProviderWrapper(pub Arc<dyn crate::fs::fs_provider::FileSystemProvider>);
+
+impl std::fmt::Debug for ProviderWrapper {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "FileSystemProvider")
+    }
 }
 
 #[derive(Clone)]

@@ -167,7 +167,25 @@ impl DirectoryHistory {
 
     /// Save history to cache file
     pub fn save(&self) -> Result<()> {
-        let content = serde_json::to_string_pretty(&self)?;
+        // Filter out archive:* contexts
+        let filtered_entries: HashMap<_, _> = self
+            .entries
+            .iter()
+            .filter(|(ctx, _)| !ctx.starts_with("archive:"))
+            .map(|(ctx, entries)| (ctx.clone(), entries.clone()))
+            .collect();
+
+        // Create a temporary struct for serialization
+        #[derive(Serialize)]
+        struct SaveData<'a> {
+            entries: &'a HashMap<String, HashMap<PathBuf, DirEntry>>,
+        }
+
+        let data = SaveData {
+            entries: &filtered_entries,
+        };
+
+        let content = serde_json::to_string_pretty(&data)?;
         fs::write(&self.cache_file, content)?;
         Ok(())
     }

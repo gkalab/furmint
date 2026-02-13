@@ -129,6 +129,36 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
                 }
             }
         }
+        crate::tasks::TaskEvent::ArchiveLoaded(side_index, wrapper, filename) => {
+            let provider = wrapper.0;
+            let manager = if side_index == 0 {
+                &mut app.left
+            } else {
+                &mut app.right
+            };
+
+            // Create a new tab for the archive
+            match crate::app::Tab::with_provider(&std::path::PathBuf::from("/"), provider) {
+                Ok(mut tab) => {
+                    tab.custom_title = Some(filename);
+                    manager.tabs.push(tab);
+                    let new_index = manager.tabs.len() - 1;
+                    manager.active_tab_index = new_index;
+
+                    // Set active panel to this side
+                    if side_index == 0 {
+                        app.active = crate::app::PanelSide::Left;
+                    } else {
+                        app.active = crate::app::PanelSide::Right;
+                    }
+                }
+                Err(e) => {
+                    // If we fail to create the tab, show error on the active tab of that side
+                    manager.active_tab_mut().error =
+                        Some(format!("Failed to create archive tab: {}", e));
+                }
+            }
+        }
     }
 }
 

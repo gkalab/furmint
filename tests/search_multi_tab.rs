@@ -15,7 +15,11 @@ fn create_test_tab(name: &str, entries: Vec<FileEntry>) -> Tab {
         current_dir: current_dir.clone(),
         entries,
         cursor: 0,
-        history: fm::app_state::tabs::TabHistory::new(current_dir, 0),
+        history: fm::app_state::tabs::TabHistory::new(
+            PathBuf::from("/"),
+            0,
+            Arc::new(LocalFs::new()),
+        ),
         search: fm::app_state::tabs::IncrementalSearch::default(),
         sort: fm::app_state::tabs::SortSettings::default(),
         scroll_offset: 0,

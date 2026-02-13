@@ -29,12 +29,14 @@ fn make_fileentry(name: &str, selected: bool, is_dir: bool) -> FileEntry {
 
 fn make_tab(path: &str, entries: Vec<FileEntry>, cursor: usize) -> Tab {
     let current_dir = PathBuf::from(path);
+    let history =
+        fm::app_state::tabs::TabHistory::new(PathBuf::from("/tmp"), 0, Arc::new(LocalFs::new()));
     Tab {
         provider: Arc::new(LocalFs::new()),
         current_dir: current_dir.clone(),
         entries,
         cursor,
-        history: fm::app_state::tabs::TabHistory::new(current_dir, cursor),
+        history,
         search: fm::app_state::tabs::IncrementalSearch::default(),
         sort: fm::app_state::tabs::SortSettings::default(),
         scroll_offset: 0,
