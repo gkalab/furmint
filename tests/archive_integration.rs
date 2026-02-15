@@ -265,11 +265,13 @@ async fn test_archive_fs_read_and_download_tar_gz() {
         let mut tar = tar::Builder::new(enc);
 
         let mut header = tar::Header::new_gnu();
+        header.set_mode(0o644);
         header.set_size(5);
         tar.append_data(&mut header, "hello.txt", b"world" as &[u8])
             .unwrap();
 
         let mut header2 = tar::Header::new_gnu();
+        header2.set_mode(0o644);
         header2.set_size(11);
         tar.append_data(&mut header2, "dir/sub.txt", b"subordinate" as &[u8])
             .unwrap();
@@ -524,6 +526,7 @@ async fn test_tar_timestamp_preservation() {
         // Add a directory with a specific timestamp
         let mut dir_header = tar::Header::new_gnu();
         dir_header.set_entry_type(tar::EntryType::Directory);
+        dir_header.set_mode(0o755);
         dir_header.set_size(0);
         dir_header.set_mtime(past_time_secs);
         dir_header.set_cksum();
@@ -532,6 +535,7 @@ async fn test_tar_timestamp_preservation() {
 
         // Add a file with a specific timestamp
         let mut file_header = tar::Header::new_gnu();
+        file_header.set_mode(0o644);
         file_header.set_size(7);
         file_header.set_mtime(past_time_secs);
         file_header.set_cksum();

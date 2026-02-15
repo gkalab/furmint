@@ -7,7 +7,7 @@ use chrono::TimeZone;
 use filetime::{FileTime, set_file_mtime};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::Read;
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -573,6 +573,7 @@ impl FileSystemProvider for ArchiveFs {
         let src = src.to_path_buf();
         let dest = dest.to_path_buf();
         let progress = progress.clone();
+        let is_dir = self.is_dir(&src);
 
         Some(
             tokio::task::spawn_blocking(move || {
@@ -734,6 +735,14 @@ impl FileSystemProvider for ArchiveFs {
                     ));
                 } else {
                     // Tar implementation
+                    // Try system tar for performance
+                    if Self::system_tar_extract(&archive_path, &src_str, &dest, is_dir, &progress)
+                        .is_ok()
+                    {
+                        return Ok(());
+                    }
+
+                    // Fallback to Rust implementation
                     let reader = std::io::BufReader::new(file);
                     if ext == "gz" || ext == "tgz" {
                         let tar = flate2::read::GzDecoder::new(reader);
@@ -882,6 +891,111 @@ impl ArchiveFs {
             progress.processed_items.load(Ordering::Relaxed),
             0,
         ));
+        Ok(())
+    }
+
+    fn system_tar_extract(
+        archive_path: &Path,
+        src_str: &str,
+        dest: &Path,
+        is_dir: bool,
+        progress: &TaskProgressContext,
+    ) -> Result<()> {
+        use std::process::{Command, Stdio};
+
+        let is_root = src_str.is_empty() || src_str == ".";
+
+        // Ensure destination directory exists or parent if it's a file
+        let working_dir = if is_dir || is_root {
+            std::fs::create_dir_all(dest)?;
+            dest.to_path_buf()
+        } else if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)?;
+            parent.to_path_buf()
+        } else {
+            PathBuf::from(".")
+        };
+
+        let mut cmd = Command::new("tar");
+        // -C must come before arguments that it should affect.
+        // -x: extract, -v: verbose, -f: file.
+        // Modern tar auto-detects compression.
+        cmd.arg("-C").arg(&working_dir);
+        cmd.arg("-xvf").arg(archive_path);
+
+        if !is_root {
+            // Ensure directories have a trailing slash for tar to match them correctly
+            // and for --strip-components to work as expected.
+            let mut tar_src = src_str.to_string();
+            if is_dir && !tar_src.ends_with('/') {
+                tar_src.push('/');
+            }
+
+            let path = Path::new(&tar_src);
+            let count = path.components().count();
+            // We want to strip components so that the extracted items land directly in dest
+            let strip = if is_dir {
+                count
+            } else {
+                count.saturating_sub(1)
+            };
+            if strip > 0 {
+                cmd.arg(format!("--strip-components={}", strip));
+            }
+            cmd.arg(tar_src);
+        }
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::null());
+
+        let mut child = cmd.spawn().context("Failed to spawn tar")?;
+        let stdout = child.stdout.take().context("Failed to open tar stdout")?;
+        let reader = BufReader::new(stdout);
+
+        let mut last_update = std::time::Instant::now();
+        let mut p;
+
+        for line in reader.lines() {
+            if progress.cancel.load(Ordering::Relaxed) {
+                let _ = child.kill();
+                return Ok(());
+            }
+            if let Ok(file_path) = line {
+                p = progress.processed_items.fetch_add(1, Ordering::Relaxed) + 1;
+                let now = std::time::Instant::now();
+                if now.duration_since(last_update) > std::time::Duration::from_millis(100) {
+                    let _ = progress.tx.send(crate::tasks::TaskEvent::UpdateCurrentFile(
+                        progress.id,
+                        file_path,
+                    ));
+                    let _ = progress.tx.send(crate::tasks::TaskEvent::UpdateProgress(
+                        progress.id,
+                        p,
+                        0,
+                    ));
+                    last_update = now;
+                }
+            }
+        }
+
+        let status = child.wait().context("Failed to wait for tar")?;
+        if !status.success() {
+            return Err(anyhow::anyhow!("Tar command failed with status {}", status));
+        }
+
+        // Handle rename if single file and names don't match
+        if !is_root && !is_dir {
+            let extracted_name = Path::new(src_str).file_name();
+            let target_name = dest.file_name();
+            if extracted_name != target_name
+                && let (Some(en), Some(_tn)) = (extracted_name, target_name)
+            {
+                let extracted_path = working_dir.join(en);
+                if extracted_path.exists() {
+                    std::fs::rename(extracted_path, dest)?;
+                }
+            }
+        }
+
         Ok(())
     }
 }
