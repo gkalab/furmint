@@ -2,6 +2,7 @@ use crate::fs::fs_provider::FileSystemProvider;
 use crate::fs::utils::FileEntry;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use chrono::TimeZone;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::Read;
@@ -105,9 +106,22 @@ impl ArchiveFs {
             let is_dir = file.is_dir() || name.ends_with('/');
 
             let size = file.size();
-            // Simple conversion of ZipDateTime to SystemTime (approximate)
-            let _dt = file.last_modified();
-            let modified = SystemTime::UNIX_EPOCH; // Placeholder
+            let modified = if let Some(dt) = file.last_modified() {
+                chrono::Utc
+                    .with_ymd_and_hms(
+                        dt.year() as i32,
+                        dt.month() as u32,
+                        dt.day() as u32,
+                        dt.hour() as u32,
+                        dt.minute() as u32,
+                        dt.second() as u32,
+                    )
+                    .single()
+                    .map(SystemTime::from)
+                    .unwrap_or(SystemTime::UNIX_EPOCH)
+            } else {
+                SystemTime::UNIX_EPOCH
+            };
 
             let entry = FileEntry {
                 name: path
