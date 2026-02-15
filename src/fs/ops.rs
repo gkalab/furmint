@@ -204,7 +204,7 @@ pub fn recursive_op<'a>(
                     }
 
                     if ctx.src_fs.is_dir(&src).await.unwrap_or(false) {
-                        handle_directory(&ctx, &src, &dest, &mut stack).await?;
+                        handle_directory(&ctx, decision_state, &src, &dest, &mut stack).await?;
                     } else if !handle_file(&ctx, decision_state, &src, &dest).await? {
                         return Ok(()); // Cancelled
                     }
@@ -223,10 +223,34 @@ enum ConflictResult {
 
 async fn handle_directory(
     ctx: &RecursiveOpContext<'_>,
+    decision_state: &mut DecisionState,
     src: &std::path::Path,
     dest: &std::path::Path,
     stack: &mut Vec<WorkItem>,
 ) -> Result<()> {
+    let progress = crate::fs::traits::TaskProgressContext {
+        id: ctx.id,
+        tx: ctx.tx.clone(),
+        cancel: ctx.cancel.clone(),
+        processed_bytes: ctx.processed_bytes.clone(),
+        processed_items: ctx.processed.clone(),
+    };
+
+    if let Some(res) = ctx.src_fs.download(src, ctx.dest_fs, dest, &progress).await {
+        if res.is_ok() {
+            // Set modified time for the extracted directory
+            if let Some(mtime) = ctx.src_fs.get_modified_time(src).await {
+                let _ = ctx.dest_fs.set_modified_time(dest, mtime).await;
+            }
+
+            let p = ctx.processed.load(std::sync::atomic::Ordering::Relaxed);
+            let _ = ctx.tx.send(crate::tasks::TaskEvent::UpdateProgress(
+                ctx.id, p, ctx.total,
+            ));
+        }
+        return res;
+    }
+
     let dest_exists = ctx.dest_fs.try_exists(dest).await.unwrap_or(false);
 
     if !dest_exists {
@@ -242,6 +266,13 @@ async fn handle_directory(
             dest.display()
         ));
     }
+
+    // Increment progress for the directory itself
+    let p = ctx
+        .processed
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        + 1;
+    update_progress_if_needed(ctx, decision_state, p);
 
     if ctx.action == crate::app::CopyMoveAction::Move {
         stack.push(WorkItem::PostProcessDir {
@@ -323,17 +354,16 @@ async fn perform_sftp_copy(
         tx: ctx.tx.clone(),
         cancel: ctx.cancel.clone(),
         processed_bytes: ctx.processed_bytes.clone(),
+        processed_items: ctx.processed.clone(),
     };
 
     // Try rsync first for local-remote copy operations, but only for larger files
     // Small files have more overhead with rsync than benefit
     const RSYNC_MIN_SIZE: u64 = 1024 * 1024; // 1 MB threshold
 
-    let src_is_local = ctx.src_fs.is_local();
-    let dest_is_local = ctx.dest_fs.is_local();
     let file_size = ctx.src_fs.get_size(src).await.unwrap_or(0);
 
-    if crate::fs::fs_rsync::should_use_rsync(src_is_local, dest_is_local, ctx.action)
+    if crate::fs::fs_rsync::should_use_rsync(ctx.src_fs, ctx.dest_fs, ctx.action)
         && file_size >= RSYNC_MIN_SIZE
         && let Ok(()) =
             crate::fs::fs_rsync::rsync_transfer(ctx.src_fs, ctx.dest_fs, src, dest, &progress).await

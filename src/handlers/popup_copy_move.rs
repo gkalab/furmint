@@ -376,6 +376,7 @@ async fn try_rsync_directory<F: crate::fs::traits::FileSystem>(
                 tx: tx.clone(),
                 cancel: cancel.clone(),
                 processed_bytes: processed_bytes.clone(),
+                processed_items: processed_items.clone(),
             };
 
             if crate::fs::fs_rsync::rsync_transfer(src_fs, dest_fs, src, target, &progress)
@@ -505,10 +506,7 @@ pub fn spawn_copy_move_task(
             use crate::fs::traits::FileSystem;
 
             // Check if rsync can be used for this transfer
-            let src_is_local = src_fs.is_local();
-            let dest_is_local = dest_fs.is_local();
-            let use_rsync =
-                crate::fs::fs_rsync::should_use_rsync(src_is_local, dest_is_local, action);
+            let use_rsync = crate::fs::fs_rsync::should_use_rsync(&src_fs, &dest_fs, action);
 
             // Pre-calculation of total items using the source filesystem
             // Skip this for rsync-eligible transfers to avoid slow remote directory traversal
@@ -568,7 +566,7 @@ pub fn spawn_copy_move_task(
                 // Try rsync for directories when applicable
                 let src_is_dir = src_fs.is_dir(src).await.unwrap_or(false);
                 if use_rsync && src_is_dir {
-                    match try_rsync_directory(
+                    let rsync_res = try_rsync_directory(
                         &src_fs,
                         &dest_fs,
                         src,
@@ -582,11 +580,18 @@ pub fn spawn_copy_move_task(
                         id,
                         total_items,
                     )
-                    .await
-                    {
-                        None => return,          // Cancelled
+                    .await;
+
+                    match rsync_res {
                         Some(true) => continue,  // Rsync succeeded
                         Some(false) => continue, // Skipped
+                        None => {
+                            // Either cancelled OR failed (and should fall back)
+                            if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                                return;
+                            }
+                            // Fall through to recursive_op
+                        }
                     }
                 }
 

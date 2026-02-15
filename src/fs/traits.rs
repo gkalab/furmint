@@ -6,6 +6,7 @@ pub struct TaskProgressContext {
     pub tx: tokio::sync::mpsc::UnboundedSender<crate::tasks::TaskEvent>,
     pub cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub processed_bytes: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    pub processed_items: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 #[async_trait]

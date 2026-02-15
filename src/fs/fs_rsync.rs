@@ -14,8 +14,8 @@ use tokio::process::Command;
 #[cfg(unix)]
 #[must_use]
 pub fn should_use_rsync(
-    src_is_local: bool,
-    dest_is_local: bool,
+    src_fs: &dyn crate::fs::traits::FileSystem,
+    dest_fs: &dyn crate::fs::traits::FileSystem,
     action: crate::app::CopyMoveAction,
 ) -> bool {
     // Only use rsync for copy operations
@@ -23,15 +23,29 @@ pub fn should_use_rsync(
         return false;
     }
 
+    let src_is_local = src_fs.is_local();
+    let dest_is_local = dest_fs.is_local();
+
     // Only use rsync when one side is local and the other is remote
-    // local → remote OR remote → local
-    src_is_local != dest_is_local
+    if src_is_local == dest_is_local {
+        return false;
+    }
+
+    // Verify specifically that the remote side is SFTP
+    // We detect this by checking if the context_key matches "[user@host]" format
+    let src_ctx = src_fs.context_key();
+    let dest_ctx = dest_fs.context_key();
+
+    let src_is_sftp = src_ctx.starts_with('[') && src_ctx.ends_with(']');
+    let dest_is_sftp = dest_ctx.starts_with('[') && dest_ctx.ends_with(']');
+
+    src_is_sftp || dest_is_sftp
 }
 
 #[cfg(not(unix))]
 pub fn should_use_rsync(
-    _src_is_local: bool,
-    _dest_is_local: bool,
+    _src_fs: &dyn crate::fs::traits::FileSystem,
+    _dest_fs: &dyn crate::fs::traits::FileSystem,
     _action: crate::app::CopyMoveAction,
 ) -> bool {
     false
@@ -273,48 +287,191 @@ fn parse_rsync_progress(line: &str) -> Option<RsyncProgress> {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
+    struct MockFs {
+        local: bool,
+        ctx: String,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::fs::traits::FileSystem for MockFs {
+        async fn try_exists(&self, _: &Path) -> anyhow::Result<bool> {
+            Ok(true)
+        }
+        async fn is_dir(&self, _: &Path) -> anyhow::Result<bool> {
+            Ok(false)
+        }
+        async fn create_dir_all(&self, _: &Path) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn read_dir(&self, _: &Path) -> anyhow::Result<Vec<PathBuf>> {
+            Ok(vec![])
+        }
+        async fn rename(&self, _: &Path, _: &Path) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn remove_file(&self, _: &Path) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn copy(&self, _: &Path, _: &Path) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn copy_with_progress(
+            &self,
+            _: &Path,
+            _: &Path,
+            _: usize,
+            _: &tokio::sync::mpsc::UnboundedSender<crate::tasks::TaskEvent>,
+            _: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn get_size(&self, _: &Path) -> anyhow::Result<u64> {
+            Ok(0)
+        }
+        async fn read_file(&self, _: &Path) -> anyhow::Result<Vec<u8>> {
+            Ok(vec![])
+        }
+        async fn read_chunk(&self, _: &Path, _: u64, _: usize) -> anyhow::Result<Vec<u8>> {
+            Ok(vec![])
+        }
+        async fn write_file(&self, _: &Path, _: &[u8]) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn write_chunk(&self, _: &Path, _: u64, _: &[u8]) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn get_permissions(&self, _: &Path) -> Option<u32> {
+            None
+        }
+        async fn set_permissions(&self, _: &Path, _: u32) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn get_modified_time(&self, _: &Path) -> Option<std::time::SystemTime> {
+            None
+        }
+        async fn set_modified_time(
+            &self,
+            _: &Path,
+            _: std::time::SystemTime,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn write_file_with_permissions(
+            &self,
+            _: &Path,
+            _: &[u8],
+            _: Option<u32>,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn context_key(&self) -> String {
+            self.ctx.clone()
+        }
+        fn is_local(&self) -> bool {
+            self.local
+        }
+    }
 
     #[test]
     fn test_should_use_rsync_copy_local_to_remote() {
+        let src = MockFs {
+            local: true,
+            ctx: "local".into(),
+        };
+        let dest = MockFs {
+            local: false,
+            ctx: "[user@host]".into(),
+        };
         assert!(should_use_rsync(
-            true,
-            false,
+            &src,
+            &dest,
             crate::app::CopyMoveAction::Copy
         ));
     }
 
     #[test]
     fn test_should_use_rsync_copy_remote_to_local() {
+        let src = MockFs {
+            local: false,
+            ctx: "[user@host]".into(),
+        };
+        let dest = MockFs {
+            local: true,
+            ctx: "local".into(),
+        };
         assert!(should_use_rsync(
-            false,
-            true,
+            &src,
+            &dest,
             crate::app::CopyMoveAction::Copy
         ));
     }
 
     #[test]
     fn test_should_not_use_rsync_move() {
+        let src = MockFs {
+            local: true,
+            ctx: "local".into(),
+        };
+        let dest = MockFs {
+            local: false,
+            ctx: "[user@host]".into(),
+        };
         assert!(!should_use_rsync(
-            true,
-            false,
+            &src,
+            &dest,
             crate::app::CopyMoveAction::Move
         ));
     }
 
     #[test]
     fn test_should_not_use_rsync_local_to_local() {
+        let src = MockFs {
+            local: true,
+            ctx: "local".into(),
+        };
+        let dest = MockFs {
+            local: true,
+            ctx: "local".into(),
+        };
         assert!(!should_use_rsync(
-            true,
-            true,
+            &src,
+            &dest,
             crate::app::CopyMoveAction::Copy
         ));
     }
 
     #[test]
     fn test_should_not_use_rsync_remote_to_remote() {
+        let src = MockFs {
+            local: false,
+            ctx: "[user@host]".into(),
+        };
+        let dest = MockFs {
+            local: false,
+            ctx: "[user@host]".into(),
+        };
         assert!(!should_use_rsync(
-            false,
-            false,
+            &src,
+            &dest,
+            crate::app::CopyMoveAction::Copy
+        ));
+    }
+
+    #[test]
+    fn test_should_not_use_rsync_archive() {
+        let src = MockFs {
+            local: false,
+            ctx: "archive:/test.zip".into(),
+        };
+        let dest = MockFs {
+            local: true,
+            ctx: "local".into(),
+        };
+        assert!(!should_use_rsync(
+            &src,
+            &dest,
             crate::app::CopyMoveAction::Copy
         ));
     }

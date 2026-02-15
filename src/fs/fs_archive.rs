@@ -1,12 +1,15 @@
 use crate::fs::fs_provider::FileSystemProvider;
+use crate::fs::traits::TaskProgressContext;
 use crate::fs::utils::FileEntry;
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::TimeZone;
+use filetime::{FileTime, set_file_mtime};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
@@ -99,29 +102,15 @@ impl ArchiveFs {
             let file = archive.by_index(i)?;
             let name = file.name().to_string();
 
-            // Normalize path separators
+            // Normalize path separators and trim trailing slashes
             let path_str = name.replace('\\', "/");
-            let path = PathBuf::from(&path_str);
+            let normalized_path_str = path_str.trim_end_matches('/');
+            let path = PathBuf::from(normalized_path_str);
 
             let is_dir = file.is_dir() || name.ends_with('/');
 
             let size = file.size();
-            let modified = if let Some(dt) = file.last_modified() {
-                chrono::Utc
-                    .with_ymd_and_hms(
-                        dt.year() as i32,
-                        dt.month() as u32,
-                        dt.day() as u32,
-                        dt.hour() as u32,
-                        dt.minute() as u32,
-                        dt.second() as u32,
-                    )
-                    .single()
-                    .map(SystemTime::from)
-                    .unwrap_or(SystemTime::UNIX_EPOCH)
-            } else {
-                SystemTime::UNIX_EPOCH
-            };
+            let modified = Self::zip_dt_to_system_time(file.last_modified());
 
             let entry = FileEntry {
                 name: path
@@ -225,10 +214,11 @@ impl ArchiveFs {
 
         for file in archive.entries()? {
             let file = file?;
-            let path = file.path()?.into_owned();
-            // Normalize path separators
-            let path_str = path.to_string_lossy().replace('\\', "/");
-            let path = PathBuf::from(&path_str);
+            let path_owned = file.path()?.into_owned();
+            // Normalize path separators and trim trailing slashes
+            let path_str = path_owned.to_string_lossy().replace('\\', "/");
+            let normalized_path_str = path_str.trim_end_matches('/');
+            let path = PathBuf::from(normalized_path_str);
 
             let is_dir = file.header().entry_type().is_dir();
             let size = file.size();
@@ -326,6 +316,25 @@ impl ArchiveFs {
 
         Ok(())
     }
+
+    fn zip_dt_to_system_time(dt: Option<zip::DateTime>) -> SystemTime {
+        if let Some(dt) = dt {
+            chrono::Utc
+                .with_ymd_and_hms(
+                    dt.year() as i32,
+                    dt.month() as u32,
+                    dt.day() as u32,
+                    dt.hour() as u32,
+                    dt.minute() as u32,
+                    dt.second() as u32,
+                )
+                .single()
+                .map(SystemTime::from)
+                .unwrap_or(SystemTime::UNIX_EPOCH)
+        } else {
+            SystemTime::UNIX_EPOCH
+        }
+    }
 }
 
 #[async_trait]
@@ -388,16 +397,54 @@ impl FileSystemProvider for ArchiveFs {
         Err(anyhow::anyhow!("ArchiveFileSystem is read-only"))
     }
 
-    fn read_file(&self, _path: &Path) -> Result<Vec<u8>> {
-        Err(anyhow::anyhow!(
-            "Reading files from archive not yet supported"
-        ))
+    fn read_file(&self, path: &Path) -> Result<Vec<u8>> {
+        let rel_path = if path.has_root() {
+            path.strip_prefix("/").unwrap_or(path)
+        } else {
+            path
+        };
+        let path_str = rel_path.to_string_lossy().replace('\\', "/");
+        let path_str = path_str.trim_end_matches('/');
+
+        let file = File::open(&self.archive_path).context("Failed to open archive")?;
+        let ext = self
+            .archive_path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        if ext == "zip" {
+            let mut archive = zip::ZipArchive::new(file).context("Failed to read zip")?;
+            let mut zip_file = archive.by_name(path_str).context("File not found in zip")?;
+            let mut buffer = Vec::with_capacity(zip_file.size() as usize);
+            zip_file.read_to_end(&mut buffer)?;
+            Ok(buffer)
+        } else if ext == "tar" || ext == "gz" || ext == "tgz" || ext == "bz2" || ext == "tbz2" {
+            let reader = std::io::BufReader::new(file);
+            if ext == "gz" || ext == "tgz" {
+                let tar = flate2::read::GzDecoder::new(reader);
+                Self::read_tar_file(tar, path_str)
+            } else if ext == "bz2" || ext == "tbz2" {
+                let tar = bzip2::read::BzDecoder::new(reader);
+                Self::read_tar_file(tar, path_str)
+            } else {
+                Self::read_tar_file(reader, path_str)
+            }
+        } else {
+            Err(anyhow::anyhow!("Unsupported archive format for reading"))
+        }
     }
 
-    fn read_file_at(&self, _path: &Path, _offset: u64, _len: usize) -> Result<Vec<u8>> {
-        Err(anyhow::anyhow!(
-            "Reading files from archive not yet supported"
-        ))
+    fn read_file_at(&self, path: &Path, offset: u64, len: usize) -> Result<Vec<u8>> {
+        // Simple implementation: read all then chunk. Archives don't support random access well generally.
+        let data = self.read_file(path)?;
+        let start = offset as usize;
+        if start >= data.len() {
+            return Ok(Vec::new());
+        }
+        let end = (start + len).min(data.len());
+        Ok(data[start..end].to_vec())
     }
 
     fn write_file(&self, _path: &Path, _data: &[u8]) -> Result<()> {
@@ -422,10 +469,12 @@ impl FileSystemProvider for ArchiveFs {
         } else {
             path
         };
-        let p = if rel_path == Path::new("") {
+        let p_str = rel_path.to_string_lossy().replace('\\', "/");
+        let p_norm = PathBuf::from(p_str.trim_end_matches('/'));
+        let p = if p_norm == Path::new("") {
             Path::new(".")
         } else {
-            rel_path
+            &p_norm
         };
         self.entries.lock().unwrap().contains_key(p) || p == Path::new(".")
     }
@@ -436,22 +485,24 @@ impl FileSystemProvider for ArchiveFs {
         } else {
             path
         };
-        let p = if rel_path == Path::new("") {
+        let p_str = rel_path.to_string_lossy().replace('\\', "/");
+        let p_norm = PathBuf::from(p_str.trim_end_matches('/'));
+        let p = if p_norm == Path::new("") {
             Path::new(".")
         } else {
-            rel_path
+            &p_norm
         };
 
         if p == Path::new(".") {
-            return true;
+            true
+        } else {
+            self.entries
+                .lock()
+                .unwrap()
+                .get(p)
+                .map(|e| e.is_dir)
+                .unwrap_or(false)
         }
-
-        self.entries
-            .lock()
-            .unwrap()
-            .get(p)
-            .map(|e| e.is_dir)
-            .unwrap_or(false)
     }
 
     fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
@@ -472,10 +523,12 @@ impl FileSystemProvider for ArchiveFs {
         } else {
             path
         };
-        let p = if rel_path == Path::new("") {
+        let p_str = rel_path.to_string_lossy().replace('\\', "/");
+        let p_norm = PathBuf::from(p_str.trim_end_matches('/'));
+        let p = if p_norm == Path::new("") {
             Path::new(".")
         } else {
-            rel_path
+            &p_norm
         };
 
         if p == Path::new(".") {
@@ -502,5 +555,333 @@ impl FileSystemProvider for ArchiveFs {
 
     async fn calc_dir_size(&self, _path: &Path) -> anyhow::Result<u64> {
         Ok(0)
+    }
+
+    async fn download(
+        &self,
+        src: &Path,
+        dest_fs: &dyn crate::fs::traits::FileSystem,
+        dest: &Path,
+        progress: &crate::fs::traits::TaskProgressContext,
+    ) -> Option<anyhow::Result<()>> {
+        // Optimized download: extract directly if possible
+        if !dest_fs.is_local() {
+            return None;
+        }
+
+        let archive_path = self.archive_path.clone();
+        let src = src.to_path_buf();
+        let dest = dest.to_path_buf();
+        let progress = progress.clone();
+
+        Some(
+            tokio::task::spawn_blocking(move || {
+                let rel_src = if src.has_root() {
+                    src.strip_prefix("/").unwrap_or(&src)
+                } else {
+                    &src
+                };
+                let src_str = rel_src.to_string_lossy().replace('\\', "/");
+                let src_str = src_str.trim_end_matches('/').to_string();
+                let is_root = src_str.is_empty() || src_str == ".";
+
+                let mut last_update = std::time::Instant::now();
+                let mut p;
+                let mut dir_mtimes = Vec::new();
+
+                let file = File::open(&archive_path).context("Failed to open archive")?;
+                let ext = archive_path
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+
+                if ext == "zip" {
+                    let mut archive = zip::ZipArchive::new(file).context("Failed to read zip")?;
+
+                    // Optimized single file extraction
+                    if !is_root
+                        && let Ok(mut zip_file) = archive.by_name(&src_str)
+                        && !zip_file.is_dir()
+                    {
+                        if let Some(parent) = dest.parent() {
+                            std::fs::create_dir_all(parent)?;
+                        }
+                        let mut out = File::create(&dest)?;
+                        std::io::copy(&mut zip_file, &mut out)?;
+                        let size = zip_file.size();
+                        progress
+                            .processed_bytes
+                            .fetch_add(size, std::sync::atomic::Ordering::Relaxed);
+                        let p = progress
+                            .processed_items
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                            + 1;
+                        let _ = progress
+                            .tx
+                            .send(crate::tasks::TaskEvent::UpdateByteProgress(
+                                progress.id,
+                                progress
+                                    .processed_bytes
+                                    .load(std::sync::atomic::Ordering::Relaxed),
+                                0,
+                            ));
+                        let _ = progress.tx.send(crate::tasks::TaskEvent::UpdateProgress(
+                            progress.id,
+                            p,
+                            0,
+                        ));
+                        return Ok(());
+                    }
+
+                    for i in 0..archive.len() {
+                        if progress.cancel.load(Ordering::Relaxed) {
+                            return Ok(());
+                        }
+                        let mut zip_file =
+                            archive.by_index(i).context("Failed to get zip index")?;
+                        let name_raw = zip_file.name().to_string();
+                        let name = name_raw.replace('\\', "/");
+                        let name = name.trim_end_matches('/');
+
+                        let should_extract = if is_root {
+                            true
+                        } else {
+                            name == src_str || name.starts_with(&format!("{}/", src_str))
+                        };
+
+                        if should_extract {
+                            let rel_path = if is_root {
+                                PathBuf::from(name)
+                            } else {
+                                Path::new(name)
+                                    .strip_prefix(&src_str)
+                                    .map(|p| p.to_path_buf())
+                                    .unwrap_or_else(|_| PathBuf::from(name))
+                            };
+
+                            let rel_name_str = rel_path.to_string_lossy().to_string();
+
+                            if rel_name_str.is_empty() && zip_file.is_dir() {
+                                continue;
+                            }
+
+                            let target = if rel_name_str.is_empty() {
+                                dest.clone()
+                            } else {
+                                dest.join(&rel_name_str)
+                            };
+
+                            let mtime = Self::zip_dt_to_system_time(zip_file.last_modified());
+
+                            if zip_file.is_dir() || name.ends_with('/') {
+                                std::fs::create_dir_all(&target)?;
+                                dir_mtimes.push((target, mtime));
+                            } else {
+                                if let Some(parent) = target.parent() {
+                                    std::fs::create_dir_all(parent)?;
+                                }
+                                let mut out = File::create(&target)?;
+                                std::io::copy(&mut zip_file, &mut out)?;
+                                let size = zip_file.size();
+                                progress
+                                    .processed_bytes
+                                    .fetch_add(size, std::sync::atomic::Ordering::Relaxed);
+                                // Set modified time for file
+                                let _ = set_file_mtime(&target, FileTime::from_system_time(mtime));
+                            }
+
+                            p = progress.processed_items.fetch_add(1, Ordering::Relaxed) + 1;
+
+                            let now = std::time::Instant::now();
+                            if p % 10 == 0
+                                || now.duration_since(last_update)
+                                    > std::time::Duration::from_millis(100)
+                            {
+                                let _ =
+                                    progress.tx.send(crate::tasks::TaskEvent::UpdateCurrentFile(
+                                        progress.id,
+                                        rel_name_str,
+                                    ));
+                                let _ =
+                                    progress
+                                        .tx
+                                        .send(crate::tasks::TaskEvent::UpdateByteProgress(
+                                            progress.id,
+                                            progress.processed_bytes.load(Ordering::Relaxed),
+                                            0,
+                                        ));
+                                let _ = progress.tx.send(crate::tasks::TaskEvent::UpdateProgress(
+                                    progress.id,
+                                    p,
+                                    0,
+                                ));
+                                last_update = now;
+                            }
+                        }
+                    }
+                    // Apply directory transitions in reverse order of depth to avoid spoiling
+                    dir_mtimes.sort_by(|a, b| b.0.as_os_str().len().cmp(&a.0.as_os_str().len()));
+                    for (dir, mtime) in dir_mtimes {
+                        let _ = set_file_mtime(&dir, FileTime::from_system_time(mtime));
+                    }
+
+                    // Send final update for this provider
+                    let _ = progress.tx.send(crate::tasks::TaskEvent::UpdateProgress(
+                        progress.id,
+                        progress.processed_items.load(Ordering::Relaxed),
+                        0,
+                    ));
+                } else {
+                    // Tar implementation
+                    let reader = std::io::BufReader::new(file);
+                    if ext == "gz" || ext == "tgz" {
+                        let tar = flate2::read::GzDecoder::new(reader);
+                        Self::extract_tar(tar, &src_str, &dest, &progress)?;
+                    } else if ext == "bz2" || ext == "tbz2" {
+                        let tar = bzip2::read::BzDecoder::new(reader);
+                        Self::extract_tar(tar, &src_str, &dest, &progress)?;
+                    } else {
+                        Self::extract_tar(reader, &src_str, &dest, &progress)?;
+                    }
+                }
+                Ok(())
+            })
+            .await
+            .unwrap_or_else(|e| Err(anyhow::anyhow!("Join error: {}", e))),
+        )
+    }
+}
+
+impl ArchiveFs {
+    fn read_tar_file<R: Read>(reader: R, path_str: &str) -> Result<Vec<u8>> {
+        let mut archive = tar::Archive::new(reader);
+        for entry in archive.entries()? {
+            let mut entry = entry?;
+            let name = entry.path()?.to_string_lossy().replace('\\', "/");
+            if name == path_str || name.trim_end_matches('/') == path_str {
+                let mut buffer = Vec::with_capacity(entry.size() as usize);
+                entry.read_to_end(&mut buffer)?;
+                return Ok(buffer);
+            }
+        }
+        Err(anyhow::anyhow!("File not found in tar: {}", path_str))
+    }
+
+    fn extract_tar<R: Read>(
+        reader: R,
+        src_str: &str,
+        dest: &Path,
+        progress: &TaskProgressContext,
+    ) -> Result<()> {
+        let mut last_update = std::time::Instant::now();
+        let mut p;
+        let mut dir_mtimes = Vec::new();
+        let mut archive = tar::Archive::new(reader);
+        let is_root = src_str.is_empty() || src_str == ".";
+
+        for entry in archive.entries()? {
+            if progress.cancel.load(Ordering::Relaxed) {
+                return Ok(());
+            }
+            let mut entry = entry?;
+            let name_raw = entry.path()?.to_string_lossy().replace('\\', "/");
+            let name = name_raw.trim_end_matches('/');
+
+            let prefix = if is_root { "" } else { src_str };
+            let should_extract = if is_root {
+                true
+            } else {
+                name == src_str || name.starts_with(&format!("{}/", src_str))
+            };
+
+            if should_extract {
+                let rel_path = if is_root {
+                    PathBuf::from(name)
+                } else {
+                    Path::new(name)
+                        .strip_prefix(prefix)
+                        .map(|p| p.to_path_buf())
+                        .unwrap_or_else(|_| PathBuf::from(name))
+                };
+
+                let rel_name_str = rel_path.to_string_lossy().to_string();
+
+                if rel_name_str.is_empty() && entry.header().entry_type().is_dir() {
+                    continue;
+                }
+
+                let target = if rel_name_str.is_empty() {
+                    dest.to_path_buf()
+                } else {
+                    dest.join(&rel_name_str)
+                };
+
+                let mut mtime = None;
+                if let Ok(mtime_secs) = entry.header().mtime() {
+                    mtime =
+                        Some(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(mtime_secs));
+                }
+
+                if entry.header().entry_type().is_dir() {
+                    std::fs::create_dir_all(&target)?;
+                    if let Some(mt) = mtime {
+                        dir_mtimes.push((target, mt));
+                    }
+                } else {
+                    if let Some(parent) = target.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    let mut out = File::create(&target)?;
+                    std::io::copy(&mut entry, &mut out)?;
+                    let size = entry.size();
+                    progress.processed_bytes.fetch_add(size, Ordering::Relaxed);
+
+                    // Set modified time for file
+                    if let Some(mt) = mtime {
+                        let _ = set_file_mtime(&target, FileTime::from_system_time(mt));
+                    }
+                }
+
+                p = progress.processed_items.fetch_add(1, Ordering::Relaxed) + 1;
+
+                let now = std::time::Instant::now();
+                if p % 10 == 0
+                    || now.duration_since(last_update) > std::time::Duration::from_millis(100)
+                {
+                    let _ = progress.tx.send(crate::tasks::TaskEvent::UpdateCurrentFile(
+                        progress.id,
+                        rel_name_str,
+                    ));
+                    let _ = progress
+                        .tx
+                        .send(crate::tasks::TaskEvent::UpdateByteProgress(
+                            progress.id,
+                            progress.processed_bytes.load(Ordering::Relaxed),
+                            0,
+                        ));
+                    let _ = progress.tx.send(crate::tasks::TaskEvent::UpdateProgress(
+                        progress.id,
+                        p,
+                        0,
+                    ));
+                    last_update = now;
+                }
+            }
+        }
+
+        // Apply directory transitions in reverse order of depth to avoid spoiling
+        dir_mtimes.sort_by(|a, b| b.0.as_os_str().len().cmp(&a.0.as_os_str().len()));
+        for (dir, mtime) in dir_mtimes {
+            let _ = set_file_mtime(&dir, FileTime::from_system_time(mtime));
+        }
+
+        // Send final update for this provider
+        let _ = progress.tx.send(crate::tasks::TaskEvent::UpdateProgress(
+            progress.id,
+            progress.processed_items.load(Ordering::Relaxed),
+            0,
+        ));
+        Ok(())
     }
 }

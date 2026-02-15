@@ -4,7 +4,11 @@ use fm::app::{AppState, PanelSide, Tab, TabManager};
 use fm::clipboard::InMemoryFileClipboard;
 use fm::config::GlobalConfig;
 use fm::dir_history::DirectoryHistory;
+use fm::fs::fs_archive::ArchiveFs;
 use fm::fs::fs_local::LocalFs;
+use fm::fs::fs_provider::FileSystemProvider;
+use fm::fs::provider::ProviderFileSystem;
+use fm::fs::traits::TaskProgressContext;
 use fm::fs::utils::FileEntry;
 use fm::handlers::navigation::handle_enter;
 use fm::opener::FileOpener;
@@ -17,6 +21,7 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, SystemTime};
 use tokio::sync::mpsc;
 
 /// Mock file opener that records if open() was called
@@ -183,5 +188,403 @@ async fn test_open_unsupported_archive_xz_fallback() {
     assert!(
         mock_opener.was_called(),
         "Fallback file opener should have been called for unsupported archive"
+    );
+}
+
+#[tokio::test]
+async fn test_archive_fs_read_and_download_zip() {
+    // 1. Setup ZIP with a file and a subdirectory
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive_path = temp_dir.path().join("test.zip");
+
+    {
+        let file = File::create(&archive_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+
+        let options = zip::write::SimpleFileOptions::default();
+        zip.start_file("hello.txt", options).unwrap();
+        zip.write_all(b"world").unwrap();
+
+        zip.add_directory("dir", options).unwrap();
+        zip.start_file("dir/sub.txt", options).unwrap();
+        zip.write_all(b"subordinate").unwrap();
+
+        zip.finish().unwrap();
+    }
+
+    // 2. Load ArchiveFs
+    let archive_fs = fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap();
+
+    // 3. Test read_file
+    let content = archive_fs.read_file(Path::new("hello.txt")).unwrap();
+    assert_eq!(content, b"world");
+
+    let sub_content = archive_fs.read_file(Path::new("dir/sub.txt")).unwrap();
+    assert_eq!(sub_content, b"subordinate");
+
+    // 4. Test download (optimized extraction)
+    let dest_dir = temp_dir.path().join("extracted_zip");
+    std::fs::create_dir_all(&dest_dir).unwrap();
+
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
+    let progress = fm::fs::traits::TaskProgressContext {
+        id: 0,
+        tx,
+        cancel: Arc::new(AtomicBool::new(false)),
+        processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+    };
+    let local_fs = fm::fs::provider::ProviderFileSystem(Arc::new(LocalFs::new()));
+
+    // Extract everything
+    archive_fs
+        .download(Path::new("."), &local_fs, &dest_dir, &progress)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        std::fs::read_to_string(dest_dir.join("hello.txt")).unwrap(),
+        "world"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dest_dir.join("dir/sub.txt")).unwrap(),
+        "subordinate"
+    );
+}
+
+#[tokio::test]
+async fn test_archive_fs_read_and_download_tar_gz() {
+    // 1. Setup TAR.GZ
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive_path = temp_dir.path().join("test.tar.gz");
+
+    {
+        let file = File::create(&archive_path).unwrap();
+        let enc = GzEncoder::new(file, Compression::default());
+        let mut tar = tar::Builder::new(enc);
+
+        let mut header = tar::Header::new_gnu();
+        header.set_size(5);
+        tar.append_data(&mut header, "hello.txt", b"world" as &[u8])
+            .unwrap();
+
+        let mut header2 = tar::Header::new_gnu();
+        header2.set_size(11);
+        tar.append_data(&mut header2, "dir/sub.txt", b"subordinate" as &[u8])
+            .unwrap();
+
+        tar.finish().unwrap();
+    }
+
+    // 2. Load ArchiveFs
+    let archive_fs = fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap();
+
+    // 3. Test read_file
+    let content = archive_fs.read_file(Path::new("hello.txt")).unwrap();
+    assert_eq!(content, b"world");
+
+    // 4. Test download
+    let dest_dir = temp_dir.path().join("extracted_tar");
+    std::fs::create_dir_all(&dest_dir).unwrap();
+
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
+    let progress = fm::fs::traits::TaskProgressContext {
+        id: 0,
+        tx,
+        cancel: Arc::new(AtomicBool::new(false)),
+        processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+    };
+    let local_fs = fm::fs::provider::ProviderFileSystem(Arc::new(LocalFs::new()));
+
+    archive_fs
+        .download(Path::new("."), &local_fs, &dest_dir, &progress)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        std::fs::read_to_string(dest_dir.join("hello.txt")).unwrap(),
+        "world"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dest_dir.join("dir/sub.txt")).unwrap(),
+        "subordinate"
+    );
+}
+
+#[tokio::test]
+async fn test_archive_download_empty_dir_and_nesting() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive_path = temp_dir.path().join("nesting.zip");
+
+    {
+        let file = File::create(&archive_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default();
+
+        // Empty directory
+        zip.add_directory("empty_dir", options).unwrap();
+
+        // Nested structure
+        zip.add_directory("a", options).unwrap();
+        zip.add_directory("a/b", options).unwrap();
+        zip.start_file("a/b/c.txt", options).unwrap();
+        zip.write_all(b"nested content").unwrap();
+
+        zip.finish().unwrap();
+    }
+
+    let archive_fs = fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap();
+    let dest_dir = temp_dir.path().join("extracted_nesting");
+    std::fs::create_dir_all(&dest_dir).unwrap();
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
+    let progress = fm::fs::traits::TaskProgressContext {
+        id: 123,
+        tx,
+        cancel: Arc::new(AtomicBool::new(false)),
+        processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+    };
+    let local_fs = fm::fs::provider::ProviderFileSystem(Arc::new(LocalFs::new()));
+
+    archive_fs
+        .download(Path::new("."), &local_fs, &dest_dir, &progress)
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Verify files
+    assert!(dest_dir.join("empty_dir").is_dir());
+    assert_eq!(
+        std::fs::read_to_string(dest_dir.join("a/b/c.txt")).unwrap(),
+        "nested content"
+    );
+
+    // Verify progress pulse
+    let mut item_count = 0;
+    while let Ok(event) = rx.try_recv() {
+        if let fm::tasks::TaskEvent::UpdateProgress(id, p, _) = event {
+            assert_eq!(id, 123);
+            item_count = p;
+        }
+    }
+    // Items: empty_dir (1), a (1), a/b (1), a/b/c.txt (1) = 4
+    assert_eq!(item_count, 4);
+    assert_eq!(progress.processed_items.load(Ordering::SeqCst), 4);
+}
+
+#[tokio::test]
+async fn test_archive_download_cancellation() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive_path = temp_dir.path().join("cancel.zip");
+
+    {
+        let file = File::create(&archive_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default();
+
+        // Create many files to ensure we have time to cancel
+        for i in 0..1000 {
+            zip.start_file(format!("file_{}.txt", i), options).unwrap();
+            zip.write_all(b"some data").unwrap();
+        }
+
+        zip.finish().unwrap();
+    }
+
+    let archive_fs = fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap();
+    let dest_dir = temp_dir.path().join("extracted_cancel");
+    std::fs::create_dir_all(&dest_dir).unwrap();
+
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    let progress = fm::fs::traits::TaskProgressContext {
+        id: 789,
+        tx,
+        cancel: cancel_flag.clone(),
+        processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+    };
+    let local_fs = fm::fs::provider::ProviderFileSystem(Arc::new(LocalFs::new()));
+
+    // Cancel after a short delay
+    let cancel_flag_clone = cancel_flag.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        cancel_flag_clone.store(true, Ordering::SeqCst);
+    });
+
+    let res = archive_fs
+        .download(Path::new("."), &local_fs, &dest_dir, &progress)
+        .await
+        .unwrap();
+
+    // archive_fs::download returns Ok(()) on cancellation
+    assert!(res.is_ok());
+
+    // Should not have extracted all 1000 files
+    let count = std::fs::read_dir(&dest_dir).unwrap().count();
+    assert!(count < 1000);
+}
+
+#[tokio::test]
+async fn test_zip_timestamp_preservation() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive_path = temp_dir.path().join("test.zip");
+    let dest_dir = temp_dir.path().join("extracted");
+
+    {
+        let file = File::create(&archive_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+
+        let dt = zip::DateTime::from_date_and_time(2025, 1, 1, 12, 0, 0).unwrap();
+        let options = zip::write::SimpleFileOptions::default().last_modified_time(dt);
+
+        zip.add_directory("dir", options).unwrap();
+        zip.start_file("dir/file.txt", options).unwrap();
+        zip.write_all(b"content").unwrap();
+        zip.finish().unwrap();
+    }
+
+    let archive_fs = ArchiveFs::new(&archive_path).unwrap();
+    let local_fs = ProviderFileSystem(Arc::new(LocalFs::new()));
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let progress = TaskProgressContext {
+        id: 0,
+        tx,
+        cancel: Arc::new(AtomicBool::new(false)),
+        processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+    };
+
+    let result: anyhow::Result<()> = archive_fs
+        .download(Path::new("."), &local_fs, &dest_dir, &progress)
+        .await
+        .unwrap();
+    result.unwrap();
+
+    // Verify file timestamp
+    let file_meta = std::fs::metadata(dest_dir.join("dir/file.txt")).unwrap();
+    let file_mtime = file_meta.modified().unwrap();
+
+    // Verify directory timestamp
+    let dir_meta = std::fs::metadata(dest_dir.join("dir")).unwrap();
+    let dir_mtime = dir_meta.modified().unwrap();
+
+    // Convert SystemTime to chrono for easier comparison if needed, or just compare
+    // Note: ZIP has 2-second resolution.
+    let expected = SystemTime::from(chrono::TimeZone::from_utc_datetime(
+        &chrono::Utc,
+        &chrono::NaiveDate::from_ymd_opt(2025, 1, 1)
+            .unwrap()
+            .and_hms_opt(12, 0, 0)
+            .unwrap(),
+    ));
+
+    let diff_file = if file_mtime > expected {
+        file_mtime.duration_since(expected).unwrap()
+    } else {
+        expected.duration_since(file_mtime).unwrap()
+    };
+    let diff_dir = if dir_mtime > expected {
+        dir_mtime.duration_since(expected).unwrap()
+    } else {
+        expected.duration_since(dir_mtime).unwrap()
+    };
+
+    assert!(
+        diff_file < Duration::from_secs(2),
+        "File timestamp diff too large: {:?}",
+        diff_file
+    );
+    assert!(
+        diff_dir < Duration::from_secs(2),
+        "Dir timestamp diff too large: {:?}",
+        diff_dir
+    );
+}
+
+#[tokio::test]
+async fn test_tar_timestamp_preservation() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive_path = temp_dir.path().join("test.tar.gz");
+    let dest_dir = temp_dir.path().join("extracted_tar");
+
+    let past_time_secs = 1735732800; // 2025-01-01 12:00:00 UTC
+    let expected = SystemTime::UNIX_EPOCH + Duration::from_secs(past_time_secs);
+
+    {
+        let file = File::create(&archive_path).unwrap();
+        let enc = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+        let mut tar = tar::Builder::new(enc);
+
+        // Add a directory with a specific timestamp
+        let mut dir_header = tar::Header::new_gnu();
+        dir_header.set_entry_type(tar::EntryType::Directory);
+        dir_header.set_size(0);
+        dir_header.set_mtime(past_time_secs);
+        dir_header.set_cksum();
+        tar.append_data(&mut dir_header, "dir", &[] as &[u8])
+            .unwrap();
+
+        // Add a file with a specific timestamp
+        let mut file_header = tar::Header::new_gnu();
+        file_header.set_size(7);
+        file_header.set_mtime(past_time_secs);
+        file_header.set_cksum();
+        tar.append_data(&mut file_header, "dir/file.txt", b"content" as &[u8])
+            .unwrap();
+
+        tar.finish().unwrap();
+    }
+
+    let archive_fs = ArchiveFs::new(&archive_path).unwrap();
+    let local_fs = ProviderFileSystem(Arc::new(LocalFs::new()));
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let progress = TaskProgressContext {
+        id: 1,
+        tx,
+        cancel: Arc::new(AtomicBool::new(false)),
+        processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+    };
+
+    let result: anyhow::Result<()> = archive_fs
+        .download(Path::new("."), &local_fs, &dest_dir, &progress)
+        .await
+        .unwrap();
+    result.unwrap();
+
+    // Verify file timestamp
+    let file_meta = std::fs::metadata(dest_dir.join("dir/file.txt")).unwrap();
+    let file_mtime = file_meta.modified().unwrap();
+
+    // Verify directory timestamp
+    let dir_meta = std::fs::metadata(dest_dir.join("dir")).unwrap();
+    let dir_mtime = dir_meta.modified().unwrap();
+
+    let diff_file = if file_mtime > expected {
+        file_mtime.duration_since(expected).unwrap()
+    } else {
+        expected.duration_since(file_mtime).unwrap()
+    };
+    let diff_dir = if dir_mtime > expected {
+        dir_mtime.duration_since(expected).unwrap()
+    } else {
+        expected.duration_since(dir_mtime).unwrap()
+    };
+
+    assert!(
+        diff_file < Duration::from_secs(1),
+        "File timestamp diff too large: {:?}",
+        diff_file
+    );
+    assert!(
+        diff_dir < Duration::from_secs(1),
+        "Dir timestamp diff too large: {:?}",
+        diff_dir
     );
 }
