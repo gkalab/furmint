@@ -531,6 +531,7 @@ mod tests {
                 modified: None,
                 attributes: String::new(),
                 selected: false,
+                position: None,
             },
             FileEntry {
                 name: "dir1".to_string(),
@@ -540,6 +541,7 @@ mod tests {
                 modified: None,
                 attributes: "drwxr-xr-x".to_string(),
                 selected: false,
+                position: None,
             },
             FileEntry {
                 name: "file1.txt".to_string(),
@@ -549,6 +551,7 @@ mod tests {
                 modified: None,
                 attributes: "-rw-r--r--".to_string(),
                 selected: false,
+                position: None,
             },
             FileEntry {
                 name: "file2.txt".to_string(),
@@ -558,6 +561,7 @@ mod tests {
                 modified: None,
                 attributes: "-rw-r--r--".to_string(),
                 selected: false,
+                position: None,
             },
         ];
 

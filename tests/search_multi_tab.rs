@@ -42,6 +42,7 @@ fn test_multi_tab_search_timeout() {
             modified: None,
             attributes: "".to_string(),
             selected: false,
+            position: None,
         }],
     );
     left_tab.search.buffer = "a".to_string();
@@ -57,6 +58,7 @@ fn test_multi_tab_search_timeout() {
             modified: None,
             attributes: "".to_string(),
             selected: false,
+            position: None,
         }],
     );
     right_tab.search.buffer = "b".to_string();
@@ -125,6 +127,7 @@ fn test_reload_optimization_and_persistence() {
                 modified: None,
                 attributes: "".to_string(),
                 selected: false,
+                position: None,
             },
             FileEntry {
                 name: "apple.txt".to_string(),
@@ -134,6 +137,7 @@ fn test_reload_optimization_and_persistence() {
                 modified: None,
                 attributes: "".to_string(),
                 selected: false,
+                position: None,
             },
         ],
     );
@@ -154,6 +158,7 @@ fn test_reload_optimization_and_persistence() {
             modified: None,
             attributes: "".to_string(),
             selected: false,
+            position: None,
         },
         FileEntry {
             name: "..".to_string(),
@@ -163,6 +168,7 @@ fn test_reload_optimization_and_persistence() {
             modified: None,
             attributes: "".to_string(),
             selected: false,
+            position: None,
         },
     ];
     let reloaded = tab.reload_preserving_state(reordered_entries);
@@ -185,6 +191,7 @@ fn test_reload_optimization_and_persistence() {
             modified: None,
             attributes: "".to_string(),
             selected: false,
+            position: None,
         },
         FileEntry {
             name: "apple.txt".to_string(),
@@ -194,6 +201,7 @@ fn test_reload_optimization_and_persistence() {
             modified: None,
             attributes: "".to_string(),
             selected: false,
+            position: None,
         },
     ];
     let reloaded = tab.reload_preserving_state(changed_entries);

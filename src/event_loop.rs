@@ -247,6 +247,7 @@ mod tests {
             modified: None,
             attributes: "".to_string(),
             selected: false,
+            position: None,
         }];
         app.right.active_tab_mut().current_dir = std::path::PathBuf::from("/mock");
         let paths = vec![std::path::PathBuf::from("/mock")];
@@ -281,6 +282,7 @@ mod tests {
             modified: None,
             attributes: "".to_string(),
             selected: true,
+            position: None,
         }];
 
         let paths = vec![tmp_dir.path().to_path_buf()];
@@ -324,6 +326,7 @@ mod tests {
                 modified: None,
                 attributes: "".to_string(),
                 selected: false,
+                position: None,
             },
             FileEntry {
                 name: "file2.txt".to_string(),
@@ -333,6 +336,7 @@ mod tests {
                 modified: None,
                 attributes: "".to_string(),
                 selected: false,
+                position: None,
             },
         ];
         app.right.active_tab_mut().current_dir = std::path::PathBuf::from("/mock");

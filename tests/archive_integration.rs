@@ -112,6 +112,7 @@ fn create_file_entry(name: &str, is_dir: bool) -> FileEntry {
         modified: None,
         attributes: String::new(),
         selected: false,
+        position: None,
     }
 }
 
@@ -121,12 +122,14 @@ async fn test_open_supported_archive_tar_gz() {
     let temp_dir = tempfile::tempdir().unwrap();
     let archive_path = temp_dir.path().join("test.tar.gz");
 
-    let tar_gz = File::create(&archive_path).unwrap();
-    let enc = GzEncoder::new(tar_gz, Compression::default());
-    let mut tar = tar::Builder::new(enc);
-    tar.append_path_with_name(temp_dir.path(), "dummy_content")
-        .unwrap(); // Just append something
-    tar.finish().unwrap();
+    {
+        let tar_gz = File::create(&archive_path).unwrap();
+        let enc = GzEncoder::new(tar_gz, Compression::default());
+        let mut tar = tar::Builder::new(enc);
+        tar.append_path_with_name(temp_dir.path(), "dummy_content")
+            .unwrap(); // Just append something
+        tar.finish().unwrap();
+    }
 
     // 2. Setup AppState
     let (tx, mut rx) = mpsc::unbounded_channel();
@@ -591,4 +594,65 @@ async fn test_tar_timestamp_preservation() {
         "Dir timestamp diff too large: {:?}",
         diff_dir
     );
+}
+
+#[tokio::test]
+async fn test_archive_fs_download_tar_gz_optimized() {
+    use flate2::Compression;
+    use flate2::write::GzEncoder;
+
+    // 1. Setup TAR.GZ with a file
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive_path = temp_dir.path().join("test.tar.gz");
+
+    {
+        let file = File::create(&archive_path).unwrap();
+        let enc = GzEncoder::new(file, Compression::default());
+        let mut builder = tar::Builder::new(enc);
+
+        let mut header = tar::Header::new_gnu();
+        header.set_size(5);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, "hello.txt", "world".as_bytes())
+            .unwrap();
+
+        builder.finish().unwrap();
+    }
+
+    // 2. Load ArchiveFs (this will decompress to temp and populate positions)
+    let archive_fs = fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap();
+
+    // Verify position is populated
+    {
+        let entry = archive_fs
+            .get_entry(Path::new("hello.txt"))
+            .expect("entry not found");
+        assert!(
+            entry.position.is_some(),
+            "position should be populated for tar.gz entries"
+        );
+    }
+
+    // 3. Test download (optimized extraction from temp tar)
+    let dest_file = temp_dir.path().join("extracted_hello.txt");
+
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
+    let progress = fm::fs::traits::TaskProgressContext {
+        id: 0,
+        tx,
+        cancel: Arc::new(AtomicBool::new(false)),
+        processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+    };
+    let local_fs = fm::fs::provider::ProviderFileSystem(Arc::new(LocalFs::new()));
+
+    // Extract single file
+    archive_fs
+        .download(Path::new("hello.txt"), &local_fs, &dest_file, &progress)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(std::fs::read_to_string(&dest_file).unwrap(), "world");
 }

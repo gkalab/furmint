@@ -7,8 +7,9 @@ use chrono::TimeZone;
 use filetime::{FileTime, set_file_mtime};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader, Read, Seek};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
@@ -21,26 +22,31 @@ pub struct ArchiveFs {
     entries: Arc<Mutex<HashMap<PathBuf, FileEntry>>>,
     // Store children for fast directory listing: "folder" -> ["folder/sub", "folder/file.txt"]
     tree: Arc<Mutex<HashMap<PathBuf, Vec<PathBuf>>>>,
+    temp_tar: Arc<Mutex<Option<tempfile::NamedTempFile>>>,
 }
 
 impl ArchiveFs {
     pub fn new(path: &Path) -> Result<Self> {
         let entries = Arc::new(Mutex::new(HashMap::new()));
         let tree = Arc::new(Mutex::new(HashMap::new()));
+        let temp_tar = Arc::new(Mutex::new(None));
         let fs = Self {
             archive_path: path.to_path_buf(),
             entries,
             tree,
+            temp_tar,
         };
 
         fs.scan_archive()?;
         Ok(fs)
     }
 
-    fn scan_archive(&self) -> Result<()> {
-        let file = File::open(&self.archive_path).context("Failed to open archive")?;
-        let reader = std::io::BufReader::new(file);
+    pub fn get_entry(&self, path: &Path) -> Option<FileEntry> {
+        let entries = self.entries.lock().unwrap();
+        entries.get(path).cloned()
+    }
 
+    fn scan_archive(&self) -> Result<()> {
         let ext = self
             .archive_path
             .extension()
@@ -49,43 +55,62 @@ impl ArchiveFs {
             .to_lowercase();
 
         if ext == "zip" {
+            let file = File::open(&self.archive_path).context("Failed to open archive")?;
+            let reader = std::io::BufReader::new(file);
             self.scan_zip(reader)?;
         } else if ext == "tar" {
+            let file = File::open(&self.archive_path).context("Failed to open archive")?;
+            let reader = std::io::BufReader::new(file);
             self.scan_tar(reader)?;
-        } else if ext == "gz" || ext == "tgz" {
-            // Use system gzip for better performance
-            use std::process::{Command, Stdio};
+        } else if ext == "gz" || ext == "tgz" || ext == "bz2" || ext == "tbz2" {
+            let mut temp = tempfile::NamedTempFile::new()?;
+            let cmd_name = if ext == "gz" || ext == "tgz" {
+                "gzip"
+            } else {
+                "bzip2"
+            };
 
-            let child = Command::new("gzip")
+            // Try system command first for performance
+            let mut decompressed_via_system = false;
+            if let Ok(mut child) = Command::new(cmd_name)
                 .arg("-dc")
                 .arg(&self.archive_path)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())
-                .spawn();
+                .spawn()
+                && let Some(mut stdout) = child.stdout.take()
+                && std::io::copy(&mut stdout, temp.as_file_mut()).is_ok()
+                && child.wait().map(|s| s.success()).unwrap_or(false)
+            {
+                decompressed_via_system = true;
+            }
 
-            match child {
-                Ok(mut child) => {
-                    if let Some(stdout) = child.stdout.take() {
-                        let reader = std::io::BufReader::new(stdout);
-                        let res = self.scan_tar(reader);
-                        let _ = child.wait(); // extensive wait might not be strictly necessary if we drop stdout, but good practice
-                        res?;
-                    } else {
-                        return Err(anyhow::anyhow!("Failed to open stdout of gzip process"));
-                    }
-                }
-                Err(_e) => {
-                    let file = File::open(&self.archive_path)
-                        .context("Failed to open archive for fallback")?;
-                    let reader = std::io::BufReader::new(file);
-                    let tar = flate2::read::GzDecoder::new(reader);
-                    self.scan_tar(tar)?;
+            if !decompressed_via_system {
+                // Seek back to start of temp if system command wrote something then failed
+                temp.as_file_mut().seek(std::io::SeekFrom::Start(0))?;
+                temp.as_file_mut().set_len(0)?; // Truncate
+
+                let file = File::open(&self.archive_path)
+                    .context("Failed to open archive for fallback")?;
+                let reader = std::io::BufReader::new(file);
+                if ext == "gz" || ext == "tgz" {
+                    let mut decoder = flate2::read::GzDecoder::new(reader);
+                    std::io::copy(&mut decoder, temp.as_file_mut())?;
+                } else {
+                    let mut decoder = bzip2::read::BzDecoder::new(reader);
+                    std::io::copy(&mut decoder, temp.as_file_mut())?;
                 }
             }
-        } else if ext == "bz2" || ext == "tbz2" {
-            // Assume tar.bz2
-            let tar = bzip2::read::BzDecoder::new(reader);
-            self.scan_tar(tar)?;
+
+            // Seek back to start for scanning
+            temp.as_file_mut().seek(std::io::SeekFrom::Start(0))?;
+
+            // Scan the uncompressed tar
+            let reader = std::io::BufReader::new(temp.as_file());
+            self.scan_tar(reader)?;
+
+            // Store the temp file for later access
+            *self.temp_tar.lock().unwrap() = Some(temp);
         } else {
             return Err(anyhow::anyhow!("Unsupported archive format: {}", ext));
         }
@@ -128,6 +153,7 @@ impl ArchiveFs {
                     "-r--r--r--".to_string()
                 },
                 selected: false,
+                position: None,
             };
 
             entries_map.insert(path.clone(), entry);
@@ -167,6 +193,7 @@ impl ArchiveFs {
                             modified: None,
                             attributes: "dr-xr-xr-x".to_string(),
                             selected: false,
+                            position: None,
                         };
                         entries_map.insert(p_norm.to_path_buf(), implicit_entry);
 
@@ -225,6 +252,8 @@ impl ArchiveFs {
             let modified = SystemTime::UNIX_EPOCH
                 + std::time::Duration::from_secs(file.header().mtime().unwrap_or(0));
 
+            let position = file.raw_header_position();
+
             let entry = FileEntry {
                 name: path
                     .file_name()
@@ -241,6 +270,7 @@ impl ArchiveFs {
                     "-r--r--r--".to_string()
                 },
                 selected: false,
+                position: Some(position),
             };
 
             entries_map.insert(path.clone(), entry);
@@ -279,6 +309,7 @@ impl ArchiveFs {
                             modified: None,
                             attributes: "dr-xr-xr-x".to_string(),
                             selected: false,
+                            position: None,
                         };
                         entries_map.insert(p_norm.to_path_buf(), implicit_entry);
 
@@ -367,6 +398,7 @@ impl FileSystemProvider for ArchiveFs {
                 modified: None,
                 attributes: String::new(),
                 selected: false,
+                position: None,
             });
         }
 
@@ -574,6 +606,8 @@ impl FileSystemProvider for ArchiveFs {
         let dest = dest.to_path_buf();
         let progress = progress.clone();
         let is_dir = self.is_dir(&src);
+        let entries_map = self.entries.clone();
+        let temp_tar = self.temp_tar.clone();
 
         Some(
             tokio::task::spawn_blocking(move || {
@@ -590,12 +624,24 @@ impl FileSystemProvider for ArchiveFs {
                 let mut p;
                 let mut dir_mtimes = Vec::new();
 
-                let file = File::open(&archive_path).context("Failed to open archive")?;
                 let ext = archive_path
                     .extension()
                     .and_then(|s| s.to_str())
                     .unwrap_or("")
                     .to_lowercase();
+
+                let temp_tar_path = {
+                    let lock = temp_tar.lock().unwrap();
+                    lock.as_ref().map(|t| t.path().to_path_buf())
+                };
+
+                let effective_path = if ext == "zip" {
+                    &archive_path
+                } else {
+                    temp_tar_path.as_ref().unwrap_or(&archive_path)
+                };
+
+                let file = File::open(effective_path).context("Failed to open archive")?;
 
                 if ext == "zip" {
                     let mut archive = zip::ZipArchive::new(file).context("Failed to read zip")?;
@@ -735,8 +781,50 @@ impl FileSystemProvider for ArchiveFs {
                     ));
                 } else {
                     // Tar implementation
-                    // Try system tar for performance
-                    if Self::system_tar_extract(&archive_path, &src_str, &dest, is_dir, &progress)
+                    // Try optimized single file extraction if we have the position
+                    if !is_root && !is_dir {
+                        let position = {
+                            let entries = entries_map.lock().unwrap();
+                            entries
+                                .get(&PathBuf::from(&src_str))
+                                .and_then(|e| e.position)
+                        };
+
+                        if let Some(pos) = position {
+                            let mut file =
+                                File::open(effective_path).context("Failed to open archive")?;
+                            file.seek(std::io::SeekFrom::Start(pos))?;
+                            let mut archive = tar::Archive::new(file);
+                            let mut entries = archive.entries()?;
+                            if let Some(Ok(mut entry)) = entries.next() {
+                                // Double check it's the right file to be safe
+                                let entry_path = entry.path()?.to_string_lossy().replace('\\', "/");
+                                let entry_path = entry_path.trim_end_matches('/');
+                                if entry_path == src_str {
+                                    if let Some(parent) = dest.parent() {
+                                        std::fs::create_dir_all(parent)?;
+                                    }
+                                    let mut out = File::create(&dest)?;
+                                    std::io::copy(&mut entry, &mut out)?;
+                                    let size = entry.size();
+                                    progress
+                                        .processed_bytes
+                                        .fetch_add(size, std::sync::atomic::Ordering::Relaxed);
+                                    let p = progress
+                                        .processed_items
+                                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                                        + 1;
+                                    let _ = progress.tx.send(
+                                        crate::tasks::TaskEvent::UpdateProgress(progress.id, p, 0),
+                                    );
+                                    return Ok(());
+                                }
+                            }
+                        }
+                    }
+
+                    // Fallback to system tar for performance or directory extraction
+                    if Self::system_tar_extract(effective_path, &src_str, &dest, is_dir, &progress)
                         .is_ok()
                     {
                         return Ok(());
@@ -759,6 +847,17 @@ impl FileSystemProvider for ArchiveFs {
             .await
             .unwrap_or_else(|e| Err(anyhow::anyhow!("Join error: {}", e))),
         )
+    }
+}
+
+impl Drop for ArchiveFs {
+    fn drop(&mut self) {
+        // tempfile::NamedTempFile will automatically delete the file when dropped.
+        // We just need to ensure the Mutex is cleared if we are the last owner.
+        // However, since it's an Arc<Mutex>, we can't easily clear it for other clones.
+        // But NamedTempFile's drop is triggered when the *last* clone of the Arc<Mutex<Option<NamedTempFile>>> is dropped.
+        // Actually, our tempfile is inside an Option inside a Mutex inside an Arc.
+        // The file will be deleted when the NamedTempFile itself is dropped.
     }
 }
 

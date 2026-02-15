@@ -93,6 +93,7 @@ pub struct FileEntry {
     pub modified: Option<SystemTime>,
     pub attributes: String,
     pub selected: bool,
+    pub position: Option<u64>,
 }
 
 impl FileEntry {
@@ -122,6 +123,7 @@ impl FileEntry {
             modified,
             attributes,
             selected: false,
+            position: None,
         })
     }
 }
@@ -182,6 +184,7 @@ pub fn list_dir(path: &Path) -> Result<Vec<FileEntry>> {
         modified: None,
         attributes: String::new(),
         selected: false,
+        position: None,
     });
     for entry in fs::read_dir(path)? {
         let entry = entry?;
@@ -396,6 +399,7 @@ mod tests {
                 modified: None,
                 attributes: String::new(),
                 selected: false,
+                position: None,
             };
 
             assert!(is_executable(&file_path, &entry));
@@ -422,6 +426,7 @@ mod tests {
                 modified: None,
                 attributes: "-rwxr-xr-x".to_string(),
                 selected: false,
+                position: None,
             };
 
             // Use a non-existent path to force fallback to attributes parsing
@@ -437,6 +442,7 @@ mod tests {
                 modified: None,
                 attributes: "-rw-r--r--".to_string(),
                 selected: false,
+                position: None,
             };
 
             assert!(!is_executable(&fake_path, &non_executable_entry));
@@ -450,6 +456,7 @@ mod tests {
                 modified: None,
                 attributes: "drwxr-xr-x".to_string(),
                 selected: false,
+                position: None,
             };
 
             assert!(!is_executable(&fake_path, &dir_entry));
@@ -463,6 +470,7 @@ mod tests {
                 modified: None,
                 attributes: "-rwx------".to_string(),
                 selected: false,
+                position: None,
             };
 
             assert!(is_executable(&fake_path, &user_exec_entry));
@@ -529,6 +537,7 @@ mod tests {
                 modified: None,
                 attributes: "<DIR>".to_string(),
                 selected: false,
+                position: None,
             };
 
             assert!(!is_executable(&fake_path, &dir_entry));
