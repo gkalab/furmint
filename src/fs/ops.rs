@@ -236,13 +236,51 @@ async fn handle_directory(
         processed_items: ctx.processed.clone(),
     };
 
-    if let Some(res) = ctx.src_fs.download(src, ctx.dest_fs, dest, &progress).await {
+    let dest_exists = ctx.dest_fs.try_exists(dest).await.unwrap_or(false);
+    let dest_is_dir = dest_exists && ctx.dest_fs.is_dir(dest).await.unwrap_or(false);
+
+    // For providers that handle extraction themselves (e.g. archives), ask before
+    // we hand off control — but only when the destination already exists as a directory
+    // (replacing a whole tree). A non-directory blocking the path is handled below.
+    if dest_is_dir {
+        if let Some(_res) = ctx.src_fs.download(src, ctx.dest_fs, dest, &progress).await {
+            // download() would overwrite the existing directory tree — ask first.
+            match resolve_conflict(ctx, decision_state, dest).await? {
+                ConflictResult::Perform => {} // re-run download after confirmation
+                ConflictResult::Skip => {
+                    let p = ctx
+                        .processed
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                        + 1;
+                    update_progress_if_needed(ctx, decision_state, p);
+                    return Ok(());
+                }
+                ConflictResult::Cancel => return Ok(()),
+            }
+            // User said overwrite — run download for real now.
+            let res = ctx.src_fs.download(src, ctx.dest_fs, dest, &progress).await;
+            if let Some(res) = res {
+                if res.is_ok() {
+                    if let Some(mtime) = ctx.src_fs.get_modified_time(src).await {
+                        let _ = ctx.dest_fs.set_modified_time(dest, mtime).await;
+                    }
+                    let p = ctx.processed.load(std::sync::atomic::Ordering::Relaxed);
+                    let _ = ctx.tx.send(crate::tasks::TaskEvent::UpdateProgress(
+                        ctx.id, p, ctx.total,
+                    ));
+                }
+                return res;
+            }
+        } else {
+            // No download() optimisation — fall through to normal recursive path.
+            // Merging into an existing directory is silent (no prompt needed).
+        }
+    } else if let Some(res) = ctx.src_fs.download(src, ctx.dest_fs, dest, &progress).await {
+        // Destination doesn't exist yet — download directly, no conflict.
         if res.is_ok() {
-            // Set modified time for the extracted directory
             if let Some(mtime) = ctx.src_fs.get_modified_time(src).await {
                 let _ = ctx.dest_fs.set_modified_time(dest, mtime).await;
             }
-
             let p = ctx.processed.load(std::sync::atomic::Ordering::Relaxed);
             let _ = ctx.tx.send(crate::tasks::TaskEvent::UpdateProgress(
                 ctx.id, p, ctx.total,
@@ -251,8 +289,7 @@ async fn handle_directory(
         return res;
     }
 
-    let dest_exists = ctx.dest_fs.try_exists(dest).await.unwrap_or(false);
-
+    // Normal recursive path (no download() optimisation).
     if !dest_exists {
         if let Err(e) = ctx.dest_fs.create_dir_all(dest).await {
             return Err(anyhow!(
@@ -260,12 +297,31 @@ async fn handle_directory(
                 dest.display(),
             ));
         }
-    } else if !ctx.dest_fs.is_dir(dest).await.unwrap_or(true) {
-        return Err(anyhow!(
-            "Destination {} exists and is not a directory",
-            dest.display()
-        ));
+    } else if !dest_is_dir {
+        // A file exists where we want a directory — that's a genuine conflict.
+        match resolve_conflict(ctx, decision_state, dest).await? {
+            ConflictResult::Perform => {
+                // Remove the blocking file and create the directory.
+                let _ = ctx.dest_fs.remove_file(dest).await;
+                if let Err(e) = ctx.dest_fs.create_dir_all(dest).await {
+                    return Err(anyhow!(
+                        "Failed to create directory {}: {e}",
+                        dest.display(),
+                    ));
+                }
+            }
+            ConflictResult::Skip => {
+                let p = ctx
+                    .processed
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                    + 1;
+                update_progress_if_needed(ctx, decision_state, p);
+                return Ok(());
+            }
+            ConflictResult::Cancel => return Ok(()),
+        }
     }
+    // else: dest is already a directory — merge silently.
 
     // Increment progress for the directory itself
     let p = ctx
