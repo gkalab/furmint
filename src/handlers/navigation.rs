@@ -242,15 +242,15 @@ fn handle_open_archive(app: &mut AppState, path: PathBuf, filename: String) {
 
     // Check cache first
     if let Ok(metadata) = std::fs::metadata(&path)
-        && let Some((cached_mtime, cached_size, provider)) = app.archive_cache.get(&path)
+        && let Some(entry) = app.archive_cache.get(&path)
     {
         let current_mtime = metadata
             .modified()
             .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
         let current_size = metadata.len();
 
-        if *cached_mtime == current_mtime && *cached_size == current_size {
-            let provider = provider.clone();
+        if entry.mtime == current_mtime && entry.size == current_size {
+            let provider = entry.provider.clone();
             // Create tab immediately
             let manager = if side_index == 0 {
                 &mut app.left

@@ -137,8 +137,15 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
                     .modified()
                     .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
                 let size = metadata.len();
-                app.archive_cache
-                    .insert(path, (mtime, size, provider.clone()));
+                app.archive_cache.insert(
+                    path,
+                    crate::app::ArchiveCacheEntry {
+                        mtime,
+                        size,
+                        provider: provider.clone(),
+                        closed_at: None,
+                    },
+                );
             }
 
             let manager = if side_index == 0 {

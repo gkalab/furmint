@@ -107,6 +107,7 @@ pub async fn run_event_loop(
                             }
                             _ = interval.tick() => {
                                 app.task_manager.cleanup_tasks();
+                                app.cleanup_archive_cache();
                                 // Reset search if timeout has expired
                                 reset_expired_search(app);
                                 // Poll watchers

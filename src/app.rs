@@ -14,6 +14,15 @@ pub use crate::state::{
     QuitConfirmationState, RemoteEditState, RenameState, SshConnectionState, SshPasswordState,
 };
 
+/// Cache entry for an opened archive.
+pub struct ArchiveCacheEntry {
+    pub mtime: std::time::SystemTime,
+    pub size: u64,
+    pub provider: std::sync::Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
+    /// Stamped the first tick after no tab is using this archive any more.
+    pub closed_at: Option<std::time::Instant>,
+}
+
 pub struct Popups {
     pub rename: RenameState,
     pub create_directory: CreateDirectoryState,
@@ -86,14 +95,7 @@ pub struct AppState {
     pub viewer_cfg: crate::config::ViewerConfig,
     pub ssh_history: crate::ssh_history::SshConnectionHistory,
     pub clipboard: Box<dyn FileClipboard + Send>,
-    pub archive_cache: std::collections::HashMap<
-        std::path::PathBuf,
-        (
-            std::time::SystemTime,
-            u64,
-            std::sync::Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
-        ),
-    >,
+    pub archive_cache: std::collections::HashMap<std::path::PathBuf, ArchiveCacheEntry>,
     pub opener: std::sync::Arc<dyn crate::opener::FileOpener + Send + Sync>,
 }
 
@@ -212,6 +214,40 @@ impl AppState {
 
     pub fn cleanup_sensitive_data(&mut self) {
         self.ssh_manager.clear_all_passwords();
+    }
+
+    /// Remove archive cache entries (and their temp files) 60 seconds after all tabs
+    /// using that archive have been closed. Called once per second from the event loop.
+    pub fn cleanup_archive_cache(&mut self) {
+        // Collect context keys of all currently open archive tabs
+        let open_keys: std::collections::HashSet<String> = self
+            .left
+            .tabs
+            .iter()
+            .chain(self.right.tabs.iter())
+            .map(|t| t.provider.context_key())
+            .filter(|k| k.starts_with("archive:"))
+            .collect();
+
+        let now = std::time::Instant::now();
+        let timeout = std::time::Duration::from_secs(60);
+
+        self.archive_cache.retain(|path, entry| {
+            let key = format!("archive:{}", path.to_string_lossy());
+            if open_keys.contains(&key) {
+                entry.closed_at = None; // still in use — clear any stale timestamp
+                true
+            } else {
+                match entry.closed_at {
+                    None => {
+                        entry.closed_at = Some(now); // first tick after close
+                        true
+                    }
+                    Some(t) if now.duration_since(t) >= timeout => false, // evict
+                    Some(_) => true, // still within grace period
+                }
+            }
+        });
     }
 
     pub fn refresh_active_tabs(&mut self) {
