@@ -129,41 +129,40 @@ impl FileEntry {
 }
 
 #[must_use]
+pub fn mode_to_attributes(mode: u32, is_dir: bool, is_symlink: bool) -> String {
+    let type_char = if is_symlink {
+        'l'
+    } else if is_dir {
+        'd'
+    } else {
+        '-'
+    };
+    let bits = [
+        (0o400, 'r'),
+        (0o200, 'w'),
+        (0o100, 'x'),
+        (0o040, 'r'),
+        (0o020, 'w'),
+        (0o010, 'x'),
+        (0o004, 'r'),
+        (0o002, 'w'),
+        (0o001, 'x'),
+    ];
+    let mut s = String::with_capacity(10);
+    s.push(type_char);
+    for (mask, ch) in bits {
+        s.push(if mode & mask != 0 { ch } else { '-' });
+    }
+    s
+}
+
+#[must_use]
 pub fn get_attributes(_meta: &Metadata, is_dir: bool) -> String {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let mode = _meta.permissions().mode();
-        let mut attrs = String::new();
-        attrs.push(if is_dir { 'd' } else { '-' });
-        for i in (0..9).rev() {
-            let bit = (mode >> i) & 1;
-            attrs.push(match i % 3 {
-                2 => {
-                    if bit == 1 {
-                        'r'
-                    } else {
-                        '-'
-                    }
-                }
-                1 => {
-                    if bit == 1 {
-                        'w'
-                    } else {
-                        '-'
-                    }
-                }
-                0 => {
-                    if bit == 1 {
-                        'x'
-                    } else {
-                        '-'
-                    }
-                }
-                _ => '-',
-            });
-        }
-        let s: String = attrs.chars().take(10).collect();
+        let s = mode_to_attributes(mode, is_dir, false);
         format!("{s:<10}") // pad/truncate to 10
     }
     #[cfg(not(unix))]

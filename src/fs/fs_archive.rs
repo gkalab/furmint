@@ -1,6 +1,6 @@
 use crate::fs::fs_provider::FileSystemProvider;
 use crate::fs::traits::TaskProgressContext;
-use crate::fs::utils::FileEntry;
+use crate::fs::utils::{FileEntry, mode_to_attributes};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::TimeZone;
@@ -137,6 +137,15 @@ impl ArchiveFs {
             let size = file.size();
             let modified = Self::zip_dt_to_system_time(file.last_modified());
 
+            let unix_mode = file.unix_mode();
+            let attributes = if let Some(mode) = unix_mode {
+                mode_to_attributes(mode, is_dir, false)
+            } else if is_dir {
+                "dr-xr-xr-x".to_string()
+            } else {
+                "-r--r--r--".to_string()
+            };
+
             let entry = FileEntry {
                 name: path
                     .file_name()
@@ -147,11 +156,7 @@ impl ArchiveFs {
                 is_symlink: false,
                 size: Some(size),
                 modified: Some(modified),
-                attributes: if is_dir {
-                    "dr-xr-xr-x".to_string()
-                } else {
-                    "-r--r--r--".to_string()
-                },
+                attributes,
                 selected: false,
                 position: None,
             };
@@ -254,6 +259,13 @@ impl ArchiveFs {
 
             let position = file.raw_header_position();
 
+            let is_symlink = file.header().entry_type().is_symlink();
+            let unix_mode = file
+                .header()
+                .mode()
+                .unwrap_or(if is_dir { 0o755 } else { 0o644 });
+            let attributes = mode_to_attributes(unix_mode, is_dir, is_symlink);
+
             let entry = FileEntry {
                 name: path
                     .file_name()
@@ -261,14 +273,10 @@ impl ArchiveFs {
                     .to_string_lossy()
                     .to_string(),
                 is_dir,
-                is_symlink: file.header().entry_type().is_symlink(),
+                is_symlink,
                 size: Some(size),
                 modified: Some(modified),
-                attributes: if is_dir {
-                    "dr-xr-xr-x".to_string()
-                } else {
-                    "-r--r--r--".to_string()
-                },
+                attributes,
                 selected: false,
                 position: Some(position),
             };
