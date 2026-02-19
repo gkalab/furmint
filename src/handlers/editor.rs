@@ -420,7 +420,6 @@ mod tests {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         };
         let mut app = AppState::test_default();
         app.left.tabs[0].entries = vec![entry];

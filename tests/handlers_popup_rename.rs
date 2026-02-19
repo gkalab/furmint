@@ -22,7 +22,6 @@ fn test_app_with_entry(name: &str, is_dir: bool, path: &std::path::Path) -> AppS
         modified: None,
         attributes: String::from("-rw-r--r--"),
         selected: false,
-        position: None,
     });
     tab.cursor = 0;
     AppState {

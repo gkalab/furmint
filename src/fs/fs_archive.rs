@@ -15,11 +15,17 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 #[derive(Clone)]
+pub struct ArchiveEntry {
+    pub file_entry: FileEntry,
+    pub position: Option<u64>,
+}
+
+#[derive(Clone)]
 pub struct ArchiveFs {
     archive_path: PathBuf,
-    // We map "internal path" -> FileEntry
+    // We map "internal path" -> ArchiveEntry
     // The "internal path" should be relative to archive root, e.g. "folder/file.txt"
-    entries: Arc<Mutex<HashMap<PathBuf, FileEntry>>>,
+    entries: Arc<Mutex<HashMap<PathBuf, ArchiveEntry>>>,
     // Store children for fast directory listing: "folder" -> ["folder/sub", "folder/file.txt"]
     tree: Arc<Mutex<HashMap<PathBuf, Vec<PathBuf>>>>,
     temp_tar: Arc<Mutex<Option<tempfile::NamedTempFile>>>,
@@ -41,9 +47,13 @@ impl ArchiveFs {
         Ok(fs)
     }
 
-    pub fn get_entry(&self, path: &Path) -> Option<FileEntry> {
+    pub fn get_entry(&self, path: &Path) -> Option<ArchiveEntry> {
         let entries = self.entries.lock().unwrap();
         entries.get(path).cloned()
+    }
+
+    pub fn get_entry_for_extraction(&self, path: &Path) -> Option<ArchiveEntry> {
+        self.get_entry(path)
     }
 
     fn scan_archive(&self) -> Result<()> {
@@ -146,18 +156,20 @@ impl ArchiveFs {
                 "-r--r--r--".to_string()
             };
 
-            let entry = FileEntry {
-                name: path
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_string(),
-                is_dir,
-                is_symlink: false,
-                size: Some(size),
-                modified: Some(modified),
-                attributes,
-                selected: false,
+            let entry = ArchiveEntry {
+                file_entry: FileEntry {
+                    name: path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string(),
+                    is_dir,
+                    is_symlink: false,
+                    size: Some(size),
+                    modified: Some(modified),
+                    attributes,
+                    selected: false,
+                },
                 position: None,
             };
 
@@ -186,18 +198,20 @@ impl ArchiveFs {
 
                     // If parent entry doesn't exist, create implicit dir
                     if !entries_map.contains_key(p_norm) {
-                        let implicit_entry = FileEntry {
-                            name: p_norm
-                                .file_name()
-                                .unwrap_or_default()
-                                .to_string_lossy()
-                                .to_string(),
-                            is_dir: true,
-                            is_symlink: false,
-                            size: None,
-                            modified: None,
-                            attributes: "dr-xr-xr-x".to_string(),
-                            selected: false,
+                        let implicit_entry = ArchiveEntry {
+                            file_entry: FileEntry {
+                                name: p_norm
+                                    .file_name()
+                                    .unwrap_or_default()
+                                    .to_string_lossy()
+                                    .to_string(),
+                                is_dir: true,
+                                is_symlink: false,
+                                size: None,
+                                modified: None,
+                                attributes: "dr-xr-xr-x".to_string(),
+                                selected: false,
+                            },
                             position: None,
                         };
                         entries_map.insert(p_norm.to_path_buf(), implicit_entry);
@@ -266,18 +280,20 @@ impl ArchiveFs {
                 .unwrap_or(if is_dir { 0o755 } else { 0o644 });
             let attributes = mode_to_attributes(unix_mode, is_dir, is_symlink);
 
-            let entry = FileEntry {
-                name: path
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_string(),
-                is_dir,
-                is_symlink,
-                size: Some(size),
-                modified: Some(modified),
-                attributes,
-                selected: false,
+            let entry = ArchiveEntry {
+                file_entry: FileEntry {
+                    name: path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string(),
+                    is_dir,
+                    is_symlink,
+                    size: Some(size),
+                    modified: Some(modified),
+                    attributes,
+                    selected: false,
+                },
                 position: Some(position),
             };
 
@@ -305,18 +321,20 @@ impl ArchiveFs {
                     }
 
                     if !entries_map.contains_key(p_norm) {
-                        let implicit_entry = FileEntry {
-                            name: p_norm
-                                .file_name()
-                                .unwrap_or_default()
-                                .to_string_lossy()
-                                .to_string(),
-                            is_dir: true,
-                            is_symlink: false,
-                            size: None,
-                            modified: None,
-                            attributes: "dr-xr-xr-x".to_string(),
-                            selected: false,
+                        let implicit_entry = ArchiveEntry {
+                            file_entry: FileEntry {
+                                name: p_norm
+                                    .file_name()
+                                    .unwrap_or_default()
+                                    .to_string_lossy()
+                                    .to_string(),
+                                is_dir: true,
+                                is_symlink: false,
+                                size: None,
+                                modified: None,
+                                attributes: "dr-xr-xr-x".to_string(),
+                                selected: false,
+                            },
                             position: None,
                         };
                         entries_map.insert(p_norm.to_path_buf(), implicit_entry);
@@ -406,14 +424,13 @@ impl FileSystemProvider for ArchiveFs {
                 modified: None,
                 attributes: String::new(),
                 selected: false,
-                position: None,
             });
         }
 
         if let Some(children) = tree.get(search_path) {
             for child_path in children {
                 if let Some(entry) = entries_map.get(child_path) {
-                    result.push(entry.clone());
+                    result.push(entry.file_entry.clone());
                 }
             }
         }
@@ -540,7 +557,7 @@ impl FileSystemProvider for ArchiveFs {
                 .lock()
                 .unwrap()
                 .get(p)
-                .map(|e| e.is_dir)
+                .map(|e| e.file_entry.is_dir)
                 .unwrap_or(false)
         }
     }
@@ -574,7 +591,11 @@ impl FileSystemProvider for ArchiveFs {
         if p == Path::new(".") {
             return None;
         }
-        self.entries.lock().unwrap().get(p).and_then(|e| e.modified)
+        self.entries
+            .lock()
+            .unwrap()
+            .get(p)
+            .and_then(|e| e.file_entry.modified)
     }
 
     fn set_modified_time(&self, _path: &Path, _mtime: SystemTime) -> bool {

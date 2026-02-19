@@ -99,7 +99,6 @@ impl FileSystemProvider for SftpFs {
                     modified: None,
                     attributes: String::new(),
                     selected: false,
-                    position: None,
                 });
             }
 
@@ -129,7 +128,6 @@ impl FileSystemProvider for SftpFs {
                     modified,
                     attributes: format_permissions(stat.perm),
                     selected: false,
-                    position: None,
                 });
             }
 

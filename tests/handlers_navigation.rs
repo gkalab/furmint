@@ -77,7 +77,6 @@ fn test_handle_up_moves_cursor() {
         modified: None,
         attributes: String::new(),
         selected: false,
-        position: None,
     };
     let mut app = test_app(vec![entry.clone(); 3]);
     app.left.active_tab_mut().cursor = 2;
@@ -95,7 +94,6 @@ fn test_handle_down_moves_cursor() {
         modified: None,
         attributes: String::new(),
         selected: false,
-        position: None,
     };
     let mut app = test_app(vec![entry.clone(); 3]);
     handle_down(&mut app);
@@ -112,8 +110,7 @@ fn test_handle_page_up_down() {
             size: None,
             modified: None,
             attributes: String::new(),
-            selected: false,
-            position: None
+            selected: false
         };
         50
     ];
@@ -135,8 +132,7 @@ fn test_handle_home_end() {
             size: None,
             modified: None,
             attributes: String::new(),
-            selected: false,
-            position: None
+            selected: false
         };
         10
     ];
@@ -231,7 +227,6 @@ fn test_handle_type_char() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
         FileEntry {
             name: "banana".to_string(),
@@ -241,7 +236,6 @@ fn test_handle_type_char() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
     ];
     let mut app = test_app(entries);
@@ -270,7 +264,6 @@ fn test_handle_type_char_fuzzy_fallback() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
         FileEntry {
             name: "banana.txt".to_string(),
@@ -280,7 +273,6 @@ fn test_handle_type_char_fuzzy_fallback() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
         FileEntry {
             name: "Cargo.toml".to_string(),
@@ -290,7 +282,6 @@ fn test_handle_type_char_fuzzy_fallback() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
     ];
     let mut app = test_app(entries);
@@ -347,7 +338,6 @@ fn test_handle_sort_and_toggle() {
         modified: None,
         attributes: String::new(),
         selected: false,
-        position: None,
     }];
     let mut app = test_app(entries);
 
@@ -379,7 +369,6 @@ fn test_handle_type_char_populates_matching_indices() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
         FileEntry {
             name: "abcd".to_string(),
@@ -389,7 +378,6 @@ fn test_handle_type_char_populates_matching_indices() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
         FileEntry {
             name: "abce".to_string(),
@@ -399,7 +387,6 @@ fn test_handle_type_char_populates_matching_indices() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
         FileEntry {
             name: "ace".to_string(),
@@ -409,7 +396,6 @@ fn test_handle_type_char_populates_matching_indices() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
     ];
     let mut app = test_app(entries);
@@ -435,7 +421,6 @@ fn test_search_navigation_multiple_matches() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
         FileEntry {
             name: "abcd".to_string(),
@@ -445,7 +430,6 @@ fn test_search_navigation_multiple_matches() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
         FileEntry {
             name: "abce".to_string(),
@@ -455,7 +439,6 @@ fn test_search_navigation_multiple_matches() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
         FileEntry {
             name: "ace".to_string(),
@@ -465,7 +448,6 @@ fn test_search_navigation_multiple_matches() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
     ];
     let mut app = test_app(entries);
@@ -513,7 +495,6 @@ fn test_search_navigation_wrap_around() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
         FileEntry {
             name: "aab".to_string(),
@@ -523,7 +504,6 @@ fn test_search_navigation_wrap_around() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
         FileEntry {
             name: "aac".to_string(),
@@ -533,7 +513,6 @@ fn test_search_navigation_wrap_around() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
     ];
     let mut app = test_app(entries);
@@ -568,7 +547,6 @@ fn test_search_single_match_ignores_arrows() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
         FileEntry {
             name: "abc".to_string(),
@@ -578,7 +556,6 @@ fn test_search_single_match_ignores_arrows() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
     ];
     let mut app = test_app(entries);
@@ -609,7 +586,6 @@ fn test_esc_resets_search() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
         FileEntry {
             name: "banana".to_string(),
@@ -619,7 +595,6 @@ fn test_esc_resets_search() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
     ];
     let mut app = test_app(entries);
@@ -647,7 +622,6 @@ fn test_search_restarts_timer() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
         FileEntry {
             name: "abcd".to_string(),
@@ -657,7 +631,6 @@ fn test_search_restarts_timer() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
         FileEntry {
             name: "abce".to_string(),
@@ -667,7 +640,6 @@ fn test_search_restarts_timer() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
     ];
     let mut app = test_app(entries);
@@ -695,7 +667,6 @@ fn test_timeout_resets_search_state() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
         FileEntry {
             name: "abcd".to_string(),
@@ -705,7 +676,6 @@ fn test_timeout_resets_search_state() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
         FileEntry {
             name: "xyz".to_string(),
@@ -715,7 +685,6 @@ fn test_timeout_resets_search_state() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
     ];
     let mut app = test_app(entries);
@@ -753,7 +722,6 @@ fn test_periodic_reset_expired_search() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
         FileEntry {
             name: "abcd".to_string(),
@@ -763,7 +731,6 @@ fn test_periodic_reset_expired_search() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
     ];
     let mut app = test_app(entries);
@@ -799,7 +766,6 @@ fn test_handle_type_char_populates_highlights() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
         FileEntry {
             name: "other.txt".to_string(),
@@ -809,7 +775,6 @@ fn test_handle_type_char_populates_highlights() {
             modified: None,
             attributes: String::new(),
             selected: false,
-            position: None,
         },
     ];
     let mut app = test_app(entries);
@@ -858,7 +823,6 @@ fn test_update_viewer_content_shows_error_for_large_file() {
         modified: None,
         attributes: String::new(),
         selected: false,
-        position: None,
     }]);
     app.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
     app.file_viewer.is_visible = true;
@@ -888,7 +852,6 @@ fn test_update_viewer_content_shows_error_for_binary() {
         modified: None,
         attributes: String::new(),
         selected: false,
-        position: None,
     }]);
     app.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
     app.file_viewer.is_visible = true;
@@ -916,7 +879,6 @@ fn test_update_viewer_content_reads_text_file() {
         modified: None,
         attributes: String::new(),
         selected: false,
-        position: None,
     }]);
     app.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
     app.file_viewer.is_visible = true;

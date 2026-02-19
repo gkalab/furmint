@@ -112,7 +112,6 @@ fn create_file_entry(name: &str, is_dir: bool) -> FileEntry {
         modified: None,
         attributes: String::new(),
         selected: false,
-        position: None,
     }
 }
 

@@ -24,7 +24,6 @@ fn make_fileentry(name: &str, selected: bool, is_dir: bool) -> FileEntry {
         modified: None,
         attributes: String::new(),
         selected,
-        position: None,
     }
 }
 
@@ -335,7 +334,6 @@ fn test_handle_clipboard_action_sets_message() {
         modified: None,
         attributes: "".to_string(),
         selected: true,
-        position: None,
     }];
     let mut app = minimal_state_with_entries(PanelSide::Left, entries, vec![], 0, 0);
 

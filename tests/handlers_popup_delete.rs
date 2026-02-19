@@ -23,7 +23,6 @@ fn basic_app_with_entry(name: &str) -> AppState {
         modified: None,
         attributes: String::from("-rw-r--r--"),
         selected: false,
-        position: None,
     });
     tab.cursor = 0;
     AppState {
