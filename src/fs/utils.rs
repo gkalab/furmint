@@ -113,7 +113,7 @@ impl FileEntry {
 
         let size = if is_dir { None } else { Some(meta.len()) };
         let modified = meta.modified().ok();
-        let attributes = get_attributes(&meta, is_dir);
+        let attributes = get_attributes(&meta, is_dir, is_symlink);
 
         Ok(FileEntry {
             name,
@@ -157,12 +157,12 @@ pub fn mode_to_attributes(mode: u32, is_dir: bool, is_symlink: bool) -> String {
 }
 
 #[must_use]
-pub fn get_attributes(_meta: &Metadata, is_dir: bool) -> String {
+pub fn get_attributes(_meta: &Metadata, is_dir: bool, is_symlink: bool) -> String {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let mode = _meta.permissions().mode();
-        let s = mode_to_attributes(mode, is_dir, false);
+        let s = mode_to_attributes(mode, is_dir, is_symlink);
         format!("{s:<10}") // pad/truncate to 10
     }
     #[cfg(not(unix))]
@@ -369,7 +369,7 @@ mod tests {
         {
             let temp_dir = std::env::temp_dir();
             let meta = std::fs::metadata(&temp_dir).unwrap();
-            let attrs = get_attributes(&meta, true);
+            let attrs = get_attributes(&meta, true, false);
             assert_eq!(attrs.chars().next().unwrap(), 'd');
             assert_eq!(attrs.len(), 10);
         }
