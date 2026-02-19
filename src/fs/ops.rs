@@ -759,6 +759,8 @@ mod mock_fs_tests {
         removed_files: Arc<Mutex<HashSet<PathBuf>>>,
         fail_next_copy: Arc<Mutex<usize>>,
         fail_next_create_dir: Arc<Mutex<usize>>,
+        fail_next_read_dir: Arc<Mutex<bool>>,
+        download_result: Arc<Mutex<Option<anyhow::Result<()>>>>,
     }
 
     #[async_trait]
@@ -789,6 +791,9 @@ mod mock_fs_tests {
             Ok(())
         }
         async fn read_dir(&self, path: &Path) -> anyhow::Result<Vec<PathBuf>> {
+            if *self.fail_next_read_dir.lock().await {
+                return Err(anyhow::anyhow!("Mock error reading directory"));
+            }
             let files = self.files.lock().await;
             let mut out = Vec::new();
             for k in files.keys() {
@@ -927,6 +932,20 @@ mod mock_fs_tests {
 
         fn is_local(&self) -> bool {
             false
+        }
+
+        async fn download(
+            &self,
+            _src: &Path,
+            dest_fs: &dyn FileSystem,
+            dest: &Path,
+            _progress: &crate::fs::traits::TaskProgressContext,
+        ) -> Option<anyhow::Result<()>> {
+            let result = self.download_result.lock().await.take();
+            if let Some(Ok(())) = result {
+                let _ = dest_fs.create_dir_all(dest).await;
+            }
+            result
         }
     }
 
@@ -1423,5 +1442,338 @@ mod mock_fs_tests {
         assert!(fs.try_exists(&dest_dir).await.unwrap());
         assert!(fs.try_exists(&dest_dir.join("file1.txt")).await.unwrap());
         assert!(fs.try_exists(&dest_dir.join("file2.txt")).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_handle_directory_dest_exists_as_dir_merge() {
+        let fs = MockFileSystem::default();
+        let src_root = PathBuf::from("/src");
+        let dest_root = PathBuf::from("/dest");
+
+        {
+            let mut files = fs.files.lock().await;
+            files.insert(src_root.clone(), FakeEntry { is_dir: true });
+            files.insert(src_root.join("file1.txt"), FakeEntry { is_dir: false });
+            files.insert(dest_root.clone(), FakeEntry { is_dir: true });
+            files.insert(dest_root.join("existing.txt"), FakeEntry { is_dir: false });
+        }
+
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let (_dtx, drx_real) = mpsc::channel(1);
+        let processed = Arc::new(AtomicUsize::new(0));
+        let decision_rx = Arc::new(Mutex::new(drx_real));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
+
+        let ctx = RecursiveOpContext {
+            src_fs: &fs,
+            dest_fs: &fs,
+            src: &src_root,
+            dest: &dest_root,
+            action: crate::app::CopyMoveAction::Copy,
+            cancel: &cancel,
+            tx: &tx,
+            id: 1,
+            total: 2,
+            total_bytes: 0,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+        };
+
+        let mut decision_state = DecisionState::new();
+        let res = recursive_op(ctx, &mut decision_state).await;
+
+        assert!(res.is_ok());
+        assert!(fs.try_exists(&dest_root.join("file1.txt")).await.unwrap());
+        assert!(
+            fs.try_exists(&dest_root.join("existing.txt"))
+                .await
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_handle_directory_download_success() {
+        let fs = MockFileSystem::default();
+        let src_root = PathBuf::from("/src");
+        let dest_root = PathBuf::from("/dest");
+
+        {
+            let mut files = fs.files.lock().await;
+            files.insert(src_root.clone(), FakeEntry { is_dir: true });
+            files.insert(src_root.join("file1.txt"), FakeEntry { is_dir: false });
+        }
+
+        *fs.download_result.lock().await = Some(Ok(()));
+
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let (_dtx, drx_real) = mpsc::channel(1);
+        let processed = Arc::new(AtomicUsize::new(0));
+        let decision_rx = Arc::new(Mutex::new(drx_real));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
+
+        let ctx = RecursiveOpContext {
+            src_fs: &fs,
+            dest_fs: &fs,
+            src: &src_root,
+            dest: &dest_root,
+            action: crate::app::CopyMoveAction::Copy,
+            cancel: &cancel,
+            tx: &tx,
+            id: 1,
+            total: 1,
+            total_bytes: 0,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+        };
+
+        let mut decision_state = DecisionState::new();
+        let res = recursive_op(ctx, &mut decision_state).await;
+
+        assert!(res.is_ok());
+        assert!(fs.try_exists(&dest_root).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_handle_directory_download_failure() {
+        let fs = MockFileSystem::default();
+        let src_root = PathBuf::from("/src");
+        let dest_root = PathBuf::from("/dest");
+
+        {
+            let mut files = fs.files.lock().await;
+            files.insert(src_root.clone(), FakeEntry { is_dir: true });
+            files.insert(src_root.join("file1.txt"), FakeEntry { is_dir: false });
+        }
+
+        *fs.download_result.lock().await = Some(Err(anyhow::anyhow!("Download failed")));
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (dtx, drx_real) = mpsc::channel(1);
+        let processed = Arc::new(AtomicUsize::new(0));
+        let decision_rx = Arc::new(Mutex::new(drx_real));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
+
+        let ctx = RecursiveOpContext {
+            src_fs: &fs,
+            dest_fs: &fs,
+            src: &src_root,
+            dest: &dest_root,
+            action: crate::app::CopyMoveAction::Copy,
+            cancel: &cancel,
+            tx: &tx,
+            id: 1,
+            total: 1,
+            total_bytes: 0,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+        };
+
+        let mut decision_state = DecisionState::new();
+
+        tokio::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                if let crate::tasks::TaskEvent::Error(_, _, _) = event {
+                    let _ = dtx.send(crate::tasks::TaskDecision::Skip).await;
+                }
+            }
+        });
+
+        let res = recursive_op(ctx, &mut decision_state).await;
+
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_handle_directory_read_dir_error() {
+        let fs = MockFileSystem::default();
+        let src_root = PathBuf::from("/src");
+        let dest_root = PathBuf::from("/dest");
+
+        {
+            let mut files = fs.files.lock().await;
+            files.insert(src_root.clone(), FakeEntry { is_dir: true });
+            files.insert(src_root.join("file1.txt"), FakeEntry { is_dir: false });
+        }
+
+        *fs.fail_next_read_dir.lock().await = true;
+
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let (_dtx, drx_real) = mpsc::channel(1);
+        let processed = Arc::new(AtomicUsize::new(0));
+        let decision_rx = Arc::new(Mutex::new(drx_real));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
+
+        let ctx = RecursiveOpContext {
+            src_fs: &fs,
+            dest_fs: &fs,
+            src: &src_root,
+            dest: &dest_root,
+            action: crate::app::CopyMoveAction::Copy,
+            cancel: &cancel,
+            tx: &tx,
+            id: 1,
+            total: 1,
+            total_bytes: 0,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+        };
+
+        let mut decision_state = DecisionState::new();
+        let res = recursive_op(ctx, &mut decision_state).await;
+
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_handle_directory_create_dir_error() {
+        let fs = MockFileSystem::default();
+        let src_root = PathBuf::from("/src");
+        let dest_root = PathBuf::from("/dest");
+
+        {
+            let mut files = fs.files.lock().await;
+            files.insert(src_root.clone(), FakeEntry { is_dir: true });
+            files.insert(src_root.join("file1.txt"), FakeEntry { is_dir: false });
+        }
+
+        *fs.fail_next_create_dir.lock().await = 1;
+
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let (_dtx, drx_real) = mpsc::channel(1);
+        let processed = Arc::new(AtomicUsize::new(0));
+        let decision_rx = Arc::new(Mutex::new(drx_real));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
+
+        let ctx = RecursiveOpContext {
+            src_fs: &fs,
+            dest_fs: &fs,
+            src: &src_root,
+            dest: &dest_root,
+            action: crate::app::CopyMoveAction::Copy,
+            cancel: &cancel,
+            tx: &tx,
+            id: 1,
+            total: 1,
+            total_bytes: 0,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+        };
+
+        let mut decision_state = DecisionState::new();
+        let res = recursive_op(ctx, &mut decision_state).await;
+
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_handle_directory_dest_exists_as_file_skip() {
+        let fs = MockFileSystem::default();
+        let src_root = PathBuf::from("/src");
+        let dest_root = PathBuf::from("/dest");
+
+        {
+            let mut files = fs.files.lock().await;
+            files.insert(src_root.clone(), FakeEntry { is_dir: true });
+            files.insert(src_root.join("file1.txt"), FakeEntry { is_dir: false });
+            files.insert(dest_root.clone(), FakeEntry { is_dir: false });
+        }
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (dtx, drx_real) = mpsc::channel(1);
+        let processed = Arc::new(AtomicUsize::new(0));
+        let decision_rx = Arc::new(Mutex::new(drx_real));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
+
+        let ctx = RecursiveOpContext {
+            src_fs: &fs,
+            dest_fs: &fs,
+            src: &src_root,
+            dest: &dest_root,
+            action: crate::app::CopyMoveAction::Copy,
+            cancel: &cancel,
+            tx: &tx,
+            id: 1,
+            total: 1,
+            total_bytes: 0,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+        };
+
+        let mut decision_state = DecisionState::new();
+
+        tokio::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                if let crate::tasks::TaskEvent::Conflict(_, _, _) = event {
+                    let _ = dtx.send(crate::tasks::TaskDecision::Skip).await;
+                }
+            }
+        });
+
+        let res = recursive_op(ctx, &mut decision_state).await;
+
+        assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_handle_directory_dest_exists_as_file_cancel() {
+        let fs = MockFileSystem::default();
+        let src_root = PathBuf::from("/src");
+        let dest_root = PathBuf::from("/dest");
+
+        {
+            let mut files = fs.files.lock().await;
+            files.insert(src_root.clone(), FakeEntry { is_dir: true });
+            files.insert(src_root.join("file1.txt"), FakeEntry { is_dir: false });
+            files.insert(dest_root.clone(), FakeEntry { is_dir: false });
+        }
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (dtx, drx_real) = mpsc::channel(1);
+        let processed = Arc::new(AtomicUsize::new(0));
+        let decision_rx = Arc::new(Mutex::new(drx_real));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
+
+        let ctx = RecursiveOpContext {
+            src_fs: &fs,
+            dest_fs: &fs,
+            src: &src_root,
+            dest: &dest_root,
+            action: crate::app::CopyMoveAction::Copy,
+            cancel: &cancel,
+            tx: &tx,
+            id: 1,
+            total: 1,
+            total_bytes: 0,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+        };
+
+        let mut decision_state = DecisionState::new();
+
+        tokio::spawn(async move {
+            while let Some(event) = rx.recv().await {
+                if let crate::tasks::TaskEvent::Conflict(_, _, _) = event {
+                    let _ = dtx.send(crate::tasks::TaskDecision::Cancel).await;
+                }
+            }
+        });
+
+        let res = recursive_op(ctx, &mut decision_state).await;
+
+        assert!(res.is_ok());
     }
 }
