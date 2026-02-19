@@ -243,40 +243,70 @@ async fn handle_directory(
     // we hand off control — but only when the destination already exists as a directory
     // (replacing a whole tree). A non-directory blocking the path is handled below.
     if dest_is_dir {
-        if let Some(_res) = ctx.src_fs.download(src, ctx.dest_fs, dest, &progress).await {
-            // download() would overwrite the existing directory tree — ask first.
-            match resolve_conflict(ctx, decision_state, dest).await? {
-                ConflictResult::Perform => {} // re-run download after confirmation
-                ConflictResult::Skip => {
-                    let p = ctx
-                        .processed
-                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-                        + 1;
-                    update_progress_if_needed(ctx, decision_state, p);
-                    return Ok(());
-                }
-                ConflictResult::Cancel => return Ok(()),
-            }
-            // User said overwrite — run download for real now.
-            let res = ctx.src_fs.download(src, ctx.dest_fs, dest, &progress).await;
-            if let Some(res) = res {
-                if res.is_ok() {
-                    if let Some(mtime) = ctx.src_fs.get_modified_time(src).await {
-                        let _ = ctx.dest_fs.set_modified_time(dest, mtime).await;
-                    }
-                    let p = ctx.processed.load(std::sync::atomic::Ordering::Relaxed);
-                    let _ = ctx.tx.send(crate::tasks::TaskEvent::UpdateProgress(
-                        ctx.id, p, ctx.total,
-                    ));
-                }
-                return res;
-            }
-        } else {
-            // No download() optimisation — fall through to normal recursive path.
-            // Merging into an existing directory is silent (no prompt needed).
+        if let Some(result) =
+            handle_download_with_existing_dir(ctx, decision_state, src, dest, &progress).await?
+        {
+            return result.map(|_| ());
         }
-    } else if let Some(res) = ctx.src_fs.download(src, ctx.dest_fs, dest, &progress).await {
-        // Destination doesn't exist yet — download directly, no conflict.
+    } else if let Some(result) = handle_download_direct(ctx, src, dest, &progress).await? {
+        return result.map(|_| ());
+    }
+
+    // Normal recursive path (no download() optimisation).
+    if !ensure_dest_directory(ctx, decision_state, dest, dest_exists, dest_is_dir).await? {
+        return Ok(());
+    }
+
+    update_progress_and_postprocess(ctx, decision_state, src, stack);
+    add_children_to_stack(ctx, src, dest, stack).await
+}
+
+async fn handle_download_with_existing_dir(
+    ctx: &RecursiveOpContext<'_>,
+    decision_state: &mut DecisionState,
+    src: &std::path::Path,
+    dest: &std::path::Path,
+    progress: &crate::fs::traits::TaskProgressContext,
+) -> Result<Option<Result<()>>> {
+    if let Some(_res) = ctx.src_fs.download(src, ctx.dest_fs, dest, progress).await {
+        match resolve_conflict(ctx, decision_state, dest).await? {
+            ConflictResult::Perform => {}
+            ConflictResult::Skip => {
+                let p = ctx
+                    .processed
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                    + 1;
+                update_progress_if_needed(ctx, decision_state, p);
+                return Ok(Some(Ok(())));
+            }
+            ConflictResult::Cancel => return Ok(Some(Ok(()))),
+        }
+        // User said overwrite — run download for real now.
+        let res = ctx.src_fs.download(src, ctx.dest_fs, dest, progress).await;
+        if let Some(res) = res {
+            if res.is_ok() {
+                if let Some(mtime) = ctx.src_fs.get_modified_time(src).await {
+                    let _ = ctx.dest_fs.set_modified_time(dest, mtime).await;
+                }
+                let p = ctx.processed.load(std::sync::atomic::Ordering::Relaxed);
+                let _ = ctx.tx.send(crate::tasks::TaskEvent::UpdateProgress(
+                    ctx.id, p, ctx.total,
+                ));
+            }
+            return Ok(Some(res));
+        }
+    }
+    Ok(None)
+}
+
+async fn handle_download_direct(
+    ctx: &RecursiveOpContext<'_>,
+    src: &std::path::Path,
+    dest: &std::path::Path,
+    progress: &crate::fs::traits::TaskProgressContext,
+) -> Result<Option<Result<()>>> {
+    // Destination doesn't exist yet — download directly, no conflict.
+    if let Some(res) = ctx.src_fs.download(src, ctx.dest_fs, dest, progress).await {
         if res.is_ok() {
             if let Some(mtime) = ctx.src_fs.get_modified_time(src).await {
                 let _ = ctx.dest_fs.set_modified_time(dest, mtime).await;
@@ -286,10 +316,18 @@ async fn handle_directory(
                 ctx.id, p, ctx.total,
             ));
         }
-        return res;
+        return Ok(Some(res));
     }
+    Ok(None)
+}
 
-    // Normal recursive path (no download() optimisation).
+async fn ensure_dest_directory(
+    ctx: &RecursiveOpContext<'_>,
+    decision_state: &mut DecisionState,
+    dest: &std::path::Path,
+    dest_exists: bool,
+    dest_is_dir: bool,
+) -> Result<bool> {
     if !dest_exists {
         if let Err(e) = ctx.dest_fs.create_dir_all(dest).await {
             return Err(anyhow!(
@@ -297,7 +335,10 @@ async fn handle_directory(
                 dest.display(),
             ));
         }
-    } else if !dest_is_dir {
+        return Ok(true);
+    }
+
+    if !dest_is_dir {
         // A file exists where we want a directory — that's a genuine conflict.
         match resolve_conflict(ctx, decision_state, dest).await? {
             ConflictResult::Perform => {
@@ -309,6 +350,7 @@ async fn handle_directory(
                         dest.display(),
                     ));
                 }
+                return Ok(true);
             }
             ConflictResult::Skip => {
                 let p = ctx
@@ -316,13 +358,44 @@ async fn handle_directory(
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
                     + 1;
                 update_progress_if_needed(ctx, decision_state, p);
-                return Ok(());
+                return Ok(false);
             }
-            ConflictResult::Cancel => return Ok(()),
+            ConflictResult::Cancel => return Ok(false),
         }
     }
-    // else: dest is already a directory — merge silently.
+    Ok(true)
+}
 
+async fn add_children_to_stack(
+    ctx: &RecursiveOpContext<'_>,
+    src: &std::path::Path,
+    dest: &std::path::Path,
+    stack: &mut Vec<WorkItem>,
+) -> Result<()> {
+    let children = ctx
+        .src_fs
+        .read_dir(src)
+        .await
+        .map_err(|e| anyhow!("Failed to read directory {}: {e}", src.display()))?;
+    for path in children {
+        let Some(name) = path.file_name() else {
+            continue;
+        };
+        let child_dest = dest.join(name);
+        stack.push(WorkItem::Process {
+            src: path,
+            dest: child_dest,
+        });
+    }
+    Ok(())
+}
+
+fn update_progress_and_postprocess(
+    ctx: &RecursiveOpContext<'_>,
+    decision_state: &mut DecisionState,
+    src: &std::path::Path,
+    stack: &mut Vec<WorkItem>,
+) {
     // Increment progress for the directory itself
     let p = ctx
         .processed
@@ -335,24 +408,6 @@ async fn handle_directory(
             src: src.to_path_buf(),
         });
     }
-
-    let children = match ctx.src_fs.read_dir(src).await {
-        Ok(v) => v,
-        Err(e) => {
-            return Err(anyhow!("Failed to read directory {}: {e}", src.display()));
-        }
-    };
-    for path in children {
-        let Some(name) = path.file_name() else {
-            continue;
-        };
-        let child_dest = dest.join(name);
-        stack.push(WorkItem::Process {
-            src: path,
-            dest: child_dest,
-        });
-    }
-    Ok(())
 }
 
 async fn resolve_conflict(
