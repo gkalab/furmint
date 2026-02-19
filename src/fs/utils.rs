@@ -155,12 +155,12 @@ pub fn mode_to_attributes(mode: u32, is_dir: bool, is_symlink: bool) -> String {
 }
 
 #[must_use]
-pub fn get_attributes(_meta: &Metadata, is_dir: bool, is_symlink: bool) -> String {
+pub fn get_attributes(_meta: &Metadata, is_dir: bool, _is_symlink: bool) -> String {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let mode = _meta.permissions().mode();
-        let s = mode_to_attributes(mode, is_dir, is_symlink);
+        let s = mode_to_attributes(mode, is_dir, _is_symlink);
         format!("{s:<10}") // pad/truncate to 10
     }
     #[cfg(not(unix))]
