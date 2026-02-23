@@ -62,7 +62,7 @@ pub trait FileSystem: Send + Sync {
     }
 
     // Optimized cross-filesystem operations
-    async fn download(
+    async fn copy_to_local(
         &self,
         src: &std::path::Path,
         dest_fs: &dyn FileSystem,
@@ -73,7 +73,7 @@ pub trait FileSystem: Send + Sync {
         None
     }
 
-    async fn upload(
+    async fn copy_from_local(
         &self,
         src_fs: &dyn FileSystem,
         src: &std::path::Path,

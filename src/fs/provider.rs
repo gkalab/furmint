@@ -226,23 +226,23 @@ impl FileSystem for ProviderFileSystem {
         self.0.get_password()
     }
 
-    async fn download(
+    async fn copy_to_local(
         &self,
         src: &std::path::Path,
         dest_fs: &dyn FileSystem,
         dest: &std::path::Path,
         progress: &super::traits::TaskProgressContext,
     ) -> Option<anyhow::Result<()>> {
-        self.0.download(src, dest_fs, dest, progress).await
+        self.0.copy_to_local(src, dest_fs, dest, progress).await
     }
 
-    async fn upload(
+    async fn copy_from_local(
         &self,
         src_fs: &dyn FileSystem,
         src: &std::path::Path,
         dest: &std::path::Path,
         progress: &super::traits::TaskProgressContext,
     ) -> Option<anyhow::Result<()>> {
-        self.0.upload(src_fs, src, dest, progress).await
+        self.0.copy_from_local(src_fs, src, dest, progress).await
     }
 }

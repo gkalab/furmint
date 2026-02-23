@@ -236,7 +236,7 @@ impl FileSystem for MockFileSystem {
         false
     }
 
-    async fn download(
+    async fn copy_to_local(
         &self,
         _src: &Path,
         dest_fs: &dyn FileSystem,
@@ -248,6 +248,16 @@ impl FileSystem for MockFileSystem {
             let _ = dest_fs.create_dir_all(dest).await;
         }
         result
+    }
+
+    async fn copy_from_local(
+        &self,
+        _src_fs: &dyn FileSystem,
+        _src: &Path,
+        _dest: &Path,
+        _progress: &TaskProgressContext,
+    ) -> Option<anyhow::Result<()>> {
+        None
     }
 }
 

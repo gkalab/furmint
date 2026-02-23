@@ -244,15 +244,15 @@ async fn handle_directory(
     // (replacing a whole tree). A non-directory blocking the path is handled below.
     if dest_is_dir {
         if let Some(result) =
-            handle_download_with_existing_dir(ctx, decision_state, src, dest, &progress).await?
+            handle_copy_to_local_with_existing_dir(ctx, decision_state, src, dest, &progress).await?
         {
             return result.map(|_| ());
         }
-    } else if let Some(result) = handle_download_direct(ctx, src, dest, &progress).await? {
+    } else if let Some(result) = handle_copy_to_local_direct(ctx, src, dest, &progress).await? {
         return result.map(|_| ());
     }
 
-    // Normal recursive path (no download() optimisation).
+    // Normal recursive path (no download optimisation).
     if !ensure_dest_directory(ctx, decision_state, dest, dest_exists, dest_is_dir).await? {
         return Ok(());
     }
@@ -261,14 +261,14 @@ async fn handle_directory(
     add_children_to_stack(ctx, src, dest, stack).await
 }
 
-async fn handle_download_with_existing_dir(
+async fn handle_copy_to_local_with_existing_dir(
     ctx: &RecursiveOpContext<'_>,
     decision_state: &mut DecisionState,
     src: &std::path::Path,
     dest: &std::path::Path,
     progress: &crate::fs::traits::TaskProgressContext,
 ) -> Result<Option<Result<()>>> {
-    if let Some(_res) = ctx.src_fs.download(src, ctx.dest_fs, dest, progress).await {
+    if let Some(_res) = ctx.src_fs.copy_to_local(src, ctx.dest_fs, dest, progress).await {
         match resolve_conflict(ctx, decision_state, dest).await? {
             ConflictResult::Perform => {}
             ConflictResult::Skip => {
@@ -281,8 +281,8 @@ async fn handle_download_with_existing_dir(
             }
             ConflictResult::Cancel => return Ok(Some(Ok(()))),
         }
-        // User said overwrite — run download for real now.
-        let res = ctx.src_fs.download(src, ctx.dest_fs, dest, progress).await;
+        // User said overwrite — run copy_to_local for real now.
+        let res = ctx.src_fs.copy_to_local(src, ctx.dest_fs, dest, progress).await;
         if let Some(res) = res {
             if res.is_ok() {
                 if let Some(mtime) = ctx.src_fs.get_modified_time(src).await {
@@ -299,14 +299,14 @@ async fn handle_download_with_existing_dir(
     Ok(None)
 }
 
-async fn handle_download_direct(
+async fn handle_copy_to_local_direct(
     ctx: &RecursiveOpContext<'_>,
     src: &std::path::Path,
     dest: &std::path::Path,
     progress: &crate::fs::traits::TaskProgressContext,
 ) -> Result<Option<Result<()>>> {
-    // Destination doesn't exist yet — download directly, no conflict.
-    if let Some(res) = ctx.src_fs.download(src, ctx.dest_fs, dest, progress).await {
+    // Destination doesn't exist yet — copy directly, no conflict.
+    if let Some(res) = ctx.src_fs.copy_to_local(src, ctx.dest_fs, dest, progress).await {
         if res.is_ok() {
             if let Some(mtime) = ctx.src_fs.get_modified_time(src).await {
                 let _ = ctx.dest_fs.set_modified_time(dest, mtime).await;
@@ -484,12 +484,16 @@ async fn perform_sftp_copy(
     // If rsync not used or fails, fall through to SFTP
 
     // Try source-optimized copy first
-    if let Some(res) = ctx.src_fs.download(src, ctx.dest_fs, dest, &progress).await {
+    if let Some(res) = ctx.src_fs.copy_to_local(src, ctx.dest_fs, dest, &progress).await {
         return Some(res);
     }
 
     // Try destination-optimized upload next
-    if let Some(res) = ctx.dest_fs.upload(ctx.src_fs, src, dest, &progress).await {
+    if let Some(res) = ctx
+        .dest_fs
+        .copy_from_local(ctx.src_fs, src, dest, &progress)
+        .await
+    {
         return Some(res);
     }
 

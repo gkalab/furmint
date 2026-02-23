@@ -62,6 +62,26 @@ impl SftpFs {
             _ => 16 * 1024 * 1024,                  // 16MB for large files (>200MB)
         }
     }
+
+    pub async fn download(
+        &self,
+        src: &Path,
+        dest_fs: &dyn crate::fs::traits::FileSystem,
+        dest: &Path,
+        progress: &crate::fs::traits::TaskProgressContext,
+    ) -> Option<anyhow::Result<()>> {
+        self.copy_to_local(src, dest_fs, dest, progress).await
+    }
+
+    pub async fn upload(
+        &self,
+        src_fs: &dyn crate::fs::traits::FileSystem,
+        src: &Path,
+        dest: &Path,
+        progress: &crate::fs::traits::TaskProgressContext,
+    ) -> Option<anyhow::Result<()>> {
+        self.copy_from_local(src_fs, src, dest, progress).await
+    }
 }
 
 impl Drop for SftpFs {
@@ -428,7 +448,7 @@ impl FileSystemProvider for SftpFs {
         Ok(size)
     }
 
-    async fn download(
+    async fn copy_to_local(
         &self,
         src: &Path,
         dest_fs: &dyn crate::fs::traits::FileSystem,
@@ -545,7 +565,7 @@ impl FileSystemProvider for SftpFs {
         Some(Ok(()))
     }
 
-    async fn upload(
+    async fn copy_from_local(
         &self,
         src_fs: &dyn crate::fs::traits::FileSystem,
         src: &Path,

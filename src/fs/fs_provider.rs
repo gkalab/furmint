@@ -112,8 +112,8 @@ pub trait FileSystemProvider: Send + Sync {
     /// Returns the total size in bytes.
     async fn calc_dir_size(&self, path: &Path) -> anyhow::Result<u64>;
 
-    /// Optimized copy to another filesystem.
-    async fn download(
+    /// Optimized copy to local filesystem (e.g., download).
+    async fn copy_to_local(
         &self,
         _src: &Path,
         _dest_fs: &dyn crate::fs::traits::FileSystem,
@@ -123,8 +123,8 @@ pub trait FileSystemProvider: Send + Sync {
         None
     }
 
-    /// Optimized upload from another filesystem.
-    async fn upload(
+    /// Optimized copy from local to another filesystem (e.g., upload).
+    async fn copy_from_local(
         &self,
         _src_fs: &dyn crate::fs::traits::FileSystem,
         _src: &Path,

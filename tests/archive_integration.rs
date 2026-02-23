@@ -240,7 +240,7 @@ async fn test_archive_fs_read_and_download_zip() {
 
     // Extract everything
     archive_fs
-        .download(Path::new("."), &local_fs, &dest_dir, &progress)
+        .extract(Path::new("."), &local_fs, &dest_dir, &progress)
         .await
         .unwrap()
         .unwrap();
@@ -303,7 +303,7 @@ async fn test_archive_fs_read_and_download_tar_gz() {
     let local_fs = fm::fs::provider::ProviderFileSystem(Arc::new(LocalFs::new()));
 
     archive_fs
-        .download(Path::new("."), &local_fs, &dest_dir, &progress)
+        .extract(Path::new("."), &local_fs, &dest_dir, &progress)
         .await
         .unwrap()
         .unwrap();
@@ -355,7 +355,7 @@ async fn test_archive_download_empty_dir_and_nesting() {
     let local_fs = fm::fs::provider::ProviderFileSystem(Arc::new(LocalFs::new()));
 
     archive_fs
-        .download(Path::new("."), &local_fs, &dest_dir, &progress)
+        .extract(Path::new("."), &local_fs, &dest_dir, &progress)
         .await
         .unwrap()
         .unwrap();
@@ -422,7 +422,7 @@ async fn test_archive_download_cancellation() {
     });
 
     let res = archive_fs
-        .download(Path::new("."), &local_fs, &dest_dir, &progress)
+        .extract(Path::new("."), &local_fs, &dest_dir, &progress)
         .await
         .unwrap();
 
@@ -465,7 +465,7 @@ async fn test_zip_timestamp_preservation() {
     };
 
     let result: anyhow::Result<()> = archive_fs
-        .download(Path::new("."), &local_fs, &dest_dir, &progress)
+        .extract(Path::new("."), &local_fs, &dest_dir, &progress)
         .await
         .unwrap();
     result.unwrap();
@@ -559,7 +559,7 @@ async fn test_tar_timestamp_preservation() {
     };
 
     let result: anyhow::Result<()> = archive_fs
-        .download(Path::new("."), &local_fs, &dest_dir, &progress)
+        .extract(Path::new("."), &local_fs, &dest_dir, &progress)
         .await
         .unwrap();
     result.unwrap();
@@ -648,7 +648,7 @@ async fn test_archive_fs_download_tar_gz_optimized() {
 
     // Extract single file
     archive_fs
-        .download(Path::new("hello.txt"), &local_fs, &dest_file, &progress)
+        .extract(Path::new("hello.txt"), &local_fs, &dest_file, &progress)
         .await
         .unwrap()
         .unwrap();

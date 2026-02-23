@@ -392,6 +392,16 @@ impl ArchiveFs {
             SystemTime::UNIX_EPOCH
         }
     }
+
+    pub async fn extract(
+        &self,
+        src: &Path,
+        dest_fs: &dyn crate::fs::traits::FileSystem,
+        dest: &Path,
+        progress: &crate::fs::traits::TaskProgressContext,
+    ) -> Option<anyhow::Result<()>> {
+        self.copy_to_local(src, dest_fs, dest, progress).await
+    }
 }
 
 #[async_trait]
@@ -618,7 +628,7 @@ impl FileSystemProvider for ArchiveFs {
         Ok(0)
     }
 
-    async fn download(
+    async fn copy_to_local(
         &self,
         src: &Path,
         dest_fs: &dyn crate::fs::traits::FileSystem,
