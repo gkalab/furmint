@@ -244,7 +244,8 @@ async fn handle_directory(
     // (replacing a whole tree). A non-directory blocking the path is handled below.
     if dest_is_dir {
         if let Some(result) =
-            handle_copy_to_local_with_existing_dir(ctx, decision_state, src, dest, &progress).await?
+            handle_copy_to_local_with_existing_dir(ctx, decision_state, src, dest, &progress)
+                .await?
         {
             return result.map(|_| ());
         }
@@ -268,7 +269,11 @@ async fn handle_copy_to_local_with_existing_dir(
     dest: &std::path::Path,
     progress: &crate::fs::traits::TaskProgressContext,
 ) -> Result<Option<Result<()>>> {
-    if let Some(_res) = ctx.src_fs.copy_to_local(src, ctx.dest_fs, dest, progress).await {
+    if let Some(_res) = ctx
+        .src_fs
+        .copy_to_local(src, ctx.dest_fs, dest, progress)
+        .await
+    {
         match resolve_conflict(ctx, decision_state, dest).await? {
             ConflictResult::Perform => {}
             ConflictResult::Skip => {
@@ -282,7 +287,10 @@ async fn handle_copy_to_local_with_existing_dir(
             ConflictResult::Cancel => return Ok(Some(Ok(()))),
         }
         // User said overwrite — run copy_to_local for real now.
-        let res = ctx.src_fs.copy_to_local(src, ctx.dest_fs, dest, progress).await;
+        let res = ctx
+            .src_fs
+            .copy_to_local(src, ctx.dest_fs, dest, progress)
+            .await;
         if let Some(res) = res {
             if res.is_ok() {
                 if let Some(mtime) = ctx.src_fs.get_modified_time(src).await {
@@ -306,7 +314,11 @@ async fn handle_copy_to_local_direct(
     progress: &crate::fs::traits::TaskProgressContext,
 ) -> Result<Option<Result<()>>> {
     // Destination doesn't exist yet — copy directly, no conflict.
-    if let Some(res) = ctx.src_fs.copy_to_local(src, ctx.dest_fs, dest, progress).await {
+    if let Some(res) = ctx
+        .src_fs
+        .copy_to_local(src, ctx.dest_fs, dest, progress)
+        .await
+    {
         if res.is_ok() {
             if let Some(mtime) = ctx.src_fs.get_modified_time(src).await {
                 let _ = ctx.dest_fs.set_modified_time(dest, mtime).await;
@@ -484,7 +496,11 @@ async fn perform_sftp_copy(
     // If rsync not used or fails, fall through to SFTP
 
     // Try source-optimized copy first
-    if let Some(res) = ctx.src_fs.copy_to_local(src, ctx.dest_fs, dest, &progress).await {
+    if let Some(res) = ctx
+        .src_fs
+        .copy_to_local(src, ctx.dest_fs, dest, &progress)
+        .await
+    {
         return Some(res);
     }
 

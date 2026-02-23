@@ -25,9 +25,10 @@ pub fn draw_tab_bar(
         // Get the tab title (custom_title if set, otherwise last component of path)
         let tab_title = tab.title();
 
-        // Truncate if too long (max 15 chars)
-        let truncated_title = if tab_title.len() > 15 {
-            format!("{}…", &tab_title[..12])
+        // Truncate if too long (max 15 chars for local directories, 25 for others)
+        let max_len = if tab.provider.is_local() { 15 } else { 25 };
+        let truncated_title = if tab_title.len() > max_len {
+            format!("{}…", &tab_title[..max_len - 3])
         } else {
             tab_title.to_string()
         };
@@ -73,6 +74,14 @@ pub fn draw_tab_bar(
         if icons {
             let left_edge = Span::styled("", Style::default().fg(bg).bg(bg_color));
             spans.push(left_edge);
+        }
+        if icons && tab.is_archive() {
+            let archive_icon = Span::styled("", Style::default().fg(fg).bg(bg));
+            spans.push(archive_icon);
+        }
+        if icons && !tab.provider.is_local() && !tab.is_archive() {
+            let remote_icon = Span::styled("󰌘", Style::default().fg(fg).bg(bg));
+            spans.push(remote_icon);
         }
         let title_span = Span::styled(
             format!(" {truncated_title} "),

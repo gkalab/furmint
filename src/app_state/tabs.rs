@@ -198,6 +198,12 @@ impl Tab {
         }
     }
 
+    /// Returns true if this tab is browsing an archive
+    #[must_use]
+    pub fn is_archive(&self) -> bool {
+        self.provider.is_archive()
+    }
+
     /// Move cursor up by one.
     pub fn move_cursor_up(&mut self) {
         if self.cursor > 0 {

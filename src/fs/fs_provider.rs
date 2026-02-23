@@ -73,6 +73,11 @@ pub trait FileSystemProvider: Send + Sync {
     /// Returns true if this is the local filesystem.
     fn is_local(&self) -> bool;
 
+    /// Returns true if this is an archive filesystem (zip, tar, etc.)
+    fn is_archive(&self) -> bool {
+        false
+    }
+
     /// Check if a path exists.
     fn exists(&self, path: &Path) -> bool;
 

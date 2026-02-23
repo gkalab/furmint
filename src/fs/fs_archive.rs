@@ -530,6 +530,10 @@ impl FileSystemProvider for ArchiveFs {
         false
     }
 
+    fn is_archive(&self) -> bool {
+        true
+    }
+
     fn exists(&self, path: &Path) -> bool {
         let rel_path = if path.has_root() {
             path.strip_prefix("/").unwrap_or(path)
