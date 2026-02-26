@@ -460,9 +460,11 @@ impl ArchiveFormat for RpmHandler {
                 } else if entry_reader.entry().mode() & 0o120000 == 0o120000 {
                     let mut link_target = Vec::new();
                     entry_reader.read_to_end(&mut link_target)?;
-                    let link_target_str = String::from_utf8_lossy(&link_target);
                     #[cfg(unix)]
-                    std::os::unix::fs::symlink(link_target_str.as_ref(), &target)?;
+                    {
+                        let link_target_str = String::from_utf8_lossy(&link_target);
+                        std::os::unix::fs::symlink(link_target_str.as_ref(), &target)?;
+                    }
                 } else {
                     if let Some(parent) = target.parent() {
                         std::fs::create_dir_all(parent)?;
