@@ -154,18 +154,18 @@ async fn test_open_supported_archive_tar_gz() {
 }
 
 #[tokio::test]
-async fn test_open_unsupported_archive_xz_fallback() {
+async fn test_open_unsupported_archive_7z_fallback() {
     // 1. Setup
     let temp_dir = tempfile::tempdir().unwrap();
-    let archive_path = temp_dir.path().join("test.xz");
+    let archive_path = temp_dir.path().join("test.7z");
     File::create(&archive_path)
         .unwrap()
-        .write_all(b"dummy xz content")
+        .write_all(b"dummy 7z content")
         .unwrap();
 
     // 2. Setup AppState with MockOpener
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let entries = vec![create_file_entry("test.xz", false)];
+    let entries = vec![create_file_entry("test.7z", false)];
     let mock_opener = Arc::new(MockOpener::new());
     let mut app = test_app(entries, tx, mock_opener.clone());
 
@@ -610,6 +610,7 @@ async fn test_archive_fs_download_tar_gz_optimized() {
         let mut builder = tar::Builder::new(enc);
 
         let mut header = tar::Header::new_gnu();
+        header.set_mode(0o644);
         header.set_size(5);
         header.set_cksum();
         builder
@@ -654,4 +655,59 @@ async fn test_archive_fs_download_tar_gz_optimized() {
         .unwrap();
 
     assert_eq!(std::fs::read_to_string(&dest_file).unwrap(), "world");
+}
+
+#[tokio::test]
+async fn test_archive_fs_read_and_download_xz() {
+    // 1. Setup .tar.xz
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive_path = temp_dir.path().join("test.tar.xz");
+
+    {
+        let file = File::create(&archive_path).unwrap();
+        let enc = xz2::write::XzEncoder::new(file, 6);
+        let mut builder = tar::Builder::new(enc);
+
+        let mut header = tar::Header::new_gnu();
+        header.set_mode(0o644);
+        header.set_size(11);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, "hello_xz.txt", "world of xz".as_bytes())
+            .unwrap();
+
+        builder.finish().unwrap();
+    }
+
+    // 2. Load ArchiveFs
+    let archive_fs = fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap();
+
+    // 3. Test read_file
+    let content = archive_fs.read_file(Path::new("hello_xz.txt")).unwrap();
+    assert_eq!(content, b"world of xz");
+
+    // 4. Test extraction
+    let dest_dir = temp_dir.path().join("extracted_xz");
+    std::fs::create_dir_all(&dest_dir).unwrap();
+
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
+    let progress = fm::fs::traits::TaskProgressContext {
+        id: 0,
+        tx,
+        cancel: Arc::new(AtomicBool::new(false)),
+        processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+    };
+    let local_fs = fm::fs::provider::ProviderFileSystem(Arc::new(LocalFs::new()));
+
+    archive_fs
+        .extract(Path::new("."), &local_fs, &dest_dir, &progress)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        std::fs::read_to_string(dest_dir.join("hello_xz.txt")).unwrap(),
+        "world of xz"
+    );
 }
