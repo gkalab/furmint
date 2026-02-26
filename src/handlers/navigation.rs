@@ -47,8 +47,10 @@ fn archive_path_and_ext(app: &mut AppState) -> Option<(PathBuf, String, String)>
             let path = panel.current_dir.join(&entry.name);
             if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                 let ext = ext.to_lowercase();
-                if ["zip", "jar", "tar", "gz", "tgz", "bz2", "tbz2", "xz", "txz"]
-                    .contains(&ext.as_str())
+                if [
+                    "zip", "jar", "tar", "gz", "tgz", "bz2", "tbz2", "xz", "txz", "rpm",
+                ]
+                .contains(&ext.as_str())
                 {
                     Some((path, ext, entry.name.clone()))
                 } else {

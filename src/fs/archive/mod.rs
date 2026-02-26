@@ -4,6 +4,7 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+pub mod rpm;
 pub mod tar;
 pub mod zip;
 
@@ -42,6 +43,8 @@ pub fn get_archive_handler(path: &Path) -> Result<Box<dyn ArchiveFormat>> {
         || ext == "txz"
     {
         Ok(Box::new(tar::TarHandler::new(path)?))
+    } else if ext == "rpm" {
+        Ok(Box::new(rpm::RpmHandler::new(path)))
     } else {
         Err(anyhow::anyhow!("Unsupported archive format: {}", ext))
     }

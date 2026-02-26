@@ -43,6 +43,8 @@ tar = "0.4"
 flate2 = "1.0"
 bzip2 = "0.6"
 xz2 = "0.1"
+cpio = "0.2"
+zstd = "0.13"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"

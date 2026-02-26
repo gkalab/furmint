@@ -148,6 +148,28 @@ impl FileViewerState {
             return;
         }
 
+        // RPM metadata view (F3)
+        if let Some(ext) = path.extension().and_then(|e| e.to_str())
+            && ext.to_lowercase() == "rpm"
+            && provider.is_local()
+        {
+            let handler = crate::fs::archive::rpm::RpmHandler::new(&path);
+            match handler.get_metadata() {
+                Ok(meta) => {
+                    self.content = meta.lines().map(String::from).collect();
+                    return;
+                }
+                Err(e) => {
+                    self.content = vec![
+                        "RPM package detected.".to_string(),
+                        format!("Failed to parse metadata: {e}"),
+                        "Falling back to binary view...".to_string(),
+                    ];
+                    // Don't return, let it fall back
+                }
+            }
+        }
+
         if Self::is_image(&path) {
             // Ensure channels and picker initialization are kicked off
             if self.resize_tx.is_none() {

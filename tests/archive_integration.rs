@@ -17,7 +17,7 @@ use fm::ssh_manager::SshManager;
 use fm::state::FileViewerState;
 use fm::tasks::{TaskEvent, TaskManager};
 use std::fs::File;
-use std::io::Write;
+use std::io::{Seek, Write};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -709,5 +709,137 @@ async fn test_archive_fs_read_and_download_xz() {
     assert_eq!(
         std::fs::read_to_string(dest_dir.join("hello_xz.txt")).unwrap(),
         "world of xz"
+    );
+}
+
+#[tokio::test]
+async fn test_archive_fs_read_and_download_rpm() {
+    use std::path::Path;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let rpm_path = temp_dir.path().join("test.rpm");
+
+    // Header structure helper
+    let write_header = |f: &mut File, tags: Vec<(i32, i32, &[u8])>| {
+        f.write_all(b"\x8e\xad\xe8\x01\x00\x00\x00\x00").unwrap(); // magic + version + reserved
+        f.write_all(&(tags.len() as u32).to_be_bytes()).unwrap(); // count
+
+        let mut data = Vec::new();
+        let mut index = Vec::new();
+
+        for (tag, ty, val) in tags {
+            let offset = data.len() as i32;
+            index.push((tag, ty, offset, 1i32));
+            data.extend_from_slice(val);
+            if ty == 6 || ty == 9 {
+                data.push(0);
+            }
+        }
+
+        f.write_all(&(data.len() as u32).to_be_bytes()).unwrap(); // size
+
+        for (tag, ty, offset, cnt) in index {
+            f.write_all(&tag.to_be_bytes()).unwrap();
+            f.write_all(&ty.to_be_bytes()).unwrap();
+            f.write_all(&offset.to_be_bytes()).unwrap();
+            f.write_all(&cnt.to_be_bytes()).unwrap();
+        }
+
+        f.write_all(&data).unwrap();
+    };
+
+    // Create a dummy RPM
+    {
+        let mut file = File::create(&rpm_path).unwrap();
+        // Lead: 96 bytes
+        file.write_all(&[0u8; 96]).unwrap();
+
+        // Signature
+        write_header(&mut file, vec![]);
+        // Padding to 8-byte boundary
+        let pos = file.stream_position().unwrap();
+        let pad = (8 - (pos % 8)) % 8;
+        file.write_all(&vec![0u8; pad as usize]).unwrap();
+
+        // Main Header
+        write_header(
+            &mut file,
+            vec![(1000, 6, b"test-package"), (1001, 6, b"1.2.3")],
+        );
+
+        // Payload (uncompressed CPIO)
+        let builder = cpio::NewcBuilder::new("file1.txt")
+            .mode(0o100644)
+            .mtime(1000);
+        let data = b"hello rpm";
+        let mut writer = builder.write(file, data.len() as u32);
+        writer.write_all(data).unwrap();
+        let mut file = writer.finish().unwrap();
+
+        // Trailer
+        cpio::newc::trailer(&mut file).unwrap();
+    }
+
+    // Test metadata (unsigned)
+    let handler = fm::fs::archive::rpm::RpmHandler::new(&rpm_path);
+    let meta = handler.get_metadata().unwrap();
+    assert!(meta.contains("Signed         : no"));
+    assert!(meta.contains("Name           : test-package"));
+    assert!(meta.contains("Version        : 1.2.3"));
+
+    // Create a signed RPM
+    let signed_rpm_path = temp_dir.path().join("signed.rpm");
+    {
+        let mut file = File::create(&signed_rpm_path).unwrap();
+        file.write_all(&[0u8; 96]).unwrap();
+
+        // Signature header with SIGTAG_PGP (1000)
+        write_header(&mut file, vec![(1000, 7, b"signature-data")]);
+        let pos = file.stream_position().unwrap();
+        let pad = (8 - (pos % 8)) % 8;
+        file.write_all(&vec![0u8; pad as usize]).unwrap();
+
+        write_header(&mut file, vec![(1000, 6, b"signed-package")]);
+        cpio::newc::trailer(&mut file).unwrap();
+    }
+
+    let handler_signed = fm::fs::archive::rpm::RpmHandler::new(&signed_rpm_path);
+    let meta_signed = handler_signed.get_metadata().unwrap();
+    assert!(meta_signed.contains("Signed         : yes"));
+
+    // Test scanning
+    let archive_fs = fm::fs::fs_archive::ArchiveFs::new(&rpm_path).unwrap();
+    let entries = archive_fs.list_dir(Path::new("/")).unwrap();
+    assert!(entries.iter().any(|e| e.name == "file1.txt"));
+
+    // Test reading
+    let content = archive_fs.read_file(Path::new("file1.txt")).unwrap();
+    assert_eq!(content, b"hello rpm");
+
+    // Test extraction
+    let dest_dir = temp_dir.path().join("extracted_rpm");
+    std::fs::create_dir_all(&dest_dir).unwrap();
+
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
+    let progress = fm::fs::traits::TaskProgressContext {
+        id: 0,
+        tx,
+        cancel: Arc::new(AtomicBool::new(false)),
+        processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+    };
+    let local_fs = fm::fs::provider::ProviderFileSystem(Arc::new(LocalFs::new()));
+
+    archive_fs
+        .extract(Path::new("."), &local_fs, &dest_dir, &progress)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        std::fs::read_to_string(dest_dir.join("file1.txt")).unwrap(),
+        "hello rpm"
     );
 }
