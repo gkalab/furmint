@@ -64,7 +64,7 @@ impl ArchiveFs {
             .unwrap_or("")
             .to_lowercase();
 
-        if ext == "zip" {
+        if ext == "zip" || ext == "jar" {
             let file = File::open(&self.archive_path).context("Failed to open archive")?;
             let reader = std::io::BufReader::new(file);
             self.scan_zip(reader)?;
@@ -481,7 +481,7 @@ impl FileSystemProvider for ArchiveFs {
             .unwrap_or("")
             .to_lowercase();
 
-        if ext == "zip" {
+        if ext == "zip" || ext == "jar" {
             let mut archive = zip::ZipArchive::new(file).context("Failed to read zip")?;
             let mut zip_file = archive.by_name(path_str).context("File not found in zip")?;
             let mut buffer = Vec::with_capacity(zip_file.size() as usize);
@@ -678,7 +678,7 @@ impl FileSystemProvider for ArchiveFs {
                     lock.as_ref().map(|t| t.path().to_path_buf())
                 };
 
-                let effective_path = if ext == "zip" {
+                let effective_path = if ext == "zip" || ext == "jar" {
                     &archive_path
                 } else {
                     temp_tar_path.as_ref().unwrap_or(&archive_path)
@@ -686,7 +686,7 @@ impl FileSystemProvider for ArchiveFs {
 
                 let file = File::open(effective_path).context("Failed to open archive")?;
 
-                if ext == "zip" {
+                if ext == "zip" || ext == "jar" {
                     let mut archive = zip::ZipArchive::new(file).context("Failed to read zip")?;
 
                     // Optimized single file extraction
