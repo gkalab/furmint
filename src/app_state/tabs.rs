@@ -112,6 +112,7 @@ impl Default for SortSettings {
 
 #[derive(Clone)]
 pub struct Tab {
+    pub area: ratatui::layout::Rect,
     pub provider: Arc<dyn FileSystemProvider>,
     pub current_dir: PathBuf,
     pub entries: Vec<FileEntry>,
@@ -140,6 +141,7 @@ impl Tab {
     ) -> anyhow::Result<Self> {
         let entries = provider.list_dir(path)?;
         let mut tab = Self {
+            area: ratatui::layout::Rect::default(),
             provider: provider.clone(),
             current_dir: path.to_path_buf(),
             entries,

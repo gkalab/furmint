@@ -2,6 +2,7 @@
 
 use crate::app::AppState;
 use crossterm::ExecutableCommand;
+use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode};
 use std::process::Command;
 
@@ -210,7 +211,13 @@ pub async fn handle_toggle_console(
     disable_raw_mode()?;
     std::io::stdout()
         .execute(crossterm::cursor::Show)?
-        .execute(Clear(ClearType::All))?
+        .execute(Clear(ClearType::All))?;
+
+    if app.global.mouse.unwrap_or(true) {
+        std::io::stdout().execute(DisableMouseCapture)?;
+    }
+
+    std::io::stdout()
         .execute(crossterm::cursor::MoveTo(0, 0))
         .map_err(|e| anyhow::anyhow!("Failed to reset terminal: {e}"))?;
 
@@ -252,6 +259,9 @@ pub async fn handle_toggle_console(
 
     // 6. Restore raw mode
     enable_raw_mode()?;
+    if app.global.mouse.unwrap_or(true) {
+        std::io::stdout().execute(EnableMouseCapture)?;
+    }
 
     // 7. Restart input polling
     app.input_polling_handle = Some(crate::event_loop::spawn_input_polling(input_tx.clone()));

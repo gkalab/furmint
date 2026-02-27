@@ -54,6 +54,7 @@ fn test_app(
     opener: Arc<dyn FileOpener + Send + Sync>,
 ) -> AppState {
     let tab = Tab {
+        area: ratatui::layout::Rect::default(),
         provider: Arc::new(LocalFs::new()),
         current_dir: std::path::PathBuf::from("/tmp"),
         entries,
@@ -100,6 +101,13 @@ fn test_app(
         remote_watcher: None,
         archive_cache: std::collections::HashMap::new(),
         opener,
+        left_tab_bar_area: ratatui::layout::Rect::default(),
+        right_tab_bar_area: ratatui::layout::Rect::default(),
+        left_panel_area: ratatui::layout::Rect::default(),
+        right_panel_area: ratatui::layout::Rect::default(),
+        left_tab_areas: Vec::new(),
+        right_tab_areas: Vec::new(),
+        last_click: None,
     }
 }
 

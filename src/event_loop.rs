@@ -53,15 +53,16 @@ pub async fn run_event_loop(
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
 
     let mut should_exit = false;
+    let mut mouse_capture_active = app.global.mouse.unwrap_or(true);
 
     // Initial draw
-    draw_ui(terminal, app, palette, &keyboard)?;
+    draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
 
     while !should_exit {
         // Explicit redraw if requested (e.g. after editor or console toggle)
         if app.needs_redraw {
             terminal.clear()?;
-            draw_ui(terminal, app, palette, &keyboard)?;
+            draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
             app.needs_redraw = false;
         }
         tokio::select! {
@@ -69,7 +70,7 @@ pub async fn run_event_loop(
                             Some(event) = watcher_rx.recv() => {
                                 handle_watcher_event(event, app);
                                 app.sync_watcher();
-                                draw_ui(terminal, app, palette, &keyboard)?;
+                                draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
                             }
                             // Handle input events
                             Some(event) = input_rx.recv() => {
@@ -94,7 +95,7 @@ pub async fn run_event_loop(
                                         terminal.clear()?;
                                         app.needs_redraw = false;
                                     }
-                                    draw_ui(terminal, app, palette, &keyboard)?;
+                                    draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
                                 }
 
                                 // Sync watcher if navigation happened
@@ -103,7 +104,7 @@ pub async fn run_event_loop(
                             // Handle task events
                             Some(event) = task_rx.recv() => {
                                 handle_task_event(event, app);
-                                draw_ui(terminal, app, palette, &keyboard)?;
+                                draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
                             }
                             _ = interval.tick() => {
                                 app.task_manager.cleanup_tasks();
@@ -117,7 +118,7 @@ pub async fn run_event_loop(
                                 if let Some(w) = &mut app.remote_watcher {
                                     let _ = w.poll();
                                 }
-                                draw_ui(terminal, app, palette, &keyboard)?;
+                                draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
                             }
                             // Handle image resize requests immediately and off-thread
                             Some(request) = async {
@@ -133,13 +134,13 @@ pub async fn run_event_loop(
 
                                 if let (Some(encoded), Some(protocol)) = (encoded, &mut app.file_viewer.protocol) {
                                     let _ = protocol.update_resized_protocol(encoded);
-                                    draw_ui(terminal, app, palette, &keyboard)?;
+                                    draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
                                 }
                             }
                             // Handle image load results
                             Some(load_result) = image_load_rx.recv() => {
                                 app.file_viewer.handle_load_result(load_result);
-                                draw_ui(terminal, app, palette, &keyboard)?;
+                                draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
                             }
                             else => break,
                         }
@@ -194,7 +195,18 @@ fn draw_ui(
     app: &mut AppState,
     palette: &ThemePalette,
     keyboard: &KeyboardConfig,
+    mouse_capture_active: &mut bool,
 ) -> anyhow::Result<()> {
+    let should_mouse_be_active = app.global.mouse.unwrap_or(true) && !app.popups.any_visible();
+    if should_mouse_be_active != *mouse_capture_active {
+        if should_mouse_be_active {
+            let _ = crossterm::execute!(std::io::stdout(), crossterm::event::EnableMouseCapture);
+        } else {
+            let _ = crossterm::execute!(std::io::stdout(), crossterm::event::DisableMouseCapture);
+        }
+        *mouse_capture_active = should_mouse_be_active;
+    }
+
     terminal.draw(|f| {
         crate::ui::main_ui::draw_main_layout(f, app, palette);
         crate::ui::main_ui::draw_all_popups(f, app, palette, keyboard);

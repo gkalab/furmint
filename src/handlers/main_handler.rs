@@ -62,6 +62,10 @@ pub async fn route_event(
             )
             .await
         }
+        Event::Mouse(mouse_event) => {
+            crate::handlers::mouse::handle_mouse_event(app, mouse_event);
+            false
+        }
         Event::Resize(_, _) => false,
         _ => false,
     }

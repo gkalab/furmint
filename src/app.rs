@@ -6,6 +6,7 @@ use crate::clipboard::FileClipboard;
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::time::Instant;
 
 // Re-export state types from state module for backward compatibility
 pub use crate::state::{
@@ -60,6 +61,23 @@ impl Popups {
             remote_edit: RemoteEditState::new(),
         }
     }
+
+    pub fn any_visible(&self) -> bool {
+        self.rename.is_visible
+            || self.create_directory.is_visible
+            || self.delete.is_visible
+            || self.empty_trash.is_visible
+            || self.copy_move.is_visible
+            || self.conflict.is_visible
+            || self.error.is_visible
+            || self.quit_confirmation.is_visible
+            || self.create_file.is_visible
+            || self.help.is_visible
+            || self.drive_select.is_visible
+            || self.ssh_connection.is_visible
+            || self.ssh_password.is_visible
+            || self.remote_edit.is_visible
+    }
 }
 
 impl Default for Popups {
@@ -97,6 +115,14 @@ pub struct AppState {
     pub clipboard: Box<dyn FileClipboard + Send>,
     pub archive_cache: std::collections::HashMap<std::path::PathBuf, ArchiveCacheEntry>,
     pub opener: std::sync::Arc<dyn crate::opener::FileOpener + Send + Sync>,
+    // Mouse interaction areas
+    pub left_tab_bar_area: ratatui::layout::Rect,
+    pub right_tab_bar_area: ratatui::layout::Rect,
+    pub left_tab_areas: Vec<ratatui::layout::Rect>,
+    pub right_tab_areas: Vec<ratatui::layout::Rect>,
+    pub left_panel_area: ratatui::layout::Rect,
+    pub right_panel_area: ratatui::layout::Rect,
+    pub last_click: Option<(Instant, u16, u16)>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -161,6 +187,13 @@ impl AppState {
             clipboard: Box::new(crate::clipboard::ClipboardBackend::new()),
             archive_cache: std::collections::HashMap::new(),
             opener: std::sync::Arc::new(crate::opener::SystemOpener),
+            left_tab_bar_area: ratatui::layout::Rect::default(),
+            right_tab_bar_area: ratatui::layout::Rect::default(),
+            left_tab_areas: Vec::new(),
+            right_tab_areas: Vec::new(),
+            left_panel_area: ratatui::layout::Rect::default(),
+            right_panel_area: ratatui::layout::Rect::default(),
+            last_click: None,
         }
     }
 
@@ -458,6 +491,7 @@ impl AppState {
         use std::sync::Arc;
 
         let test_tab = Tab {
+            area: ratatui::layout::Rect::default(),
             provider: Arc::new(crate::fs::fs_local::LocalFs::new()),
             current_dir: std::path::PathBuf::from("/test"),
             entries: vec![],
@@ -505,6 +539,13 @@ impl AppState {
             clipboard: Box::new(crate::clipboard::InMemoryFileClipboard::new()),
             archive_cache: std::collections::HashMap::new(),
             opener: std::sync::Arc::new(crate::opener::SystemOpener),
+            left_tab_bar_area: ratatui::layout::Rect::default(),
+            right_tab_bar_area: ratatui::layout::Rect::default(),
+            left_tab_areas: Vec::new(),
+            right_tab_areas: Vec::new(),
+            left_panel_area: ratatui::layout::Rect::default(),
+            right_panel_area: ratatui::layout::Rect::default(),
+            last_click: None,
         }
     }
 }
@@ -598,6 +639,7 @@ mod tests {
         ];
 
         Tab {
+            area: ratatui::layout::Rect::default(),
             provider: Arc::new(LocalFs::new()),
             current_dir: PathBuf::from("/tmp"),
             entries,
@@ -892,6 +934,7 @@ mod tests {
 
         let local_tab = create_test_tab();
         let remote_tab = Tab {
+            area: ratatui::layout::Rect::default(),
             provider: Arc::new(RemoteProvider) as Arc<dyn FileSystemProvider>,
             current_dir: PathBuf::from("/remote"),
             entries: vec![],

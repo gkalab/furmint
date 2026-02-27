@@ -1,4 +1,5 @@
 pub mod main_handler;
+pub mod mouse;
 pub mod navigation;
 
 pub mod tabs;

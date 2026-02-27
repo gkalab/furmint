@@ -93,7 +93,12 @@ fn draw_side(
             .split(area);
 
         if show_tabs {
-            crate::ui::draw_tab_bar(
+            if side == PanelSide::Left {
+                app.left_tab_bar_area = sub_layout[0];
+            } else {
+                app.right_tab_bar_area = sub_layout[0];
+            }
+            let tab_areas = crate::ui::draw_tab_bar(
                 f,
                 tab_manager,
                 sub_layout[0],
@@ -102,6 +107,21 @@ fn draw_side(
                 app.global.borders.unwrap_or(false),
                 app.global.icons.unwrap_or(false),
             );
+            if side == PanelSide::Left {
+                app.left_tab_areas = tab_areas;
+            } else {
+                app.right_tab_areas = tab_areas;
+            }
+        } else if side == PanelSide::Left {
+            app.left_tab_bar_area = Rect::default();
+        } else {
+            app.right_tab_bar_area = Rect::default();
+        }
+
+        if side == PanelSide::Left {
+            app.left_panel_area = sub_layout[1];
+        } else {
+            app.right_panel_area = sub_layout[1];
         }
 
         let tab = if side == PanelSide::Left {

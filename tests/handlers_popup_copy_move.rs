@@ -32,6 +32,7 @@ fn make_tab(path: &str, entries: Vec<FileEntry>, cursor: usize) -> Tab {
     let history =
         fm::app_state::tabs::TabHistory::new(PathBuf::from("/tmp"), 0, Arc::new(LocalFs::new()));
     Tab {
+        area: ratatui::layout::Rect::default(),
         provider: Arc::new(LocalFs::new()),
         current_dir: current_dir.clone(),
         entries,
@@ -85,6 +86,13 @@ fn minimal_state_with_entries(
         remote_watcher: None,
         archive_cache: std::collections::HashMap::new(),
         opener: Arc::new(fm::opener::SystemOpener),
+        left_tab_bar_area: ratatui::layout::Rect::default(),
+        right_tab_bar_area: ratatui::layout::Rect::default(),
+        left_panel_area: ratatui::layout::Rect::default(),
+        right_panel_area: ratatui::layout::Rect::default(),
+        left_tab_areas: Vec::new(),
+        right_tab_areas: Vec::new(),
+        last_click: None,
     }
 }
 

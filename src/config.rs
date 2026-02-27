@@ -67,6 +67,7 @@ pub struct GlobalConfig {
     pub terminal: Option<String>,
     pub borders: Option<bool>,
     pub icons: Option<bool>,
+    pub mouse: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -126,6 +127,7 @@ pub fn default_global_config() -> GlobalConfig {
         terminal: None,
         borders: Some(true),
         icons: Some(false),
+        mouse: Some(true),
     }
 }
 
@@ -252,6 +254,7 @@ pub fn merge_global_config(
         .or_else(|| default.terminal.clone());
     let borders = user.and_then(|g| g.borders).or(default.borders);
     let icons = user.and_then(|g| g.icons).or(default.icons);
+    let mouse = user.and_then(|g| g.mouse).or(default.mouse);
 
     // Validate theme name
     if let Some(ref n) = theme
@@ -269,6 +272,7 @@ pub fn merge_global_config(
         terminal,
         borders,
         icons,
+        mouse,
     })
 }
 

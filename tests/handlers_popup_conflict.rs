@@ -41,6 +41,13 @@ fn app_with_conflict(task_id: usize) -> (AppState, mpsc::Receiver<TaskDecision>)
         archive_cache: std::collections::HashMap::new(),
         ssh_manager: std::sync::Arc::new(SshManager::default()),
         opener: std::sync::Arc::new(fm::opener::SystemOpener),
+        left_tab_bar_area: ratatui::layout::Rect::default(),
+        right_tab_bar_area: ratatui::layout::Rect::default(),
+        left_panel_area: ratatui::layout::Rect::default(),
+        right_panel_area: ratatui::layout::Rect::default(),
+        left_tab_areas: Vec::new(),
+        right_tab_areas: Vec::new(),
+        last_click: None,
     };
 
     app.popups.conflict.is_visible = true;

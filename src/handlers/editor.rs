@@ -2,7 +2,8 @@
 
 use crate::app::AppState;
 use crate::fs::fs_provider::FileSystemProvider;
-use crossterm::event::Event as CrosstermEvent;
+use crossterm::ExecutableCommand;
+use crossterm::event::{DisableMouseCapture, EnableMouseCapture, Event as CrosstermEvent};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
@@ -106,7 +107,13 @@ async fn edit_file_remote(
             }
         }
 
+        if app.global.mouse.unwrap_or(true) {
+            let _ = std::io::stdout().execute(DisableMouseCapture);
+        }
         let edit_result = launch_and_wait_for_editor(&temp_path, cmd, in_terminal).await;
+        if app.global.mouse.unwrap_or(true) {
+            let _ = std::io::stdout().execute(EnableMouseCapture);
+        }
 
         if let Some(watcher) = &mut app.watcher {
             let _ = watcher.watch(&panel_current_dir);
@@ -264,9 +271,11 @@ pub fn open_in_default_editor(file_path: &std::path::Path) -> anyhow::Result<()>
     use std::process::Command;
     let editor = get_default_editor();
     disable_raw_mode()?;
+    let _ = std::io::stdout().execute(DisableMouseCapture);
     std::thread::sleep(std::time::Duration::from_millis(100));
     let status = Command::new(editor).arg(file_path).status();
     enable_raw_mode()?;
+    let _ = std::io::stdout().execute(EnableMouseCapture);
     match status {
         Ok(s) if s.success() => Ok(()),
         Ok(s) => Err(anyhow::anyhow!("Editor exited with status: {s}")),
@@ -318,7 +327,12 @@ pub async fn open_file_in_editor_with_env_handling(
     }
     let result = tokio::task::spawn_blocking({
         let path = file_path.to_path_buf();
-        move || open_in_default_editor(&path)
+        move || {
+            let _ = std::io::stdout().execute(DisableMouseCapture);
+            let res = open_in_default_editor(&path);
+            let _ = std::io::stdout().execute(EnableMouseCapture);
+            res
+        }
     })
     .await;
     let err = match result {

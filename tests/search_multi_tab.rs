@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 fn create_test_tab(name: &str, entries: Vec<FileEntry>) -> Tab {
     let current_dir = PathBuf::from(format!("/tmp/{}", name));
     Tab {
+        area: ratatui::layout::Rect::default(),
         provider: Arc::new(LocalFs::new()),
         current_dir: current_dir.clone(),
         entries,
@@ -92,6 +93,13 @@ fn test_multi_tab_search_timeout() {
         clipboard: Box::new(ClipboardBackend::new()),
         archive_cache: std::collections::HashMap::new(),
         opener: Arc::new(fm::opener::SystemOpener),
+        left_tab_bar_area: ratatui::layout::Rect::default(),
+        right_tab_bar_area: ratatui::layout::Rect::default(),
+        left_panel_area: ratatui::layout::Rect::default(),
+        right_panel_area: ratatui::layout::Rect::default(),
+        left_tab_areas: Vec::new(),
+        right_tab_areas: Vec::new(),
+        last_click: None,
     };
 
     // Before reset

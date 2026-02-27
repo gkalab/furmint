@@ -19,10 +19,13 @@ pub mod ui;
 use crate::config::load_config;
 use crate::event_loop::run_event_loop;
 use anyhow::Result;
-use crossterm::terminal::enable_raw_mode;
+use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+use crossterm::execute;
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use std::env;
+use std::io::stdout;
 
 pub async fn run() -> Result<()> {
     enable_raw_mode()?;
@@ -95,7 +98,11 @@ pub async fn run() -> Result<()> {
 
     app.sync_watcher();
 
-    run_event_loop(
+    if app.global.mouse.unwrap_or(true) {
+        execute!(stdout(), EnableMouseCapture)?;
+    }
+
+    let result = run_event_loop(
         &mut terminal,
         &mut app,
         &palette,
@@ -104,13 +111,20 @@ pub async fn run() -> Result<()> {
         &mut task_rx,
         &mut image_load_rx,
     )
-    .await?;
+    .await;
+
+    if app.global.mouse.unwrap_or(true) {
+        execute!(stdout(), DisableMouseCapture)?;
+    }
+    disable_raw_mode().ok();
 
     let _ = app.dir_history.save();
 
     let _ = app.save_state();
 
     app.cleanup_sensitive_data();
+
+    result?;
 
     Ok(())
 }

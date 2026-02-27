@@ -41,6 +41,13 @@ fn basic_app_state() -> AppState {
         remote_watcher: None,
         archive_cache: std::collections::HashMap::new(),
         opener: std::sync::Arc::new(fm::opener::SystemOpener),
+        left_tab_bar_area: ratatui::layout::Rect::default(),
+        right_tab_bar_area: ratatui::layout::Rect::default(),
+        left_panel_area: ratatui::layout::Rect::default(),
+        right_panel_area: ratatui::layout::Rect::default(),
+        left_tab_areas: Vec::new(),
+        right_tab_areas: Vec::new(),
+        last_click: None,
     }
 }
 
