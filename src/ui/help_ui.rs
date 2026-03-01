@@ -73,83 +73,7 @@ pub fn draw_help_popup(
         layout[0],
     );
 
-    //
-    // CLEANEST PLATFORM-SAFE NAVIGATION LIST
-    //
-
-    // Base navigation entries (all platforms)
-    let base_nav = vec![
-        ("Search", &keyboard.search),
-        ("Enter Dir", &keyboard.enter_dir),
-        ("Up Dir", &keyboard.up_dir),
-        ("New Tab", &keyboard.new_tab),
-        ("Next Tab", &keyboard.tab_next),
-        ("Prev Tab", &keyboard.tab_prev),
-        ("Swap Tabs", &keyboard.swap_tabs),
-        ("Close Tab", &keyboard.tab_close),
-        ("History Back", &keyboard.back),
-        ("History Forward", &keyboard.forward),
-    ];
-
-    // Windows‑only additions
-    #[cfg(target_os = "windows")]
-    let navigation = {
-        let mut v = base_nav;
-        v.push(("Change Drive of Left Panel", &keyboard.change_drive_left));
-        v.push(("Change Drive of Right Panel", &keyboard.change_drive_right));
-        v
-    };
-
-    // Non‑Windows: use base list unchanged
-    #[cfg(not(target_os = "windows"))]
-    let navigation = base_nav;
-
-    // Dynamic grouping of key bindings
-    let categories = vec![
-        ("Navigation", navigation),
-        (
-            "File Operations",
-            vec![
-                ("New File", &keyboard.new_file),
-                ("New Dir", &keyboard.new_dir),
-                ("Select All", &keyboard.select_all),
-                ("Edit", &keyboard.edit_file),
-                ("Copy", &keyboard.copy_to),
-                ("Move", &keyboard.move_to),
-                ("Rename", &keyboard.rename),
-                ("Delete", &keyboard.delete),
-                ("Force Delete", &keyboard.delete_force),
-                ("Empty Trash", &keyboard.empty_trash),
-                ("Calculate Directory Size", &keyboard.calc_dir_size),
-            ],
-        ),
-        (
-            "Sorting",
-            vec![
-                ("Sort by Name", &keyboard.sort_name),
-                ("Sort by Ext", &keyboard.sort_ext),
-                ("Sort by Date", &keyboard.sort_date),
-                ("Sort by Size", &keyboard.sort_size),
-            ],
-        ),
-        (
-            "App",
-            vec![
-                ("Help", &keyboard.help),
-                ("Tasks", &keyboard.tasks),
-                ("Toggle Console", &keyboard.toggle_console),
-                ("Terminal", &keyboard.open_terminal),
-                ("Quit", &keyboard.quit),
-            ],
-        ),
-        (
-            "SSH",
-            vec![
-                ("New Connection", &keyboard.open_ssh),
-                ("Reconnect", &keyboard.reconnect_ssh),
-            ],
-        ),
-    ];
+    let categories = build_help_categories(keyboard);
 
     let mut rows = Vec::new();
     for (category, bindings) in categories {
@@ -260,4 +184,79 @@ pub fn handle_help_popup_event(code: CrosstermKeyCode, app: &mut crate::app::App
         _ => return false,
     }
     true
+}
+
+#[allow(clippy::type_complexity)]
+fn build_help_categories(
+    keyboard: &crate::config::KeyboardConfig,
+) -> Vec<(&'static str, Vec<(&'static str, &Option<Vec<String>>)>)> {
+    let base_nav = vec![
+        ("Search", &keyboard.search),
+        ("Enter Dir", &keyboard.enter_dir),
+        ("Up Dir", &keyboard.up_dir),
+        ("New Tab", &keyboard.new_tab),
+        ("Next Tab", &keyboard.tab_next),
+        ("Prev Tab", &keyboard.tab_prev),
+        ("Swap Tabs", &keyboard.swap_tabs),
+        ("Close Tab", &keyboard.tab_close),
+        ("History Back", &keyboard.back),
+        ("History Forward", &keyboard.forward),
+    ];
+
+    #[cfg(target_os = "windows")]
+    let navigation = {
+        let mut v = base_nav;
+        v.push(("Change Drive of Left Panel", &keyboard.change_drive_left));
+        v.push(("Change Drive of Right Panel", &keyboard.change_drive_right));
+        v
+    };
+
+    #[cfg(not(target_os = "windows"))]
+    let navigation = base_nav;
+
+    vec![
+        ("Navigation", navigation),
+        (
+            "File Operations",
+            vec![
+                ("New File", &keyboard.new_file),
+                ("New Dir", &keyboard.new_dir),
+                ("Select All", &keyboard.select_all),
+                ("Edit", &keyboard.edit_file),
+                ("Copy", &keyboard.copy_to),
+                ("Move", &keyboard.move_to),
+                ("Rename", &keyboard.rename),
+                ("Delete", &keyboard.delete),
+                ("Force Delete", &keyboard.delete_force),
+                ("Empty Trash", &keyboard.empty_trash),
+                ("Calculate Directory Size", &keyboard.calc_dir_size),
+            ],
+        ),
+        (
+            "Sorting",
+            vec![
+                ("Sort by Name", &keyboard.sort_name),
+                ("Sort by Ext", &keyboard.sort_ext),
+                ("Sort by Date", &keyboard.sort_date),
+                ("Sort by Size", &keyboard.sort_size),
+            ],
+        ),
+        (
+            "App",
+            vec![
+                ("Help", &keyboard.help),
+                ("Tasks", &keyboard.tasks),
+                ("Toggle Console", &keyboard.toggle_console),
+                ("Terminal", &keyboard.open_terminal),
+                ("Quit", &keyboard.quit),
+            ],
+        ),
+        (
+            "SSH",
+            vec![
+                ("New Connection", &keyboard.open_ssh),
+                ("Reconnect", &keyboard.reconnect_ssh),
+            ],
+        ),
+    ]
 }

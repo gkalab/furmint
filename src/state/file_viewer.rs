@@ -134,6 +134,59 @@ impl FileViewerState {
         false
     }
 
+    pub fn load_image(
+        &mut self,
+        path: PathBuf,
+        provider: std::sync::Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
+    ) {
+        // Ensure channels and picker initialization are kicked off
+        if self.resize_tx.is_none() {
+            self.init_picker();
+        }
+
+        if let (Some(image_tx), Some(_resize_tx)) = (&self.image_load_tx, &self.resize_tx) {
+            self.is_loading = true;
+            self.current_load_id += 1;
+            let load_id = self.current_load_id;
+            let path_clone = path.clone();
+            let provider_clone = provider.clone();
+            let image_tx_clone = image_tx.clone();
+            let picker = self.picker.clone();
+
+            tokio::spawn(async move {
+                let path_for_result = path_clone.clone();
+                let result = tokio::task::spawn_blocking(move || {
+                    let p = picker.unwrap_or_else(|| {
+                        ratatui_image::picker::Picker::from_query_stdio()
+                            .unwrap_or_else(|_| ratatui_image::picker::Picker::halfblocks())
+                    });
+
+                    provider_clone
+                        .read_file(&path_clone)
+                        .map_err(|e| e.to_string())
+                        .and_then(|data| {
+                            use image::ImageReader;
+                            use std::io::Cursor;
+                            ImageReader::new(Cursor::new(data))
+                                .with_guessed_format()
+                                .map_err(|e| e.to_string())
+                                .and_then(|r| r.decode().map_err(|e| e.to_string()))
+                        })
+                        .map(|image| p.new_resize_protocol(image))
+                })
+                .await
+                .unwrap_or_else(|e| Err(e.to_string()));
+
+                let _ = image_tx_clone.send(ImageLoadResult {
+                    load_id,
+                    path: path_for_result,
+                    result,
+                    picker: None,
+                });
+            });
+        }
+    }
+
     pub fn load_content(
         &mut self,
         path: PathBuf,
@@ -171,53 +224,8 @@ impl FileViewerState {
         }
 
         if Self::is_image(&path) {
-            // Ensure channels and picker initialization are kicked off
-            if self.resize_tx.is_none() {
-                self.init_picker();
-            }
-
-            if let (Some(image_tx), Some(_resize_tx)) = (&self.image_load_tx, &self.resize_tx) {
-                self.is_loading = true;
-                self.current_load_id += 1;
-                let load_id = self.current_load_id;
-                let path_clone = path.clone();
-                let provider_clone = provider.clone();
-                let image_tx_clone = image_tx.clone();
-                let picker = self.picker.clone();
-
-                tokio::spawn(async move {
-                    let path_for_result = path_clone.clone();
-                    let result = tokio::task::spawn_blocking(move || {
-                        let p = picker.unwrap_or_else(|| {
-                            ratatui_image::picker::Picker::from_query_stdio()
-                                .unwrap_or_else(|_| ratatui_image::picker::Picker::halfblocks())
-                        });
-
-                        provider_clone
-                            .read_file(&path_clone)
-                            .map_err(|e| e.to_string())
-                            .and_then(|data| {
-                                use image::ImageReader;
-                                use std::io::Cursor;
-                                ImageReader::new(Cursor::new(data))
-                                    .with_guessed_format()
-                                    .map_err(|e| e.to_string())
-                                    .and_then(|r| r.decode().map_err(|e| e.to_string()))
-                            })
-                            .map(|image| p.new_resize_protocol(image))
-                    })
-                    .await
-                    .unwrap_or_else(|e| Err(e.to_string()));
-
-                    let _ = image_tx_clone.send(ImageLoadResult {
-                        load_id,
-                        path: path_for_result,
-                        result,
-                        picker: None,
-                    });
-                });
-                return;
-            }
+            self.load_image(path.clone(), provider.clone());
+            return;
         }
 
         let syntax = self

@@ -42,8 +42,8 @@ impl ZipHandler {
     }
 }
 
-impl ArchiveFormat for ZipHandler {
-    fn scan(&self) -> Result<super::ScanResult> {
+impl ZipHandler {
+    fn do_scan(&self) -> Result<super::ScanResult> {
         let file = File::open(&self.path).context("Failed to open zip archive")?;
         let reader = std::io::BufReader::new(file);
         let mut archive = zip::ZipArchive::new(reader).context("Failed to read zip archive")?;
@@ -52,103 +52,7 @@ impl ArchiveFormat for ZipHandler {
         let mut tree_map: HashMap<PathBuf, HashSet<PathBuf>> = HashMap::new();
 
         for i in 0..archive.len() {
-            let file = archive.by_index(i)?;
-            let name = file.name().to_string();
-
-            let path_str = name.replace('\\', "/");
-            let normalized_path_str = path_str.trim_end_matches('/');
-            let path = PathBuf::from(normalized_path_str);
-
-            let is_dir = file.is_dir() || name.ends_with('/');
-            let size = file.size();
-            let modified = Self::zip_dt_to_system_time(file.last_modified());
-
-            let unix_mode = file.unix_mode();
-            let attributes = if let Some(mode) = unix_mode {
-                mode_to_attributes(mode, is_dir, false)
-            } else if is_dir {
-                "dr-xr-xr-x".to_string()
-            } else {
-                "-r--r--r--".to_string()
-            };
-
-            let entry = ArchiveEntry {
-                file_entry: FileEntry {
-                    name: path
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .to_string(),
-                    is_dir,
-                    is_symlink: false,
-                    size: Some(size),
-                    modified: Some(modified),
-                    attributes,
-                    selected: false,
-                },
-                position: None,
-            };
-
-            entries_map.insert(path.clone(), entry);
-
-            if let Some(parent) = path.parent() {
-                let parent = if parent == Path::new("") {
-                    Path::new(".").to_path_buf()
-                } else {
-                    parent.to_path_buf()
-                };
-                tree_map.entry(parent).or_default().insert(path.clone());
-
-                let mut curr = path.clone();
-                while let Some(p) = curr.parent() {
-                    let p_norm = if p == Path::new("") {
-                        Path::new(".")
-                    } else {
-                        p
-                    };
-                    if p_norm == Path::new(".") {
-                        break;
-                    }
-
-                    if !entries_map.contains_key(p_norm) {
-                        let implicit_entry = ArchiveEntry {
-                            file_entry: FileEntry {
-                                name: p_norm
-                                    .file_name()
-                                    .unwrap_or_default()
-                                    .to_string_lossy()
-                                    .to_string(),
-                                is_dir: true,
-                                is_symlink: false,
-                                size: None,
-                                modified: None,
-                                attributes: "dr-xr-xr-x".to_string(),
-                                selected: false,
-                            },
-                            position: None,
-                        };
-                        entries_map.insert(p_norm.to_path_buf(), implicit_entry);
-
-                        if let Some(pp) = p_norm.parent() {
-                            let pp_norm = if pp == Path::new("") {
-                                Path::new(".")
-                            } else {
-                                pp
-                            };
-                            tree_map
-                                .entry(pp_norm.to_path_buf())
-                                .or_default()
-                                .insert(p_norm.to_path_buf());
-                        }
-                    }
-                    curr = p_norm.to_path_buf();
-                }
-            } else {
-                tree_map
-                    .entry(Path::new(".").to_path_buf())
-                    .or_default()
-                    .insert(path);
-            }
+            Self::process_entry(&mut archive, i, &mut entries_map, &mut tree_map)?;
         }
 
         let mut final_tree = HashMap::new();
@@ -159,6 +63,112 @@ impl ArchiveFormat for ZipHandler {
         }
 
         Ok((entries_map, final_tree))
+    }
+
+    fn process_entry(
+        archive: &mut zip::ZipArchive<std::io::BufReader<File>>,
+        index: usize,
+        entries_map: &mut HashMap<PathBuf, ArchiveEntry>,
+        tree_map: &mut HashMap<PathBuf, HashSet<PathBuf>>,
+    ) -> Result<()> {
+        let file = archive.by_index(index)?;
+        let name = file.name().to_string();
+
+        let path_str = name.replace('\\', "/");
+        let normalized_path_str = path_str.trim_end_matches('/');
+        let path = PathBuf::from(normalized_path_str);
+
+        let is_dir = file.is_dir() || name.ends_with('/');
+        let size = file.size();
+        let modified = Self::zip_dt_to_system_time(file.last_modified());
+
+        let unix_mode = file.unix_mode();
+        let attributes = if let Some(mode) = unix_mode {
+            mode_to_attributes(mode, is_dir, false)
+        } else if is_dir {
+            "dr-xr-xr-x".to_string()
+        } else {
+            "-r--r--r--".to_string()
+        };
+
+        let entry = ArchiveEntry {
+            file_entry: FileEntry {
+                name: path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string(),
+                is_dir,
+                is_symlink: false,
+                size: Some(size),
+                modified: Some(modified),
+                attributes,
+                selected: false,
+            },
+            position: None,
+        };
+
+        entries_map.insert(path.clone(), entry);
+
+        if let Some(parent) = path.parent() {
+            let parent = if parent == Path::new("") {
+                Path::new(".").to_path_buf()
+            } else {
+                parent.to_path_buf()
+            };
+            tree_map.entry(parent).or_default().insert(path.clone());
+
+            let mut curr = path.clone();
+            while let Some(p) = curr.parent() {
+                let p_norm = if p == Path::new("") {
+                    Path::new(".")
+                } else {
+                    p
+                };
+                if p_norm == Path::new(".") {
+                    break;
+                }
+
+                if !entries_map.contains_key(p_norm) {
+                    let implicit_entry = ArchiveEntry {
+                        file_entry: FileEntry {
+                            name: p_norm
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .to_string(),
+                            is_dir: true,
+                            is_symlink: false,
+                            size: None,
+                            modified: None,
+                            attributes: "dr-xr-xr-x".to_string(),
+                            selected: false,
+                        },
+                        position: None,
+                    };
+                    entries_map.insert(p_norm.to_path_buf(), implicit_entry);
+
+                    if let Some(pp) = p_norm.parent() {
+                        let pp_norm = if pp == Path::new("") {
+                            Path::new(".")
+                        } else {
+                            pp
+                        };
+                        tree_map
+                            .entry(pp_norm.to_path_buf())
+                            .or_default()
+                            .insert(p_norm.to_path_buf());
+                    }
+                }
+                curr = p_norm.to_path_buf();
+            }
+        } else {
+            tree_map
+                .entry(Path::new(".").to_path_buf())
+                .or_default()
+                .insert(path);
+        }
+        Ok(())
     }
 
     fn read_file(&self, path_str: &str) -> Result<Vec<u8>> {
@@ -283,5 +293,25 @@ impl ArchiveFormat for ZipHandler {
             .send(crate::tasks::TaskEvent::UpdateProgress(progress.id, p, 0));
 
         Ok(())
+    }
+}
+
+impl ArchiveFormat for ZipHandler {
+    fn scan(&self) -> Result<super::ScanResult> {
+        self.do_scan()
+    }
+
+    fn read_file(&self, path_str: &str) -> Result<Vec<u8>> {
+        self.read_file(path_str)
+    }
+
+    fn extract(
+        &self,
+        src_str: &str,
+        dest: &Path,
+        is_dir: bool,
+        progress: &TaskProgressContext,
+    ) -> Result<()> {
+        self.extract(src_str, dest, is_dir, progress)
     }
 }

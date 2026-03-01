@@ -314,6 +314,40 @@ pub struct InputPopupOptions<'a> {
     pub width: u16,
 }
 
+pub struct InputLayoutContext {
+    pub chunk: Rect,
+    pub layout_rect: Rect,
+    pub has_title: bool,
+}
+
+impl InputLayoutContext {
+    #[must_use]
+    pub fn new(chunk: Rect, layout_rect: Rect, has_title: bool) -> Self {
+        Self {
+            chunk,
+            layout_rect,
+            has_title,
+        }
+    }
+}
+
+pub struct InputStyleContext {
+    pub text_color: Color,
+    pub placeholder_color: Color,
+    pub field_bg_color: Color,
+}
+
+impl InputStyleContext {
+    #[must_use]
+    pub fn new(text_color: Color, placeholder_color: Color, field_bg_color: Color) -> Self {
+        Self {
+            text_color,
+            placeholder_color,
+            field_bg_color,
+        }
+    }
+}
+
 pub fn draw_input_popup(
     f: &mut ratatui::Frame,
     options: InputPopupOptions,
@@ -406,42 +440,10 @@ pub fn draw_input_popup(
         f.render_widget(title_paragraph, layout[1]);
     }
 
-    // Input text
     let input_index = if has_title { 3 } else { 1 };
-    let input_width = (chunks[0].width as usize).saturating_sub(4);
-    let cursor_pos = options.cursor_position;
-
-    let scroll_offset = if cursor_pos < input_width {
-        0
-    } else {
-        cursor_pos - input_width + 1
-    };
-
-    let display_text = if options.input_value.is_empty() {
-        Span::styled(options.placeholder, Style::default().fg(placeholder_color))
-    } else {
-        let text: String = options
-            .input_value
-            .chars()
-            .skip(scroll_offset)
-            .take(input_width)
-            .collect();
-        Span::styled(text, Style::default().fg(text_color).bg(field_bg_color))
-    };
-
-    let paragraph = Paragraph::new(display_text).style(Style::default().bg(field_bg_color));
-
-    f.render_widget(paragraph, layout[input_index]);
-
-    // Cursor
-    let cursor_visual_offset = cursor_pos.saturating_sub(scroll_offset);
-    if cursor_visual_offset < input_width {
-        let y_offset = if has_title { 3 } else { 1 };
-        f.set_cursor_position(Position::new(
-            chunks[0].x + 2 + cursor_visual_offset as u16,
-            chunks[0].y + y_offset,
-        ));
-    }
+    let input_layout = InputLayoutContext::new(chunks[0], layout[input_index], has_title);
+    let style = InputStyleContext::new(text_color, placeholder_color, field_bg_color);
+    draw_input_text_and_cursor(f, &options, input_layout, style);
 
     // Error
     let error_index = if has_title { 4 } else { 2 };
@@ -518,4 +520,54 @@ pub fn draw_confirmation_popup(
     );
 
     draw_button_row(f, &["(Y)es", "(N)o"], inner_layout[1], text_color);
+}
+
+fn draw_input_text_and_cursor(
+    f: &mut ratatui::Frame,
+    options: &InputPopupOptions,
+    layout: InputLayoutContext,
+    style: InputStyleContext,
+) {
+    let input_width = (layout.chunk.width as usize).saturating_sub(4);
+    let cursor_pos = options.cursor_position;
+
+    let scroll_offset = if cursor_pos < input_width {
+        0
+    } else {
+        cursor_pos - input_width + 1
+    };
+
+    let display_text = if options.input_value.is_empty() {
+        Span::styled(
+            options.placeholder,
+            Style::default().fg(style.placeholder_color),
+        )
+    } else {
+        let text: String = options
+            .input_value
+            .chars()
+            .skip(scroll_offset)
+            .take(input_width)
+            .collect();
+        Span::styled(
+            text,
+            Style::default()
+                .fg(style.text_color)
+                .bg(style.field_bg_color),
+        )
+    };
+
+    let paragraph = Paragraph::new(display_text).style(Style::default().bg(style.field_bg_color));
+
+    f.render_widget(paragraph, layout.layout_rect);
+
+    // Cursor
+    let cursor_visual_offset = cursor_pos.saturating_sub(scroll_offset);
+    if cursor_visual_offset < input_width {
+        let y_offset = if layout.has_title { 3 } else { 1 };
+        f.set_cursor_position(Position::new(
+            layout.chunk.x + 2 + cursor_visual_offset as u16,
+            layout.chunk.y + y_offset,
+        ));
+    }
 }

@@ -6,184 +6,206 @@ use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode};
 use std::process::Command;
 
+#[cfg(target_os = "linux")]
+fn spawn_terminal_linux(
+    dir: &std::path::Path,
+    configured_terminal: Option<String>,
+    args: Vec<String>,
+    wrap_shell: bool,
+) -> anyhow::Result<()> {
+    let shell_trap = |cmdline: String| {
+        format!("{cmdline} || (echo; echo 'Command failed. Press Enter to close...'; read)")
+    };
+
+    let template_terminals = [
+        ("alacritty", vec!["--command"]),
+        ("kitty", vec!["sh", "-c"]),
+        ("gnome-terminal", vec!["--", "bash", "-c"]),
+        ("xfce4-terminal", vec!["--command"]),
+        ("konsole", vec!["-e"]),
+        ("xterm", vec!["-e"]),
+        ("urxvt", vec!["-e"]),
+        ("st", vec!["-e"]),
+        ("termite", vec!["-e"]),
+        ("foot", vec!["-e"]),
+        ("x-terminal-emulator", vec!["-e"]),
+    ];
+
+    let mut tried_terms = Vec::new();
+    let terminals: Vec<(String, Vec<&str>)> = if let Some(term) = configured_terminal {
+        let bin = term.trim().to_string();
+        // Search for terminal in known list
+        let args = template_terminals
+            .iter()
+            .find(|(name, _)| bin.contains(*name))
+            .map(|(_, v)| v.clone())
+            .unwrap_or(vec!["-e"]);
+        vec![(bin, args)]
+    } else {
+        template_terminals
+            .iter()
+            .map(|(n, v)| ((*n).to_string(), v.clone()))
+            .collect()
+    };
+
+    for (terminal, opt_args) in &terminals {
+        tried_terms.push(terminal.clone());
+        let mut cmd = Command::new(terminal);
+        cmd.current_dir(dir);
+        if args.is_empty() {
+            // No program: just open an interactive shell/terminal
+            if terminal == "alacritty" {
+                cmd.args(["--command", "bash"]);
+            } else if terminal == "kitty" {
+                cmd.args(["sh"]);
+            } else if terminal == "gnome-terminal" {
+                cmd.args(["--"]);
+            } else {
+                // fallback, try terminal without extra args
+            }
+        } else {
+            let join_args = |args: &[String]| {
+                args.iter()
+                    .map(|a| shell_escape::escape(a.into()))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            };
+            if wrap_shell {
+                let cmdline = join_args(&args);
+                let shell_cmd = shell_trap(cmdline);
+                if terminal == "alacritty" {
+                    cmd.arg("--command").arg("bash").arg("-c").arg(shell_cmd);
+                } else if terminal == "kitty" {
+                    cmd.args(["sh", "-c", &shell_cmd]);
+                } else if terminal == "gnome-terminal" {
+                    cmd.args(["--", "bash", "-c", &shell_cmd]);
+                } else if terminal == "xfce4-terminal" {
+                    // This terminal allows --command, no -e
+                    cmd.arg("--command")
+                        .arg(format!("bash -c '{}'", shell_cmd.replace('\'', "'\\''")));
+                } else {
+                    // fallback -e sh -c
+                    cmd.arg("-e").arg("bash").arg("-c").arg(shell_cmd);
+                }
+            } else {
+                let joined = args.clone();
+                if !opt_args.is_empty() {
+                    cmd.args(opt_args.clone());
+                }
+                for arg in joined {
+                    cmd.arg(arg);
+                }
+            }
+        }
+        // Check if the terminal exists and works
+        if Command::new(terminal).arg("--version").output().is_ok()
+            || terminal == "x-terminal-emulator"
+        {
+            match cmd.spawn() {
+                Ok(_) => return Ok(()),
+                Err(e) => {
+                    // On error, propagate the error context back to the caller for UI display
+                    return Err(anyhow::anyhow!(format!(
+                        "Failed to spawn terminal {terminal}: {e}"
+                    )));
+                }
+            }
+        }
+    }
+    Err(anyhow::anyhow!(format!(
+        "No suitable terminal emulator found (tried: {tried_terms:?})"
+    )))
+}
+
+#[cfg(target_os = "macos")]
+fn spawn_terminal_macos(
+    dir: &std::path::Path,
+    configured_terminal: Option<String>,
+    args: Vec<String>,
+    wrap_shell: bool,
+) -> anyhow::Result<()> {
+    if !args.is_empty() {
+        let mut cmd = Command::new("open");
+        cmd.arg("-a").arg("Terminal").arg("-e");
+        if wrap_shell {
+            let mut shell_cmd = args
+                .iter()
+                .map(|a| format!("\"{}\"", a.replace("\"", "\\\"")))
+                .collect::<Vec<_>>()
+                .join(" ");
+            shell_cmd = format!(
+                "{} || (echo; echo 'Command failed. Press Enter to close...'; read)",
+                shell_cmd
+            );
+            cmd.arg("bash").arg("-c").arg(shell_cmd);
+        } else {
+            for arg in &args {
+                cmd.arg(arg);
+            }
+        }
+        cmd.current_dir(dir).spawn()?;
+    } else if let Some(term) = configured_terminal {
+        Command::new("open").arg("-a").arg(term).arg(dir).spawn()?;
+    } else {
+        Command::new("open")
+            .arg("-a")
+            .arg("Terminal")
+            .arg(dir)
+            .spawn()?;
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn spawn_terminal_windows(
+    dir: &std::path::Path,
+    configured_terminal: Option<String>,
+    args: Vec<String>,
+    wrap_shell: bool,
+) -> anyhow::Result<()> {
+    if !args.is_empty() {
+        let mut cmd = Command::new("cmd");
+        if wrap_shell {
+            cmd.arg("/C").arg("start");
+        }
+        for arg in &args {
+            cmd.arg(arg);
+        }
+        cmd.current_dir(dir).spawn()?;
+    } else if let Some(term) = configured_terminal {
+        Command::new("cmd")
+            .arg("/C")
+            .arg("start")
+            .arg("")
+            .arg(term)
+            .current_dir(dir)
+            .spawn()?;
+    } else {
+        Command::new("cmd")
+            .arg("/C")
+            .arg("start")
+            .arg("")
+            .arg("cmd")
+            .current_dir(dir)
+            .spawn()?;
+    }
+    Ok(())
+}
+
 pub fn spawn_terminal(
     dir: &std::path::Path,
     configured_terminal: Option<String>,
     args: Vec<String>,
     wrap_shell: bool,
 ) -> anyhow::Result<()> {
-    use std::process::Command;
-
     #[cfg(target_os = "linux")]
-    {
-        let shell_trap = |cmdline: String| {
-            format!("{cmdline} || (echo; echo 'Command failed. Press Enter to close...'; read)")
-        };
-
-        let template_terminals = [
-            ("alacritty", vec!["--command"]),
-            ("kitty", vec!["sh", "-c"]),
-            ("gnome-terminal", vec!["--", "bash", "-c"]),
-            ("xfce4-terminal", vec!["--command"]),
-            ("konsole", vec!["-e"]),
-            ("xterm", vec!["-e"]),
-            ("urxvt", vec!["-e"]),
-            ("st", vec!["-e"]),
-            ("termite", vec!["-e"]),
-            ("foot", vec!["-e"]),
-            ("x-terminal-emulator", vec!["-e"]),
-        ];
-
-        let mut tried_terms = Vec::new();
-        let terminals: Vec<(String, Vec<&str>)> = if let Some(term) = configured_terminal {
-            let bin = term.trim().to_string();
-            // Search for terminal in known list
-            let args = template_terminals
-                .iter()
-                .find(|(name, _)| bin.contains(*name))
-                .map(|(_, v)| v.clone())
-                .unwrap_or(vec!["-e"]);
-            vec![(bin, args)]
-        } else {
-            template_terminals
-                .iter()
-                .map(|(n, v)| ((*n).to_string(), v.clone()))
-                .collect()
-        };
-
-        for (terminal, opt_args) in &terminals {
-            tried_terms.push(terminal.clone());
-            let mut cmd = Command::new(terminal);
-            cmd.current_dir(dir);
-            if args.is_empty() {
-                // No program: just open an interactive shell/terminal
-                if terminal == "alacritty" {
-                    cmd.args(["--command", "bash"]);
-                } else if terminal == "kitty" {
-                    cmd.args(["sh"]);
-                } else if terminal == "gnome-terminal" {
-                    cmd.args(["--"]);
-                } else {
-                    // fallback, try terminal without extra args
-                }
-            } else {
-                let join_args = |args: &[String]| {
-                    args.iter()
-                        .map(|a| shell_escape::escape(a.into()))
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                };
-                if wrap_shell {
-                    let cmdline = join_args(&args);
-                    let shell_cmd = shell_trap(cmdline);
-                    if terminal == "alacritty" {
-                        cmd.arg("--command").arg("bash").arg("-c").arg(shell_cmd);
-                    } else if terminal == "kitty" {
-                        cmd.args(["sh", "-c", &shell_cmd]);
-                    } else if terminal == "gnome-terminal" {
-                        cmd.args(["--", "bash", "-c", &shell_cmd]);
-                    } else if terminal == "xfce4-terminal" {
-                        // This terminal allows --command, no -e
-                        cmd.arg("--command")
-                            .arg(format!("bash -c '{}'", shell_cmd.replace('\'', "'\\''")));
-                    } else {
-                        // fallback -e sh -c
-                        cmd.arg("-e").arg("bash").arg("-c").arg(shell_cmd);
-                    }
-                } else {
-                    let joined = args.clone();
-                    if !opt_args.is_empty() {
-                        cmd.args(opt_args.clone());
-                    }
-                    for arg in joined {
-                        cmd.arg(arg);
-                    }
-                }
-            }
-            // Check if the terminal exists and works
-            if Command::new(terminal).arg("--version").output().is_ok()
-                || terminal == "x-terminal-emulator"
-            {
-                match cmd.spawn() {
-                    Ok(_) => return Ok(()),
-                    Err(e) => {
-                        // On error, propagate the error context back to the caller for UI display
-                        return Err(anyhow::anyhow!(format!(
-                            "Failed to spawn terminal {terminal}: {e}"
-                        )));
-                    }
-                }
-            }
-        }
-        Err(anyhow::anyhow!(format!(
-            "No suitable terminal emulator found (tried: {tried_terms:?})"
-        )))
-    }
+    return spawn_terminal_linux(dir, configured_terminal, args, wrap_shell);
 
     #[cfg(target_os = "macos")]
-    {
-        if !args.is_empty() {
-            let mut cmd = Command::new("open");
-            cmd.arg("-a").arg("Terminal").arg("-e");
-            if wrap_shell {
-                let mut shell_cmd = args
-                    .iter()
-                    .map(|a| format!("\"{}\"", a.replace("\"", "\\\"")))
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                shell_cmd = format!(
-                    "{} || (echo; echo 'Command failed. Press Enter to close...'; read)",
-                    shell_cmd
-                );
-                cmd.arg("bash").arg("-c").arg(shell_cmd);
-            } else {
-                for arg in &args {
-                    cmd.arg(arg);
-                }
-            }
-            cmd.current_dir(dir).spawn()?;
-        } else if let Some(term) = configured_terminal {
-            Command::new("open").arg("-a").arg(term).arg(dir).spawn()?;
-        } else {
-            Command::new("open")
-                .arg("-a")
-                .arg("Terminal")
-                .arg(dir)
-                .spawn()?;
-        }
-        Ok(())
-    }
+    return spawn_terminal_macos(dir, configured_terminal, args, wrap_shell);
 
     #[cfg(target_os = "windows")]
-    {
-        if !args.is_empty() {
-            let mut cmd = Command::new("cmd");
-            if wrap_shell {
-                cmd.arg("/C").arg("start");
-            }
-            for arg in &args {
-                cmd.arg(arg);
-            }
-            cmd.current_dir(dir).spawn()?;
-        } else if let Some(term) = configured_terminal {
-            Command::new("cmd")
-                .arg("/C")
-                .arg("start")
-                .arg("")
-                .arg(term)
-                .current_dir(dir)
-                .spawn()?;
-        } else {
-            Command::new("cmd")
-                .arg("/C")
-                .arg("start")
-                .arg("")
-                .arg("cmd")
-                .current_dir(dir)
-                .spawn()?;
-        }
-        Ok(())
-    }
+    return spawn_terminal_windows(dir, configured_terminal, args, wrap_shell);
 
     #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     Err(anyhow::anyhow!("Unsupported OS"))

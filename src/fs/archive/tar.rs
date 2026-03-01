@@ -97,107 +97,15 @@ impl TarHandler {
     }
 }
 
-impl ArchiveFormat for TarHandler {
-    fn scan(&self) -> Result<super::ScanResult> {
+impl TarHandler {
+    fn do_scan(&self) -> Result<super::ScanResult> {
         let reader = self.get_reader()?;
         let mut archive = tar::Archive::new(reader);
         let mut entries_map = HashMap::new();
         let mut tree_map: HashMap<PathBuf, HashSet<PathBuf>> = HashMap::new();
 
         for file in archive.entries()? {
-            let file = file?;
-            let path_owned = file.path()?.into_owned();
-            let path_str = path_owned.to_string_lossy().replace('\\', "/");
-            let normalized_path_str = path_str.trim_end_matches('/');
-            let path = PathBuf::from(normalized_path_str);
-
-            let is_dir = file.header().entry_type().is_dir();
-            let size = file.size();
-            let modified = SystemTime::UNIX_EPOCH
-                + std::time::Duration::from_secs(file.header().mtime().unwrap_or(0));
-            let position = file.raw_header_position();
-            let is_symlink = file.header().entry_type().is_symlink();
-            let unix_mode = file
-                .header()
-                .mode()
-                .unwrap_or(if is_dir { 0o755 } else { 0o644 });
-            let attributes = mode_to_attributes(unix_mode, is_dir, is_symlink);
-
-            let entry = ArchiveEntry {
-                file_entry: FileEntry {
-                    name: path
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .to_string(),
-                    is_dir,
-                    is_symlink,
-                    size: Some(size),
-                    modified: Some(modified),
-                    attributes,
-                    selected: false,
-                },
-                position: Some(position),
-            };
-
-            entries_map.insert(path.clone(), entry);
-
-            if let Some(parent) = path.parent() {
-                let parent = if parent == Path::new("") {
-                    Path::new(".").to_path_buf()
-                } else {
-                    parent.to_path_buf()
-                };
-                tree_map.entry(parent).or_default().insert(path.clone());
-
-                let mut curr = path.clone();
-                while let Some(p) = curr.parent() {
-                    let p_norm = if p == Path::new("") {
-                        Path::new(".")
-                    } else {
-                        p
-                    };
-                    if p_norm == Path::new(".") {
-                        break;
-                    }
-                    if !entries_map.contains_key(p_norm) {
-                        let implicit_entry = ArchiveEntry {
-                            file_entry: FileEntry {
-                                name: p_norm
-                                    .file_name()
-                                    .unwrap_or_default()
-                                    .to_string_lossy()
-                                    .to_string(),
-                                is_dir: true,
-                                is_symlink: false,
-                                size: None,
-                                modified: None,
-                                attributes: "dr-xr-xr-x".to_string(),
-                                selected: false,
-                            },
-                            position: None,
-                        };
-                        entries_map.insert(p_norm.to_path_buf(), implicit_entry);
-                        if let Some(pp) = p_norm.parent() {
-                            let pp_norm = if pp == Path::new("") {
-                                Path::new(".")
-                            } else {
-                                pp
-                            };
-                            tree_map
-                                .entry(pp_norm.to_path_buf())
-                                .or_default()
-                                .insert(p_norm.to_path_buf());
-                        }
-                    }
-                    curr = p_norm.to_path_buf();
-                }
-            } else {
-                tree_map
-                    .entry(Path::new(".").to_path_buf())
-                    .or_default()
-                    .insert(path);
-            }
+            Self::process_entry(file?, &mut entries_map, &mut tree_map)?;
         }
 
         let mut final_tree = HashMap::new();
@@ -208,6 +116,112 @@ impl ArchiveFormat for TarHandler {
         }
 
         Ok((entries_map, final_tree))
+    }
+
+    fn process_entry<R: Read>(
+        file: tar::Entry<'_, R>,
+        entries_map: &mut HashMap<PathBuf, ArchiveEntry>,
+        tree_map: &mut HashMap<PathBuf, HashSet<PathBuf>>,
+    ) -> Result<()> {
+        let path_owned = file.path()?.into_owned();
+        let path_str = path_owned.to_string_lossy().replace('\\', "/");
+        let normalized_path_str = path_str.trim_end_matches('/');
+        let path = PathBuf::from(normalized_path_str);
+
+        let is_dir = file.header().entry_type().is_dir();
+        let size = file.size();
+        let modified = SystemTime::UNIX_EPOCH
+            + std::time::Duration::from_secs(file.header().mtime().unwrap_or(0));
+        let position = file.raw_header_position();
+        let is_symlink = file.header().entry_type().is_symlink();
+        let unix_mode = file
+            .header()
+            .mode()
+            .unwrap_or(if is_dir { 0o755 } else { 0o644 });
+        let attributes = mode_to_attributes(unix_mode, is_dir, is_symlink);
+
+        let entry = ArchiveEntry {
+            file_entry: FileEntry {
+                name: path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string(),
+                is_dir,
+                is_symlink,
+                size: Some(size),
+                modified: Some(modified),
+                attributes,
+                selected: false,
+            },
+            position: Some(position),
+        };
+
+        entries_map.insert(path.clone(), entry);
+
+        if let Some(parent) = path.parent() {
+            let parent = if parent == Path::new("") {
+                Path::new(".").to_path_buf()
+            } else {
+                parent.to_path_buf()
+            };
+            tree_map.entry(parent).or_default().insert(path.clone());
+
+            let mut curr = path.clone();
+            while let Some(p) = curr.parent() {
+                let p_norm = if p == Path::new("") {
+                    Path::new(".")
+                } else {
+                    p
+                };
+                if p_norm == Path::new(".") {
+                    break;
+                }
+                if !entries_map.contains_key(p_norm) {
+                    let implicit_entry = ArchiveEntry {
+                        file_entry: FileEntry {
+                            name: p_norm
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .to_string(),
+                            is_dir: true,
+                            is_symlink: false,
+                            size: None,
+                            modified: None,
+                            attributes: "dr-xr-xr-x".to_string(),
+                            selected: false,
+                        },
+                        position: None,
+                    };
+                    entries_map.insert(p_norm.to_path_buf(), implicit_entry);
+                    if let Some(pp) = p_norm.parent() {
+                        let pp_norm = if pp == Path::new("") {
+                            Path::new(".")
+                        } else {
+                            pp
+                        };
+                        tree_map
+                            .entry(pp_norm.to_path_buf())
+                            .or_default()
+                            .insert(p_norm.to_path_buf());
+                    }
+                }
+                curr = p_norm.to_path_buf();
+            }
+        } else {
+            tree_map
+                .entry(Path::new(".").to_path_buf())
+                .or_default()
+                .insert(path);
+        }
+        Ok(())
+    }
+}
+
+impl ArchiveFormat for TarHandler {
+    fn scan(&self) -> Result<super::ScanResult> {
+        self.do_scan()
     }
 
     fn read_file(&self, path_str: &str) -> Result<Vec<u8>> {

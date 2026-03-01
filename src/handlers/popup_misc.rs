@@ -89,35 +89,9 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
                 app.popups.ssh_password.cursor_position = 0;
             }
         }
-        crate::tasks::TaskEvent::SshError(host, user, error) => match error {
-            crate::ssh_manager::SshError::Network(_) => {
-                app.popups.ssh_connection.is_visible = true;
-                app.popups.ssh_connection.error = Some(error.to_string());
-                app.popups.ssh_connection.active_field =
-                    crate::state::ssh::SshField::ConnectionString;
-            }
-            crate::ssh_manager::SshError::Auth(_) => {
-                app.popups.ssh_password.is_visible = true;
-                app.popups.ssh_password.session_id.clear();
-                app.popups.ssh_password.host = host;
-                app.popups.ssh_password.user = user;
-                app.popups.ssh_password.error = Some(error.to_string());
-                app.popups.ssh_password.password.clear();
-                app.popups.ssh_password.cursor_position = 0;
-            }
-            crate::ssh_manager::SshError::InvalidInput(msg) => {
-                app.popups.ssh_connection.is_visible = true;
-                app.popups.ssh_connection.error = Some(msg);
-                app.popups.ssh_connection.active_field =
-                    crate::state::ssh::SshField::ConnectionString;
-            }
-            crate::ssh_manager::SshError::Internal(msg) => {
-                app.popups.ssh_connection.is_visible = true;
-                app.popups.ssh_connection.error = Some(msg);
-                app.popups.ssh_connection.active_field =
-                    crate::state::ssh::SshField::ConnectionString;
-            }
-        },
+        crate::tasks::TaskEvent::SshError(host, user, error) => {
+            handle_ssh_error(app, host, user, error);
+        }
         crate::tasks::TaskEvent::DirSizeCalculated(_id, path, size) => {
             // Update the cached size for this directory in the active tab
             // Note: The path may belong to either left or right panel
@@ -130,51 +104,94 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
             }
         }
         crate::tasks::TaskEvent::ArchiveLoaded(side_index, wrapper, filename, path) => {
-            let provider = wrapper.0;
-            // Cache the provider with metadata
-            if let Ok(metadata) = std::fs::metadata(&path) {
-                let mtime = metadata
-                    .modified()
-                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-                let size = metadata.len();
-                app.archive_cache.insert(
-                    path,
-                    crate::app::ArchiveCacheEntry {
-                        mtime,
-                        size,
-                        provider: provider.clone(),
-                        closed_at: None,
-                    },
-                );
-            }
+            handle_archive_loaded(app, side_index, wrapper, filename, path);
+        }
+    }
+}
 
-            let manager = if side_index == 0 {
-                &mut app.left
+fn handle_ssh_error(
+    app: &mut crate::app::AppState,
+    host: String,
+    user: String,
+    error: crate::ssh_manager::SshError,
+) {
+    match error {
+        crate::ssh_manager::SshError::Network(_) => {
+            app.popups.ssh_connection.is_visible = true;
+            app.popups.ssh_connection.error = Some(error.to_string());
+            app.popups.ssh_connection.active_field = crate::state::ssh::SshField::ConnectionString;
+        }
+        crate::ssh_manager::SshError::Auth(_) => {
+            app.popups.ssh_password.is_visible = true;
+            app.popups.ssh_password.session_id.clear();
+            app.popups.ssh_password.host = host;
+            app.popups.ssh_password.user = user;
+            app.popups.ssh_password.error = Some(error.to_string());
+            app.popups.ssh_password.password.clear();
+            app.popups.ssh_password.cursor_position = 0;
+        }
+        crate::ssh_manager::SshError::InvalidInput(msg) => {
+            app.popups.ssh_connection.is_visible = true;
+            app.popups.ssh_connection.error = Some(msg);
+            app.popups.ssh_connection.active_field = crate::state::ssh::SshField::ConnectionString;
+        }
+        crate::ssh_manager::SshError::Internal(msg) => {
+            app.popups.ssh_connection.is_visible = true;
+            app.popups.ssh_connection.error = Some(msg);
+            app.popups.ssh_connection.active_field = crate::state::ssh::SshField::ConnectionString;
+        }
+    }
+}
+
+fn handle_archive_loaded(
+    app: &mut crate::app::AppState,
+    side_index: usize,
+    wrapper: crate::tasks::ProviderWrapper,
+    filename: String,
+    path: std::path::PathBuf,
+) {
+    let provider = wrapper.0;
+    // Cache the provider with metadata
+    if let Ok(metadata) = std::fs::metadata(&path) {
+        let mtime = metadata
+            .modified()
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        let size = metadata.len();
+        app.archive_cache.insert(
+            path,
+            crate::app::ArchiveCacheEntry {
+                mtime,
+                size,
+                provider: provider.clone(),
+                closed_at: None,
+            },
+        );
+    }
+
+    let manager = if side_index == 0 {
+        &mut app.left
+    } else {
+        &mut app.right
+    };
+
+    // Create a new tab for the archive
+    match crate::app::Tab::with_provider(&std::path::PathBuf::from("/"), provider) {
+        Ok(mut tab) => {
+            tab.custom_title = Some(filename);
+            manager.tabs.push(tab);
+            let new_index = manager.tabs.len() - 1;
+            manager.active_tab_index = new_index;
+
+            // Set active panel to this side
+            if side_index == 0 {
+                app.active = crate::app::PanelSide::Left;
             } else {
-                &mut app.right
-            };
-
-            // Create a new tab for the archive
-            match crate::app::Tab::with_provider(&std::path::PathBuf::from("/"), provider) {
-                Ok(mut tab) => {
-                    tab.custom_title = Some(filename);
-                    manager.tabs.push(tab);
-                    let new_index = manager.tabs.len() - 1;
-                    manager.active_tab_index = new_index;
-
-                    // Set active panel to this side
-                    if side_index == 0 {
-                        app.active = crate::app::PanelSide::Left;
-                    } else {
-                        app.active = crate::app::PanelSide::Right;
-                    }
-                }
-                Err(e) => {
-                    // If we fail to create the tab, show error on the active tab of that side
-                    manager.active_tab_mut().error =
-                        Some(format!("Failed to create archive tab: {e}"));
-                }
+                app.active = crate::app::PanelSide::Right;
             }
+        }
+        Err(e) => {
+            // If we fail to create the tab, show error on the active tab of that side
+            manager.active_tab_mut().error = Some(format!("Failed to create archive tab: {e}"));
         }
     }
 }

@@ -142,71 +142,7 @@ pub fn draw_fuzzy_search_popup(
         ])
         .split(popup_area);
 
-    // Draw input box
-    let input_block = Block::default()
-        .borders(Borders::ALL)
-        .border_set(crate::ui::ui_utils::field_border_set())
-        .border_style(Style::default().fg(border_color).bg(field_bg_color))
-        .style(Style::default().bg(field_bg_color));
-
-    f.render_widget(input_block.clone(), chunks[0]);
-    let input_inner = input_block.inner(chunks[0]);
-    let input_width = (input_inner.width as usize).saturating_sub(2);
-
-    // Calculate input scroll offset based on cursor position
-    let cursor_pos = state.cursor_position;
-    let input_scroll_offset = if cursor_pos < input_width {
-        0
-    } else {
-        cursor_pos - input_width + 1
-    };
-
-    let display_input: String = if state.input.is_empty() {
-        "Type to search...".to_string()
-    } else {
-        state
-            .input
-            .chars()
-            .skip(input_scroll_offset)
-            .take(input_width)
-            .collect()
-    };
-
-    let input_text = if state.input.is_empty() {
-        Span::styled(
-            "Type to search...",
-            Style::default().fg(Color::Rgb(
-                palette.overlay0.r,
-                palette.overlay0.g,
-                palette.overlay0.b,
-            )),
-        )
-    } else {
-        Span::styled(
-            &display_input,
-            Style::default().fg(Color::Rgb(palette.text.r, palette.text.g, palette.text.b)),
-        )
-    };
-
-    let input_paragraph = Paragraph::new(input_text).style(Style::default().bg(field_bg_color));
-
-    // Adjust input text area (padding)
-    let text_area = Rect {
-        x: input_inner.x + 1,
-        y: input_inner.y,
-        width: input_inner.width.saturating_sub(2),
-        height: input_inner.height,
-    };
-    f.render_widget(input_paragraph, text_area);
-
-    // Render cursor
-    let cursor_visual_offset = cursor_pos.saturating_sub(input_scroll_offset);
-    if cursor_visual_offset < input_width {
-        f.set_cursor_position(Position::new(
-            chunks[0].x + 2 + cursor_visual_offset as u16,
-            chunks[0].y + 1,
-        ));
-    }
+    draw_input_box(f, state, palette, chunks[0], border_color, field_bg_color);
 
     // Draw directory list
     let list_block = Block::default()
@@ -279,4 +215,75 @@ pub fn draw_fuzzy_search_popup(
         state.selected_index,
         palette,
     );
+}
+
+fn draw_input_box(
+    f: &mut ratatui::Frame,
+    state: &FuzzySearchState,
+    palette: &ThemePalette,
+    area: ratatui::layout::Rect,
+    border_color: ratatui::style::Color,
+    field_bg_color: ratatui::style::Color,
+) {
+    let input_block = Block::default()
+        .borders(Borders::ALL)
+        .border_set(crate::ui::ui_utils::field_border_set())
+        .border_style(Style::default().fg(border_color).bg(field_bg_color))
+        .style(Style::default().bg(field_bg_color));
+
+    f.render_widget(input_block.clone(), area);
+    let input_inner = input_block.inner(area);
+    let input_width = (input_inner.width as usize).saturating_sub(2);
+
+    let cursor_pos = state.cursor_position;
+    let input_scroll_offset = if cursor_pos < input_width {
+        0
+    } else {
+        cursor_pos - input_width + 1
+    };
+
+    let display_input: String = if state.input.is_empty() {
+        "Type to search...".to_string()
+    } else {
+        state
+            .input
+            .chars()
+            .skip(input_scroll_offset)
+            .take(input_width)
+            .collect()
+    };
+
+    let input_text = if state.input.is_empty() {
+        ratatui::text::Span::styled(
+            "Type to search...",
+            Style::default().fg(Color::Rgb(
+                palette.overlay0.r,
+                palette.overlay0.g,
+                palette.overlay0.b,
+            )),
+        )
+    } else {
+        ratatui::text::Span::styled(
+            &display_input,
+            Style::default().fg(Color::Rgb(palette.text.r, palette.text.g, palette.text.b)),
+        )
+    };
+
+    let input_paragraph = Paragraph::new(input_text).style(Style::default().bg(field_bg_color));
+
+    let text_area = ratatui::layout::Rect {
+        x: input_inner.x + 1,
+        y: input_inner.y,
+        width: input_inner.width.saturating_sub(2),
+        height: input_inner.height,
+    };
+    f.render_widget(input_paragraph, text_area);
+
+    let cursor_visual_offset = cursor_pos.saturating_sub(input_scroll_offset);
+    if cursor_visual_offset < input_width {
+        f.set_cursor_position(ratatui::layout::Position::new(
+            area.x + 2 + cursor_visual_offset as u16,
+            area.y + 1,
+        ));
+    }
 }

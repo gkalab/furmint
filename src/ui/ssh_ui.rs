@@ -11,17 +11,18 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemeP
 
     f.render_widget(Clear, popup_area);
 
+    let active_field = app.popups.ssh_connection.active_field;
     let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
-    let field_bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
-    let border_color = Color::Rgb(palette.border.r, palette.border.g, palette.border.b);
-    let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
-    let placeholder_color = Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b);
 
     f.render_widget(
         Block::default()
             .borders(Borders::ALL)
             .border_set(symbols::border::EMPTY)
-            .border_style(Style::default().fg(border_color))
+            .border_style(Style::default().fg(Color::Rgb(
+                palette.border.r,
+                palette.border.g,
+                palette.border.b,
+            )))
             .style(Style::default().bg(bg_color)),
         popup_area,
     );
@@ -41,72 +42,6 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemeP
         ])
         .split(popup_area);
 
-    let active_field = app.popups.ssh_connection.active_field;
-
-    let custom_border = crate::ui::ui_utils::field_border_set();
-
-    let block_empty = symbols::border::EMPTY;
-
-    let render_input_field = |f: &mut Frame,
-                              chunk: Rect,
-                              title: &str,
-                              text: &str,
-                              is_active: bool,
-                              cursor_pos: usize| {
-        let input_width = (chunk.width as usize).saturating_sub(4);
-
-        let scroll_offset = if cursor_pos < input_width {
-            0
-        } else {
-            cursor_pos - input_width + 1
-        };
-
-        let display_text: String = if text.is_empty() {
-            title.to_string()
-        } else {
-            text.chars().skip(scroll_offset).take(input_width).collect()
-        };
-
-        let text_style = if text.is_empty() {
-            Style::default().fg(placeholder_color)
-        } else {
-            Style::default().fg(text_color)
-        };
-
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(border_color).bg(field_bg_color))
-            .border_set(if is_active {
-                custom_border
-            } else {
-                symbols::border::EMPTY
-            })
-            .style(Style::default().bg(field_bg_color));
-
-        f.render_widget(&block, chunk);
-
-        let inner_area = block.inner(chunk);
-        let text_area = Rect {
-            x: inner_area.x + 1,
-            y: inner_area.y,
-            width: inner_area.width.saturating_sub(2),
-            height: inner_area.height,
-        };
-
-        let paragraph = Paragraph::new(display_text.as_str()).style(text_style.bg(field_bg_color));
-
-        f.render_widget(paragraph, text_area);
-
-        let cursor_visual_offset = cursor_pos.saturating_sub(scroll_offset);
-
-        if is_active && cursor_visual_offset < input_width {
-            f.set_cursor_position(Position::new(
-                chunk.x + 2 + cursor_visual_offset as u16,
-                chunk.y + 1,
-            ));
-        }
-    };
-
     render_input_field(
         f,
         chunks[0],
@@ -114,6 +49,7 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemeP
         &app.popups.ssh_connection.connection_string,
         active_field == SshField::ConnectionString,
         app.popups.ssh_connection.cursor_position,
+        palette,
     );
 
     render_input_field(
@@ -123,6 +59,7 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemeP
         &app.popups.ssh_connection.name,
         active_field == SshField::Name,
         app.popups.ssh_connection.cursor_position,
+        palette,
     );
 
     render_input_field(
@@ -132,7 +69,92 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemeP
         &app.popups.ssh_connection.port,
         active_field == SshField::Port,
         app.popups.ssh_connection.cursor_position,
+        palette,
     );
+
+    draw_history_list(f, chunks[6], app, palette, active_field);
+}
+
+fn render_input_field(
+    f: &mut Frame,
+    chunk: Rect,
+    title: &str,
+    text: &str,
+    is_active: bool,
+    cursor_pos: usize,
+    palette: &ThemePalette,
+) {
+    let field_bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
+    let border_color = Color::Rgb(palette.border.r, palette.border.g, palette.border.b);
+    let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
+    let placeholder_color = Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b);
+    let custom_border = crate::ui::ui_utils::field_border_set();
+
+    let input_width = (chunk.width as usize).saturating_sub(4);
+
+    let scroll_offset = if cursor_pos < input_width {
+        0
+    } else {
+        cursor_pos - input_width + 1
+    };
+
+    let display_text: String = if text.is_empty() {
+        title.to_string()
+    } else {
+        text.chars().skip(scroll_offset).take(input_width).collect()
+    };
+
+    let text_style = if text.is_empty() {
+        Style::default().fg(placeholder_color)
+    } else {
+        Style::default().fg(text_color)
+    };
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border_color).bg(field_bg_color))
+        .border_set(if is_active {
+            custom_border
+        } else {
+            symbols::border::EMPTY
+        })
+        .style(Style::default().bg(field_bg_color));
+
+    f.render_widget(&block, chunk);
+
+    let inner_area = block.inner(chunk);
+    let text_area = Rect {
+        x: inner_area.x + 1,
+        y: inner_area.y,
+        width: inner_area.width.saturating_sub(2),
+        height: inner_area.height,
+    };
+
+    let paragraph = Paragraph::new(display_text.as_str()).style(text_style.bg(field_bg_color));
+
+    f.render_widget(paragraph, text_area);
+
+    let cursor_visual_offset = cursor_pos.saturating_sub(scroll_offset);
+
+    if is_active && cursor_visual_offset < input_width {
+        f.set_cursor_position(Position::new(
+            chunk.x + 2 + cursor_visual_offset as u16,
+            chunk.y + 1,
+        ));
+    }
+}
+
+fn draw_history_list(
+    f: &mut Frame,
+    chunk: Rect,
+    app: &AppState,
+    palette: &ThemePalette,
+    active_field: SshField,
+) {
+    let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
+    let border_color = Color::Rgb(palette.border.r, palette.border.g, palette.border.b);
+    let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
+    let block_empty = symbols::border::EMPTY;
 
     let history_count = app.ssh_history.connections.len();
 
@@ -175,9 +197,9 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemeP
 
     let mut list_state =
         ListState::default().with_selected(app.popups.ssh_connection.selected_history_idx);
-    f.render_stateful_widget(list, chunks[6], &mut list_state);
+    f.render_stateful_widget(list, chunk, &mut list_state);
 
-    let scroll_area = chunks[6].inner(Margin {
+    let scroll_area = chunk.inner(Margin {
         vertical: 1,
         horizontal: 0,
     });
@@ -198,7 +220,7 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemeP
                 palette.red.g,
                 palette.red.b,
             ))),
-            chunks[6],
+            chunk,
         );
     }
     if let Some(confirmation) = &app.popups.ssh_connection.confirmation {

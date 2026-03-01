@@ -555,152 +555,167 @@ pub fn draw_panel_status(
 
     match ctx.side {
         crate::app::PanelSide::Left => {
-            // Left Panel: Files/Dirs on Left, Running Tasks on Right
-            let tasks = ctx.task_manager.get_tasks();
-            let running_count = tasks
-                .iter()
-                .filter(|(_, _, s, _, _, _, _, _)| matches!(s, crate::tasks::TaskStatus::Running))
-                .count();
-
-            if running_count > 0 {
-                let text = if running_count == 1 {
-                    "1 task running".to_string()
-                } else {
-                    format!("{running_count} tasks running")
-                };
-                let text_width = text.len() as u16;
-
-                let chunks = Layout::default()
-                    .direction(Direction::Horizontal)
-                    .constraints([Constraint::Min(0), Constraint::Length(text_width)])
-                    .split(status_area);
-
-                // File Info (Left)
-                let paragraph =
-                    ratatui::widgets::Paragraph::new(status).style(Style::default().fg(fg));
-                f.render_widget(paragraph, chunks[0]);
-
-                // Task Info (Right)
-                let p = ratatui::widgets::Paragraph::new(text)
-                    .alignment(Alignment::Right)
-                    .style(Style::default().fg(Color::Rgb(
-                        ctx.palette.yellow.r,
-                        ctx.palette.yellow.g,
-                        ctx.palette.yellow.b,
-                    )));
-                f.render_widget(p, chunks[1]);
-            } else {
-                // Check for recently completed/failed/cancelled tasks
-                let last_finished = tasks
-                    .iter()
-                    .filter(|(_, _, _, _, _, _, _, completed_at)| completed_at.is_some())
-                    .max_by_key(|(_, _, _, _, _, _, _, completed_at)| *completed_at);
-
-                if let Some((_, _, status_task, _, _, _, _, _)) = last_finished {
-                    let (text, task_fg) = match status_task {
-                        crate::tasks::TaskStatus::Completed => {
-                            (String::new(), ctx.palette.green) // no text for task completed status
-                        }
-                        crate::tasks::TaskStatus::Failed(e) => {
-                            (format!("Task failed: {e}"), ctx.palette.red)
-                        }
-                        crate::tasks::TaskStatus::Cancelled => {
-                            ("Task cancelled".to_string(), ctx.palette.yellow)
-                        }
-                        crate::tasks::TaskStatus::Running => unreachable!(),
-                    };
-                    let text_width = text.len() as u16;
-
-                    let chunks = Layout::default()
-                        .direction(Direction::Horizontal)
-                        .constraints([Constraint::Min(0), Constraint::Length(text_width)])
-                        .split(status_area);
-
-                    // File Info (Left)
-                    let paragraph =
-                        ratatui::widgets::Paragraph::new(status).style(Style::default().fg(fg));
-                    f.render_widget(paragraph, chunks[0]);
-
-                    // Task Info (Right)
-                    let p = ratatui::widgets::Paragraph::new(text)
-                        .alignment(Alignment::Right)
-                        .style(Style::default().fg(Color::Rgb(task_fg.r, task_fg.g, task_fg.b)));
-                    f.render_widget(p, chunks[1]);
-                } else {
-                    // No tasks, just file info
-                    let paragraph =
-                        ratatui::widgets::Paragraph::new(status).style(Style::default().fg(fg));
-                    f.render_widget(paragraph, status_area);
-                }
-            }
+            draw_left_panel_status(f, ctx, status_area, status.as_ref(), fg);
         }
         crate::app::PanelSide::Right => {
-            // Right Panel: Progress on Left, Files/Dirs on Right
-            // (Task results are only shown on the left panel status bar)
-
-            // Check for active task progress
-            let tasks = ctx.task_manager.get_tasks();
-            let active_task = tasks
-                .iter()
-                .rev()
-                .find(|t| matches!(t.2, crate::tasks::TaskStatus::Running));
-
-            if let Some((
-                _,
-                _,
-                crate::tasks::TaskStatus::Running,
-                progress,
-                byte_progress,
-                rsync,
-                current_file,
-                _,
-            )) = active_task
-            {
-                // Calculate available width for progress info
-                // We need to leave room for the status message on the right
-                let status_width = status.chars().count() as u16;
-                let spacing = 2; // Extra space between progress and status
-                let available_progress_width =
-                    status_area.width.saturating_sub(status_width + spacing);
-
-                let progress_spans = get_task_progress_spans(
-                    progress.as_ref().copied(),
-                    byte_progress.as_ref().copied(),
-                    *rsync,
-                    current_file.as_deref(),
-                    available_progress_width as usize,
-                    ctx.palette,
-                );
-
-                let text_width = progress_spans
-                    .iter()
-                    .map(|s| s.content.chars().count())
-                    .sum::<usize>() as u16;
-
-                let chunks = Layout::default()
-                    .direction(Direction::Horizontal)
-                    .constraints([Constraint::Length(text_width), Constraint::Min(0)])
-                    .split(status_area);
-
-                // Task Info (Left)
-                let progress_line = Line::from(progress_spans);
-                let progress_paragraph =
-                    ratatui::widgets::Paragraph::new(progress_line).alignment(Alignment::Left);
-                f.render_widget(progress_paragraph, chunks[0]);
-
-                // File Info (Right)
-                let paragraph = ratatui::widgets::Paragraph::new(status)
-                    .alignment(Alignment::Right)
-                    .style(Style::default().fg(fg));
-                f.render_widget(paragraph, chunks[1]);
-            } else {
-                // Default: just file info (Right aligned)
-                let paragraph = ratatui::widgets::Paragraph::new(status)
-                    .alignment(Alignment::Right)
-                    .style(Style::default().fg(fg));
-                f.render_widget(paragraph, status_area);
-            }
+            draw_right_panel_status(f, ctx, status_area, status.as_ref(), fg);
         }
+    }
+}
+
+fn draw_left_panel_status(
+    f: &mut ratatui::Frame,
+    ctx: &PanelStatusContext,
+    status_area: Rect,
+    status: &str,
+    fg: Color,
+) {
+    let tasks = ctx.task_manager.get_tasks();
+    let running_count = tasks
+        .iter()
+        .filter(|(_, _, s, _, _, _, _, _)| matches!(s, crate::tasks::TaskStatus::Running))
+        .count();
+
+    if running_count > 0 {
+        let text = if running_count == 1 {
+            "1 task running".to_string()
+        } else {
+            format!("{running_count} tasks running")
+        };
+        let text_width = text.len() as u16;
+
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Min(0), Constraint::Length(text_width)])
+            .split(status_area);
+
+        // File Info (Left)
+        let paragraph = ratatui::widgets::Paragraph::new(status).style(Style::default().fg(fg));
+        f.render_widget(paragraph, chunks[0]);
+
+        // Task Info (Right)
+        let p = ratatui::widgets::Paragraph::new(text)
+            .alignment(Alignment::Right)
+            .style(Style::default().fg(Color::Rgb(
+                ctx.palette.yellow.r,
+                ctx.palette.yellow.g,
+                ctx.palette.yellow.b,
+            )));
+        f.render_widget(p, chunks[1]);
+    } else {
+        // Check for recently completed/failed/cancelled tasks
+        let last_finished = tasks
+            .iter()
+            .filter(|(_, _, _, _, _, _, _, completed_at)| completed_at.is_some())
+            .max_by_key(|(_, _, _, _, _, _, _, completed_at)| *completed_at);
+
+        if let Some((_, _, status_task, _, _, _, _, _)) = last_finished {
+            let (text, task_fg) = match status_task {
+                crate::tasks::TaskStatus::Completed => {
+                    (String::new(), ctx.palette.green) // no text for task completed status
+                }
+                crate::tasks::TaskStatus::Failed(e) => {
+                    (format!("Task failed: {e}"), ctx.palette.red)
+                }
+                crate::tasks::TaskStatus::Cancelled => {
+                    ("Task cancelled".to_string(), ctx.palette.yellow)
+                }
+                crate::tasks::TaskStatus::Running => unreachable!(),
+            };
+            let text_width = text.len() as u16;
+
+            let chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Min(0), Constraint::Length(text_width)])
+                .split(status_area);
+
+            // File Info (Left)
+            let paragraph = ratatui::widgets::Paragraph::new(status).style(Style::default().fg(fg));
+            f.render_widget(paragraph, chunks[0]);
+
+            // Task Info (Right)
+            let p = ratatui::widgets::Paragraph::new(text)
+                .alignment(Alignment::Right)
+                .style(Style::default().fg(Color::Rgb(task_fg.r, task_fg.g, task_fg.b)));
+            f.render_widget(p, chunks[1]);
+        } else {
+            // No tasks, just file info
+            let paragraph = ratatui::widgets::Paragraph::new(status).style(Style::default().fg(fg));
+            f.render_widget(paragraph, status_area);
+        }
+    }
+}
+
+fn draw_right_panel_status(
+    f: &mut ratatui::Frame,
+    ctx: &PanelStatusContext,
+    status_area: Rect,
+    status: &str,
+    fg: Color,
+) {
+    // Right Panel: Progress on Left, Files/Dirs on Right
+    // (Task results are only shown on the left panel status bar)
+
+    // Check for active task progress
+    let tasks = ctx.task_manager.get_tasks();
+    let active_task = tasks
+        .iter()
+        .rev()
+        .find(|t| matches!(t.2, crate::tasks::TaskStatus::Running));
+
+    if let Some((
+        _,
+        _,
+        crate::tasks::TaskStatus::Running,
+        progress,
+        byte_progress,
+        rsync,
+        current_file,
+        _,
+    )) = active_task
+    {
+        // Calculate available width for progress info
+        // We need to leave room for the status message on the right
+        let status_width = status.chars().count() as u16;
+        let spacing = 2; // Extra space between progress and status
+        let available_progress_width = status_area.width.saturating_sub(status_width + spacing);
+
+        let progress_spans = get_task_progress_spans(
+            progress.as_ref().copied(),
+            byte_progress.as_ref().copied(),
+            *rsync,
+            current_file.as_deref(),
+            available_progress_width as usize,
+            ctx.palette,
+        );
+
+        let text_width = progress_spans
+            .iter()
+            .map(|s| s.content.chars().count())
+            .sum::<usize>() as u16;
+
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Length(text_width), Constraint::Min(0)])
+            .split(status_area);
+
+        // Task Info (Left)
+        let progress_line = ratatui::text::Line::from(progress_spans);
+        let progress_paragraph =
+            ratatui::widgets::Paragraph::new(progress_line).alignment(Alignment::Left);
+        f.render_widget(progress_paragraph, chunks[0]);
+
+        // File Info (Right)
+        let paragraph = ratatui::widgets::Paragraph::new(status)
+            .alignment(Alignment::Right)
+            .style(Style::default().fg(fg));
+        f.render_widget(paragraph, chunks[1]);
+    } else {
+        // Default: just file info (Right aligned)
+        let paragraph = ratatui::widgets::Paragraph::new(status)
+            .alignment(Alignment::Right)
+            .style(Style::default().fg(fg));
+        f.render_widget(paragraph, status_area);
     }
 }
 

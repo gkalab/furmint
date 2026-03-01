@@ -3,6 +3,61 @@ use crate::theme::ThemePalette;
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState};
 
+struct TaskDisplayData {
+    id: usize,
+    name: String,
+    status: TaskStatus,
+    progress: Option<(usize, usize)>,
+    byte_progress: Option<(u64, u64)>,
+    rsync: bool,
+    current_file: Option<String>,
+}
+
+impl TaskDisplayData {
+    pub fn new(
+        id: usize,
+        name: String,
+        status: TaskStatus,
+        progress: Option<(usize, usize)>,
+        byte_progress: Option<(u64, u64)>,
+        rsync: bool,
+        current_file: Option<String>,
+    ) -> Self {
+        Self {
+            id,
+            name,
+            status,
+            progress,
+            byte_progress,
+            rsync,
+            current_file,
+        }
+    }
+}
+
+struct TaskStyleContext<'a> {
+    palette: &'a ThemePalette,
+    text_color: Color,
+    list_bg_color: Color,
+    highlight_style: Style,
+}
+
+impl<'a> TaskStyleContext<'a> {
+    pub fn new(
+        palette: &'a ThemePalette,
+        text_color: Color,
+        list_bg_color: Color,
+        highlight_style: Style,
+    ) -> Self {
+        Self {
+            palette,
+            text_color,
+            list_bg_color,
+            highlight_style,
+        }
+    }
+}
+
 pub fn draw_task_manager(
     f: &mut ratatui::Frame,
     task_manager: &crate::tasks::TaskManager,
@@ -70,100 +125,22 @@ pub fn draw_task_manager(
         .fg(highlight_fg)
         .add_modifier(Modifier::BOLD);
 
+    let style_ctx = TaskStyleContext::new(palette, text_color, list_bg_color, highlight_style);
+
     let mut list_items = Vec::new();
     for (idx, (id, name, status, progress, byte_progress, rsync, current_file, _completed_at)) in
         tasks.into_iter().enumerate()
     {
-        let status_str = match status {
-            TaskStatus::Running => "Running",
-            TaskStatus::Completed => "Completed",
-            TaskStatus::Failed(_) => "Failed",
-            TaskStatus::Cancelled => "Cancelled",
-        };
-
-        let style = if idx == selected_index {
-            highlight_style
-        } else {
-            Style::default().fg(text_color).bg(list_bg_color)
-        };
-
-        // Task Name Line
-        let rsync_indicator = if rsync { " [rsync]" } else { "" };
-        let item_title = format!("[{id}] {name}{rsync_indicator} - {status_str}");
-
-        // Progress Bar Line
-        let progress_line = if let Some((processed, total)) = progress {
-            if total > 0 {
-                let ratio = processed as f64 / total as f64;
-                let percentage = (ratio * 100.0) as usize;
-                let left = total.saturating_sub(processed);
-
-                // Bar width: 20 chars
-                let bar_width: usize = 20;
-                let filled = (ratio * bar_width as f64).round() as usize;
-                let empty = bar_width.saturating_sub(filled);
-
-                let bar: String = "=".repeat(filled) + &" ".repeat(empty);
-
-                format!("[{bar}] {percentage}% ({left} left)")
-            } else {
-                "Calculating...".to_string()
-            }
-        } else {
-            String::new()
-        };
-
-        // Byte Progress Line
-        let byte_progress_line = if let Some((processed, total)) = byte_progress {
-            if total > 0 {
-                let ratio = processed as f64 / total as f64;
-                let percentage = (ratio * 100.0) as usize;
-
-                // Format sizes
-                let processed_str = crate::fs::utils::format_size(Some(processed), false, false)
-                    .trim()
-                    .to_string();
-                let total_str = crate::fs::utils::format_size(Some(total), false, false)
-                    .trim()
-                    .to_string();
-
-                format!("{percentage}% ({processed_str} / {total_str})")
-            } else {
-                String::new()
-            }
-        } else {
-            String::new()
-        };
-
-        let mut spans = vec![Line::from(Span::styled(item_title, style))];
-
-        if let Some(file) = current_file {
-            spans.push(Line::from(Span::styled(
-                format!("Current: {file}"),
-                style.fg(Color::Rgb(
-                    palette.yellow.r,
-                    palette.yellow.g,
-                    palette.yellow.b,
-                )),
-            )));
-        }
-
-        if !progress_line.is_empty() {
-            spans.push(Line::from(Span::styled(progress_line, style)));
-        }
-
-        if !byte_progress_line.is_empty() {
-            spans.push(Line::from(Span::styled(byte_progress_line, style)));
-        }
-
-        if let TaskStatus::Failed(e) = status {
-            spans.push(Line::from(Span::styled(
-                format!("Error: {e}"),
-                style.fg(Color::Rgb(palette.red.r, palette.red.g, palette.red.b)),
-            )));
-        }
-
-        list_items.push(ListItem::new(spans));
+        let data = TaskDisplayData::new(
+            id,
+            name,
+            status,
+            progress,
+            byte_progress,
+            rsync,
+            current_file,
+        );
+        list_items.push(format_task_item(idx, selected_index, data, &style_ctx));
     }
 
     // List Block inside
@@ -178,4 +155,111 @@ pub fn draw_task_manager(
         .highlight_style(highlight_style);
 
     f.render_stateful_widget(list, inner_area, &mut state);
+}
+
+fn format_task_item<'a>(
+    idx: usize,
+    selected_index: usize,
+    data: TaskDisplayData,
+    style_ctx: &'a TaskStyleContext<'a>,
+) -> ListItem<'a> {
+    let status_str = match &data.status {
+        TaskStatus::Running => "Running",
+        TaskStatus::Completed => "Completed",
+        TaskStatus::Failed(_) => "Failed",
+        TaskStatus::Cancelled => "Cancelled",
+    };
+
+    let style = if idx == selected_index {
+        style_ctx.highlight_style
+    } else {
+        Style::default()
+            .fg(style_ctx.text_color)
+            .bg(style_ctx.list_bg_color)
+    };
+
+    // Task Name Line
+    let rsync_indicator = if data.rsync { " [rsync]" } else { "" };
+    let item_title = format!(
+        "[{}] {}{} - {}",
+        data.id, data.name, rsync_indicator, status_str
+    );
+
+    // Progress Bar Line
+    let progress_line = if let Some((processed, total)) = data.progress {
+        if total > 0 {
+            let ratio = processed as f64 / total as f64;
+            let percentage = (ratio * 100.0) as usize;
+            let left = total.saturating_sub(processed);
+
+            // Bar width: 20 chars
+            let bar_width: usize = 20;
+            let filled = (ratio * bar_width as f64).round() as usize;
+            let empty = bar_width.saturating_sub(filled);
+
+            let bar: String = "=".repeat(filled) + &" ".repeat(empty);
+
+            format!("[{bar}] {percentage}% ({left} left)")
+        } else {
+            "Calculating...".to_string()
+        }
+    } else {
+        String::new()
+    };
+
+    // Byte Progress Line
+    let byte_progress_line = if let Some((processed, total)) = data.byte_progress {
+        if total > 0 {
+            let ratio = processed as f64 / total as f64;
+            let percentage = (ratio * 100.0) as usize;
+
+            // Format sizes
+            let processed_str = crate::fs::utils::format_size(Some(processed), false, false)
+                .trim()
+                .to_string();
+            let total_str = crate::fs::utils::format_size(Some(total), false, false)
+                .trim()
+                .to_string();
+
+            format!("{percentage}% ({processed_str} / {total_str})")
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+
+    let mut spans = vec![Line::from(Span::styled(item_title, style))];
+
+    if let Some(file) = &data.current_file {
+        spans.push(Line::from(Span::styled(
+            format!("Current: {file}"),
+            style.fg(Color::Rgb(
+                style_ctx.palette.yellow.r,
+                style_ctx.palette.yellow.g,
+                style_ctx.palette.yellow.b,
+            )),
+        )));
+    }
+
+    if !progress_line.is_empty() {
+        spans.push(Line::from(Span::styled(progress_line, style)));
+    }
+
+    if !byte_progress_line.is_empty() {
+        spans.push(Line::from(Span::styled(byte_progress_line, style)));
+    }
+
+    if let TaskStatus::Failed(e) = &data.status {
+        spans.push(Line::from(Span::styled(
+            format!("Error: {e}"),
+            style.fg(Color::Rgb(
+                style_ctx.palette.red.r,
+                style_ctx.palette.red.g,
+                style_ctx.palette.red.b,
+            )),
+        )));
+    }
+
+    ListItem::new(spans)
 }

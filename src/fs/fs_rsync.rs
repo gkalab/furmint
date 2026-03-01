@@ -3,11 +3,7 @@ use anyhow::{Result, anyhow};
 #[cfg(unix)]
 use std::path::Path;
 #[cfg(unix)]
-use std::process::Stdio;
-#[cfg(unix)]
 use tokio::io::{AsyncBufReadExt, BufReader};
-#[cfg(unix)]
-use tokio::process::Command;
 
 /// Detect if rsync should be used for this transfer
 /// Returns true only for local-remote or remote-local COPY operations
@@ -62,63 +58,7 @@ pub async fn rsync_transfer(
     dest: &Path,
     progress_ctx: &crate::fs::traits::TaskProgressContext,
 ) -> Result<()> {
-    let src_is_local = src_fs.is_local();
-    let dest_is_local = dest_fs.is_local();
-
-    // Determine rsync source and destination arguments
-    let is_dir = src_fs.is_dir(src).await.unwrap_or(false);
-    let src_str = if is_dir {
-        let mut s = src.to_string_lossy().to_string();
-        if !s.ends_with('/') {
-            s.push('/');
-        }
-        s
-    } else {
-        src.to_string_lossy().to_string()
-    };
-
-    let (src_arg, dest_arg, remote_fs) = if src_is_local && !dest_is_local {
-        // Local → Remote
-        let remote_spec = format_remote_path(dest_fs, dest)?;
-        (src_str, remote_spec, dest_fs)
-    } else if !src_is_local && dest_is_local {
-        // Remote → Local
-        let remote_spec = format_remote_path(src_fs, src)?;
-        // Also add trailing slash to remote spec if it's a directory
-        let remote_spec = if is_dir && !remote_spec.ends_with('/') {
-            format!("{remote_spec}/")
-        } else {
-            remote_spec
-        };
-        (remote_spec, dest.to_string_lossy().to_string(), src_fs)
-    } else {
-        return Err(anyhow!("rsync only supports local-remote transfers"));
-    };
-
-    // Get SSH options to reuse existing authentication
-    let password = remote_fs.get_password();
-    let ssh_opts = get_ssh_options(remote_fs, password.is_some())?;
-
-    // Build rsync command with progress monitoring
-    let mut cmd = if let Some(ref pass) = password {
-        let mut c = Command::new("sshpass");
-        c.arg("-p").arg(pass).arg("rsync");
-        c
-    } else {
-        Command::new("rsync")
-    };
-
-    cmd.arg("-avz") // archive, verbose, compress
-        .arg("--partial") // keep partial files for resume
-        .arg("--progress") // show progress
-        .arg("--info=progress2") // better progress format
-        .arg("--no-whole-file") // force delta-transfer algorithm
-        .arg("-e")
-        .arg(&ssh_opts) // SSH options to reuse authentication
-        .arg(&src_arg)
-        .arg(&dest_arg)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    let mut cmd = build_rsync_command(src_fs, dest_fs, src, dest).await?;
 
     // Signal that rsync is starting
     let _ = progress_ctx
@@ -282,6 +222,74 @@ fn parse_rsync_progress(line: &str) -> Option<RsyncProgress> {
             total_bytes: bytes_transferred,
         })
     }
+}
+
+#[cfg(unix)]
+async fn build_rsync_command(
+    src_fs: &dyn crate::fs::traits::FileSystem,
+    dest_fs: &dyn crate::fs::traits::FileSystem,
+    src: &Path,
+    dest: &Path,
+) -> Result<tokio::process::Command> {
+    let src_is_local = src_fs.is_local();
+    let dest_is_local = dest_fs.is_local();
+
+    // Determine rsync source and destination arguments
+    let is_dir = src_fs.is_dir(src).await.unwrap_or(false);
+    let src_str = if is_dir {
+        let mut s = src.to_string_lossy().to_string();
+        if !s.ends_with('/') {
+            s.push('/');
+        }
+        s
+    } else {
+        src.to_string_lossy().to_string()
+    };
+
+    let (src_arg, dest_arg, remote_fs) = if src_is_local && !dest_is_local {
+        // Local → Remote
+        let remote_spec = format_remote_path(dest_fs, dest)?;
+        (src_str, remote_spec, dest_fs)
+    } else if !src_is_local && dest_is_local {
+        // Remote → Local
+        let remote_spec = format_remote_path(src_fs, src)?;
+        // Also add trailing slash to remote spec if it's a directory
+        let remote_spec = if is_dir && !remote_spec.ends_with('/') {
+            format!("{remote_spec}/")
+        } else {
+            remote_spec
+        };
+        (remote_spec, dest.to_string_lossy().to_string(), src_fs)
+    } else {
+        return Err(anyhow!("rsync only supports local-remote transfers"));
+    };
+
+    // Get SSH options to reuse existing authentication
+    let password = remote_fs.get_password();
+    let ssh_opts = get_ssh_options(remote_fs, password.is_some())?;
+
+    // Build rsync command with progress monitoring
+    let mut cmd = if let Some(ref pass) = password {
+        let mut c = tokio::process::Command::new("sshpass");
+        c.arg("-p").arg(pass).arg("rsync");
+        c
+    } else {
+        tokio::process::Command::new("rsync")
+    };
+
+    cmd.arg("-avz") // archive, verbose, compress
+        .arg("--partial") // keep partial files for resume
+        .arg("--progress") // show progress
+        .arg("--info=progress2") // better progress format
+        .arg("--no-whole-file") // force delta-transfer algorithm
+        .arg("-e")
+        .arg(&ssh_opts) // SSH options to reuse authentication
+        .arg(&src_arg)
+        .arg(&dest_arg)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    Ok(cmd)
 }
 
 #[cfg(all(test, unix))]
