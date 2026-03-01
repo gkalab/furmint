@@ -171,7 +171,7 @@ impl FileSystemProvider for LocalFs {
             Err(_) => return false,
         };
         let _sec = duration.as_secs() as libc::time_t;
-        let _nsec = duration.subsec_nanos() as libc::c_long;
+        let _nsec = libc::c_long::from(duration.subsec_nanos());
 
         #[cfg(unix)]
         {

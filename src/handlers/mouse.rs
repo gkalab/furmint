@@ -75,7 +75,7 @@ fn handle_panel_click(app: &mut AppState, side: PanelSide, y: u16, is_double_cli
     };
 
     let borders = app.global.borders.unwrap_or(false);
-    let border_offset = if borders { 1 } else { 0 };
+    let border_offset = u16::from(borders);
     let header_height = 1;
     let content_start_y = area.y + border_offset + header_height;
 

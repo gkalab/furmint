@@ -42,11 +42,13 @@ impl ArchiveFs {
         Ok(fs)
     }
 
+    #[must_use]
     pub fn get_entry(&self, path: &Path) -> Option<ArchiveEntry> {
         let entries = self.entries.lock().unwrap();
         entries.get(path).cloned()
     }
 
+    #[must_use]
     pub fn get_entry_for_extraction(&self, path: &Path) -> Option<ArchiveEntry> {
         self.get_entry(path)
     }
@@ -159,7 +161,7 @@ impl FileSystemProvider for ArchiveFs {
         Err(anyhow::anyhow!("ArchiveFileSystem is read-only"))
     }
 
-    fn display_prefix(&self) -> &str {
+    fn display_prefix(&self) -> &'static str {
         ""
     }
 
@@ -208,8 +210,7 @@ impl FileSystemProvider for ArchiveFs {
                 .lock()
                 .unwrap()
                 .get(p)
-                .map(|e| e.file_entry.is_dir)
-                .unwrap_or(false)
+                .is_some_and(|e| e.file_entry.is_dir)
         }
     }
 
@@ -299,7 +300,7 @@ impl FileSystemProvider for ArchiveFs {
                 handler.extract(&src_str, &dest, is_dir, &progress)
             })
             .await
-            .unwrap_or_else(|e| Err(anyhow::anyhow!("Join error: {}", e))),
+            .unwrap_or_else(|e| Err(anyhow::anyhow!("Join error: {e}"))),
         )
     }
 }

@@ -247,10 +247,10 @@ async fn handle_directory(
             handle_copy_to_local_with_existing_dir(ctx, decision_state, src, dest, &progress)
                 .await?
         {
-            return result.map(|_| ());
+            return result;
         }
     } else if let Some(result) = handle_copy_to_local_direct(ctx, src, dest, &progress).await? {
-        return result.map(|_| ());
+        return result;
     }
 
     // Normal recursive path (no download optimisation).

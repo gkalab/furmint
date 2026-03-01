@@ -46,6 +46,6 @@ pub fn get_archive_handler(path: &Path) -> Result<Box<dyn ArchiveFormat>> {
     } else if ext == "rpm" {
         Ok(Box::new(rpm::RpmHandler::new(path)))
     } else {
-        Err(anyhow::anyhow!("Unsupported archive format: {}", ext))
+        Err(anyhow::anyhow!("Unsupported archive format: {ext}"))
     }
 }

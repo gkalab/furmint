@@ -222,7 +222,7 @@ impl ArchiveFormat for TarHandler {
                 return Ok(buffer);
             }
         }
-        Err(anyhow::anyhow!("File not found in tar: {}", path_str))
+        Err(anyhow::anyhow!("File not found in tar: {path_str}"))
     }
 
     fn extract(
@@ -264,7 +264,7 @@ impl ArchiveFormat for TarHandler {
             let should_extract = if is_root {
                 true
             } else {
-                name == src_str || name.starts_with(&format!("{}/", src_str))
+                name == src_str || name.starts_with(&format!("{src_str}/"))
             };
 
             if should_extract {
@@ -273,8 +273,7 @@ impl ArchiveFormat for TarHandler {
                 } else {
                     Path::new(name)
                         .strip_prefix(src_str)
-                        .map(|p| p.to_path_buf())
-                        .unwrap_or_else(|_| PathBuf::from(name))
+                        .map_or_else(|_| PathBuf::from(name), std::path::Path::to_path_buf)
                 };
 
                 let rel_name_str = rel_path.to_string_lossy().to_string();
@@ -381,7 +380,7 @@ impl TarHandler {
                 count.saturating_sub(1)
             };
             if strip > 0 {
-                cmd.arg(format!("--strip-components={}", strip));
+                cmd.arg(format!("--strip-components={strip}"));
             }
             cmd.arg(tar_src);
         }

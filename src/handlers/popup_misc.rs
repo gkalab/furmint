@@ -172,7 +172,7 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
                 Err(e) => {
                     // If we fail to create the tab, show error on the active tab of that side
                     manager.active_tab_mut().error =
-                        Some(format!("Failed to create archive tab: {}", e));
+                        Some(format!("Failed to create archive tab: {e}"));
                 }
             }
         }

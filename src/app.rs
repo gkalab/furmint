@@ -62,6 +62,7 @@ impl Popups {
         }
     }
 
+    #[must_use]
     pub fn any_visible(&self) -> bool {
         self.rename.is_visible
             || self.create_directory.is_visible

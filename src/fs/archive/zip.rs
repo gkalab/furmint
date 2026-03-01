@@ -27,16 +27,15 @@ impl ZipHandler {
         if let Some(dt) = dt {
             chrono::Utc
                 .with_ymd_and_hms(
-                    dt.year() as i32,
-                    dt.month() as u32,
-                    dt.day() as u32,
-                    dt.hour() as u32,
-                    dt.minute() as u32,
-                    dt.second() as u32,
+                    i32::from(dt.year()),
+                    u32::from(dt.month()),
+                    u32::from(dt.day()),
+                    u32::from(dt.hour()),
+                    u32::from(dt.minute()),
+                    u32::from(dt.second()),
                 )
                 .single()
-                .map(SystemTime::from)
-                .unwrap_or(SystemTime::UNIX_EPOCH)
+                .map_or(SystemTime::UNIX_EPOCH, SystemTime::from)
         } else {
             SystemTime::UNIX_EPOCH
         }
@@ -216,7 +215,7 @@ impl ArchiveFormat for ZipHandler {
             let should_extract = if is_root {
                 true
             } else {
-                name == src_str || name.starts_with(&format!("{}/", src_str))
+                name == src_str || name.starts_with(&format!("{src_str}/"))
             };
 
             if should_extract {
@@ -225,8 +224,7 @@ impl ArchiveFormat for ZipHandler {
                 } else {
                     Path::new(name)
                         .strip_prefix(src_str)
-                        .map(|p| p.to_path_buf())
-                        .unwrap_or_else(|_| PathBuf::from(name))
+                        .map_or_else(|_| PathBuf::from(name), std::path::Path::to_path_buf)
                 };
 
                 let rel_name_str = rel_path.to_string_lossy().to_string();

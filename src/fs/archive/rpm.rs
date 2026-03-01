@@ -24,6 +24,7 @@ pub enum RpmValue {
 }
 
 impl RpmValue {
+    #[must_use]
     pub fn as_string(&self) -> String {
         match self {
             RpmValue::String(s) => s.clone(),
@@ -36,6 +37,7 @@ impl RpmValue {
 }
 
 impl RpmHandler {
+    #[must_use]
     pub fn new(path: &Path) -> Self {
         Self {
             path: path.to_path_buf(),
@@ -122,7 +124,7 @@ impl RpmHandler {
                         // But let's return it as string representation for simplicity in FileViewer
                         RpmValue::String(
                             arr.iter()
-                                .map(|x| x.to_string())
+                                .map(std::string::ToString::to_string)
                                 .collect::<Vec<_>>()
                                 .join(", "),
                         )
@@ -210,7 +212,7 @@ impl RpmHandler {
                     // Build Date - format timestamp
                     if let RpmValue::Int32(t) = val {
                         use chrono::TimeZone;
-                        let dt = chrono::Local.timestamp_opt(*t as i64, 0).single();
+                        let dt = chrono::Local.timestamp_opt(i64::from(*t), 0).single();
                         if let Some(d) = dt {
                             result.push_str(&format!(
                                 "{:<15}: {}\n",
@@ -305,11 +307,11 @@ impl ArchiveFormat for RpmHandler {
             let size = if is_dir {
                 None
             } else {
-                Some(entry_reader.entry().file_size() as u64)
+                Some(u64::from(entry_reader.entry().file_size()))
             };
 
             let modified = std::time::SystemTime::UNIX_EPOCH
-                + std::time::Duration::from_secs(entry_reader.entry().mtime() as u64);
+                + std::time::Duration::from_secs(u64::from(entry_reader.entry().mtime()));
 
             let file_entry = FileEntry {
                 name: p
@@ -410,7 +412,7 @@ impl ArchiveFormat for RpmHandler {
             reader = entry_reader.finish()?;
         }
 
-        Err(anyhow!("File not found in RPM: {}", path))
+        Err(anyhow!("File not found in RPM: {path}"))
     }
 
     fn extract(
@@ -441,7 +443,7 @@ impl ArchiveFormat for RpmHandler {
                 if src_path == "." || src_path.is_empty() {
                     true
                 } else {
-                    p_str == src_path || p_str.starts_with(&format!("{}/", src_path))
+                    p_str == src_path || p_str.starts_with(&format!("{src_path}/"))
                 }
             } else {
                 p_str == src_path

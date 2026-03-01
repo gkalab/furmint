@@ -43,7 +43,9 @@ fn archive_path_and_ext(app: &mut AppState) -> Option<(PathBuf, String, String)>
     // Check if we are selecting a file that is a supported archive
     let panel = app.active_tab();
     if let Some(entry) = panel.current_entry() {
-        if !entry.is_dir {
+        if entry.is_dir {
+            None
+        } else {
             let path = panel.current_dir.join(&entry.name);
             if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                 let ext = ext.to_lowercase();
@@ -59,8 +61,6 @@ fn archive_path_and_ext(app: &mut AppState) -> Option<(PathBuf, String, String)>
             } else {
                 None
             }
-        } else {
-            None
         }
     } else {
         None
@@ -276,21 +276,20 @@ fn handle_open_archive(app: &mut AppState, path: PathBuf, filename: String) {
                 }
                 Err(e) => {
                     manager.active_tab_mut().error =
-                        Some(format!("Failed to create archive tab from cache: {}", e));
+                        Some(format!("Failed to create archive tab from cache: {e}"));
                 }
             }
             return;
-        } else {
-            // Cache invalid
-            app.archive_cache.remove(&path);
         }
+        // Cache invalid
+        app.archive_cache.remove(&path);
     }
 
     let path_clone = path.clone();
     let filename_clone = filename.clone();
     let path_for_event = path.clone();
 
-    let task_name = format!("Opening {}", filename);
+    let task_name = format!("Opening {filename}");
 
     app.task_manager
         .spawn_task(task_name, move |_cancel, tx, id| async move {

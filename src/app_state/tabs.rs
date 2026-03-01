@@ -483,15 +483,13 @@ impl Tab {
                         // Get effective size for sorting: use calculated size if available, otherwise use raw size
                         let size_a = if a.is_dir {
                             self.get_dir_size(&self.current_dir.join(&a.name))
-                                .map(Some)
-                                .unwrap_or(a.size)
+                                .map_or(a.size, Some)
                         } else {
                             a.size
                         };
                         let size_b = if b.is_dir {
                             self.get_dir_size(&self.current_dir.join(&b.name))
-                                .map(Some)
-                                .unwrap_or(b.size)
+                                .map_or(b.size, Some)
                         } else {
                             b.size
                         };
