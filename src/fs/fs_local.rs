@@ -166,12 +166,12 @@ impl FileSystemProvider for LocalFs {
     }
 
     fn set_modified_time(&self, path: &Path, mtime: std::time::SystemTime) -> bool {
-        let duration = match mtime.duration_since(std::time::UNIX_EPOCH) {
-            Ok(d) => d,
-            Err(_) => return false,
-        };
         #[cfg(unix)]
         {
+            let duration = match mtime.duration_since(std::time::UNIX_EPOCH) {
+                Ok(d) => d,
+                Err(_) => return false,
+            };
             let sec = duration.as_secs() as libc::time_t;
             let nsec = libc::c_long::from(duration.subsec_nanos());
             let path_cstr = match std::ffi::CString::new(path.to_string_lossy().as_bytes()) {
