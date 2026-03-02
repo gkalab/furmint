@@ -327,6 +327,77 @@ async fn test_archive_fs_read_and_download_tar_gz() {
 }
 
 #[tokio::test]
+async fn test_archive_fs_read_and_download_plain_gz() {
+    use flate2::Compression;
+    use flate2::write::GzEncoder;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive_path = temp_dir.path().join("test.gz");
+
+    {
+        let file = File::create(&archive_path).unwrap();
+        let enc = GzEncoder::new(file, Compression::default());
+        let mut writer = std::io::BufWriter::new(enc);
+        writer.write_all(b"hello world").unwrap();
+        writer.flush().unwrap();
+    }
+
+    let archive_fs = fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap();
+
+    let content = archive_fs.read_file(Path::new("test")).unwrap();
+    assert_eq!(content, b"hello world");
+
+    let dest_dir = temp_dir.path().join("extracted_gz");
+    std::fs::create_dir_all(&dest_dir).unwrap();
+
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
+    let progress = fm::fs::traits::TaskProgressContext {
+        id: 0,
+        tx,
+        cancel: Arc::new(AtomicBool::new(false)),
+        processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+    };
+    let local_fs = fm::fs::provider::ProviderFileSystem(Arc::new(LocalFs::new()));
+
+    archive_fs
+        .extract(Path::new("."), &local_fs, &dest_dir, &progress)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        std::fs::read_to_string(dest_dir.join("test")).unwrap(),
+        "hello world"
+    );
+}
+
+#[tokio::test]
+async fn test_archive_fs_plain_gz_attributes() {
+    use flate2::Compression;
+    use flate2::write::GzEncoder;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive_path = temp_dir.path().join("test.gz");
+
+    {
+        let file = File::create(&archive_path).unwrap();
+        let enc = GzEncoder::new(file, Compression::default());
+        let mut writer = std::io::BufWriter::new(enc);
+        writer.write_all(b"test content").unwrap();
+        writer.flush().unwrap();
+    }
+
+    let archive_fs = fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap();
+
+    let entry = archive_fs.get_entry(Path::new("test")).unwrap();
+    assert_eq!(entry.file_entry.name, "test");
+    assert_eq!(entry.file_entry.size, Some(12));
+    assert!(!entry.file_entry.is_dir);
+    assert!(!entry.file_entry.is_symlink);
+}
+
+#[tokio::test]
 async fn test_archive_download_empty_dir_and_nesting() {
     let temp_dir = tempfile::tempdir().unwrap();
     let archive_path = temp_dir.path().join("nesting.zip");

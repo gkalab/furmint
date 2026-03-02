@@ -4,6 +4,7 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+pub mod gzip;
 pub mod rpm;
 pub mod tar;
 pub mod zip;
@@ -32,10 +33,17 @@ pub fn get_archive_handler(path: &Path) -> Result<Box<dyn ArchiveFormat>> {
         .unwrap_or("")
         .to_lowercase();
 
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
     if ext == "zip" || ext == "jar" {
         Ok(Box::new(zip::ZipHandler::new(path)?))
     } else if ext == "tar"
-        || ext == "gz"
+        || (ext == "gz"
+            && (stem.ends_with(".tar") || stem.ends_with(".tgz") || stem == "tar" || stem == "tgz"))
         || ext == "tgz"
         || ext == "bz2"
         || ext == "tbz2"
@@ -43,6 +51,8 @@ pub fn get_archive_handler(path: &Path) -> Result<Box<dyn ArchiveFormat>> {
         || ext == "txz"
     {
         Ok(Box::new(tar::TarHandler::new(path)?))
+    } else if ext == "gz" {
+        Ok(Box::new(gzip::GzipHandler::new(path)?))
     } else if ext == "rpm" {
         Ok(Box::new(rpm::RpmHandler::new(path)))
     } else {
