@@ -170,11 +170,10 @@ impl FileSystemProvider for LocalFs {
             Ok(d) => d,
             Err(_) => return false,
         };
-        let _sec = duration.as_secs() as libc::time_t;
-        let _nsec = libc::c_long::from(duration.subsec_nanos());
-
         #[cfg(unix)]
         {
+            let sec = duration.as_secs() as libc::time_t;
+            let nsec = libc::c_long::from(duration.subsec_nanos());
             let path_cstr = match std::ffi::CString::new(path.to_string_lossy().as_bytes()) {
                 Ok(c) => c,
                 Err(_) => return false,
@@ -189,8 +188,8 @@ impl FileSystemProvider for LocalFs {
                             tv_nsec: libc::UTIME_OMIT,
                         },
                         libc::timespec {
-                            tv_sec: _sec,
-                            tv_nsec: _nsec,
+                            tv_sec: sec,
+                            tv_nsec: nsec,
                         },
                     ]
                     .as_ptr(),
