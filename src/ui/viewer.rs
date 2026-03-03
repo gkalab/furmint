@@ -1,9 +1,22 @@
 use crate::app::FileViewerState;
 use crate::theme::ThemePalette;
 use crate::ui::ui_utils::TabScrollbarContext;
+use lumis::highlight::Highlighter;
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
-use syntect::easy::HighlightLines;
+
+/// Parse a hex color string like "#rrggbb" into a ratatui Color::Rgb.
+fn parse_hex_color(hex: &Option<String>) -> Option<Color> {
+    let hex = hex.as_ref()?;
+    let hex = hex.strip_prefix('#').unwrap_or(hex);
+    if hex.len() < 6 {
+        return None;
+    }
+    let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+    let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+    let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+    Some(Color::Rgb(r, g, b))
+}
 
 pub fn draw_file_viewer(
     f: &mut ratatui::Frame,
@@ -41,31 +54,32 @@ pub fn draw_file_viewer(
         return;
     }
 
-    // Use cached syntax name
-    let syntax = viewer
-        .syntax_name
-        .as_ref()
-        .and_then(|name| viewer.syntax_set.find_syntax_by_name(name))
-        .unwrap_or_else(|| viewer.syntax_set.find_syntax_plain_text());
-
-    let mut h = HighlightLines::new(syntax, &viewer.theme);
-
     let visible_lines = inner_area.height as usize;
     let max_lines = viewer.content.len();
     // Clamp scroll offset to valid range
     let start_line = viewer.scroll_offset.min(max_lines.saturating_sub(1));
     let end_line = (start_line + visible_lines).min(max_lines);
 
+    let highlighter = Highlighter::new(viewer.language, viewer.theme.clone());
+    let default_fg = viewer
+        .theme
+        .as_ref()
+        .and_then(|t| t.fg().map(|s| s.to_string()))
+        .and_then(|s| parse_hex_color(&Some(s)));
+
     let mut lines = Vec::new();
     for line in &viewer.content[start_line..end_line] {
-        let ranges = h
-            .highlight_line(line, &viewer.syntax_set)
-            .unwrap_or_default();
+        let segments = highlighter.highlight(line).unwrap_or_default();
+        let ranges: Vec<(&lumis::themes::Style, &str)> = segments
+            .iter()
+            .map(|(style, text)| (style.as_ref(), *text))
+            .collect();
 
         let spans = generate_line_spans(
             ranges,
             viewer.horizontal_scroll_offset,
             inner_area.width as usize,
+            default_fg,
         );
 
         lines.push(Line::from(spans));
@@ -100,9 +114,10 @@ pub fn draw_file_viewer(
 /// taking into account tab widths and wide characters.
 #[must_use]
 pub fn generate_line_spans(
-    ranges: Vec<(syntect::highlighting::Style, &str)>,
+    ranges: Vec<(&lumis::themes::Style, &str)>,
     h_offset: usize,
     max_width: usize,
+    default_fg: Option<Color>,
 ) -> Vec<Span<'static>> {
     let mut display_pos = 0; // Current display column position
     let mut visible_width = 0; // Display width used so far
@@ -193,11 +208,13 @@ pub fn generate_line_spans(
             }
 
             if !result_text.is_empty() {
-                let fg = style.foreground;
-                spans.push(Span::styled(
-                    result_text,
-                    Style::default().fg(Color::Rgb(fg.r, fg.g, fg.b)),
-                ));
+                let color = parse_hex_color(&style.fg).or(default_fg);
+                let ratatui_style = if let Some(color) = color {
+                    ratatui::style::Style::default().fg(color)
+                } else {
+                    ratatui::style::Style::default()
+                };
+                spans.push(Span::styled(result_text, ratatui_style));
             }
         }
 
@@ -210,7 +227,7 @@ pub fn generate_line_spans(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use syntect::highlighting::{Color, FontStyle, Style};
+    use lumis::themes::Style as LumisStyle;
     use unicode_width::UnicodeWidthStr;
 
     #[test]
@@ -220,20 +237,9 @@ mod tests {
         let h_offset = 0;
 
         // Dummy style for testing
-        let dummy_style = Style {
-            foreground: Color {
-                r: 255,
-                g: 255,
-                b: 255,
-                a: 255,
-            },
-            background: Color {
-                r: 0,
-                g: 0,
-                b: 0,
-                a: 255,
-            },
-            font_style: FontStyle::empty(),
+        let dummy_style = LumisStyle {
+            fg: Some("#ffffff".to_string()),
+            ..Default::default()
         };
 
         // Test cases that would overflow if tabs were counted as 1 char but rendered as 4 spaces
@@ -253,9 +259,9 @@ mod tests {
 
         for (input, description) in test_cases {
             // Treat the whole line as one range for baseline testing
-            let ranges = vec![(dummy_style, input)];
+            let ranges = vec![(&dummy_style, input)];
 
-            let spans = generate_line_spans(ranges, h_offset, max_width);
+            let spans = generate_line_spans(ranges, h_offset, max_width, None);
 
             // Calculate total display width of the generated spans
             let mut total_width = 0;

@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::str::FromStr;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 #[derive(Default)]
@@ -8,9 +9,8 @@ pub struct FileViewerState {
     pub scroll_offset: usize,
     pub horizontal_scroll_offset: usize,
     pub is_visible: bool,
-    pub syntax_set: syntect::parsing::SyntaxSet,
-    pub theme: syntect::highlighting::Theme,
-    pub syntax_name: Option<String>,
+    pub language: lumis::languages::Language,
+    pub theme: Option<lumis::themes::Theme>,
     pub focused: bool,
     pub protocol: Option<ratatui_image::thread::ThreadProtocol>,
     pub resize_rx: Option<UnboundedReceiver<ratatui_image::thread::ResizeRequest>>,
@@ -31,16 +31,26 @@ pub struct ImageLoadResult {
 impl FileViewerState {
     #[must_use]
     pub fn new(is_dark_theme: bool, app_theme_name: &str) -> Self {
-        let syntax_set = syntect::parsing::SyntaxSet::load_defaults_newlines();
-        let theme_set = syntect::highlighting::ThemeSet::load_defaults();
         let theme_name = if app_theme_name == "solarized light" {
-            "Solarized (light)"
+            "solarized_winter_light"
+        } else if app_theme_name == "catppuccin macchiato" {
+            "catppuccin_macchiato"
+        } else if app_theme_name == "catppuccin frappe" {
+            "catppuccin_frappe"
+        } else if app_theme_name == "catppuccin mocha" {
+            "catppuccin_mocha"
+        } else if app_theme_name == "catppuccin latte" {
+            "catppuccin_latte"
+        } else if app_theme_name == "dracula" {
+            "dracula"
+        } else if app_theme_name == "nord" {
+            "nord"
         } else if is_dark_theme {
-            "base16-eighties.dark"
+            "catppuccin_mocha"
         } else {
-            "InspiredGitHub"
+            "papercolor_light"
         };
-        let theme = theme_set.themes[theme_name].clone();
+        let theme = lumis::themes::get(theme_name).ok();
 
         Self {
             path: PathBuf::new(),
@@ -48,9 +58,8 @@ impl FileViewerState {
             scroll_offset: 0,
             horizontal_scroll_offset: 0,
             is_visible: false,
-            syntax_set,
+            language: lumis::languages::Language::default(),
             theme,
-            syntax_name: None,
             focused: false,
             protocol: None,
             resize_rx: None,
@@ -69,7 +78,7 @@ impl FileViewerState {
         self.content = Vec::new();
         self.scroll_offset = 0;
         self.horizontal_scroll_offset = 0;
-        self.syntax_name = None;
+        self.language = lumis::languages::Language::default();
     }
 
     pub fn init_picker(&mut self) {
@@ -228,12 +237,8 @@ impl FileViewerState {
             return;
         }
 
-        let syntax = self
-            .syntax_set
-            .find_syntax_for_file(&self.path)
-            .unwrap_or(None)
-            .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text());
-        self.syntax_name = Some(syntax.name.clone());
+        self.language =
+            lumis::languages::Language::from_str(&self.path.to_string_lossy()).unwrap_or_default();
 
         let limit = limit_bytes as usize;
         let limit_u64 = limit_bytes;
