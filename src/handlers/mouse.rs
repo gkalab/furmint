@@ -36,14 +36,19 @@ fn handle_left_click(app: &mut AppState, x: u16, y: u16) {
     // Check file viewer
     if app.file_viewer.is_visible && is_in_rect(click_pos, app.file_viewer.area) {
         app.file_viewer.focused = true;
-        app.file_viewer.selection = None; // Reset selection on new click
         let borders = app.global.borders.unwrap_or(false);
         let border_offset = u16::from(borders);
         let inner_y = y.saturating_sub(app.file_viewer.area.y + border_offset);
         let inner_x = x.saturating_sub(app.file_viewer.area.x + border_offset);
         let row = (inner_y as usize) + app.file_viewer.scroll_offset;
-        let col = (inner_x as usize) + app.file_viewer.horizontal_scroll_offset;
-        app.file_viewer.selection = Some(((row, col), (row, col)));
+        let display_col = (inner_x as usize) + app.file_viewer.horizontal_scroll_offset;
+
+        if is_double_click {
+            app.file_viewer.select_word_at(row, display_col);
+        } else {
+            let char_idx = app.file_viewer.display_col_to_char_idx(row, display_col);
+            app.file_viewer.selection = Some(((row, char_idx), (row, char_idx)));
+        }
         return;
     }
 
@@ -141,10 +146,11 @@ fn handle_drag(app: &mut AppState, x: u16, y: u16) {
     let inner_y = y.saturating_sub(area.y + border_offset);
     let inner_x = x.saturating_sub(area.x + border_offset);
     let row = (inner_y as usize) + app.file_viewer.scroll_offset;
-    let col = (inner_x as usize) + app.file_viewer.horizontal_scroll_offset;
+    let display_col = (inner_x as usize) + app.file_viewer.horizontal_scroll_offset;
+    let char_idx = app.file_viewer.display_col_to_char_idx(row, display_col);
 
     if let Some((start, _)) = app.file_viewer.selection {
-        app.file_viewer.selection = Some((start, (row, col)));
+        app.file_viewer.selection = Some((start, (row, char_idx)));
     }
 }
 

@@ -150,12 +150,13 @@ pub fn generate_line_spans(
     h_offset: usize,
     max_width: usize,
     default_fg: Option<Color>,
-    selection_range: Option<(usize, usize)>,
+    selection_char_range: Option<(usize, usize)>,
     selection_bg: Option<Color>,
 ) -> Vec<Span<'static>> {
     let mut display_pos = 0; // Current display column position
     let mut visible_width = 0; // Display width used so far
     let mut spans: Vec<Span> = Vec::new();
+    let mut char_idx_counter = 0;
 
     for (style, text) in ranges {
         // Stop if we've already filled the available width
@@ -236,9 +237,9 @@ pub fn generate_line_spans(
                         };
 
                         // Apply selection background
-                        if let Some((sel_start, sel_end)) = selection_range
-                            && current_display_pos < sel_end
-                            && ch_end_pos > sel_start
+                        if let Some((sel_start, sel_end)) = selection_char_range
+                            && char_idx_counter >= sel_start
+                            && char_idx_counter < sel_end
                         {
                             if let Some(bg) = selection_bg {
                                 ratatui_style = ratatui_style.bg(bg);
@@ -258,7 +259,10 @@ pub fn generate_line_spans(
                             spans.push(Span::styled(char_text, ratatui_style));
                         }
                         visible_width += char_visible_width;
+                        char_idx_counter += 1;
                     }
+                } else {
+                    char_idx_counter += 1;
                 }
 
                 current_display_pos = ch_end_pos;

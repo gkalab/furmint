@@ -352,4 +352,202 @@ impl FileViewerState {
             Some(selected_lines.join("\n"))
         }
     }
+
+    /// Converts a display column to a character index for a given row.
+    /// Handles tab expansion (4 spaces) and wide characters.
+    #[must_use]
+    pub fn display_col_to_char_idx(&self, row: usize, display_col: usize) -> usize {
+        let line = match self.content.get(row) {
+            Some(l) => l,
+            None => return display_col,
+        };
+
+        let mut current_display_pos = 0;
+        for (idx, ch) in line.chars().enumerate() {
+            let ch_width = if ch == '\t' {
+                4 - (current_display_pos % 4)
+            } else {
+                unicode_width::UnicodeWidthChar::width(ch).unwrap_or(1)
+            };
+
+            if current_display_pos + ch_width > display_col {
+                return idx;
+            }
+            current_display_pos += ch_width;
+        }
+        line.chars().count()
+    }
+
+    /// Selects the word or syntax chunk at the given display coordinates.
+    pub fn select_word_at(&mut self, row: usize, display_col: usize) {
+        let line = if let Some(l) = self.content.get(row) {
+            l
+        } else {
+            self.selection = None;
+            return;
+        };
+
+        let char_idx = self.display_col_to_char_idx(row, display_col);
+        let char_count = line.chars().count();
+        if char_idx >= char_count {
+            self.selection = None;
+            return;
+        }
+
+        let mut start = 0;
+        let mut end = 0;
+        let mut found = false;
+
+        // Try syntax-aware selection first
+        let highlighter = lumis::highlight::Highlighter::new(self.language, self.theme.clone());
+        let segments = highlighter.highlight(line).unwrap_or_default();
+
+        if segments.len() > 1 {
+            let mut current_char_idx = 0;
+            for (_, text) in segments {
+                let segment_char_count = text.chars().count();
+                if char_idx >= current_char_idx && char_idx < current_char_idx + segment_char_count
+                {
+                    // Found the syntax chunk
+                    start = current_char_idx;
+                    end = current_char_idx + segment_char_count;
+                    found = true;
+                    break;
+                }
+                current_char_idx += segment_char_count;
+            }
+        }
+
+        let chars: Vec<char> = line.chars().collect();
+        if !found {
+            // Fallback: word boundaries (alphanumeric + underscore)
+            let is_word_char = |c: char| c.is_alphanumeric() || c == '_';
+
+            let target_is_word = is_word_char(chars[char_idx]);
+
+            start = char_idx;
+            while start > 0 && is_word_char(chars[start - 1]) == target_is_word {
+                start -= 1;
+            }
+
+            end = char_idx;
+            while end < char_count && is_word_char(chars[end]) == target_is_word {
+                end += 1;
+            }
+        }
+
+        // Refine selection to exclude surrounding quotes if present (supports triple and nested quotes)
+        while end - start >= 2 {
+            let s_char = chars[start];
+            let e_char = chars[end - 1];
+            if (s_char == '"' && e_char == '"')
+                || (s_char == '\'' && e_char == '\'')
+                || (s_char == '`' && e_char == '`')
+            {
+                start += 1;
+                end -= 1;
+            } else {
+                break;
+            }
+        }
+
+        self.selection = Some(((row, start), (row, end)));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_display_col_to_char_idx() {
+        let mut state = FileViewerState::new(true, "catppuccin macchiato");
+        state.content = vec!["\tA\tB".to_string(), "Wide: 🚀".to_string()];
+
+        // Tab at 0 expands to 4 spaces (0, 1, 2, 3). Display pos 4 is 'A'.
+        assert_eq!(state.display_col_to_char_idx(0, 0), 0);
+        assert_eq!(state.display_col_to_char_idx(0, 3), 0);
+        assert_eq!(state.display_col_to_char_idx(0, 4), 1); // 'A'
+        assert_eq!(state.display_col_to_char_idx(0, 5), 2); // Tab at index 2
+        // Next tab starts at display pos 5. 5 % 4 = 1. Width = 4 - 1 = 3.
+        // Positions 5, 6, 7 are the second tab.
+        assert_eq!(state.display_col_to_char_idx(0, 7), 2);
+        assert_eq!(state.display_col_to_char_idx(0, 8), 3); // 'B'
+
+        // Wide character
+        // "Wide: " is 6 chars. 🚀 is width 2.
+        assert_eq!(state.display_col_to_char_idx(1, 5), 5); // ':'
+        assert_eq!(state.display_col_to_char_idx(1, 6), 6); // '🚀' (first column)
+        assert_eq!(state.display_col_to_char_idx(1, 7), 6); // '🚀' (second column)
+        assert_eq!(state.display_col_to_char_idx(1, 8), 7); // End of line
+    }
+
+    #[test]
+    fn test_select_word_at_fallback() {
+        let mut state = FileViewerState::new(true, "catppuccin macchiato");
+        state.content = vec!["hello world_123 !!!".to_string()];
+        state.language = lumis::languages::Language::default(); // No syntax
+
+        // Select 'hello'
+        state.select_word_at(0, 0);
+        assert_eq!(state.selection, Some(((0, 0), (0, 5))));
+
+        // Select 'world_123'
+        state.select_word_at(0, 6);
+        assert_eq!(state.selection, Some(((0, 6), (0, 15))));
+
+        // Select '!!!' (non-word chunk)
+        state.select_word_at(0, 16);
+        assert_eq!(state.selection, Some(((0, 15), (0, 19))));
+    }
+
+    #[test]
+    fn test_select_word_at_quotes() {
+        let mut state = FileViewerState::new(true, "catppuccin macchiato");
+        state.content = vec!["\"\"\"triple\"\"\" '\"nested\"' `backtick`".to_string()];
+        state.language = lumis::languages::Language::default();
+
+        // Select triple
+        // """triple""" is at 0-12. triple is at 3-9.
+        state.select_word_at(0, 5);
+        assert_eq!(state.selection, Some(((0, 3), (0, 9))));
+
+        // Select nested
+        // '"nested"' is at 13-22 (with space at 12).
+        // ' (13), " (14), n (15) ... d (20), " (21), ' (22)
+        state.select_word_at(0, 17);
+        assert_eq!(state.selection, Some(((0, 15), (0, 21))));
+
+        // Select backtick
+        state.select_word_at(0, 28);
+        assert_eq!(state.selection, Some(((0, 25), (0, 33))));
+
+        // Single quote/double quote not matching -> select word only
+        state.content = vec!["\"no match'".to_string()];
+        state.select_word_at(0, 1);
+        assert_eq!(state.selection, Some(((0, 1), (0, 3))));
+    }
+
+    #[test]
+    fn test_select_word_at_syntax_quotes() {
+        let mut state = FileViewerState::new(true, "catppuccin macchiato");
+        state.path = std::path::PathBuf::from("test.json");
+        // Using from_str as it's safer for different lumis versions
+        state.language = lumis::languages::Language::from_str("json").unwrap_or_default();
+        state.content = vec!["{ \"key\": \"value\" }".to_string()];
+
+        // index 10 is 'v' in "value"
+        state.select_word_at(0, 10);
+        // "value" is at indices 9-16. Refinement should strip quotes to 10-15.
+        // NOTE: This test depends on lumis grouping "value" as a single segment.
+        // If it doesn't, fallback will take over, which should also work.
+        if let Some(((r, s), (re, e))) = state.selection {
+            assert_eq!(r, 0);
+            assert_eq!(re, 0);
+            assert_eq!(s, 10);
+            assert_eq!(e, 15);
+        } else {
+            panic!("Selection should not be None");
+        }
+    }
 }
