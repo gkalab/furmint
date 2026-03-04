@@ -202,7 +202,7 @@ async fn handle_global_interceptors(
 
     // Focused viewer events
     if app.file_viewer.focused {
-        handle_file_viewer_event(code, app);
+        handle_file_viewer_event(code, modifiers, app);
         return Some(false);
     }
 

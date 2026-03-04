@@ -19,6 +19,8 @@ pub struct FileViewerState {
     pub image_load_tx: Option<UnboundedSender<ImageLoadResult>>,
     pub is_loading: bool,
     pub current_load_id: usize,
+    pub area: ratatui::layout::Rect,
+    pub selection: Option<((usize, usize), (usize, usize))>,
 }
 
 pub struct ImageLoadResult {
@@ -68,6 +70,8 @@ impl FileViewerState {
             image_load_tx: None,
             is_loading: false,
             current_load_id: 0,
+            area: ratatui::layout::Rect::default(),
+            selection: None,
         }
     }
 
@@ -79,6 +83,7 @@ impl FileViewerState {
         self.scroll_offset = 0;
         self.horizontal_scroll_offset = 0;
         self.language = lumis::languages::Language::default();
+        self.selection = None;
     }
 
     pub fn init_picker(&mut self) {
@@ -303,6 +308,48 @@ impl FileViewerState {
             Err(e) => {
                 self.content = vec![format!("Error loading image: {e}")];
             }
+        }
+    }
+
+    #[must_use]
+    pub fn get_selected_text(&self) -> Option<String> {
+        let ((r1, c1), (r2, c2)) = self.selection?;
+        let (start_r, start_c, end_r, end_c) = if r1 < r2 || (r1 == r2 && c1 <= c2) {
+            (r1, c1, r2, c2)
+        } else {
+            (r2, c2, r1, c1)
+        };
+
+        let mut selected_lines = Vec::new();
+        for r in start_r..=end_r {
+            if let Some(line) = self.content.get(r) {
+                if start_r == end_r {
+                    // Selection is within a single line
+                    let s = line
+                        .chars()
+                        .skip(start_c)
+                        .take(end_c.saturating_sub(start_c))
+                        .collect::<String>();
+                    selected_lines.push(s);
+                } else if r == start_r {
+                    // First line of multi-line selection
+                    let s = line.chars().skip(start_c).collect::<String>();
+                    selected_lines.push(s);
+                } else if r == end_r {
+                    // Last line of multi-line selection
+                    let s = line.chars().take(end_c).collect::<String>();
+                    selected_lines.push(s);
+                } else {
+                    // Intermediate lines
+                    selected_lines.push(line.clone());
+                }
+            }
+        }
+
+        if selected_lines.is_empty() {
+            None
+        } else {
+            Some(selected_lines.join("\n"))
         }
     }
 }

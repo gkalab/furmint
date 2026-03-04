@@ -8,11 +8,14 @@ pub fn handle_mouse_event(app: &mut AppState, event: MouseEvent) {
         MouseEventKind::Down(MouseButton::Left) => {
             handle_left_click(app, event.column, event.row);
         }
+        MouseEventKind::Drag(MouseButton::Left) => {
+            handle_drag(app, event.column, event.row);
+        }
         MouseEventKind::ScrollUp => {
-            handle_scroll(app, true);
+            handle_scroll_event(app, (event.column, event.row), true);
         }
         MouseEventKind::ScrollDown => {
-            handle_scroll(app, false);
+            handle_scroll_event(app, (event.column, event.row), false);
         }
         _ => {}
     }
@@ -29,6 +32,25 @@ fn handle_left_click(app: &mut AppState, x: u16, y: u16) {
     app.last_click = Some((now, x, y));
 
     let click_pos = (x, y);
+
+    // Check file viewer
+    if app.file_viewer.is_visible && is_in_rect(click_pos, app.file_viewer.area) {
+        app.file_viewer.focused = true;
+        app.file_viewer.selection = None; // Reset selection on new click
+        let borders = app.global.borders.unwrap_or(false);
+        let border_offset = u16::from(borders);
+        let inner_y = y.saturating_sub(app.file_viewer.area.y + border_offset);
+        let inner_x = x.saturating_sub(app.file_viewer.area.x + border_offset);
+        let row = (inner_y as usize) + app.file_viewer.scroll_offset;
+        let col = (inner_x as usize) + app.file_viewer.horizontal_scroll_offset;
+        app.file_viewer.selection = Some(((row, col), (row, col)));
+        return;
+    }
+
+    // If we click outside the focused viewer, unfocus it
+    if app.file_viewer.focused && !is_in_rect(click_pos, app.file_viewer.area) {
+        app.file_viewer.focused = false;
+    }
 
     // Check tab bars
     if is_in_rect(click_pos, app.left_tab_bar_area) {
@@ -94,6 +116,52 @@ fn handle_panel_click(app: &mut AppState, side: PanelSide, y: u16, is_double_cli
         if is_double_click {
             crate::handlers::navigation::handle_enter(app);
         }
+    }
+}
+
+fn handle_drag(app: &mut AppState, x: u16, y: u16) {
+    if !app.file_viewer.is_visible || !app.file_viewer.focused {
+        return;
+    }
+
+    let borders = app.global.borders.unwrap_or(false);
+    let border_offset = u16::from(borders);
+
+    // Clamp coordinates to viewer area
+    let area = app.file_viewer.area;
+    let x = x.clamp(
+        area.left() + border_offset,
+        area.right().saturating_sub(border_offset + 1),
+    );
+    let y = y.clamp(
+        area.top() + border_offset,
+        area.bottom().saturating_sub(border_offset + 1),
+    );
+
+    let inner_y = y.saturating_sub(area.y + border_offset);
+    let inner_x = x.saturating_sub(area.x + border_offset);
+    let row = (inner_y as usize) + app.file_viewer.scroll_offset;
+    let col = (inner_x as usize) + app.file_viewer.horizontal_scroll_offset;
+
+    if let Some((start, _)) = app.file_viewer.selection {
+        app.file_viewer.selection = Some((start, (row, col)));
+    }
+}
+
+fn handle_scroll_event(app: &mut AppState, pos: (u16, u16), up: bool) {
+    if app.file_viewer.is_visible && is_in_rect(pos, app.file_viewer.area) {
+        handle_file_viewer_scroll(app, up);
+    } else {
+        handle_scroll(app, up);
+    }
+}
+
+fn handle_file_viewer_scroll(app: &mut AppState, up: bool) {
+    if up {
+        app.file_viewer.scroll_offset = app.file_viewer.scroll_offset.saturating_sub(3);
+    } else {
+        let max_scroll = app.file_viewer.content.len().saturating_sub(1);
+        app.file_viewer.scroll_offset = (app.file_viewer.scroll_offset + 3).min(max_scroll);
     }
 }
 

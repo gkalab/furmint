@@ -5,7 +5,7 @@ use lumis::highlight::Highlighter;
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-/// Parse a hex color string like "#rrggbb" into a ratatui Color::Rgb.
+/// Parse a hex color string like "#rrggbb" into a ratatui `Color::Rgb`.
 fn parse_hex_color(hex: &Option<String>) -> Option<Color> {
     let hex = hex.as_ref()?;
     let hex = hex.strip_prefix('#').unwrap_or(hex);
@@ -16,6 +16,15 @@ fn parse_hex_color(hex: &Option<String>) -> Option<Color> {
     let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
     let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
     Some(Color::Rgb(r, g, b))
+}
+
+fn normalize_selection(sel: ((usize, usize), (usize, usize))) -> ((usize, usize), (usize, usize)) {
+    let ((r1, c1), (r2, c2)) = sel;
+    if r1 < r2 || (r1 == r2 && c1 <= c2) {
+        sel
+    } else {
+        ((r2, c2), (r1, c1))
+    }
 }
 
 pub fn draw_file_viewer(
@@ -64,11 +73,28 @@ pub fn draw_file_viewer(
     let default_fg = viewer
         .theme
         .as_ref()
-        .and_then(|t| t.fg().map(|s| s.to_string()))
+        .and_then(|t| t.fg().map(std::string::ToString::to_string))
         .and_then(|s| parse_hex_color(&Some(s)));
 
+    let normalized_selection = viewer.selection.map(normalize_selection);
+
     let mut lines = Vec::new();
-    for line in &viewer.content[start_line..end_line] {
+    for (i, line) in viewer.content[start_line..end_line].iter().enumerate() {
+        let line_idx = start_line + i;
+        let selection_range = normalized_selection.and_then(|((r1, c1), (r2, c2))| {
+            if line_idx < r1 || line_idx > r2 {
+                None
+            } else if line_idx > r1 && line_idx < r2 {
+                Some((0, usize::MAX))
+            } else if r1 == r2 {
+                Some((c1, c2))
+            } else if line_idx == r1 {
+                Some((c1, usize::MAX))
+            } else {
+                Some((0, c2))
+            }
+        });
+
         let segments = highlighter.highlight(line).unwrap_or_default();
         let ranges: Vec<(&lumis::themes::Style, &str)> = segments
             .iter()
@@ -80,6 +106,12 @@ pub fn draw_file_viewer(
             viewer.horizontal_scroll_offset,
             inner_area.width as usize,
             default_fg,
+            selection_range,
+            Some(Color::Rgb(
+                palette.surface0.r,
+                palette.surface0.g,
+                palette.surface0.b,
+            )),
         );
 
         lines.push(Line::from(spans));
@@ -118,6 +150,8 @@ pub fn generate_line_spans(
     h_offset: usize,
     max_width: usize,
     default_fg: Option<Color>,
+    selection_range: Option<(usize, usize)>,
+    selection_bg: Option<Color>,
 ) -> Vec<Span<'static>> {
     let mut display_pos = 0; // Current display column position
     let mut visible_width = 0; // Display width used so far
@@ -147,7 +181,6 @@ pub fn generate_line_spans(
         if end_display_pos > h_offset {
             // This segment is at least partially visible
             // We need to handle this character by character for tabs
-            let mut result_text = String::new();
             let mut current_display_pos = display_pos;
 
             for ch in text.chars() {
@@ -163,39 +196,68 @@ pub fn generate_line_spans(
                 // Check if this character is visible
                 if ch_end_pos > h_offset && current_display_pos < h_offset + max_width {
                     // Character is at least partially visible
+                    let mut char_text = String::new();
+                    let mut char_visible_width = 0;
+
                     if current_display_pos >= h_offset {
                         // Fully visible - check if we have room
                         if visible_width + ch_width <= max_width {
-                            // If it's a tab, we should probably render spaces to be safe and consistent
-                            // especially since we're calculating width based on spaces
                             if ch == '\t' {
                                 for _ in 0..ch_width {
-                                    result_text.push(' ');
+                                    char_text.push(' ');
                                 }
                             } else {
-                                result_text.push(ch);
+                                char_text.push(ch);
                             }
-                            visible_width += ch_width;
+                            char_visible_width = ch_width;
                         } else {
                             // Would overflow - stop here
                             break;
                         }
                     } else {
                         // Partially visible (starts before h_offset)
-                        // For tabs, we need to show spaces for the visible portion
                         if ch == '\t' {
                             let visible_tab_width = ch_end_pos - h_offset;
                             if visible_width + visible_tab_width <= max_width {
-                                // Show spaces for the visible part of the tab
                                 for _ in 0..visible_tab_width {
-                                    result_text.push(' ');
+                                    char_text.push(' ');
                                 }
-                                visible_width += visible_tab_width;
+                                char_visible_width = visible_tab_width;
                             }
-                        } else {
-                            // Regular character partially scrolled off - skip it
-                            // (we can't show half a character)
                         }
+                    }
+
+                    if !char_text.is_empty() {
+                        let color = parse_hex_color(&style.fg).or(default_fg);
+                        let mut ratatui_style = if let Some(color) = color {
+                            ratatui::style::Style::default().fg(color)
+                        } else {
+                            ratatui::style::Style::default()
+                        };
+
+                        // Apply selection background
+                        if let Some((sel_start, sel_end)) = selection_range
+                            && current_display_pos < sel_end
+                            && ch_end_pos > sel_start
+                        {
+                            if let Some(bg) = selection_bg {
+                                ratatui_style = ratatui_style.bg(bg);
+                            } else {
+                                ratatui_style = ratatui_style.bg(Color::Rgb(60, 60, 60)); // Fallback
+                            }
+                        }
+
+                        // Try to merge with previous span if style is same
+                        if let Some(last_span) = spans.last_mut()
+                            && last_span.style == ratatui_style
+                        {
+                            let mut new_content = last_span.content.to_string();
+                            new_content.push_str(&char_text);
+                            last_span.content = new_content.into();
+                        } else {
+                            spans.push(Span::styled(char_text, ratatui_style));
+                        }
+                        visible_width += char_visible_width;
                     }
                 }
 
@@ -205,16 +267,6 @@ pub fn generate_line_spans(
                 if visible_width >= max_width {
                     break;
                 }
-            }
-
-            if !result_text.is_empty() {
-                let color = parse_hex_color(&style.fg).or(default_fg);
-                let ratatui_style = if let Some(color) = color {
-                    ratatui::style::Style::default().fg(color)
-                } else {
-                    ratatui::style::Style::default()
-                };
-                spans.push(Span::styled(result_text, ratatui_style));
             }
         }
 
@@ -261,7 +313,7 @@ mod tests {
             // Treat the whole line as one range for baseline testing
             let ranges = vec![(&dummy_style, input)];
 
-            let spans = generate_line_spans(ranges, h_offset, max_width, None);
+            let spans = generate_line_spans(ranges, h_offset, max_width, None, None, None);
 
             // Calculate total display width of the generated spans
             let mut total_width = 0;

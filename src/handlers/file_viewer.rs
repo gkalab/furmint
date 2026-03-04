@@ -1,9 +1,31 @@
 //! File viewer event handler
 
 use crate::app::AppState;
-use crossterm::event::KeyCode;
+use clipboard::ClipboardProvider;
+use crossterm::event::{KeyCode, KeyModifiers};
 
-pub fn handle_file_viewer_event(code: KeyCode, app: &mut AppState) {
+pub fn handle_file_viewer_event(code: KeyCode, modifiers: KeyModifiers, app: &mut AppState) {
+    if code == KeyCode::Char('c') && modifiers == KeyModifiers::CONTROL {
+        if let Some(text) = app.file_viewer.get_selected_text() {
+            let mut ctx = match clipboard::ClipboardContext::new() {
+                Ok(c) => c,
+                Err(e) => {
+                    app.active_tab_mut().error = Some(format!("Clipboard error: {e}"));
+                    return;
+                }
+            };
+            if let Err(e) = ctx.set_contents(text) {
+                app.active_tab_mut().error = Some(format!("Failed to set clipboard: {e}"));
+            } else {
+                app.active_tab_mut().clipboard_msg = Some((
+                    "Text copied to clipboard".to_string(),
+                    std::time::Instant::now(),
+                ));
+            }
+        }
+        return;
+    }
+
     match code {
         KeyCode::Tab => {
             app.file_viewer.focused = false;

@@ -65,6 +65,7 @@ fn draw_side(
     let is_viewer_visible = app.file_viewer.is_visible && app.active == opposite_side;
 
     if is_viewer_visible {
+        app.file_viewer.area = area;
         crate::ui::draw_file_viewer(
             f,
             &mut app.file_viewer,
