@@ -164,6 +164,24 @@ fn spawn_terminal_windows(
     wrap_shell: bool,
 ) -> anyhow::Result<()> {
     if !args.is_empty() {
+        // Detect if the target is a GUI application to avoid background terminals
+        let is_gui = if args[0].to_lowercase().ends_with(".exe") {
+            crate::fs::utils::is_gui_executable(std::path::Path::new(&args[0]))
+        } else {
+            false
+        };
+
+        if is_gui {
+            // GUI apps should always use 'start' to launch without a parent terminal window staying open
+            let mut cmd = Command::new("cmd");
+            cmd.arg("/C").arg("start").arg("");
+            for arg in &args {
+                cmd.arg(arg);
+            }
+            cmd.current_dir(dir).spawn()?;
+            return Ok(());
+        }
+
         if let Some(term) = configured_terminal {
             let mut cmd = Command::new(&term);
             cmd.current_dir(dir);

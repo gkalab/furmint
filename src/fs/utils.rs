@@ -240,6 +240,52 @@ pub fn format_modified(modified: Option<SystemTime>) -> String {
     }
 }
 
+/// Returns true if the file is a Windows GUI executable.
+/// Returns false for console apps, scripts, or errors.
+#[cfg(any(windows, test))]
+pub fn is_gui_executable(path: &std::path::Path) -> bool {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let mut file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return false,
+    };
+
+    let mut buffer = [0u8; 64];
+    if file.read_exact(&mut buffer).is_err() {
+        return false;
+    }
+
+    // MZ header
+    if &buffer[0..2] != b"MZ" {
+        return false;
+    }
+
+    // Offset to PE header at 0x3C
+    let pe_offset = u32::from_le_bytes([buffer[60], buffer[61], buffer[62], buffer[63]]) as u64;
+
+    if file.seek(SeekFrom::Start(pe_offset)).is_err() {
+        return false;
+    }
+
+    let mut pe_header = [0u8; 96]; // Signature (4) + File Header (20) + enough of Optional Header (72)
+    if file.read_exact(&mut pe_header).is_err() {
+        return false;
+    }
+
+    // PE signature
+    if &pe_header[0..4] != b"PE\0\0" {
+        return false;
+    }
+
+    // Subsystem is at offset 68 in Optional Header.
+    // Optional Header starts after File Header (20 bytes) and Signature (4 bytes).
+    // So Subsystem is at index 4 + 20 + 68 = 92.
+    let subsystem = u16::from_le_bytes([pe_header[92], pe_header[93]]);
+
+    subsystem == 2 // IMAGE_SUBSYSTEM_WINDOWS_GUI
+}
+
 // Helper to detect executables
 #[must_use]
 pub fn is_executable(_full_path: &std::path::Path, e: &FileEntry) -> bool {
@@ -550,5 +596,48 @@ mod tests {
         assert!(result_err.is_err());
 
         fs::remove_dir_all(&new_dir).ok();
+    }
+
+    #[test]
+    fn test_is_gui_executable_mock() {
+        use std::io::Write;
+        let temp_dir = std::env::temp_dir();
+        let gui_exe = temp_dir.join("test_gui.exe");
+        let cli_exe = temp_dir.join("test_cli.exe");
+        let invalid_exe = temp_dir.join("test_invalid.exe");
+
+        let create_pe = |path: &std::path::Path, subsystem: u16| {
+            let mut file = std::fs::File::create(path).unwrap();
+            let mut buf = vec![0u8; 1024];
+            buf[0..2].copy_from_slice(b"MZ");
+            // PE offset at 0x3C
+            let pe_offset: u32 = 0x80;
+            buf[60..64].copy_from_slice(&pe_offset.to_le_bytes());
+
+            let pe_start = pe_offset as usize;
+            buf[pe_start..pe_start + 4].copy_from_slice(b"PE\0\0");
+
+            // Subsystem at pe_start + 4 + 20 + 68 = pe_start + 92
+            let subsystem_offset = pe_start + 92;
+            buf[subsystem_offset..subsystem_offset + 2].copy_from_slice(&subsystem.to_le_bytes());
+
+            file.write_all(&buf).unwrap();
+        };
+
+        create_pe(&gui_exe, 2); // GUI
+        create_pe(&cli_exe, 3); // CUI/Console
+
+        {
+            let mut file = std::fs::File::create(&invalid_exe).unwrap();
+            file.write_all(b"not an exe").unwrap();
+        }
+
+        assert!(is_gui_executable(&gui_exe));
+        assert!(!is_gui_executable(&cli_exe));
+        assert!(!is_gui_executable(&invalid_exe));
+
+        let _ = std::fs::remove_file(gui_exe);
+        let _ = std::fs::remove_file(cli_exe);
+        let _ = std::fs::remove_file(invalid_exe);
     }
 }
