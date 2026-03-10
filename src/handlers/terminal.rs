@@ -164,14 +164,44 @@ fn spawn_terminal_windows(
     wrap_shell: bool,
 ) -> anyhow::Result<()> {
     if !args.is_empty() {
-        let mut cmd = Command::new("cmd");
-        if wrap_shell {
-            cmd.arg("/C").arg("start");
+        if let Some(term) = configured_terminal {
+            let mut cmd = Command::new(&term);
+            cmd.current_dir(dir);
+            let bin = term.to_lowercase();
+            if bin.contains("wt") || bin.contains("windows terminal") {
+                cmd.arg("-d").arg(".");
+                if wrap_shell {
+                    cmd.arg("cmd").arg("/K");
+                }
+            } else if bin.contains("alacritty") {
+                cmd.arg("--command");
+                if wrap_shell {
+                    cmd.arg("cmd").arg("/K");
+                }
+            } else if bin.contains("powershell") || bin.contains("pwsh") {
+                if wrap_shell {
+                    cmd.arg("-NoExit");
+                }
+                cmd.arg("-Command");
+            } else {
+                // Default fallback for unknown terminal: try to run the command directly
+            }
+            for arg in &args {
+                cmd.arg(arg);
+            }
+            cmd.spawn()?;
+        } else {
+            let mut cmd = Command::new("cmd");
+            // Use 'start' with an empty title to launch in a new window
+            cmd.arg("/C").arg("start").arg("");
+            if wrap_shell {
+                cmd.arg("cmd").arg("/K");
+            }
+            for arg in &args {
+                cmd.arg(arg);
+            }
+            cmd.current_dir(dir).spawn()?;
         }
-        for arg in &args {
-            cmd.arg(arg);
-        }
-        cmd.current_dir(dir).spawn()?;
     } else if let Some(term) = configured_terminal {
         Command::new("cmd")
             .arg("/C")
