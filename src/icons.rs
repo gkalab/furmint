@@ -24,10 +24,9 @@ pub fn get_icon(name: &str, is_dir: bool, is_executable: bool) -> &'static str {
         "readme" | "readme.md" | "readme.txt" => return "󰂺",
         "cargo.toml" | "cargo.lock" => return "",
         "package.json" | "package-lock.json" => return "",
-        "dockerfile" => return "󰡨",
+        "dockerfile" | ".dockerignore" => return "󰡨",
         "makefile" => return "",
         ".gitignore" | ".gitattributes" | ".gitmodules" => return "",
-        ".dockerignore" => return "󰡨",
         _ => {}
     }
 
@@ -74,8 +73,7 @@ pub fn get_icon(name: &str, is_dir: bool, is_executable: bool) -> &'static str {
             "ppt" | "pptx" => return "󰈧",
 
             // Images
-            "png" | "jpg" | "jpeg" | "gif" | "bmp" | "ico" | "svg" => return "",
-            "webp" => return "",
+            "png" | "jpg" | "jpeg" | "gif" | "bmp" | "ico" | "svg" | "webp" => return "",
 
             // Archives
             "zip" | "tar" | "gz" | "bz2" | "xz" | "7z" | "rar" => return "",
@@ -85,8 +83,7 @@ pub fn get_icon(name: &str, is_dir: bool, is_executable: bool) -> &'static str {
             "mp4" | "avi" | "mkv" | "mov" | "webm" => return "",
 
             // Other
-            "sql" => return "",
-            "db" | "sqlite" | "sqlite3" => return "",
+            "sql" | "db" | "sqlite" | "sqlite3" => return "",
             "log" => return "󰌱",
             "lock" => return "",
 

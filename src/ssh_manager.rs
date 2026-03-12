@@ -38,10 +38,9 @@ impl From<std::io::Error> for NetworkError {
             ConnectionRefused => NetworkError::ConnectionRefused,
             TimedOut => NetworkError::ConnectionTimedOut,
             NotConnected | AddrNotAvailable => NetworkError::InvalidAddress,
-            AddrInUse | BrokenPipe | ConnectionReset => NetworkError::Other(e.to_string()),
             NetworkUnreachable => NetworkError::NoRoute,
             HostUnreachable => NetworkError::HostUnreachable,
-            _ => NetworkError::Other(e.to_string()),
+            AddrInUse | BrokenPipe | ConnectionReset | _ => NetworkError::Other(e.to_string()),
         }
     }
 }

@@ -194,7 +194,7 @@ fn handle_ssh_text_input(app: &mut AppState, code: KeyCode, modifiers: KeyModifi
             &mut app.popups.ssh_connection.port,
             &mut app.popups.ssh_connection.cursor_position,
         ),
-        _ => unreachable!(),
+        SshField::History => unreachable!(),
     };
     crate::handlers::input_utils::handle_text_input(code, modifiers, text, cursor, is_numeric);
 }
@@ -242,9 +242,6 @@ pub fn handle_ssh_connection_event(app: &mut AppState, code: KeyCode, modifiers:
         KeyCode::Tab | KeyCode::BackTab => {
             handle_ssh_field_navigation(app, code);
         }
-        KeyCode::Up | KeyCode::Down | KeyCode::PageUp | KeyCode::PageDown => {
-            handle_ssh_history_navigation(app, code);
-        }
         KeyCode::Left
         | KeyCode::Right
         | KeyCode::Home
@@ -256,10 +253,12 @@ pub fn handle_ssh_connection_event(app: &mut AppState, code: KeyCode, modifiers:
         {
             handle_ssh_text_input(app, code, modifiers);
         }
-        KeyCode::Left | KeyCode::Right => {
-            // Ignore cursor keys in history field
-        }
-        KeyCode::Home | KeyCode::End => {
+        KeyCode::Up
+        | KeyCode::Down
+        | KeyCode::PageUp
+        | KeyCode::PageDown
+        | KeyCode::Home
+        | KeyCode::End => {
             handle_ssh_history_navigation(app, code);
         }
         KeyCode::Char(c) => {
@@ -371,6 +370,7 @@ pub fn parse_connection_string(s: &str) -> Option<ParsedSsh> {
 }
 
 fn start_ssh_auth(app: &mut AppState) {
+    use crate::ssh_history::SshConnectionInfo;
     let conn_str = app.popups.ssh_connection.connection_string.trim();
     if conn_str.is_empty() {
         app.popups.ssh_connection.error = Some("Connection string is required".to_string());
@@ -378,9 +378,7 @@ fn start_ssh_auth(app: &mut AppState) {
     }
 
     let port_str = app.popups.ssh_connection.port.trim();
-    let port = if let Ok(p) = port_str.parse::<u16>() {
-        p
-    } else {
+    let Ok(port) = port_str.parse::<u16>() else {
         app.popups.ssh_connection.error = Some("Invalid port number".to_string());
         return;
     };
@@ -389,7 +387,6 @@ fn start_ssh_auth(app: &mut AppState) {
         let name = app.popups.ssh_connection.name.trim();
         let name_opt = (!name.is_empty()).then(|| name.to_string());
 
-        use crate::ssh_history::SshConnectionInfo;
         app.ssh_history.add(SshConnectionInfo {
             name: name_opt.clone(),
             connection_string: conn_str.to_string(),
@@ -586,8 +583,6 @@ fn connect_ssh(
     let host_for_reg = host.clone();
     let user_for_reg = user.clone();
     let password_for_cache = password.clone();
-    let connection_name_clone = connection_name.clone();
-
     app.task_manager
         .spawn_task(name, move |cancel, tx, id| async move {
             let result = tokio::select! {
@@ -618,7 +613,7 @@ fn connect_ssh(
                     let _ = tx.send(TaskEvent::SshConnected(SshContext {
                         provider: Arc::new(fs),
                         path: target_path.map(std::path::PathBuf::from),
-                        name: connection_name_clone,
+                        name: connection_name,
                     }));
                 }
                 Err(e) => {
@@ -638,9 +633,12 @@ fn show_password_popup_for_reconnect(
     error: Option<String>,
 ) {
     app.popups.ssh_password.is_visible = true;
-    app.popups.ssh_password.session_id = session.session_id.clone();
-    app.popups.ssh_password.host = session.host.clone();
-    app.popups.ssh_password.user = session.user.clone();
+    app.popups
+        .ssh_password
+        .session_id
+        .clone_from(&session.session_id);
+    app.popups.ssh_password.host.clone_from(&session.host);
+    app.popups.ssh_password.user.clone_from(&session.user);
     app.popups.ssh_password.error = error;
     app.popups.ssh_password.password.clear();
     app.popups.ssh_password.cursor_position = 0;
