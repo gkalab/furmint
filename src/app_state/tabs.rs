@@ -130,11 +130,19 @@ pub struct Tab {
 
 impl Tab {
     /// Create a new local tab at the specified directory
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the directory cannot be read.
     pub fn new(path: &Path) -> anyhow::Result<Self> {
         Self::with_provider(path, Arc::new(LocalFs::new()))
     }
 
     /// Create a new tab with a custom filesystem provider
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the directory cannot be listed.
     pub fn with_provider(
         path: &Path,
         provider: Arc<dyn FileSystemProvider>,
@@ -159,6 +167,11 @@ impl Tab {
         Ok(tab)
     }
 
+    /// Creates a tab from a persistent representation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the directory cannot be read.
     pub fn from_persistent(p: PersistentTab) -> anyhow::Result<Self> {
         let path = crate::app::ensure_dir_exists(p.path);
         let mut tab = Tab::new(&path)?;
@@ -257,6 +270,11 @@ impl Tab {
         }
     }
 
+    /// Navigates to the specified path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the directory cannot be listed.
     pub fn navigate_to(&mut self, path: &Path) -> anyhow::Result<()> {
         let entries = self.provider.list_dir(path)?;
         self.save_cursor_to_history();
@@ -342,11 +360,21 @@ impl Tab {
         true
     }
 
+    /// Reloads the current directory contents.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the directory cannot be listed.
     pub fn reload(&mut self) -> anyhow::Result<bool> {
         let entries = self.provider.list_dir(&self.current_dir)?;
         Ok(self.reload_preserving_state(entries))
     }
 
+    /// Reloads the directory and focuses the entry with the given name.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the directory cannot be listed.
     pub fn reload_and_focus(&mut self, name: &str) -> anyhow::Result<()> {
         self.reload()?;
         if let Some(idx) = self.entries.iter().position(|e| e.name == name) {
@@ -355,6 +383,11 @@ impl Tab {
         Ok(())
     }
 
+    /// Navigates to the parent directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the parent directory cannot be listed.
     pub fn go_up(&mut self) -> anyhow::Result<()> {
         if let Some(parent) = self.current_dir.parent() {
             let parent_path = parent.to_path_buf();
@@ -379,6 +412,11 @@ impl Tab {
         Ok(())
     }
 
+    /// Navigates back in the directory history.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the previous directory cannot be listed.
     pub fn go_back(&mut self) -> anyhow::Result<()> {
         if self.history.can_go_back() {
             self.save_cursor_to_history();
@@ -396,6 +434,11 @@ impl Tab {
         Ok(())
     }
 
+    /// Navigates forward in the directory history.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the next directory cannot be listed.
     pub fn go_forward(&mut self) -> anyhow::Result<()> {
         if self.history.can_go_forward() {
             self.save_cursor_to_history();
@@ -691,6 +734,11 @@ pub struct TabManager {
 }
 
 impl TabManager {
+    /// Creates a new `TabManager` with a single tab at the given path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the initial directory cannot be read.
     pub fn new(initial_path: &Path) -> anyhow::Result<Self> {
         let tab = Tab::new(initial_path)?;
         Ok(Self {
@@ -699,6 +747,11 @@ impl TabManager {
         })
     }
 
+    /// Creates a `TabManager` from a persistent representation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no valid tabs can be restored.
     pub fn from_persistent(p: crate::app::PersistentPanel) -> anyhow::Result<Self> {
         let mut tabs = Vec::new();
         for pt in p.tabs {
@@ -784,6 +837,11 @@ impl TabManager {
         &mut self.tabs[self.active_tab_index]
     }
 
+    /// Creates a new tab at the specified path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the directory cannot be read.
     pub fn new_tab(&mut self, path: &Path, cursor: Option<usize>) -> anyhow::Result<()> {
         let mut tab = Tab::new(path)?;
         // Inherit sort settings from current active tab

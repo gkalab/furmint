@@ -176,6 +176,11 @@ impl SshManager {
         s
     }
 
+    /// Attempts to connect to a remote host using SSH key authentication.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the connection fails.
     pub async fn try_connect_with_keys(
         &self,
         host: String,
@@ -294,6 +299,11 @@ impl SshManager {
     }
 
     #[allow(dead_code)]
+    /// Enqueues an operation for a session.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation cannot be enqueued.
     pub fn enqueue_op(&self, session_id: &str, op: Operation) -> anyhow::Result<()> {
         let dir = self.session_dir(session_id);
         std::fs::create_dir_all(&dir)?;
@@ -312,6 +322,11 @@ impl SshManager {
         Ok(())
     }
 
+    /// Clears the operation queue for a session.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the queue cannot be cleared.
     pub fn clear_queue(&self, session_id: &str) -> anyhow::Result<()> {
         let file = self.session_dir(session_id).join("queue.json");
         if file.exists() {
@@ -320,6 +335,11 @@ impl SshManager {
         Ok(())
     }
 
+    /// Reads the operation queue for a session.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the queue cannot be read.
     pub fn read_queue(&self, session_id: &str) -> anyhow::Result<Vec<Operation>> {
         let file = self.session_dir(session_id).join("queue.json");
         if !file.exists() {
@@ -352,6 +372,11 @@ impl SshManager {
         Duration::from_secs_f64(secs)
     }
 
+    /// Replays the operation queue for a session.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if queue replay fails.
     pub async fn replay_queue<F, Fut>(
         &self,
         session_id: &str,
@@ -380,6 +405,11 @@ impl SshManager {
         format!("ssh_{host}_{port}_{now}")
     }
 
+    /// Connects to a remote host via SSH.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the connection fails.
     pub async fn connect_ssh(
         &self,
         host: String,
@@ -430,6 +460,11 @@ impl SshManager {
         .map_err(|e| SshError::Internal(format!("Connection failed: {e:?}")))?
     }
 
+    /// Registers a new SSH session.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the session mutex cannot be locked.
     pub fn register_session(
         &self,
         session_id: String,
@@ -451,12 +486,21 @@ impl SshManager {
         sessions.insert(session_id, state);
     }
 
+    /// Unregisters an SSH session.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the session mutex cannot be locked.
     pub fn unregister_session(&self, session_id: &str) {
         let mut sessions = self.sessions.write().unwrap();
         sessions.remove(session_id);
     }
 
-    #[allow(dead_code)]
+    /// Marks a session as disconnected.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the session mutex cannot be locked.
     pub fn mark_disconnected(&self, session_id: &str) {
         let mut sessions = self.sessions.write().unwrap();
         if let Some(state) = sessions.get_mut(session_id) {
@@ -464,12 +508,22 @@ impl SshManager {
         }
     }
 
+    /// Gets a session by ID.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the session mutex cannot be locked.
     #[must_use]
     pub fn get_session(&self, session_id: &str) -> Option<SessionState> {
         let sessions = self.sessions.read().unwrap();
         sessions.get(session_id).cloned()
     }
 
+    /// Gets all sessions.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the session mutex cannot be locked.
     #[must_use]
     pub fn get_all_sessions(&self) -> Vec<SessionState> {
         let sessions = self.sessions.read().unwrap();
@@ -490,11 +544,21 @@ impl SshManager {
         self.read_queue(session_id).map(|q| q.len()).unwrap_or(0)
     }
 
+    /// Caches a password for a session.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the password cache mutex cannot be locked.
     pub fn cache_password(&self, session_id: &str, password: String) {
         let mut cache = self.password_cache.write().unwrap();
         cache.insert(session_id.to_string(), password);
     }
 
+    /// Gets a cached password for a session.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the password cache mutex cannot be locked.
     #[allow(dead_code)]
     #[must_use]
     pub fn get_cached_password(&self, session_id: &str) -> Option<String> {
@@ -502,16 +566,31 @@ impl SshManager {
         cache.get(session_id).cloned()
     }
 
+    /// Clears a cached password for a session.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the password cache mutex cannot be locked.
     pub fn clear_password(&self, session_id: &str) {
         let mut cache = self.password_cache.write().unwrap();
         cache.remove(session_id);
     }
 
+    /// Clears all cached passwords.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the password cache mutex cannot be locked.
     pub fn clear_all_passwords(&self) {
         let mut cache = self.password_cache.write().unwrap();
         cache.clear();
     }
 
+    /// Reconnects a session with a new password.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if reconnection fails.
     pub async fn reconnect_session<F, Fut>(
         &self,
         session_id: &str,
@@ -553,6 +632,11 @@ impl SshManager {
         Ok((new_session_id, fs))
     }
 
+    /// Reconnects with exponential backoff.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if reconnection fails after all attempts.
     pub async fn reconnect_with_backoff(
         &self,
         host: String,
@@ -591,6 +675,11 @@ impl SshManager {
         }
     }
 
+    /// Spawns a blocking operation with a watchdog timeout.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operation times out or fails.
     pub async fn spawn_blocking_with_watchdog<T, F>(
         &self,
         f: F,

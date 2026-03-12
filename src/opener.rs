@@ -2,6 +2,11 @@ use anyhow::Result;
 use std::path::Path;
 
 pub trait FileOpener: Send + Sync {
+    /// Opens a file with the system default application.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be opened.
     fn open(&self, path: &Path) -> Result<()>;
 }
 

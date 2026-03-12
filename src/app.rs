@@ -152,6 +152,11 @@ pub struct AppConfigContext<'a> {
 }
 
 impl AppState {
+    /// Creates a new `AppState` instance.
+    ///
+    /// # Panics
+    ///
+    /// Panics if SSH history cannot be initialized.
     pub fn new(
         left: TabManager,
         right: TabManager,
@@ -198,6 +203,11 @@ impl AppState {
         }
     }
 
+    /// Saves the current application state to disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the state file cannot be written.
     pub fn save_state(&self) -> anyhow::Result<()> {
         let state = PersistentState {
             left: self.left.to_persistent(),
@@ -211,6 +221,11 @@ impl AppState {
         Ok(())
     }
 
+    /// Loads the persistent application state from disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the state file cannot be read or parsed.
     pub fn load_state() -> anyhow::Result<Option<PersistentState>> {
         let path = Self::get_state_file_path()?;
         if !path.exists() {
@@ -222,6 +237,11 @@ impl AppState {
         Ok(Some(state))
     }
 
+    /// Returns the path to the state file.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the data directory cannot be determined or created.
     fn get_state_file_path() -> anyhow::Result<PathBuf> {
         let proj_dirs = directories::ProjectDirs::from("org", "fm", "fm")
             .ok_or_else(|| anyhow::anyhow!("Could not determine data directory"))?;
@@ -341,6 +361,10 @@ impl AppState {
     }
 
     /// Checks if swapping active tabs is allowed (each panel must have at least one local tab)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if either panel has only one local tab and the other panel has no local tabs.
     pub fn can_swap_active_tabs(&self) -> Result<()> {
         let left_tab = self.left.active_tab();
         let right_tab = self.right.active_tab();

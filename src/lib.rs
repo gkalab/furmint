@@ -27,6 +27,11 @@ use ratatui::backend::CrosstermBackend;
 use std::env;
 use std::io::stdout;
 
+/// Runs the main application.
+///
+/// # Errors
+///
+/// Returns an error if the application fails to initialize or run.
 pub async fn run() -> Result<()> {
     enable_raw_mode()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(std::io::stdout()))?;

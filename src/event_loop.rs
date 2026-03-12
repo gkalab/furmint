@@ -35,6 +35,11 @@ pub fn spawn_input_polling(
     })
 }
 
+/// Runs the main event loop for the application.
+///
+/// # Errors
+///
+/// Returns an error if the event loop encounters an unrecoverable error.
 pub async fn run_event_loop(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
     app: &mut AppState,

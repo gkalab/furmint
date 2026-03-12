@@ -16,8 +16,23 @@ pub struct FileClipboardData {
 }
 
 pub trait FileClipboard: Send {
+    /// Sets the clipboard data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the clipboard cannot be updated.
     fn set(&mut self, data: FileClipboardData) -> anyhow::Result<()>;
+    /// Gets the clipboard data.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the clipboard cannot be read.
     fn get(&mut self) -> anyhow::Result<Option<FileClipboardData>>;
+    /// Clears the clipboard.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the clipboard cannot be cleared.
     fn clear(&mut self) -> anyhow::Result<()>;
 }
 

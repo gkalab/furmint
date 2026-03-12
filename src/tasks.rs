@@ -104,6 +104,11 @@ impl TaskManager {
         }
     }
 
+    /// Spawns a new task.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the tasks mutex cannot be locked.
     pub fn spawn_task<F, Fut>(&self, name: String, f: F) -> usize
     where
         F: FnOnce(Arc<AtomicBool>, mpsc::UnboundedSender<TaskEvent>, usize) -> Fut + Send + 'static,
@@ -137,6 +142,11 @@ impl TaskManager {
         id
     }
 
+    /// Cancels a task by ID.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the tasks mutex cannot be locked.
     pub fn cancel_task(&self, id: usize) {
         let tasks = self.tasks.lock().unwrap();
         if let Some(task) = tasks.get(&id) {
@@ -144,6 +154,11 @@ impl TaskManager {
         }
     }
 
+    /// Cancels all running tasks.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the tasks mutex cannot be locked.
     pub fn cancel_all_tasks(&self) {
         let tasks = self.tasks.lock().unwrap();
         for task in tasks.values() {
@@ -151,6 +166,11 @@ impl TaskManager {
         }
     }
 
+    /// Removes all finished tasks.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the tasks mutex cannot be locked.
     pub fn remove_finished_tasks(&self) {
         let mut tasks = self.tasks.lock().unwrap();
         tasks.retain(|_, task| matches!(task.status, TaskStatus::Running));
@@ -158,6 +178,7 @@ impl TaskManager {
         self.selected_index.store(0, Ordering::Relaxed);
     }
 
+    /// Moves the selection up.
     pub fn move_selection_up(&self) {
         let current = self.selected_index.load(Ordering::Relaxed);
         if current > 0 {
@@ -165,6 +186,11 @@ impl TaskManager {
         }
     }
 
+    /// Moves the selection down.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the tasks mutex cannot be locked.
     pub fn move_selection_down(&self) {
         let tasks = self.tasks.lock().unwrap();
         let len = tasks.len();
@@ -176,6 +202,11 @@ impl TaskManager {
         }
     }
 
+    /// Gets the selected task ID.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the tasks mutex cannot be locked.
     pub fn get_selected_task_id(&self) -> Option<usize> {
         let tasks = self.tasks.lock().unwrap();
         if tasks.is_empty() {
@@ -192,6 +223,11 @@ impl TaskManager {
         }
     }
 
+    /// Gets all tasks.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the tasks mutex cannot be locked.
     pub fn get_tasks(
         &self,
     ) -> Vec<(
@@ -224,6 +260,11 @@ impl TaskManager {
         result
     }
 
+    /// Checks if there are running tasks.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the tasks mutex cannot be locked.
     pub fn has_running_tasks(&self) -> bool {
         let tasks = self.tasks.lock().unwrap();
         tasks
@@ -231,6 +272,11 @@ impl TaskManager {
             .any(|t| matches!(t.status, TaskStatus::Running))
     }
 
+    /// Updates a task's status.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the tasks mutex cannot be locked.
     pub fn update_task_status(&self, id: usize, status: TaskStatus) {
         let mut tasks = self.tasks.lock().unwrap();
         if let Some(task) = tasks.get_mut(&id) {
@@ -246,6 +292,11 @@ impl TaskManager {
         }
     }
 
+    /// Cleans up old completed tasks.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the tasks mutex cannot be locked.
     pub fn cleanup_tasks(&self) {
         let mut tasks = self.tasks.lock().unwrap();
         let now = std::time::Instant::now();
@@ -267,6 +318,11 @@ impl TaskManager {
         }
     }
 
+    /// Updates a task's progress.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the tasks mutex cannot be locked.
     pub fn update_task_progress(&self, id: usize, processed: usize, total: usize) {
         let mut tasks = self.tasks.lock().unwrap();
         if let Some(task) = tasks.get_mut(&id) {
@@ -274,6 +330,11 @@ impl TaskManager {
         }
     }
 
+    /// Updates a task's byte progress.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the tasks mutex cannot be locked.
     pub fn update_task_byte_progress(&self, id: usize, processed: u64, total: u64) {
         let mut tasks = self.tasks.lock().unwrap();
         if let Some(task) = tasks.get_mut(&id) {
@@ -281,6 +342,11 @@ impl TaskManager {
         }
     }
 
+    /// Updates the current file being processed by a task.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the tasks mutex cannot be locked.
     pub fn update_task_current_file(&self, id: usize, filename: String) {
         let mut tasks = self.tasks.lock().unwrap();
         if let Some(task) = tasks.get_mut(&id) {
@@ -288,6 +354,11 @@ impl TaskManager {
         }
     }
 
+    /// Sets whether a task is in rsync mode.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the tasks mutex cannot be locked.
     pub fn update_task_rsync_mode(&self, id: usize, rsync: bool) {
         let mut tasks = self.tasks.lock().unwrap();
         if let Some(task) = tasks.get_mut(&id) {

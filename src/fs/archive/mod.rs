@@ -15,8 +15,23 @@ pub type ScanResult = (
 );
 
 pub trait ArchiveFormat: Send + Sync {
+    /// Scans the archive and returns its contents.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be read.
     fn scan(&self) -> Result<ScanResult>;
+    /// Reads a file from the archive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be read.
     fn read_file(&self, path: &str) -> Result<Vec<u8>>;
+    /// Extracts a file or directory from the archive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if extraction fails.
     fn extract(
         &self,
         src_str: &str,
@@ -26,6 +41,11 @@ pub trait ArchiveFormat: Send + Sync {
     ) -> Result<()>;
 }
 
+/// Returns an archive handler for the given path based on file extension.
+///
+/// # Errors
+///
+/// Returns an error if the archive format is not supported or cannot be opened.
 pub fn get_archive_handler(path: &Path) -> Result<Box<dyn ArchiveFormat>> {
     let ext = path
         .extension()

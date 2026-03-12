@@ -18,6 +18,11 @@ pub struct TarHandler {
 }
 
 impl TarHandler {
+    /// Creates a new `TarHandler`, decompressing the archive if needed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be decompressed.
     pub fn new(path: &Path) -> Result<Self> {
         let mut handler = Self {
             path: path.to_path_buf(),

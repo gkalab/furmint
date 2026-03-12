@@ -4,7 +4,11 @@ use std::fs::{self, Metadata};
 use std::path::Path;
 use std::time::SystemTime;
 
-// Cross-platform: empties user trash. Returns number of deleted items, or error.
+/// Empties the user trash. Returns the number of deleted items, or an error.
+///
+/// # Errors
+///
+/// Returns an error if the trash cannot be emptied.
 #[allow(clippy::unused_async)] // async kept for API consistency even if not currently awaiting
 pub async fn empty_trash() -> std::result::Result<usize, String> {
     #[cfg(target_os = "windows")]
@@ -96,6 +100,11 @@ pub struct FileEntry {
 }
 
 impl FileEntry {
+    /// Creates a `FileEntry` from a directory entry.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the entry cannot be read.
     pub fn try_from_dir_entry(entry: &std::fs::DirEntry) -> Result<Self> {
         let file_type = entry.file_type()?;
         let meta = entry.metadata()?;
@@ -170,6 +179,11 @@ pub fn get_attributes(_meta: &Metadata, is_dir: bool, _is_symlink: bool) -> Stri
     }
 }
 
+/// Lists directory contents including ".." for parent navigation.
+///
+/// # Errors
+///
+/// Returns an error if the directory cannot be read.
 pub fn list_dir(path: &Path) -> Result<Vec<FileEntry>> {
     let mut entries = vec![];
     // Always add .. for going up
@@ -197,6 +211,11 @@ pub fn list_dir(path: &Path) -> Result<Vec<FileEntry>> {
     Ok(entries)
 }
 
+/// Creates a directory at the given path.
+///
+/// # Errors
+///
+/// Returns an error if the directory already exists or cannot be created.
 pub fn create_directory(path: &std::path::Path) -> anyhow::Result<()> {
     if path.exists() {
         return Err(anyhow::anyhow!("Directory already exists"));

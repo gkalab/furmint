@@ -31,6 +31,11 @@ pub struct SshConnectionHistory {
     pub path: PathBuf,
 }
 impl SshConnectionHistory {
+    /// Creates a new SSH connection history.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the history cannot be loaded.
     pub fn new() -> anyhow::Result<Self> {
         let mut path = directories::ProjectDirs::from("", "", "fm").map_or_else(
             || PathBuf::from("."),
@@ -85,11 +90,21 @@ impl SshConnectionHistory {
             let _ = self.save();
         }
     }
+    /// Saves the SSH connection history to disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the history cannot be serialized or written.
     pub fn save(&self) -> anyhow::Result<()> {
         let content = serde_json::to_string_pretty(&self.connections)?;
         fs::write(&self.path, content)?;
         Ok(())
     }
+    /// Loads the SSH connection history from disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the history cannot be read or parsed.
     pub fn load(&mut self) -> anyhow::Result<()> {
         if self.path.exists() {
             let content = fs::read_to_string(&self.path)?;

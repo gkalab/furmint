@@ -151,6 +151,11 @@ impl RpmHandler {
         Ok(tags)
     }
 
+    /// Extracts metadata from the RPM package.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the RPM file cannot be read or parsed.
     pub fn get_metadata(&self) -> Result<String> {
         let mut rpm_file = File::open(&self.path)?;
 
@@ -303,7 +308,7 @@ impl ArchiveFormat for RpmHandler {
                 continue;
             }
 
-            let is_dir = entry_reader.entry().mode() & 0o040000 != 0;
+            let is_dir = entry_reader.entry().mode() & 0o040_000 != 0;
             let size = if is_dir {
                 None
             } else {
@@ -320,13 +325,13 @@ impl ArchiveFormat for RpmHandler {
                     .to_string_lossy()
                     .to_string(),
                 is_dir,
-                is_symlink: entry_reader.entry().mode() & 0o120000 == 0o120000,
+                is_symlink: entry_reader.entry().mode() & 0o120_000 == 0o120_000,
                 size,
                 modified: Some(modified),
                 attributes: crate::fs::utils::mode_to_attributes(
                     entry_reader.entry().mode(),
                     is_dir,
-                    entry_reader.entry().mode() & 0o120000 == 0o120000,
+                    entry_reader.entry().mode() & 0o120_000 == 0o120_000,
                 ),
                 selected: false,
             };
@@ -457,9 +462,9 @@ impl ArchiveFormat for RpmHandler {
                     dest.to_path_buf()
                 };
 
-                if entry_reader.entry().mode() & 0o040000 != 0 {
+                if entry_reader.entry().mode() & 0o040_000 != 0 {
                     std::fs::create_dir_all(&target)?;
-                } else if entry_reader.entry().mode() & 0o120000 == 0o120000 {
+                } else if entry_reader.entry().mode() & 0o120_000 == 0o120_000 {
                     let mut link_target = Vec::new();
                     entry_reader.read_to_end(&mut link_target)?;
                     #[cfg(unix)]

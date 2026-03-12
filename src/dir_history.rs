@@ -25,6 +25,10 @@ pub struct DirectoryHistory {
 
 impl DirectoryHistory {
     /// Create a new `DirectoryHistory` with the default cache file location
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the cache directory cannot be created or history cannot be loaded.
     pub fn new() -> Result<Self> {
         let cache_file = Self::get_cache_file_path()?;
         let mut history = Self {
@@ -36,6 +40,10 @@ impl DirectoryHistory {
     }
 
     /// Get the OS-specific cache file path
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the cache directory cannot be determined or created.
     fn get_cache_file_path() -> Result<PathBuf> {
         let proj_dirs = ProjectDirs::from("org", "fm", "fm")
             .ok_or_else(|| anyhow::anyhow!("Could not determine cache directory"))?;
@@ -45,6 +53,10 @@ impl DirectoryHistory {
     }
 
     /// Record a visit to a directory within a specific context
+    ///
+    /// # Panics
+    ///
+    /// Panics if the system time is before the Unix epoch.
     pub fn record_visit(&mut self, context: &str, path: &Path) {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -68,6 +80,10 @@ impl DirectoryHistory {
     }
 
     /// Get all directories sorted by score (frequency + recency) for a context
+    ///
+    /// # Panics
+    ///
+    /// Panics if the scores cannot be compared.
     #[must_use]
     pub fn get_sorted_dirs(&self, context: &str) -> Vec<PathBuf> {
         let Some(context_entries) = self.entries.get(context) else {
@@ -152,6 +168,10 @@ impl DirectoryHistory {
     }
 
     /// Load history from cache file
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the cache file cannot be read.
     pub fn load(&mut self) -> Result<()> {
         if !self.cache_file.exists() {
             return Ok(());
@@ -166,6 +186,10 @@ impl DirectoryHistory {
     }
 
     /// Save history to cache file
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the history cannot be serialized or written.
     pub fn save(&self) -> Result<()> {
         // Filter out archive:* contexts
         let filtered_entries: HashMap<_, _> = self

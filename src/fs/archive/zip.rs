@@ -17,6 +17,11 @@ pub struct ZipHandler {
 }
 
 impl ZipHandler {
+    /// Creates a new `ZipHandler`.
+    ///
+    /// # Errors
+    ///
+    /// Currently always returns Ok, but may return errors in the future.
     pub fn new(path: &Path) -> Result<Self> {
         Ok(Self {
             path: path.to_path_buf(),

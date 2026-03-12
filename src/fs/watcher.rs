@@ -12,9 +12,29 @@ pub enum WatcherEvent {
 }
 
 pub trait FileSystemWatcher {
+    /// Updates the list of paths to watch.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if watching fails.
     fn update_watched_paths(&mut self, paths: &[PathBuf]) -> anyhow::Result<()>;
+    /// Polls for file system events.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if polling fails.
     fn poll(&mut self) -> anyhow::Result<()>;
+    /// Starts watching a path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if watching fails.
     fn watch(&mut self, path: &Path) -> anyhow::Result<()>;
+    /// Stops watching a path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if unwatching fails.
     fn unwatch(&mut self, path: &Path) -> anyhow::Result<()>;
     fn watched_paths(&self) -> Vec<PathBuf>;
 }
@@ -25,6 +45,11 @@ pub struct AppWatcher {
 }
 
 impl AppWatcher {
+    /// Creates a new `AppWatcher`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file watcher cannot be initialized.
     pub fn new(tx: UnboundedSender<WatcherEvent>) -> anyhow::Result<Self> {
         // Create a debouncer that sends events to the channel
         // We need to clone tx because the closure can differ
@@ -59,6 +84,11 @@ impl AppWatcher {
         })
     }
 
+    /// Starts watching a path for changes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the path cannot be watched.
     pub fn watch(&mut self, path: &Path) -> anyhow::Result<()> {
         if !self.watched_paths.contains(&path.to_path_buf()) {
             // Watch non-recursive for current directory content
@@ -68,6 +98,11 @@ impl AppWatcher {
         Ok(())
     }
 
+    /// Stops watching a path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the path cannot be unwatched.
     pub fn unwatch(&mut self, path: &Path) -> anyhow::Result<()> {
         if let Some(pos) = self.watched_paths.iter().position(|p| p == path) {
             if let Err(e) = self.debouncer.unwatch(path) {
@@ -81,6 +116,11 @@ impl AppWatcher {
         Ok(())
     }
 
+    /// Updates the watched paths to match the desired paths.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the paths cannot be updated.
     pub fn update_watched_paths(&mut self, desired_paths: &[PathBuf]) -> anyhow::Result<()> {
         // Remove paths no longer needed
         let current_paths = self.watched_paths.clone();

@@ -50,6 +50,10 @@ pub fn should_use_rsync(
 /// Execute rsync for local → remote or remote → local file transfer
 /// Uses SSH agent or key-based authentication to avoid password prompts
 /// Returns Ok(()) if rsync succeeded, Err if it failed or is not applicable
+///
+/// # Errors
+///
+/// Returns an error if the rsync transfer fails.
 #[cfg(unix)]
 pub async fn rsync_transfer(
     src_fs: &dyn crate::fs::traits::FileSystem,

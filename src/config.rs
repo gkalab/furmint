@@ -181,6 +181,11 @@ pub fn merge_keyboard_config(
     }
 }
 
+/// Merges user config with default config, preferring user values when present.
+///
+/// # Errors
+///
+/// Returns an error if the theme validation fails.
 pub fn merge_global_config(
     user: Option<&GlobalConfig>,
     default: &GlobalConfig,
@@ -215,6 +220,11 @@ pub fn merge_global_config(
     })
 }
 
+/// Validates keyboard configuration for duplicate bindings.
+///
+/// # Errors
+///
+/// Returns an error if duplicate key bindings are found.
 pub fn validate_keyboard_config(config: &KeyboardConfig) -> Result<()> {
     use std::collections::HashMap;
     let mut keys_to_actions: HashMap<String, String> = HashMap::new();
@@ -358,6 +368,11 @@ pub fn parse_command(cmd: &str) -> (String, Vec<String>) {
     }
 }
 
+/// Validates editor configuration.
+///
+/// # Errors
+///
+/// Returns an error if the editor command is invalid.
 pub fn validate_editor_config(config: &EditorConfig) -> Result<()> {
     if let Some(cmd) = &config.command {
         if cmd.trim().is_empty() {
@@ -372,6 +387,11 @@ pub fn validate_editor_config(config: &EditorConfig) -> Result<()> {
     Ok(())
 }
 
+/// Validates viewer configuration.
+///
+/// # Errors
+///
+/// Returns an error if the viewer command is invalid.
 pub fn validate_viewer_config(config: &ViewerConfig) -> Result<()> {
     if let Some(cmd) = &config.command {
         if cmd.trim().is_empty() {
@@ -386,6 +406,11 @@ pub fn validate_viewer_config(config: &ViewerConfig) -> Result<()> {
     Ok(())
 }
 
+/// Validates SSH configuration.
+///
+/// # Errors
+///
+/// Returns an error if the SSH configuration is invalid.
 pub fn validate_ssh_config(config: &SshConfig) -> Result<()> {
     if let Some(keepalive) = config.keepalive_interval {
         if keepalive == 0 {
@@ -431,6 +456,11 @@ pub fn validate_ssh_config(config: &SshConfig) -> Result<()> {
     Ok(())
 }
 
+/// Validates global configuration.
+///
+/// # Errors
+///
+/// Returns an error if any configuration value is invalid.
 pub fn validate_global_config(config: &GlobalConfig) -> Result<()> {
     let check_cmd = |cmd: &Option<String>, name: &str| -> Result<()> {
         if let Some(c) = cmd {
@@ -452,6 +482,11 @@ pub fn validate_global_config(config: &GlobalConfig) -> Result<()> {
     Ok(())
 }
 
+/// Loads the application configuration.
+///
+/// # Errors
+///
+/// Returns an error if the configuration cannot be loaded or is invalid.
 pub fn load_config() -> Result<(
     KeyboardConfig,
     GlobalConfig,
@@ -509,6 +544,12 @@ pub fn load_config() -> Result<(
 pub fn config_path() -> Option<PathBuf> {
     ProjectDirs::from("org", "fm", "fm").map(|proj_dirs| proj_dirs.config_dir().join("config.toml"))
 }
+
+/// Creates a default configuration file.
+///
+/// # Errors
+///
+/// Returns an error if the config file already exists or cannot be created.
 pub fn create_default_config() -> Result<PathBuf> {
     let path = config_path().ok_or_else(|| anyhow!("Could not determine config directory"))?;
     if path.exists() {

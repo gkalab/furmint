@@ -240,6 +240,11 @@ fn spawn_terminal_windows(
     Ok(())
 }
 
+/// Spawns a terminal in the given directory.
+///
+/// # Errors
+///
+/// Returns an error if the terminal cannot be spawned.
 pub fn spawn_terminal(
     dir: &std::path::Path,
     configured_terminal: Option<String>,
@@ -268,6 +273,11 @@ pub fn handle_open_terminal(app: &mut AppState) {
     }
 }
 
+/// Toggles the console panel.
+///
+/// # Errors
+///
+/// Returns an error if the console cannot be toggled.
 pub async fn handle_toggle_console(
     app: &mut AppState,
     input_tx: &tokio::sync::mpsc::UnboundedSender<crossterm::event::Event>,

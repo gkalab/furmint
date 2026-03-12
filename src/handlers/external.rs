@@ -4,6 +4,11 @@ use crate::app::AppState;
 use crate::handlers::terminal::spawn_terminal;
 use std::process::Stdio;
 
+/// Launches an external program.
+///
+/// # Errors
+///
+/// Returns an error if the program cannot be launched.
 pub async fn launch_external_program(
     app: &mut AppState,
     cmd: &str,

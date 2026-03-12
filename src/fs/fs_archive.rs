@@ -26,6 +26,11 @@ pub struct ArchiveFs {
 }
 
 impl ArchiveFs {
+    /// Creates a new `ArchiveFs` for the given archive path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be opened or scanned.
     pub fn new(path: &Path) -> Result<Self> {
         let entries = Arc::new(Mutex::new(HashMap::new()));
         let tree = Arc::new(Mutex::new(HashMap::new()));
@@ -43,6 +48,11 @@ impl ArchiveFs {
     }
 
     #[must_use]
+    /// Gets an archive entry by path.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the entries mutex cannot be locked.
     pub fn get_entry(&self, path: &Path) -> Option<ArchiveEntry> {
         let entries = self.entries.lock().unwrap();
         entries.get(path).cloned()

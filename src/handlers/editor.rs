@@ -266,6 +266,11 @@ async fn upload_edited_file(
     Ok(())
 }
 
+/// Opens a file in the default editor.
+///
+/// # Errors
+///
+/// Returns an error if the editor cannot be launched.
 pub fn open_in_default_editor(file_path: &std::path::Path) -> anyhow::Result<()> {
     use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
     use std::process::Command;
@@ -309,6 +314,11 @@ fn get_default_editor() -> String {
     "notepad.exe".to_string()
 }
 
+/// Opens a file in the editor with environment handling.
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be opened.
 pub async fn open_file_in_editor_with_env_handling(
     app: &mut AppState,
     file_path: &std::path::Path,
