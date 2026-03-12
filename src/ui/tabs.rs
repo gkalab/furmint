@@ -1,6 +1,6 @@
 use crate::app::TabManager;
 use crate::theme::ThemePalette;
-use crate::ui::panel_bg_color;
+use crate::ui::ui_utils::panel_bg_color;
 use ratatui::prelude::*;
 
 /// Draw the tab bar for a panel

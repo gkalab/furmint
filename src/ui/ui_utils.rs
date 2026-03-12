@@ -130,6 +130,41 @@ pub fn is_root_user(tab: &Tab) -> bool {
         || (tab.provider.display_prefix().is_empty() && system_user == "root")
 }
 
+/// Calculate the background color for a panel based on active state and root status
+#[must_use]
+pub fn panel_bg_color(palette: &ThemePalette, active: bool, is_root: bool, borders: bool) -> Color {
+    let base_bg = if active || borders {
+        Color::Rgb(palette.base.r, palette.base.g, palette.base.b)
+    } else if palette.is_dark {
+        let r = ((u16::from(palette.base.r) * 3 + u16::from(palette.surface1.r)) / 4) as u8;
+        let g = ((u16::from(palette.base.g) * 3 + u16::from(palette.surface1.g)) / 4) as u8;
+        let b = ((u16::from(palette.base.b) * 3 + u16::from(palette.surface1.b)) / 4) as u8;
+        Color::Rgb(r, g, b)
+    } else {
+        let r = ((u16::from(palette.base.r) * 14 + u16::from(palette.surface1.r)) / 15) as u8;
+        let g = ((u16::from(palette.base.g) * 14 + u16::from(palette.surface1.g)) / 15) as u8;
+        let b = ((u16::from(palette.base.b) * 14 + u16::from(palette.surface1.b)) / 15) as u8;
+        Color::Rgb(r, g, b)
+    };
+
+    if is_root && !borders {
+        let (r0, g0, b0) = match base_bg {
+            Color::Rgb(r, g, b) => (u16::from(r), u16::from(g), u16::from(b)),
+            _ => (
+                u16::from(palette.base.r),
+                u16::from(palette.base.g),
+                u16::from(palette.base.b),
+            ),
+        };
+        let r = ((r0 * 9 + u16::from(palette.red.r)) / 10) as u8;
+        let g = ((g0 * 9 + u16::from(palette.red.g)) / 10) as u8;
+        let b = ((b0 * 9 + u16::from(palette.red.b)) / 10) as u8;
+        Color::Rgb(r, g, b)
+    } else {
+        base_bg
+    }
+}
+
 pub fn draw_scrollbar(
     f: &mut ratatui::Frame,
     area: ratatui::layout::Rect,
