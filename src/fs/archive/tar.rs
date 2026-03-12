@@ -1,10 +1,10 @@
 use super::ArchiveFormat;
-use crate::fs::fs_archive::ArchiveEntry;
+use super::common::{self, ArchiveEntryMetadata};
 use crate::fs::traits::TaskProgressContext;
-use crate::fs::utils::{FileEntry, mode_to_attributes};
+use crate::fs::utils::mode_to_attributes;
 use anyhow::{Context, Result};
 use filetime::{FileTime, set_file_mtime};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek};
 use std::path::{Path, PathBuf};
@@ -107,128 +107,59 @@ impl TarHandler {
         let reader = self.get_reader()?;
         let mut archive = tar::Archive::new(reader);
         let mut entries_map = HashMap::new();
-        let mut tree_map: HashMap<PathBuf, HashSet<PathBuf>> = HashMap::new();
+        let mut tree_map = HashMap::new();
 
-        for file in archive.entries()? {
-            Self::process_entry(file?, &mut entries_map, &mut tree_map)?;
+        for entry in archive.entries()? {
+            let entry = entry?;
+            let path_owned = entry.path()?.into_owned();
+            let path = common::normalize_path(&path_owned.to_string_lossy());
+
+            let is_dir = entry.header().entry_type().is_dir();
+            let size = entry.size();
+            let modified = SystemTime::UNIX_EPOCH
+                + std::time::Duration::from_secs(entry.header().mtime().unwrap_or(0));
+            let position = entry.raw_header_position();
+            let is_symlink = entry.header().entry_type().is_symlink();
+            let unix_mode = entry
+                .header()
+                .mode()
+                .unwrap_or(if is_dir { 0o755 } else { 0o644 });
+            let attributes = mode_to_attributes(unix_mode, is_dir, is_symlink);
+
+            common::add_to_tree(
+                path,
+                ArchiveEntryMetadata {
+                    is_dir,
+                    is_symlink,
+                    size: Some(size),
+                    modified: Some(modified),
+                    attributes,
+                    position: Some(position),
+                },
+                &mut entries_map,
+                &mut tree_map,
+            );
         }
 
-        let mut final_tree = HashMap::new();
-        for (k, v) in tree_map {
-            let mut children: Vec<PathBuf> = v.into_iter().collect();
-            children.sort();
-            final_tree.insert(k, children);
-        }
-
-        Ok((entries_map, final_tree))
-    }
-
-    fn process_entry<R: Read>(
-        file: tar::Entry<'_, R>,
-        entries_map: &mut HashMap<PathBuf, ArchiveEntry>,
-        tree_map: &mut HashMap<PathBuf, HashSet<PathBuf>>,
-    ) -> Result<()> {
-        let path_owned = file.path()?.into_owned();
-        let path_str = path_owned.to_string_lossy().replace('\\', "/");
-        let normalized_path_str = path_str.trim_end_matches('/');
-        let path = PathBuf::from(normalized_path_str);
-
-        let is_dir = file.header().entry_type().is_dir();
-        let size = file.size();
-        let modified = SystemTime::UNIX_EPOCH
-            + std::time::Duration::from_secs(file.header().mtime().unwrap_or(0));
-        let position = file.raw_header_position();
-        let is_symlink = file.header().entry_type().is_symlink();
-        let unix_mode = file
-            .header()
-            .mode()
-            .unwrap_or(if is_dir { 0o755 } else { 0o644 });
-        let attributes = mode_to_attributes(unix_mode, is_dir, is_symlink);
-
-        let entry = ArchiveEntry {
-            file_entry: FileEntry {
-                name: path
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_string(),
-                is_dir,
-                is_symlink,
-                size: Some(size),
-                modified: Some(modified),
-                attributes,
-                selected: false,
-            },
-            position: Some(position),
-        };
-
-        entries_map.insert(path.clone(), entry);
-
-        if let Some(parent) = path.parent() {
-            let parent = if parent == Path::new("") {
-                Path::new(".").to_path_buf()
-            } else {
-                parent.to_path_buf()
-            };
-            tree_map.entry(parent).or_default().insert(path.clone());
-
-            let mut curr = path.clone();
-            while let Some(p) = curr.parent() {
-                let p_norm = if p == Path::new("") {
-                    Path::new(".")
-                } else {
-                    p
-                };
-                if p_norm == Path::new(".") {
-                    break;
-                }
-                if !entries_map.contains_key(p_norm) {
-                    let implicit_entry = ArchiveEntry {
-                        file_entry: FileEntry {
-                            name: p_norm
-                                .file_name()
-                                .unwrap_or_default()
-                                .to_string_lossy()
-                                .to_string(),
-                            is_dir: true,
-                            is_symlink: false,
-                            size: None,
-                            modified: None,
-                            attributes: "dr-xr-xr-x".to_string(),
-                            selected: false,
-                        },
-                        position: None,
-                    };
-                    entries_map.insert(p_norm.to_path_buf(), implicit_entry);
-                    if let Some(pp) = p_norm.parent() {
-                        let pp_norm = if pp == Path::new("") {
-                            Path::new(".")
-                        } else {
-                            pp
-                        };
-                        tree_map
-                            .entry(pp_norm.to_path_buf())
-                            .or_default()
-                            .insert(p_norm.to_path_buf());
-                    }
-                }
-                curr = p_norm.to_path_buf();
-            }
-        } else {
-            tree_map
-                .entry(Path::new(".").to_path_buf())
-                .or_default()
-                .insert(path);
-        }
-        Ok(())
+        Ok((entries_map, common::finalize_tree(tree_map)))
     }
 }
 
 impl ArchiveFormat for TarHandler {
+    /// Scans the archive and returns its contents.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be read.
     fn scan(&self) -> Result<super::ScanResult> {
         self.do_scan()
     }
 
+    /// Reads a file from the archive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be read.
     fn read_file(&self, path_str: &str) -> Result<Vec<u8>> {
         let reader = self.get_reader()?;
         let mut archive = tar::Archive::new(reader);
@@ -236,7 +167,8 @@ impl ArchiveFormat for TarHandler {
             let mut entry = entry?;
             let name = entry.path()?.to_string_lossy().replace('\\', "/");
             if name == path_str || name.trim_end_matches('/') == path_str {
-                let mut buffer = Vec::with_capacity(entry.size() as usize);
+                let size = usize::try_from(entry.size()).context("Archive entry size too large")?;
+                let mut buffer = Vec::with_capacity(size);
                 entry.read_to_end(&mut buffer)?;
                 return Ok(buffer);
             }
@@ -244,6 +176,11 @@ impl ArchiveFormat for TarHandler {
         Err(anyhow::anyhow!("File not found in tar: {path_str}"))
     }
 
+    /// Extracts a file or directory from the archive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if extraction fails.
     fn extract(
         &self,
         src_str: &str,
@@ -258,10 +195,7 @@ impl ArchiveFormat for TarHandler {
         };
 
         // Try system tar first
-        if self
-            .system_tar_extract(effective_path, src_str, dest, is_dir, progress)
-            .is_ok()
-        {
+        if Self::system_tar_extract(effective_path, src_str, dest, is_dir, progress).is_ok() {
             return Ok(());
         }
 
@@ -348,10 +282,7 @@ impl ArchiveFormat for TarHandler {
             }
         }
 
-        dir_mtimes.sort_by(|a, b| b.0.as_os_str().len().cmp(&a.0.as_os_str().len()));
-        for (dir, mtime) in dir_mtimes {
-            let _ = set_file_mtime(&dir, FileTime::from_system_time(mtime));
-        }
+        common::preserve_mtimes(dir_mtimes);
 
         let p = progress.processed_items.load(Ordering::Relaxed);
         let _ = progress
@@ -364,7 +295,6 @@ impl ArchiveFormat for TarHandler {
 
 impl TarHandler {
     fn system_tar_extract(
-        &self,
         archive_path: &Path,
         src_str: &str,
         dest: &Path,

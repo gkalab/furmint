@@ -1,11 +1,11 @@
 use super::ArchiveFormat;
-use crate::fs::fs_archive::ArchiveEntry;
+use super::common::{self, ArchiveEntryMetadata};
 use crate::fs::traits::TaskProgressContext;
-use crate::fs::utils::{FileEntry, mode_to_attributes};
+use crate::fs::utils::mode_to_attributes;
 use anyhow::{Context, Result};
 use chrono::TimeZone;
 use filetime::{FileTime, set_file_mtime};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -22,10 +22,15 @@ impl ZipHandler {
     /// # Errors
     ///
     /// Currently always returns Ok, but may return errors in the future.
-    pub fn new(path: &Path) -> Result<Self> {
-        Ok(Self {
+    ///
+    /// # Panics
+    ///
+    /// This function never panics.
+    #[must_use]
+    pub fn new(path: &Path) -> Self {
+        Self {
             path: path.to_path_buf(),
-        })
+        }
     }
 
     fn zip_dt_to_system_time(dt: Option<zip::DateTime>) -> SystemTime {
@@ -54,133 +59,49 @@ impl ZipHandler {
         let mut archive = zip::ZipArchive::new(reader).context("Failed to read zip archive")?;
 
         let mut entries_map = HashMap::new();
-        let mut tree_map: HashMap<PathBuf, HashSet<PathBuf>> = HashMap::new();
+        let mut tree_map = HashMap::new();
 
         for i in 0..archive.len() {
-            Self::process_entry(&mut archive, i, &mut entries_map, &mut tree_map)?;
-        }
+            let file = archive.by_index(i)?;
+            let path = common::normalize_path(file.name());
 
-        let mut final_tree = HashMap::new();
-        for (k, v) in tree_map {
-            let mut children: Vec<PathBuf> = v.into_iter().collect();
-            children.sort();
-            final_tree.insert(k, children);
-        }
+            let is_dir = file.is_dir() || file.name().ends_with('/');
+            let size = file.size();
+            let modified = Self::zip_dt_to_system_time(file.last_modified());
 
-        Ok((entries_map, final_tree))
-    }
-
-    fn process_entry(
-        archive: &mut zip::ZipArchive<std::io::BufReader<File>>,
-        index: usize,
-        entries_map: &mut HashMap<PathBuf, ArchiveEntry>,
-        tree_map: &mut HashMap<PathBuf, HashSet<PathBuf>>,
-    ) -> Result<()> {
-        let file = archive.by_index(index)?;
-        let name = file.name().to_string();
-
-        let path_str = name.replace('\\', "/");
-        let normalized_path_str = path_str.trim_end_matches('/');
-        let path = PathBuf::from(normalized_path_str);
-
-        let is_dir = file.is_dir() || name.ends_with('/');
-        let size = file.size();
-        let modified = Self::zip_dt_to_system_time(file.last_modified());
-
-        let unix_mode = file.unix_mode();
-        let attributes = if let Some(mode) = unix_mode {
-            mode_to_attributes(mode, is_dir, false)
-        } else if is_dir {
-            "dr-xr-xr-x".to_string()
-        } else {
-            "-r--r--r--".to_string()
-        };
-
-        let entry = ArchiveEntry {
-            file_entry: FileEntry {
-                name: path
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_string(),
-                is_dir,
-                is_symlink: false,
-                size: Some(size),
-                modified: Some(modified),
-                attributes,
-                selected: false,
-            },
-            position: None,
-        };
-
-        entries_map.insert(path.clone(), entry);
-
-        if let Some(parent) = path.parent() {
-            let parent = if parent == Path::new("") {
-                Path::new(".").to_path_buf()
+            let unix_mode = file.unix_mode();
+            let attributes = if let Some(mode) = unix_mode {
+                mode_to_attributes(mode, is_dir, false)
+            } else if is_dir {
+                "dr-xr-xr-x".to_string()
             } else {
-                parent.to_path_buf()
+                "-r--r--r--".to_string()
             };
-            tree_map.entry(parent).or_default().insert(path.clone());
 
-            let mut curr = path.clone();
-            while let Some(p) = curr.parent() {
-                let p_norm = if p == Path::new("") {
-                    Path::new(".")
-                } else {
-                    p
-                };
-                if p_norm == Path::new(".") {
-                    break;
-                }
-
-                if !entries_map.contains_key(p_norm) {
-                    let implicit_entry = ArchiveEntry {
-                        file_entry: FileEntry {
-                            name: p_norm
-                                .file_name()
-                                .unwrap_or_default()
-                                .to_string_lossy()
-                                .to_string(),
-                            is_dir: true,
-                            is_symlink: false,
-                            size: None,
-                            modified: None,
-                            attributes: "dr-xr-xr-x".to_string(),
-                            selected: false,
-                        },
-                        position: None,
-                    };
-                    entries_map.insert(p_norm.to_path_buf(), implicit_entry);
-
-                    if let Some(pp) = p_norm.parent() {
-                        let pp_norm = if pp == Path::new("") {
-                            Path::new(".")
-                        } else {
-                            pp
-                        };
-                        tree_map
-                            .entry(pp_norm.to_path_buf())
-                            .or_default()
-                            .insert(p_norm.to_path_buf());
-                    }
-                }
-                curr = p_norm.to_path_buf();
-            }
-        } else {
-            tree_map
-                .entry(Path::new(".").to_path_buf())
-                .or_default()
-                .insert(path);
+            common::add_to_tree(
+                path,
+                ArchiveEntryMetadata {
+                    is_dir,
+                    is_symlink: false,
+                    size: Some(size),
+                    modified: Some(modified),
+                    attributes,
+                    position: None,
+                },
+                &mut entries_map,
+                &mut tree_map,
+            );
         }
-        Ok(())
+
+        Ok((entries_map, common::finalize_tree(tree_map)))
     }
 
     fn read_file(&self, path_str: &str) -> Result<Vec<u8>> {
         let file = File::open(&self.path).context("Failed to open archive")?;
         let mut archive = zip::ZipArchive::new(file).context("Failed to read zip")?;
         let mut zip_file = archive.by_name(path_str).context("File not found in zip")?;
-        let mut buffer = Vec::with_capacity(zip_file.size() as usize);
+        let size = usize::try_from(zip_file.size()).context("Zip file entry too large")?;
+        let mut buffer = Vec::with_capacity(size);
         zip_file.read_to_end(&mut buffer)?;
         Ok(buffer)
     }
@@ -287,10 +208,7 @@ impl ZipHandler {
             }
         }
 
-        dir_mtimes.sort_by(|a, b| b.0.as_os_str().len().cmp(&a.0.as_os_str().len()));
-        for (dir, mtime) in dir_mtimes {
-            let _ = set_file_mtime(&dir, FileTime::from_system_time(mtime));
-        }
+        common::preserve_mtimes(dir_mtimes);
 
         let p = progress.processed_items.load(Ordering::Relaxed);
         let _ = progress
@@ -302,14 +220,29 @@ impl ZipHandler {
 }
 
 impl ArchiveFormat for ZipHandler {
+    /// Scans the archive and returns its contents.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be read.
     fn scan(&self) -> Result<super::ScanResult> {
         self.do_scan()
     }
 
+    /// Reads a file from the archive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be read.
     fn read_file(&self, path_str: &str) -> Result<Vec<u8>> {
         self.read_file(path_str)
     }
 
+    /// Extracts a file or directory from the archive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if extraction fails.
     fn extract(
         &self,
         src_str: &str,
