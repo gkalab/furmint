@@ -6,7 +6,7 @@ use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
 
 /// Parse a hex color string like "#rrggbb" into a ratatui `Color::Rgb`.
-fn parse_hex_color(hex: &Option<String>) -> Option<Color> {
+fn parse_hex_color(hex: Option<&String>) -> Option<Color> {
     let hex = hex.as_ref()?;
     let hex = hex.strip_prefix('#').unwrap_or(hex);
     if hex.len() < 6 {
@@ -74,7 +74,7 @@ pub fn draw_file_viewer(
         .theme
         .as_ref()
         .and_then(|t| t.fg().map(std::string::ToString::to_string))
-        .and_then(|s| parse_hex_color(&Some(s)));
+        .and_then(|s| parse_hex_color(Some(&s)));
 
     let normalized_selection = viewer.selection.map(normalize_selection);
 
@@ -229,7 +229,7 @@ pub fn generate_line_spans(
                     }
 
                     if !char_text.is_empty() {
-                        let color = parse_hex_color(&style.fg).or(default_fg);
+                        let color = parse_hex_color(Option::from(&style.fg)).or(default_fg);
                         let mut ratatui_style = if let Some(color) = color {
                             ratatui::style::Style::default().fg(color)
                         } else {
