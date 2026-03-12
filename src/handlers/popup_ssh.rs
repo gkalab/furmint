@@ -532,7 +532,7 @@ fn reconnect_ssh(app: &mut AppState, session_id: String, password: String) {
         "Reconnecting SSH session".to_string(),
         move |cancel, tx, id| async move {
             let result = tokio::select! {
-                res = ssh_manager.reconnect_session(&session_id, password, |_op| async { Ok(()) }) => Some(res),
+                res = ssh_manager.reconnect_session(&session_id, password) => Some(res),
                 () = async {
                     while !cancel.load(std::sync::atomic::Ordering::Relaxed) {
                         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -675,9 +675,7 @@ pub fn handle_reconnect_ssh(app: &mut AppState) {
                 "Reconnecting SSH session".to_string(),
                 move |cancel, tx, id| async move {
                     let result = tokio::select! {
-                        res = ssh_manager.reconnect_session(&session_id, cached_password, |_op| async {
-                            Ok(())
-                        }) => Some(res),
+                        res = ssh_manager.reconnect_session(&session_id, cached_password) => Some(res),
                         () = async {
                             while !cancel.load(std::sync::atomic::Ordering::Relaxed) {
                                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;

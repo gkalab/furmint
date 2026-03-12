@@ -175,10 +175,9 @@ impl AppState {
             popups: crate::app::Popups::new(),
             task_manager: ctx.task_manager,
             // Wire up ssh manager with task event channel so it can emit SshConnected events
-            ssh_manager: std::sync::Arc::new(crate::ssh_manager::SshManager::new(
-                None,
-                Some(&ctx.ssh_cfg),
-            )),
+            ssh_manager: std::sync::Arc::new(crate::ssh_manager::SshManager::new(Some(
+                &ctx.ssh_cfg,
+            ))),
             task_decision_txs: std::collections::HashMap::new(),
             show_task_manager: false,
             dir_history: ctx.dir_history,

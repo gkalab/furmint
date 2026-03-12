@@ -78,7 +78,7 @@ fn test_multi_tab_search_timeout() {
         fuzzy_search: fm::ui::fuzzy_search_ui::FuzzySearchState::new(),
         popups: fm::app::Popups::new(),
         task_manager: fm::tasks::TaskManager::new(tx),
-        ssh_manager: Arc::new(fm::ssh_manager::SshManager::new(None, None)),
+        ssh_manager: Arc::new(fm::ssh_manager::SshManager::new(None)),
         task_decision_txs: std::collections::HashMap::new(),
         show_task_manager: false,
         dir_history: fm::dir_history::DirectoryHistory::new().unwrap(),
