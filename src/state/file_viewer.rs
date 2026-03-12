@@ -150,8 +150,8 @@ impl FileViewerState {
 
     pub fn load_image(
         &mut self,
-        path: PathBuf,
-        provider: std::sync::Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
+        path: &std::path::Path,
+        provider: &std::sync::Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
     ) {
         // Ensure channels and picker initialization are kicked off
         if self.resize_tx.is_none() {
@@ -162,8 +162,8 @@ impl FileViewerState {
             self.is_loading = true;
             self.current_load_id += 1;
             let load_id = self.current_load_id;
-            let path_clone = path.clone();
-            let provider_clone = provider.clone();
+            let path_clone = path.to_path_buf();
+            let provider_clone = std::sync::Arc::clone(provider);
             let image_tx_clone = image_tx.clone();
             let picker = self.picker.clone();
 
@@ -203,14 +203,14 @@ impl FileViewerState {
 
     pub fn load_content(
         &mut self,
-        path: PathBuf,
-        provider: std::sync::Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
+        path: &std::path::Path,
+        provider: &std::sync::Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
         size: Option<u64>,
         limit_bytes: u64,
     ) {
         self.reset();
-        self.path.clone_from(&path);
-        if provider.is_dir(&path) {
+        self.path.clone_from(&path.to_path_buf());
+        if provider.is_dir(path) {
             self.content = vec!["Directory".to_string()];
             return;
         }
@@ -220,7 +220,7 @@ impl FileViewerState {
             && ext.to_lowercase() == "rpm"
             && provider.is_local()
         {
-            let handler = crate::fs::archive::rpm::RpmHandler::new(&path);
+            let handler = crate::fs::archive::rpm::RpmHandler::new(path);
             match handler.get_metadata() {
                 Ok(meta) => {
                     self.content = meta.lines().map(String::from).collect();
@@ -237,15 +237,15 @@ impl FileViewerState {
             }
         }
 
-        if Self::is_image(&path) {
-            self.load_image(path.clone(), provider.clone());
+        if Self::is_image(path) {
+            self.load_image(path, provider);
             return;
         }
 
         self.language =
             lumis::languages::Language::from_str(&self.path.to_string_lossy()).unwrap_or_default();
 
-        let limit = limit_bytes as usize;
+        let limit = usize::try_from(limit_bytes).unwrap_or(usize::MAX);
         let limit_u64 = limit_bytes;
 
         if let Some(s) = size
@@ -357,9 +357,8 @@ impl FileViewerState {
     /// Handles tab expansion (4 spaces) and wide characters.
     #[must_use]
     pub fn display_col_to_char_idx(&self, row: usize, display_col: usize) -> usize {
-        let line = match self.content.get(row) {
-            Some(l) => l,
-            None => return display_col,
+        let Some(line) = self.content.get(row) else {
+            return display_col;
         };
 
         let mut current_display_pos = 0;
@@ -380,9 +379,7 @@ impl FileViewerState {
 
     /// Selects the word or syntax chunk at the given display coordinates.
     pub fn select_word_at(&mut self, row: usize, display_col: usize) {
-        let line = if let Some(l) = self.content.get(row) {
-            l
-        } else {
+        let Some(line) = self.content.get(row) else {
             self.selection = None;
             return;
         };

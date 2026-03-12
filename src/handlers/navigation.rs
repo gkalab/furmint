@@ -199,7 +199,7 @@ pub fn update_viewer_content(app: &mut AppState) {
     let size = entry.size;
     let max_file_size = 10 * 1024 * 1024;
     app.file_viewer
-        .load_content(full_path, provider, size, max_file_size);
+        .load_content(&full_path, &provider, size, max_file_size);
 }
 
 pub fn handle_enter_directory(app: &mut AppState) {
