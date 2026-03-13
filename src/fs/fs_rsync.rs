@@ -215,7 +215,12 @@ fn parse_rsync_progress(line: &str) -> Option<RsyncProgress> {
     let percent = percent_str.parse::<f64>().ok()?;
 
     if percent > 0.0 {
-        let total_bytes = (bytes_transferred as f64 / percent * 100.0) as u64;
+        #[allow(
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss,
+            clippy::cast_possible_truncation
+        )]
+        let total_bytes = (bytes_transferred as f64 / percent * 100.0).max(0.0) as u64;
         Some(RsyncProgress {
             bytes_transferred,
             total_bytes,

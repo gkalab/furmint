@@ -111,6 +111,7 @@ impl DirectoryHistory {
 
         // Age in days
         let age_seconds = now.saturating_sub(entry.last_visited);
+        #[allow(clippy::cast_precision_loss)]
         let age_days = age_seconds as f64 / 86400.0; // casting is safe: only affects score precision, not correctness
 
         // Decay factor: recent visits are worth more

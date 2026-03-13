@@ -224,6 +224,10 @@ pub fn create_directory(path: &std::path::Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+const G: f64 = 1_073_741_824.0;
+const M: f64 = 1_048_576.0;
+const K: f64 = 1_024.0;
+
 #[must_use]
 pub fn format_size(size: Option<u64>, is_dir: bool, is_symlink: bool) -> String {
     // Use up to 1 decimal precision, units G/M/K, no space, pad <DIR>/<LNK> to 7 chars
@@ -234,12 +238,13 @@ pub fn format_size(size: Option<u64>, is_dir: bool, is_symlink: bool) -> String 
             format!("{:>7}", "<DIR>")
         }
     } else if let Some(s) = size {
+        #[allow(clippy::cast_precision_loss)]
         if s >= 1_073_741_824 {
-            format!("{:>6.1}G", s as f64 / 1_073_741_824.0)
+            format!("{:>6.1}G", s as f64 / G)
         } else if s >= 1_048_576 {
-            format!("{:>6.1}M", s as f64 / 1_048_576.0)
+            format!("{:>6.1}M", s as f64 / M)
         } else if s >= 1_024 {
-            format!("{:>6.1}K", s as f64 / 1_024.0)
+            format!("{:>6.1}K", s as f64 / K)
         } else {
             format!("{s:>7}")
         }
