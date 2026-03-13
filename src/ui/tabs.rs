@@ -1,4 +1,4 @@
-use crate::app::TabManager;
+use crate::app::{Tab, TabManager};
 use crate::theme::ThemePalette;
 use crate::ui::ui_utils::panel_bg_color;
 use ratatui::prelude::*;
@@ -87,43 +87,15 @@ pub fn draw_tab_bar(
             }
         };
 
-        // Add tab with padding
-        if icons {
-            let left_edge = Span::styled("", Style::default().fg(bg).bg(bg_color));
-            spans.push(left_edge);
-        }
-        if icons && tab.is_archive() {
-            let archive_icon = Span::styled("", Style::default().fg(fg).bg(bg));
-            spans.push(archive_icon);
-        }
-        if icons && !tab.provider.is_local() && !tab.is_archive() {
-            let remote_icon = Span::styled("󰌘", Style::default().fg(fg).bg(bg));
-            spans.push(remote_icon);
-        }
-        let title_span = Span::styled(
-            format!(" {truncated_title} "),
-            Style::default().fg(fg).bg(bg),
+        let mut tab_width = add_tab_with_padding(
+            icons,
+            bg_color,
+            &mut spans,
+            tab,
+            truncated_title.as_str(),
+            fg,
+            bg,
         );
-        let title_span_width = u16::try_from(title_span.width()).unwrap_or(0);
-        spans.push(title_span);
-        if icons {
-            let right_edge = Span::styled("", Style::default().fg(bg).bg(bg_color));
-            spans.push(right_edge);
-        }
-
-        let mut tab_width = title_span_width; // already computed
-        if icons {
-            tab_width += 1; // left_edge
-        }
-        if icons && tab.is_archive() {
-            tab_width += 1; // archive_icon
-        }
-        if icons && !tab.provider.is_local() && !tab.is_archive() {
-            tab_width += 1; // remote_icon
-        }
-        if icons {
-            tab_width += 1; // right_edge
-        }
 
         tab_areas.push(Rect {
             x: current_x,
@@ -144,4 +116,52 @@ pub fn draw_tab_bar(
     let paragraph = ratatui::widgets::Paragraph::new(line).style(Style::default().bg(bg_color));
     f.render_widget(paragraph, area);
     tab_areas
+}
+
+fn add_tab_with_padding(
+    icons: bool,
+    bg_color: Color,
+    spans: &mut Vec<Span>,
+    tab: &Tab,
+    truncated_title: &str,
+    fg: Color,
+    bg: Color,
+) -> u16 {
+    if icons {
+        let left_edge = Span::styled("", Style::default().fg(bg).bg(bg_color));
+        spans.push(left_edge);
+    }
+    if icons && tab.is_archive() {
+        let archive_icon = Span::styled("", Style::default().fg(fg).bg(bg));
+        spans.push(archive_icon);
+    }
+    if icons && !tab.provider.is_local() && !tab.is_archive() {
+        let remote_icon = Span::styled("󰌘", Style::default().fg(fg).bg(bg));
+        spans.push(remote_icon);
+    }
+    let title_span = Span::styled(
+        format!(" {truncated_title} "),
+        Style::default().fg(fg).bg(bg),
+    );
+    let title_span_width = u16::try_from(title_span.width()).unwrap_or(0);
+    spans.push(title_span);
+    if icons {
+        let right_edge = Span::styled("", Style::default().fg(bg).bg(bg_color));
+        spans.push(right_edge);
+    }
+
+    let mut tab_width = title_span_width; // already computed
+    if icons {
+        tab_width += 1; // left_edge
+    }
+    if icons && tab.is_archive() {
+        tab_width += 1; // archive_icon
+    }
+    if icons && !tab.provider.is_local() && !tab.is_archive() {
+        tab_width += 1; // remote_icon
+    }
+    if icons {
+        tab_width += 1; // right_edge
+    }
+    tab_width
 }
