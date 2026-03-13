@@ -139,7 +139,7 @@ fn spawn_terminal_macos(
             );
             cmd.arg("bash").arg("-c").arg(shell_cmd);
         } else {
-            for arg in &args {
+            for arg in args {
                 cmd.arg(arg);
             }
         }
@@ -175,7 +175,7 @@ fn spawn_terminal_windows(
             // GUI apps should always use 'start' to launch without a parent terminal window staying open
             let mut cmd = Command::new("cmd");
             cmd.arg("/C").arg("start").arg("");
-            for arg in &args {
+            for arg in args {
                 cmd.arg(arg);
             }
             cmd.current_dir(dir).spawn()?;
@@ -204,7 +204,7 @@ fn spawn_terminal_windows(
             } else {
                 // Default fallback for unknown terminal: try to run the command directly
             }
-            for arg in &args {
+            for arg in args {
                 cmd.arg(arg);
             }
             cmd.spawn()?;
@@ -215,7 +215,7 @@ fn spawn_terminal_windows(
             if wrap_shell {
                 cmd.arg("cmd").arg("/K");
             }
-            for arg in &args {
+            for arg in args {
                 cmd.arg(arg);
             }
             cmd.current_dir(dir).spawn()?;

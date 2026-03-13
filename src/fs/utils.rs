@@ -174,6 +174,8 @@ pub fn get_attributes(meta: &Metadata, is_dir: bool, is_symlink: bool) -> String
     }
     #[cfg(not(unix))]
     {
+        let _ = meta;
+        let _ = is_symlink;
         let s = if is_dir { "<DIR>" } else { "<FILE>" };
         format!("{:<10}", s)
     }
@@ -344,6 +346,7 @@ pub fn is_executable(full_path: &std::path::Path, e: &FileEntry) -> bool {
     }
     #[cfg(windows)]
     {
+        let _ = full_path;
         let lower = e.name.to_lowercase();
         lower.ends_with(".exe") || lower.ends_with(".bat") || lower.ends_with(".cmd")
     }

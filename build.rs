@@ -23,9 +23,11 @@ fn main() {
         .status()
         .expect("Failed to run windres");
 
-    if !status.success() {
-        panic!("windres failed with exit code {:?}", status.code());
-    }
+    assert!(
+        status.success(),
+        "windres failed with exit code {:?}",
+        status.code()
+    );
 
     // Tell Cargo to link the .res file
     println!("cargo:rustc-link-arg-bins={}", res_path.to_str().unwrap());

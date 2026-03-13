@@ -321,7 +321,7 @@ pub mod win_clipboard {
                     if let Ok(h) = GetClipboardData(CF_HDROP) {
                         if !h.0.is_null() {
                             let hdrop = HDROP(h.0 as *mut _);
-                            let count = DragQueryFileW(hdrop, 0xFFFFFFFF, None);
+                            let count = DragQueryFileW(hdrop, 0xFFFF_FFFF, None);
 
                             for i in 0..count {
                                 let len = DragQueryFileW(hdrop, i, None);

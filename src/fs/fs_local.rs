@@ -135,6 +135,7 @@ impl FileSystemProvider for LocalFs {
         }
         #[cfg(not(unix))]
         {
+            let _ = path;
             // On non-Unix systems, permissions are not represented as Unix-style modes
             // Return None to indicate not supported
             None
@@ -157,6 +158,8 @@ impl FileSystemProvider for LocalFs {
         }
         #[cfg(not(unix))]
         {
+            let _ = path;
+            let _ = mode;
             false
         }
     }
