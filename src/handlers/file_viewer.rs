@@ -77,7 +77,7 @@ pub fn handle_file_viewer_event(code: KeyCode, modifiers: KeyModifiers, app: &mu
     }
 }
 
-pub async fn handle_external_viewer(app: &mut AppState) -> bool {
+pub fn handle_external_viewer(app: &mut AppState) -> bool {
     let viewer_cmd = app.viewer_cfg.command.clone();
 
     if let Some(cmd_str) = viewer_cmd {
@@ -90,12 +90,10 @@ pub async fn handle_external_viewer(app: &mut AppState) -> bool {
             if let Err(e) = crate::handlers::external::launch_external_program(
                 app,
                 &cmd_str,
-                file_path,
+                &file_path,
                 in_terminal,
                 "viewer",
-            )
-            .await
-            {
+            ) {
                 app.active_tab_mut().error = Some(e);
             }
         }

@@ -323,7 +323,7 @@ impl AppState {
     pub fn spawn_empty_trash_task(&mut self) {
         let name = "Emptying trash".to_string();
         self.task_manager
-            .spawn_task(name, |_cancel, tx, id| async move {
+            .spawn_task(&name, |_cancel, tx, id| async move {
                 let result = crate::fs::utils::empty_trash().await;
                 match result {
                     Ok(_num) => {

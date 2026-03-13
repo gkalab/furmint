@@ -3,6 +3,8 @@
 use crate::app::AppState;
 use crossterm::event::KeyCode;
 
+static LAST_REFRESH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 pub(crate) fn handle_quit_popup_event(code: KeyCode, app: &mut AppState) -> bool {
     match code {
         KeyCode::Char('y' | 'Y') | KeyCode::Enter => {
@@ -20,7 +22,7 @@ pub(crate) fn handle_quit_popup_event(code: KeyCode, app: &mut AppState) -> bool
 pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::AppState) {
     match event {
         crate::tasks::TaskEvent::UpdateStatus(id, status) => {
-            app.task_manager.update_task_status(id, status.clone());
+            app.task_manager.update_task_status(id, &status);
             if let crate::tasks::TaskStatus::Completed = status {
                 // If we have a watcher, it should handle local refreshes.
                 // We mainly need to ensure remote tabs are refreshed.
@@ -35,8 +37,7 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
             app.task_manager.update_task_progress(id, p, t);
             // Refresh remote UI periodically during progress updates to show new files
             // Local UI is handled by AppWatcher
-            static LAST_REFRESH: std::sync::atomic::AtomicU64 =
-                std::sync::atomic::AtomicU64::new(0);
+
             let now = u64::try_from(
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -136,12 +137,8 @@ fn handle_ssh_error(
             app.popups.ssh_password.password.clear();
             app.popups.ssh_password.cursor_position = 0;
         }
-        crate::ssh_manager::SshError::InvalidInput(msg) => {
-            app.popups.ssh_connection.is_visible = true;
-            app.popups.ssh_connection.error = Some(msg);
-            app.popups.ssh_connection.active_field = crate::state::ssh::SshField::ConnectionString;
-        }
-        crate::ssh_manager::SshError::Internal(msg) => {
+        crate::ssh_manager::SshError::InvalidInput(msg)
+        | crate::ssh_manager::SshError::Internal(msg) => {
             app.popups.ssh_connection.is_visible = true;
             app.popups.ssh_connection.error = Some(msg);
             app.popups.ssh_connection.active_field = crate::state::ssh::SshField::ConnectionString;

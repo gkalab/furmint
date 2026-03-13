@@ -450,7 +450,6 @@ async fn resolve_conflict(
             decision_state.overwrite_all = true;
             Ok(ConflictResult::Perform)
         }
-        Some(crate::tasks::TaskDecision::Skip) => Ok(ConflictResult::Skip),
         Some(crate::tasks::TaskDecision::SkipAll) => {
             decision_state.skip_all = true;
             Ok(ConflictResult::Skip)
@@ -472,6 +471,7 @@ async fn perform_sftp_copy(
     src: &std::path::Path,
     dest: &std::path::Path,
 ) -> Option<anyhow::Result<()>> {
+    const RSYNC_MIN_SIZE: u64 = 1024 * 1024; // 1 MB threshold
     let progress = crate::fs::traits::TaskProgressContext {
         id: ctx.id,
         tx: ctx.tx.clone(),
@@ -482,7 +482,6 @@ async fn perform_sftp_copy(
 
     // Try rsync first for local-remote copy operations, but only for larger files
     // Small files have more overhead with rsync than benefit
-    const RSYNC_MIN_SIZE: u64 = 1024 * 1024; // 1 MB threshold
 
     let file_size = ctx.src_fs.get_size(src).await.unwrap_or(0);
 
@@ -563,24 +562,10 @@ async fn perform_file_copy(
                     format!("Failed to copy to {}: {e}", dest.display()),
                 ));
                 let decision = ctx.decision_rx.lock().await.recv().await;
-                match decision {
-                    Some(crate::tasks::TaskDecision::Retry) => {}
-                    Some(crate::tasks::TaskDecision::Skip) => {
-                        perform = false;
-                        break;
-                    }
-                    Some(crate::tasks::TaskDecision::SkipAll) => {
-                        decision_state.skip_all = true;
-                        perform = false;
-                        break;
-                    }
-                    Some(crate::tasks::TaskDecision::Cancel) => {
-                        return Ok(false);
-                    }
-                    _ => {
-                        perform = false;
-                        break;
-                    }
+                if let Some(crate::tasks::TaskDecision::Retry) = decision {
+                } else {
+                    perform = false;
+                    break;
                 }
             }
         }

@@ -111,27 +111,28 @@ impl RpmHandler {
                 }
                 4 => {
                     // INT32
-                    if cnt == 1 {
-                        let i = i32::from_be_bytes(data[offset..offset + 4].try_into().unwrap());
-                        RpmValue::Int32(i)
-                    } else if cnt > 1 {
-                        let mut arr = Vec::new();
-                        for i in 0..cnt {
-                            let start = offset + (i as usize) * 4;
-                            arr.push(i32::from_be_bytes(
-                                data[start..start + 4].try_into().unwrap(),
-                            ));
+                    match cnt.cmp(&1) {
+                        std::cmp::Ordering::Equal => {
+                            let i =
+                                i32::from_be_bytes(data[offset..offset + 4].try_into().unwrap());
+                            RpmValue::Int32(i)
                         }
-                        // For now we just take the first one or join them if needed
-                        // But let's return it as string representation for simplicity in FileViewer
-                        RpmValue::String(
-                            arr.iter()
-                                .map(std::string::ToString::to_string)
-                                .collect::<Vec<_>>()
-                                .join(", "),
-                        )
-                    } else {
-                        RpmValue::Int32(0)
+                        std::cmp::Ordering::Greater => {
+                            let mut arr = Vec::new();
+                            for i in 0..cnt {
+                                let start = offset + (i as usize) * 4;
+                                arr.push(i32::from_be_bytes(
+                                    data[start..start + 4].try_into().unwrap(),
+                                ));
+                            }
+                            RpmValue::String(
+                                arr.iter()
+                                    .map(std::string::ToString::to_string)
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                            )
+                        }
+                        std::cmp::Ordering::Less => RpmValue::Int32(0),
                     }
                 }
                 8 => {
@@ -207,11 +208,13 @@ impl RpmHandler {
         for (tag, label) in common_tags {
             if tag == -1 {
                 // Special case for Signed
-                result.push_str(&format!(
-                    "{:<15}: {}\n",
+                use std::fmt::Write;
+                let _ = writeln!(
+                    result,
+                    "{:<15}: {}",
                     label,
                     if is_signed { "yes" } else { "no" }
-                ));
+                );
                 continue;
             }
 
@@ -222,19 +225,23 @@ impl RpmHandler {
                         use chrono::TimeZone;
                         let dt = chrono::Local.timestamp_opt(i64::from(*t), 0).single();
                         if let Some(d) = dt {
-                            result.push_str(&format!(
-                                "{:<15}: {}\n",
+                            use std::fmt::Write;
+                            let _ = writeln!(
+                                result,
+                                "{:<15}: {}",
                                 label,
                                 d.format("%Y-%m-%d %H:%M:%S")
-                            ));
+                            );
                             continue;
                         }
                     }
                 } else if tag == 1009 {
                     // Size - format human readable
                     if let RpmValue::Int32(s) = val {
-                        result.push_str(&format!(
-                            "{:<15}: {}\n",
+                        use std::fmt::Write;
+                        let _ = writeln!(
+                            result,
+                            "{:<15}: {}",
                             label,
                             crate::fs::utils::format_size(
                                 Some(u64::from(u32::try_from(*s).unwrap_or(0))),
@@ -242,11 +249,14 @@ impl RpmHandler {
                                 false
                             )
                             .trim_start()
-                        ));
+                        );
                         continue;
                     }
                 }
-                result.push_str(&format!("{:<15}: {}\n", label, val.as_string()));
+                let _ = {
+                    use std::fmt::Write;
+                    writeln!(result, "{:<15}: {}", label, val.as_string())
+                };
             }
         }
 

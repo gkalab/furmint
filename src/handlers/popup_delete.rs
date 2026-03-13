@@ -55,7 +55,7 @@ pub fn handle_confirm_delete(app: &mut AppState) {
     };
 
     app.task_manager
-        .spawn_task(name, move |cancel, tx, id| async move {
+        .spawn_task(&name, move |cancel, tx, id| async move {
             let total = paths.len();
             let mut success = 0;
             let mut failures = Vec::new();

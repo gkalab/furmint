@@ -64,7 +64,10 @@ pub fn get_archive_handler(path: &Path) -> Result<Box<dyn ArchiveFormat>> {
         Ok(Box::new(zip::ZipHandler::new(path)))
     } else if ext == "tar"
         || (ext == "gz"
-            && (stem.ends_with(".tar") || stem.ends_with(".tgz") || stem == "tar" || stem == "tgz"))
+            && (std::path::Path::new(&stem).extension().is_some_and(|ext| {
+                ext.eq_ignore_ascii_case("tar") || ext.eq_ignore_ascii_case("tgz")
+            }) || stem == "tar"
+                || stem == "tgz"))
         || ext == "tgz"
         || ext == "bz2"
         || ext == "tbz2"

@@ -10,7 +10,7 @@ use std::process::Command;
 fn spawn_terminal_linux(
     dir: &std::path::Path,
     configured_terminal: Option<String>,
-    args: Vec<String>,
+    args: &[String],
     wrap_shell: bool,
 ) -> anyhow::Result<()> {
     let shell_trap = |cmdline: String| {
@@ -71,7 +71,7 @@ fn spawn_terminal_linux(
                     .join(" ")
             };
             if wrap_shell {
-                let cmdline = join_args(&args);
+                let cmdline = join_args(args);
                 let shell_cmd = shell_trap(cmdline);
                 if terminal == "alacritty" {
                     cmd.arg("--command").arg("bash").arg("-c").arg(shell_cmd);
@@ -88,7 +88,7 @@ fn spawn_terminal_linux(
                     cmd.arg("-e").arg("bash").arg("-c").arg(shell_cmd);
                 }
             } else {
-                let joined = args.clone();
+                let joined = args.to_owned();
                 if !opt_args.is_empty() {
                     cmd.args(opt_args.clone());
                 }
@@ -121,7 +121,7 @@ fn spawn_terminal_linux(
 fn spawn_terminal_macos(
     dir: &std::path::Path,
     configured_terminal: Option<String>,
-    args: Vec<String>,
+    args: &[String],
     wrap_shell: bool,
 ) -> anyhow::Result<()> {
     if !args.is_empty() {
@@ -160,7 +160,7 @@ fn spawn_terminal_macos(
 fn spawn_terminal_windows(
     dir: &std::path::Path,
     configured_terminal: Option<String>,
-    args: Vec<String>,
+    args: &[String],
     wrap_shell: bool,
 ) -> anyhow::Result<()> {
     if !args.is_empty() {
@@ -248,7 +248,7 @@ fn spawn_terminal_windows(
 pub fn spawn_terminal(
     dir: &std::path::Path,
     configured_terminal: Option<String>,
-    args: Vec<String>,
+    args: &[String],
     wrap_shell: bool,
 ) -> anyhow::Result<()> {
     #[cfg(target_os = "linux")]
@@ -268,7 +268,7 @@ pub fn handle_open_terminal(app: &mut AppState) {
     let current_dir = app.active_tab().current_dir.clone();
     let configured_terminal = app.global.terminal.clone();
 
-    if let Err(e) = spawn_terminal(&current_dir, configured_terminal, Vec::new(), false) {
+    if let Err(e) = spawn_terminal(&current_dir, configured_terminal, &[], false) {
         app.active_tab_mut().error = Some(format!("Error opening terminal: {e}"));
     }
 }

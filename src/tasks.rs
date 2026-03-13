@@ -64,6 +64,7 @@ impl std::fmt::Debug for SshContext {
         f.debug_struct("SshContext")
             .field("path", &self.path)
             .field("name", &self.name)
+            .field("provider", &"FileSystemProvider")
             .finish()
     }
 }
@@ -109,7 +110,7 @@ impl TaskManager {
     /// # Panics
     ///
     /// Panics if the tasks mutex cannot be locked.
-    pub fn spawn_task<F, Fut>(&self, name: String, f: F) -> usize
+    pub fn spawn_task<F, Fut>(&self, name: &str, f: F) -> usize
     where
         F: FnOnce(Arc<AtomicBool>, mpsc::UnboundedSender<TaskEvent>, usize) -> Fut + Send + 'static,
         Fut: std::future::Future<Output = ()> + Send + 'static,
@@ -118,7 +119,7 @@ impl TaskManager {
         let cancel_flag = Arc::new(AtomicBool::new(false));
 
         let task = Task {
-            name: name.clone(),
+            name: name.to_string(),
             status: TaskStatus::Running,
             progress: None,
             byte_progress: None,
@@ -277,7 +278,7 @@ impl TaskManager {
     /// # Panics
     ///
     /// Panics if the tasks mutex cannot be locked.
-    pub fn update_task_status(&self, id: usize, status: TaskStatus) {
+    pub fn update_task_status(&self, id: usize, status: &TaskStatus) {
         let mut tasks = self.tasks.lock().unwrap();
         if let Some(task) = tasks.get_mut(&id) {
             task.status = status.clone();
@@ -377,14 +378,14 @@ mod tests {
         let (tx, _rx) = mpsc::unbounded_channel();
         let manager = TaskManager::new(tx);
 
-        let id = manager.spawn_task("test".to_string(), |_cancel, _tx, _id| async move {});
+        let id = manager.spawn_task("test", |_cancel, _tx, _id| async move {});
 
         // Task should be running
         assert_eq!(manager.get_tasks().len(), 1);
         assert_eq!(manager.get_tasks()[0].2, TaskStatus::Running);
 
         // Mark as completed
-        manager.update_task_status(id, TaskStatus::Completed);
+        manager.update_task_status(id, &TaskStatus::Completed);
 
         // Should NOT be removed immediately
         assert_eq!(manager.get_tasks().len(), 1);
@@ -405,9 +406,9 @@ mod tests {
         let (tx, _rx) = mpsc::unbounded_channel();
         let tm = TaskManager::new(tx);
 
-        let id1 = tm.spawn_task("task 1".to_string(), |_cancel, _tx, _id| async move {});
-        let id2 = tm.spawn_task("task 2".to_string(), |_cancel, _tx, _id| async move {});
-        let id3 = tm.spawn_task("task 3".to_string(), |_cancel, _tx, _id| async move {});
+        let id1 = tm.spawn_task("task 1", |_cancel, _tx, _id| async move {});
+        let id2 = tm.spawn_task("task 2", |_cancel, _tx, _id| async move {});
+        let id3 = tm.spawn_task("task 3", |_cancel, _tx, _id| async move {});
 
         let tasks = tm.get_tasks();
         assert_eq!(tasks.len(), 3);
@@ -427,8 +428,8 @@ mod tests {
     async fn test_task_selection_navigation() {
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         let tm = TaskManager::new(tx);
-        tm.spawn_task("task1".to_string(), |_c, _tx, _id| async {});
-        tm.spawn_task("task2".to_string(), |_c, _tx, _id| async {});
+        tm.spawn_task("task1", |_c, _tx, _id| async {});
+        tm.spawn_task("task2", |_c, _tx, _id| async {});
 
         assert_eq!(tm.selected_index.load(Ordering::Relaxed), 0);
         tm.move_selection_down();
@@ -445,9 +446,9 @@ mod tests {
     async fn test_task_status_updates() {
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         let tm = TaskManager::new(tx);
-        let id = tm.spawn_task("task1".to_string(), |_c, _tx, _id| async {});
+        let id = tm.spawn_task("task1", |_c, _tx, _id| async {});
 
-        tm.update_task_status(id, TaskStatus::Completed);
+        tm.update_task_status(id, &TaskStatus::Completed);
         let tasks = tm.get_tasks();
         assert!(matches!(tasks[0].2, TaskStatus::Completed));
         assert!(tasks[0].7.is_some()); // completed_at should be set
@@ -461,7 +462,7 @@ mod tests {
     async fn test_cancel_task() {
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         let tm = TaskManager::new(tx);
-        let id = tm.spawn_task("task1".to_string(), |cancel, _tx, _id| async move {
+        let id = tm.spawn_task("task1", |cancel, _tx, _id| async move {
             while !cancel.load(Ordering::Relaxed) {
                 tokio::task::yield_now().await;
             }

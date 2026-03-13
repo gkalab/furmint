@@ -125,11 +125,11 @@ impl FileSystemProvider for LocalFs {
         Ok(fs::canonicalize(path)?)
     }
 
-    fn get_permissions(&self, _path: &Path) -> Option<u32> {
+    fn get_permissions(&self, path: &Path) -> Option<u32> {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            fs::metadata(_path)
+            fs::metadata(path)
                 .ok()
                 .map(|m| m.permissions().mode() & 0o777)
         }
@@ -141,16 +141,16 @@ impl FileSystemProvider for LocalFs {
         }
     }
 
-    fn set_permissions(&self, _path: &Path, _mode: u32) -> bool {
+    fn set_permissions(&self, path: &Path, mode: u32) -> bool {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            if let Ok(metadata) = fs::metadata(_path) {
+            if let Ok(metadata) = fs::metadata(path) {
                 let current_mode = metadata.permissions().mode();
-                let new_mode = (current_mode & !0o777) | (_mode & 0o777);
+                let new_mode = (current_mode & !0o777) | (mode & 0o777);
                 let mut perms = metadata.permissions();
                 perms.set_mode(new_mode);
-                fs::set_permissions(_path, perms).is_ok()
+                fs::set_permissions(path, perms).is_ok()
             } else {
                 false
             }
@@ -230,9 +230,7 @@ impl FileSystemProvider for LocalFs {
 
         // Spawn blocking task for directory traversal
         let total_size = task::spawn_blocking(move || {
-            let total = Arc::new(AtomicU64::new(0));
-
-            fn walk_dir(dir: &Path, total: Arc<AtomicU64>) -> anyhow::Result<()> {
+            fn walk_dir(dir: &Path, total: &Arc<AtomicU64>) -> anyhow::Result<()> {
                 for entry in std::fs::read_dir(dir)? {
                     let entry = entry?;
                     let metadata = entry.metadata()?;
@@ -240,13 +238,14 @@ impl FileSystemProvider for LocalFs {
                     if metadata.is_file() {
                         total.fetch_add(metadata.len(), Ordering::Relaxed);
                     } else if metadata.is_dir() {
-                        walk_dir(&entry.path(), total.clone())?;
+                        walk_dir(&entry.path(), total)?;
                     }
                 }
                 Ok(())
             }
+            let total = Arc::new(AtomicU64::new(0));
 
-            walk_dir(&path, total.clone())?;
+            walk_dir(&path, &total)?;
             Ok::<u64, anyhow::Error>(total.load(Ordering::Relaxed))
         })
         .await

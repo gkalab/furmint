@@ -128,8 +128,8 @@ pub async fn rsync_transfer(
     if !status.success() {
         let stderr = child.stderr.take();
         let error_msg = if let Some(mut stderr) = stderr {
-            let mut error_buf = String::new();
             use tokio::io::AsyncReadExt;
+            let mut error_buf = String::new();
             let _ = stderr.read_to_string(&mut error_buf).await;
             error_buf
         } else {
@@ -155,7 +155,7 @@ pub async fn rsync_transfer(
 /// Get SSH options for rsync to use existing SSH authentication
 /// This tells rsync to use SSH agent or available keys without prompting for passwords
 #[cfg(unix)]
-fn get_ssh_options(_fs: &dyn crate::fs::traits::FileSystem, has_password: bool) -> Result<String> {
+fn get_ssh_options(_fs: &dyn crate::fs::traits::FileSystem, has_password: bool) -> String {
     // Use SSH with the following options:
     // - BatchMode=yes: Never prompt for password (fail instead) - ONLY if no password provided
     // - StrictHostKeyChecking=no: Auto-accept host keys (for convenience)
@@ -165,9 +165,9 @@ fn get_ssh_options(_fs: &dyn crate::fs::traits::FileSystem, has_password: bool) 
     //
     // This ensures rsync uses only SSH agent or key-based auth from the existing session
     let batch_mode = if has_password { "no" } else { "yes" };
-    Ok(format!(
+    format!(
         "ssh -o BatchMode={batch_mode} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=10"
-    ))
+    )
 }
 
 /// Format remote path for rsync (e.g., "user@host:/path/to/file")
@@ -275,7 +275,7 @@ async fn build_rsync_command(
 
     // Get SSH options to reuse existing authentication
     let password = remote_fs.get_password();
-    let ssh_opts = get_ssh_options(remote_fs, password.is_some())?;
+    let ssh_opts = get_ssh_options(remote_fs, password.is_some());
 
     // Build rsync command with progress monitoring
     let mut cmd = if let Some(ref pass) = password {

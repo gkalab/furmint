@@ -32,7 +32,7 @@ pub async fn route_event(
 
             // 1. Intercept for global quit and popup intercepts
             if let Some(quit) =
-                handle_quit_and_interceptors(app, keyboard, code, modifiers, &shortcut).await
+                handle_quit_and_interceptors(app, keyboard, code, modifiers, &shortcut)
             {
                 return quit;
             }
@@ -70,7 +70,7 @@ pub async fn route_event(
     }
 }
 
-async fn handle_quit_and_interceptors(
+fn handle_quit_and_interceptors(
     app: &mut AppState,
     keyboard: &KeyboardConfig,
     code: KeyCode,
@@ -177,7 +177,7 @@ async fn handle_global_interceptors(
 ) -> Option<bool> {
     // F3 / Viewer toggle
     if code == KeyCode::F(3) && modifiers == KeyModifiers::NONE {
-        if crate::handlers::file_viewer::handle_external_viewer(app).await {
+        if crate::handlers::file_viewer::handle_external_viewer(app) {
             return Some(false);
         }
         app.file_viewer.is_visible = !app.file_viewer.is_visible;

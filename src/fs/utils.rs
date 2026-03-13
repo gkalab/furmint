@@ -164,12 +164,12 @@ pub fn mode_to_attributes(mode: u32, is_dir: bool, is_symlink: bool) -> String {
 }
 
 #[must_use]
-pub fn get_attributes(_meta: &Metadata, is_dir: bool, _is_symlink: bool) -> String {
+pub fn get_attributes(meta: &Metadata, is_dir: bool, is_symlink: bool) -> String {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mode = _meta.permissions().mode();
-        let s = mode_to_attributes(mode, is_dir, _is_symlink);
+        let mode = meta.permissions().mode();
+        let s = mode_to_attributes(mode, is_dir, is_symlink);
         format!("{s:<10}") // pad/truncate to 10
     }
     #[cfg(not(unix))]
@@ -314,7 +314,7 @@ pub fn is_gui_executable(path: &std::path::Path) -> bool {
 
 // Helper to detect executables
 #[must_use]
-pub fn is_executable(_full_path: &std::path::Path, e: &FileEntry) -> bool {
+pub fn is_executable(full_path: &std::path::Path, e: &FileEntry) -> bool {
     // Directories are never considered executable for icon purposes
     if e.is_dir {
         return false;
@@ -324,7 +324,7 @@ pub fn is_executable(_full_path: &std::path::Path, e: &FileEntry) -> bool {
     {
         use std::os::unix::fs::PermissionsExt;
         // First try to get metadata from the filesystem (works for local files)
-        if let Ok(meta) = std::fs::symlink_metadata(_full_path) {
+        if let Ok(meta) = std::fs::symlink_metadata(full_path) {
             let mode = meta.permissions().mode();
             return mode & 0o111 != 0;
         }

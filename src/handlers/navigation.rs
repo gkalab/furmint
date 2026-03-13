@@ -32,7 +32,7 @@ pub fn handle_page_down(app: &mut AppState) {
 // Enters the selected directory or opens the file.
 pub fn handle_enter(app: &mut AppState) {
     if let Some((path, _, filename)) = archive_path_and_ext(app) {
-        handle_open_archive(app, path, filename);
+        handle_open_archive(app, &path, filename);
         return;
     }
 
@@ -231,7 +231,7 @@ pub fn handle_enter_directory(app: &mut AppState) {
     }
 }
 
-fn handle_open_archive(app: &mut AppState, path: PathBuf, filename: String) {
+fn handle_open_archive(app: &mut AppState, path: &PathBuf, filename: String) {
     let panel = app.active_tab_mut();
     if !panel.provider.is_local() {
         panel.error = Some("Opening archives from remote connections is not supported".to_string());
@@ -245,8 +245,8 @@ fn handle_open_archive(app: &mut AppState, path: PathBuf, filename: String) {
     };
 
     // Check cache first
-    if let Ok(metadata) = std::fs::metadata(&path)
-        && let Some(entry) = app.archive_cache.get(&path)
+    if let Ok(metadata) = std::fs::metadata(path)
+        && let Some(entry) = app.archive_cache.get(path)
     {
         let current_mtime = metadata
             .modified()
@@ -282,7 +282,7 @@ fn handle_open_archive(app: &mut AppState, path: PathBuf, filename: String) {
             return;
         }
         // Cache invalid
-        app.archive_cache.remove(&path);
+        app.archive_cache.remove(path);
     }
 
     let path_clone = path.clone();
@@ -292,7 +292,7 @@ fn handle_open_archive(app: &mut AppState, path: PathBuf, filename: String) {
     let task_name = format!("Opening {filename}");
 
     app.task_manager
-        .spawn_task(task_name, move |_cancel, tx, id| async move {
+        .spawn_task(&task_name, move |_cancel, tx, id| async move {
             let path_for_task = path_clone.clone();
             // We need to run blocking IO
             let res = tokio::task::spawn_blocking(move || ArchiveFs::new(&path_for_task)).await;
@@ -355,7 +355,7 @@ pub fn handle_open_item(app: &mut AppState) {
                 if let Err(e) = crate::handlers::terminal::spawn_terminal(
                     &current_dir,
                     configured_terminal,
-                    vec![full_path.to_string_lossy().to_string()],
+                    &[full_path.to_string_lossy().to_string()],
                     false,
                 ) {
                     app.active_tab_mut().error = Some(format!("Error launching in terminal: {e}"));

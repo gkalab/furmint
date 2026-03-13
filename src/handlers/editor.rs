@@ -34,12 +34,10 @@ pub async fn handle_edit(app: &mut AppState, input_tx: UnboundedSender<Crossterm
             if let Err(e) = crate::handlers::external::launch_external_program(
                 app,
                 &cmd_str,
-                file_path.clone(),
+                &file_path,
                 in_terminal,
                 "editor",
-            )
-            .await
-            {
+            ) {
                 app.active_tab_mut().error = Some(e);
             }
             return;

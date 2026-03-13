@@ -327,7 +327,7 @@ fn handle_calc_dir_size(app: &mut AppState) {
         let path_clone = path.clone();
 
         app.task_manager.spawn_task(
-            format!("Calculate size: {name}"),
+            &format!("Calculate size: {name}"),
             move |_cancel_flag, tx, id| async move {
                 match provider.calc_dir_size(&path_clone).await {
                     Ok(size) => {

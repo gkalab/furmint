@@ -210,7 +210,7 @@ impl FileSystemProvider for SftpFs {
             let normalized = self.normalize_path(path);
             let mut file = sftp
                 .open(&normalized)
-                .map_err(|_| anyhow!("Failed to open file: {normalized:?}"))?;
+                .map_err(|_| anyhow!("Failed to open file: {}", normalized.display()))?;
             let mut buffer = Vec::new();
             file.read_to_end(&mut buffer)
                 .map_err(|e| anyhow!("Failed to read file: {e}"))?;
@@ -224,7 +224,7 @@ impl FileSystemProvider for SftpFs {
             let normalized = self.normalize_path(path);
             let mut file = sftp
                 .open(&normalized)
-                .map_err(|_| anyhow!("Failed to open file: {normalized:?}"))?;
+                .map_err(|_| anyhow!("Failed to open file: {}", normalized.display()))?;
             file.seek(SeekFrom::Start(offset))?;
             let mut buffer = vec![0; len];
             let n = file.read(&mut buffer)?;
@@ -487,7 +487,7 @@ impl FileSystemProvider for SftpFs {
             let normalized_src = self.normalize_path(&src_path);
             let file = sftp
                 .open(&normalized_src)
-                .map_err(|_| anyhow!("Failed to open source file: {normalized_src:?}"))?;
+                .map_err(|_| anyhow!("Failed to open source file: {}", normalized_src.display()))?;
             let perms = sftp
                 .stat(&normalized_src)
                 .ok()
@@ -1206,20 +1206,21 @@ mod tests {
 #[allow(dead_code)] // Used only by unit test scaffolding to test SftpFs::with_sftp error branches
 struct DummySftp;
 impl DummySftp {
-    #[allow(dead_code)] // Called only via test harness for SftpFs coverage
+    #[allow(clippy::unnecessary_wraps, clippy::unused_self)]
+    #[allow(unused)]
     fn test_op(&self) -> Result<&'static str> {
         Ok("ok")
     }
 }
 
-#[allow(dead_code)] // Used only by unit test scaffolding to test SftpFs::with_sftp error branches
+#[cfg(test)]
 struct DummySession {
     #[allow(dead_code)] // Field present for possible mutex poison simulation in tests
     poison: bool,
     fail_sftp: bool,
 }
+#[cfg(test)]
 impl DummySession {
-    #[allow(dead_code)] // Called only by test harness for DummySftp with_sftp coverage
     fn sftp(&self) -> std::result::Result<DummySftp, &'static str> {
         if self.fail_sftp {
             Err("fail")
@@ -1230,11 +1231,11 @@ impl DummySession {
 }
 
 // Adapter just for test
-#[allow(dead_code)] // Used only by unit test scaffolding for SftpFs::with_sftp tests
+#[cfg(test)]
 struct TestSftpFs {
     session: Mutex<DummySession>,
 }
-#[allow(dead_code)]
+#[cfg(test)]
 impl TestSftpFs {
     fn with_sftp<F, R>(&self, f: F) -> Result<R>
     where

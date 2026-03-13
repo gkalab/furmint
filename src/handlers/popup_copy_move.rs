@@ -3,6 +3,7 @@
 use crate::app::AppState;
 use crate::clipboard::FileClipboardData;
 use crate::fs::fs_provider::FileSystemProvider;
+use crate::fs::traits::FileSystem;
 use crate::state::CopyMoveAction;
 use anyhow::{Result, anyhow};
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -321,7 +322,6 @@ async fn handle_rsync_conflict<F: crate::fs::traits::FileSystem>(
             decision_state.overwrite_all = true;
             Some(true)
         }
-        Some(crate::tasks::TaskDecision::Skip) => Some(false),
         Some(crate::tasks::TaskDecision::SkipAll) => {
             decision_state.skip_all = true;
             Some(false)
@@ -580,8 +580,6 @@ async fn process_single_path(
         return Ok(());
     };
 
-    use crate::fs::traits::FileSystem;
-
     // Compute target path
     let target = compute_target_path(
         ctx.dest_path,
@@ -612,8 +610,7 @@ async fn process_single_path(
         let rsync_res = try_rsync_directory(&rsync_ctx, decision_state).await;
 
         match rsync_res {
-            Some(true) => return Ok(()),  // Rsync succeeded
-            Some(false) => return Ok(()), // Skipped
+            Some(true | false) => return Ok(()), // Succeeded or Skipped
             None => {
                 // Either cancelled OR failed (and should fall back)
                 if ctx.cancel.load(std::sync::atomic::Ordering::Relaxed) {
@@ -673,12 +670,10 @@ pub fn spawn_copy_move_task(
 
     let id = app
         .task_manager
-        .spawn_task(task_name, move |cancel, tx, id| async move {
+        .spawn_task(&task_name, move |cancel, tx, id| async move {
             let src_fs = crate::fs::provider::ProviderFileSystem(src_provider);
             let dest_fs = crate::fs::provider::ProviderFileSystem(dest_provider);
             let dest_path = std::path::PathBuf::from(&dest_str);
-
-            use crate::fs::traits::FileSystem;
 
             // Check if rsync can be used for this transfer
             let use_rsync = crate::fs::fs_rsync::should_use_rsync(&src_fs, &dest_fs, action);

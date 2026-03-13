@@ -46,7 +46,7 @@ pub fn draw_main_layout(f: &mut Frame, app: &mut AppState, palette: &ThemePalett
     );
 
     // Status Bars
-    draw_status_bars(f, app, status_chunks, palette);
+    draw_status_bars(f, app, &status_chunks, palette);
 }
 
 fn draw_side(
@@ -142,12 +142,7 @@ fn draw_side(
     }
 }
 
-fn draw_status_bars(
-    f: &mut Frame,
-    app: &AppState,
-    chunks: std::rc::Rc<[Rect]>,
-    palette: &ThemePalette,
-) {
+fn draw_status_bars(f: &mut Frame, app: &AppState, chunks: &[Rect], palette: &ThemePalette) {
     draw_panel_status(
         f,
         app.left.active_tab(),

@@ -408,7 +408,7 @@ fn start_ssh_auth(app: &mut AppState) {
         let connection_name = name_opt;
 
         app.task_manager
-            .spawn_task(task_title, move |cancel, tx, id| async move {
+            .spawn_task(&task_title, move |cancel, tx, id| async move {
                 let result = tokio::select! {
                     res = ssh_manager.try_connect_with_keys(parsed.host, port, parsed.user) => Some(res),
                     () = async {
@@ -526,7 +526,7 @@ fn reconnect_ssh(app: &mut AppState, session_id: String, password: String) {
     let connection_name = app.active_tab().custom_title.clone();
 
     app.task_manager.spawn_task(
-        "Reconnecting SSH session".to_string(),
+        "Reconnecting SSH session",
         move |cancel, tx, id| async move {
             let result = tokio::select! {
                 res = ssh_manager.reconnect_session(&session_id, password) => Some(res),
@@ -584,7 +584,7 @@ fn connect_ssh(
     let user_for_reg = user.clone();
     let password_for_cache = password.clone();
     app.task_manager
-        .spawn_task(name, move |cancel, tx, id| async move {
+        .spawn_task(&name, move |cancel, tx, id| async move {
             let result = tokio::select! {
                 res = ssh_manager.connect_ssh(host, port, user, password, target_path_clone) => Some(res),
                 () = async {
@@ -670,7 +670,7 @@ pub fn handle_reconnect_ssh(app: &mut AppState) {
             let connection_name = app.active_tab().custom_title.clone();
 
             app.task_manager.spawn_task(
-                "Reconnecting SSH session".to_string(),
+                "Reconnecting SSH session",
                 move |cancel, tx, id| async move {
                     let result = tokio::select! {
                         res = ssh_manager.reconnect_session(&session_id, cached_password) => Some(res),

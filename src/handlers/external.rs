@@ -9,10 +9,10 @@ use std::process::Stdio;
 /// # Errors
 ///
 /// Returns an error if the program cannot be launched.
-pub async fn launch_external_program(
+pub fn launch_external_program(
     app: &mut AppState,
     cmd: &str,
-    file_path: std::path::PathBuf,
+    file_path: &std::path::Path,
     in_terminal: bool,
     program_name: &str, // e.g., "editor" or "viewer"
 ) -> Result<(), String> {
@@ -30,7 +30,7 @@ pub async fn launch_external_program(
     if in_terminal {
         let mut t_args = vec![program.clone()];
         t_args.extend(args);
-        spawn_terminal(&current_dir, app.global.terminal.clone(), t_args, true)
+        spawn_terminal(&current_dir, app.global.terminal.clone(), &t_args, true)
             .map_err(|e| format!("Error launching {program_name} in terminal: {e}"))
     } else {
         // Launch directly (background)
