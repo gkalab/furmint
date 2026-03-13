@@ -80,3 +80,6 @@ openssh = "0.11"
 [profile.release]
 codegen-units = 1
 lto = true
+
+[lints.clippy]
+pedantic = "warn"
