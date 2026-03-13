@@ -140,7 +140,7 @@ pub fn draw_task_manager(
             rsync,
             current_file,
         );
-        list_items.push(format_task_item(idx, selected_index, data, &style_ctx));
+        list_items.push(format_task_item(idx, selected_index, &data, &style_ctx));
     }
 
     // List Block inside
@@ -160,7 +160,7 @@ pub fn draw_task_manager(
 fn format_task_item<'a>(
     idx: usize,
     selected_index: usize,
-    data: TaskDisplayData,
+    data: &TaskDisplayData,
     style_ctx: &'a TaskStyleContext<'a>,
 ) -> ListItem<'a> {
     let status_str = match &data.status {
@@ -188,13 +188,12 @@ fn format_task_item<'a>(
     // Progress Bar Line
     let progress_line = if let Some((processed, total)) = data.progress {
         if total > 0 {
-            let ratio = processed as f64 / total as f64;
-            let percentage = (ratio * 100.0) as usize;
+            let percentage = (processed * 100).checked_div(total).unwrap_or(0);
             let left = total.saturating_sub(processed);
 
             // Bar width: 20 chars
             let bar_width: usize = 20;
-            let filled = (ratio * bar_width as f64).round() as usize;
+            let filled = (processed * bar_width).checked_div(total).unwrap_or(0);
             let empty = bar_width.saturating_sub(filled);
 
             let bar: String = "=".repeat(filled) + &" ".repeat(empty);
@@ -210,8 +209,7 @@ fn format_task_item<'a>(
     // Byte Progress Line
     let byte_progress_line = if let Some((processed, total)) = data.byte_progress {
         if total > 0 {
-            let ratio = processed as f64 / total as f64;
-            let percentage = (ratio * 100.0) as usize;
+            let percentage = (processed * 100).checked_div(total).unwrap_or(0);
 
             // Format sizes
             let processed_str = crate::fs::utils::format_size(Some(processed), false, false)

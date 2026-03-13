@@ -803,13 +803,14 @@ async fn test_archive_fs_read_and_download_rpm() {
     // Header structure helper
     let write_header = |f: &mut File, tags: Vec<(i32, i32, &[u8])>| {
         f.write_all(b"\x8e\xad\xe8\x01\x00\x00\x00\x00").unwrap(); // magic + version + reserved
-        f.write_all(&(tags.len() as u32).to_be_bytes()).unwrap(); // count
+        f.write_all(&(u32::try_from(tags.len()).unwrap()).to_be_bytes())
+            .unwrap(); // count
 
         let mut data = Vec::new();
         let mut index = Vec::new();
 
         for (tag, ty, val) in tags {
-            let offset = data.len() as i32;
+            let offset = i32::try_from(data.len()).unwrap();
             index.push((tag, ty, offset, 1i32));
             data.extend_from_slice(val);
             if ty == 6 || ty == 9 {
@@ -817,7 +818,8 @@ async fn test_archive_fs_read_and_download_rpm() {
             }
         }
 
-        f.write_all(&(data.len() as u32).to_be_bytes()).unwrap(); // size
+        f.write_all(&(u32::try_from(data.len()).unwrap()).to_be_bytes())
+            .unwrap(); // size
 
         for (tag, ty, offset, cnt) in index {
             f.write_all(&tag.to_be_bytes()).unwrap();
@@ -853,7 +855,7 @@ async fn test_archive_fs_read_and_download_rpm() {
             .mode(0o100644)
             .mtime(1000);
         let data = b"hello rpm";
-        let mut writer = builder.write(file, data.len() as u32);
+        let mut writer = builder.write(file, u32::try_from(data.len()).unwrap());
         writer.write_all(data).unwrap();
         let mut file = writer.finish().unwrap();
 

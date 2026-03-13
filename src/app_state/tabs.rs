@@ -423,7 +423,7 @@ impl Tab {
             self.history.index -= 1;
             let entry = self.history.current().clone();
             self.provider = entry.provider.clone();
-            self.current_dir = entry.path.clone();
+            self.current_dir.clone_from(&entry.path);
             self.entries = self.provider.list_dir(&entry.path)?;
             self.cursor = entry.cursor;
             self.scroll_offset = 0; // Will be adjusted by scroll_to_cursor if needed
@@ -445,7 +445,7 @@ impl Tab {
             self.history.index += 1;
             let entry = self.history.current().clone();
             self.provider = entry.provider.clone();
-            self.current_dir = entry.path.clone();
+            self.current_dir.clone_from(&entry.path);
             self.entries = self.provider.list_dir(&entry.path)?;
             self.cursor = entry.cursor;
             self.scroll_offset = 0;
@@ -545,7 +545,7 @@ impl Tab {
                             ord
                         };
                     }
-                    _ => {
+                    SortColumn::Extension => {
                         // Extension: Directories always Name Ascending
                         return a.name.to_lowercase().cmp(&b.name.to_lowercase());
                     }

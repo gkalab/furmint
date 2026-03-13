@@ -37,10 +37,13 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
             // Local UI is handled by AppWatcher
             static LAST_REFRESH: std::sync::atomic::AtomicU64 =
                 std::sync::atomic::AtomicU64::new(0);
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as u64;
+            let now = u64::try_from(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis(),
+            )
+            .unwrap_or(u64::MAX);
             let last = LAST_REFRESH.load(std::sync::atomic::Ordering::Relaxed);
             if now - last > 2000 {
                 app.reload_remote();
@@ -81,9 +84,12 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
             let sessions = app.ssh_manager.get_all_sessions();
             if let Some(session) = sessions.iter().find(|s| s.session_id == session_id) {
                 app.popups.ssh_password.is_visible = true;
-                app.popups.ssh_password.session_id = session.session_id.clone();
-                app.popups.ssh_password.host = session.host.clone();
-                app.popups.ssh_password.user = session.user.clone();
+                app.popups
+                    .ssh_password
+                    .session_id
+                    .clone_from(&session.session_id);
+                app.popups.ssh_password.host.clone_from(&session.host);
+                app.popups.ssh_password.user.clone_from(&session.user);
                 app.popups.ssh_password.error = Some(error);
                 app.popups.ssh_password.password.clear();
                 app.popups.ssh_password.cursor_position = 0;

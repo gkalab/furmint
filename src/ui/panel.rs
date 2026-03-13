@@ -274,7 +274,8 @@ fn draw_selection_markers(
         .skip(panel.scroll_offset)
         .take(visible_rows)
     {
-        let row_y = area.y + 2 + (idx - panel.scroll_offset) as u16; // +2 for border and header
+        let row_offset = u16::try_from(idx - panel.scroll_offset).unwrap_or(u16::MAX);
+        let row_y = area.y + 2 + row_offset; // +2 for border and header
 
         if row_y >= area.y + area.height - 1 {
             break;
@@ -309,7 +310,7 @@ fn draw_scrollbar(
         x: area.x + area.width - 1,
         y: area.y + 2, // +2 for border and header
         width: 1,
-        height: visible_rows as u16,
+        height: u16::try_from(visible_rows).unwrap_or(u16::MAX),
     };
 
     draw_tab_scrollbar(
@@ -322,6 +323,7 @@ fn draw_scrollbar(
     );
 }
 
+/// Draws the main file panel with entries and sorting headers.
 pub fn draw_panel(
     f: &mut ratatui::Frame,
     panel: &mut Tab,
@@ -443,6 +445,7 @@ pub struct PanelStatusContext<'a> {
     pub side: crate::app::PanelSide,
 }
 
+/// Render the status bar for a panel, showing file counts, selection, and errors.
 pub fn draw_panel_status(
     f: &mut ratatui::Frame,
     panel: &Tab,
@@ -547,7 +550,7 @@ fn draw_left_panel_status(
         } else {
             format!("{running_count} tasks running")
         };
-        let text_width = text.len() as u16;
+        let text_width = u16::try_from(text.len()).unwrap_or(u16::MAX);
 
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
@@ -587,7 +590,7 @@ fn draw_left_panel_status(
                 }
                 crate::tasks::TaskStatus::Running => unreachable!(),
             };
-            let text_width = text.len() as u16;
+            let text_width = u16::try_from(text.len()).unwrap_or(u16::MAX);
 
             let chunks = Layout::default()
                 .direction(Direction::Horizontal)
@@ -641,7 +644,7 @@ fn draw_right_panel_status(
     {
         // Calculate available width for progress info
         // We need to leave room for the status message on the right
-        let status_width = status.chars().count() as u16;
+        let status_width = u16::try_from(status.chars().count()).unwrap_or(u16::MAX);
         let spacing = 2; // Extra space between progress and status
         let available_progress_width = status_area.width.saturating_sub(status_width + spacing);
 
@@ -654,10 +657,13 @@ fn draw_right_panel_status(
             ctx.palette,
         );
 
-        let text_width = progress_spans
-            .iter()
-            .map(|s| s.content.chars().count())
-            .sum::<usize>() as u16;
+        let text_width = u16::try_from(
+            progress_spans
+                .iter()
+                .map(|s| s.content.chars().count())
+                .sum::<usize>(),
+        )
+        .unwrap_or(u16::MAX);
 
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
@@ -699,7 +705,7 @@ fn get_task_progress_spans(
     if let Some((p, t)) = progress
         && t > 0
     {
-        let percent = (p as f32 / t as f32 * 100.0) as usize;
+        let percent = (p * 100).checked_div(t).unwrap_or(0);
         let left = t.saturating_sub(p);
         item_progress_str = format!("{percent}% ({left} left) ");
     }
@@ -708,7 +714,9 @@ fn get_task_progress_spans(
     if let Some((p_bytes, t_bytes)) = byte_progress
         && t_bytes > 0
     {
-        let percent = (p_bytes as f32 / t_bytes as f32 * 100.0) as usize;
+        let percent = (p_bytes * 100)
+            .checked_div(t_bytes)
+            .map_or(0, |v| usize::try_from(v).unwrap_or(usize::MAX));
         byte_progress_str = format!(
             "[{}% of {}] ",
             percent,

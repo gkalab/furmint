@@ -10,14 +10,16 @@ pub fn draw_create_dir_popup(
         return;
     }
 
+    let placeholder = "Directory Name";
+
     crate::ui::ui_utils::draw_input_popup(
         f,
-        crate::ui::ui_utils::InputPopupOptions {
-            title: Some("Create Directory"),
+        &crate::ui::ui_utils::InputPopupOptions {
+            title: Some(" Create Directory "),
             input_value: &state.new_name,
             cursor_position: state.cursor_position,
             error: state.error.as_deref(),
-            placeholder: "Directory Name",
+            placeholder,
             width: 60,
         },
         palette,

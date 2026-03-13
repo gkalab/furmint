@@ -116,9 +116,9 @@ pub fn truncate_path_with_ellipsis(path: &std::path::Path, max_width: usize) -> 
 #[must_use]
 pub fn lighten_red(red: crate::theme::Rgb) -> crate::theme::Rgb {
     crate::theme::Rgb::new(
-        u16::midpoint(u16::from(red.r), 255) as u8,
-        u16::midpoint(u16::from(red.g), 255) as u8,
-        u16::midpoint(u16::from(red.b), 255) as u8,
+        u8::try_from(u16::midpoint(u16::from(red.r), 255)).unwrap_or(255),
+        u8::try_from(u16::midpoint(u16::from(red.g), 255)).unwrap_or(255),
+        u8::try_from(u16::midpoint(u16::from(red.b), 255)).unwrap_or(255),
     )
 }
 
@@ -136,14 +136,20 @@ pub fn panel_bg_color(palette: &ThemePalette, active: bool, is_root: bool, borde
     let base_bg = if active || borders {
         Color::Rgb(palette.base.r, palette.base.g, palette.base.b)
     } else if palette.is_dark {
-        let r = ((u16::from(palette.base.r) * 3 + u16::from(palette.surface1.r)) / 4) as u8;
-        let g = ((u16::from(palette.base.g) * 3 + u16::from(palette.surface1.g)) / 4) as u8;
-        let b = ((u16::from(palette.base.b) * 3 + u16::from(palette.surface1.b)) / 4) as u8;
+        let r = u8::try_from((u16::from(palette.base.r) * 3 + u16::from(palette.surface1.r)) / 4)
+            .unwrap_or(255);
+        let g = u8::try_from((u16::from(palette.base.g) * 3 + u16::from(palette.surface1.g)) / 4)
+            .unwrap_or(255);
+        let b = u8::try_from((u16::from(palette.base.b) * 3 + u16::from(palette.surface1.b)) / 4)
+            .unwrap_or(255);
         Color::Rgb(r, g, b)
     } else {
-        let r = ((u16::from(palette.base.r) * 14 + u16::from(palette.surface1.r)) / 15) as u8;
-        let g = ((u16::from(palette.base.g) * 14 + u16::from(palette.surface1.g)) / 15) as u8;
-        let b = ((u16::from(palette.base.b) * 14 + u16::from(palette.surface1.b)) / 15) as u8;
+        let r = u8::try_from((u16::from(palette.base.r) * 14 + u16::from(palette.surface1.r)) / 15)
+            .unwrap_or(255);
+        let g = u8::try_from((u16::from(palette.base.g) * 14 + u16::from(palette.surface1.g)) / 15)
+            .unwrap_or(255);
+        let b = u8::try_from((u16::from(palette.base.b) * 14 + u16::from(palette.surface1.b)) / 15)
+            .unwrap_or(255);
         Color::Rgb(r, g, b)
     };
 
@@ -156,9 +162,9 @@ pub fn panel_bg_color(palette: &ThemePalette, active: bool, is_root: bool, borde
                 u16::from(palette.base.b),
             ),
         };
-        let r = ((r0 * 9 + u16::from(palette.red.r)) / 10) as u8;
-        let g = ((g0 * 9 + u16::from(palette.red.g)) / 10) as u8;
-        let b = ((b0 * 9 + u16::from(palette.red.b)) / 10) as u8;
+        let r = u8::try_from((r0 * 9 + u16::from(palette.red.r)) / 10).unwrap_or(255);
+        let g = u8::try_from((g0 * 9 + u16::from(palette.red.g)) / 10).unwrap_or(255);
+        let b = u8::try_from((b0 * 9 + u16::from(palette.red.b)) / 10).unwrap_or(255);
         Color::Rgb(r, g, b)
     } else {
         base_bg
@@ -385,7 +391,7 @@ impl InputStyleContext {
 
 pub fn draw_input_popup(
     f: &mut ratatui::Frame,
-    options: InputPopupOptions,
+    options: &InputPopupOptions,
     palette: &crate::theme::ThemePalette,
 ) {
     use ratatui::widgets::{Block, Borders, Clear};
@@ -478,7 +484,7 @@ pub fn draw_input_popup(
     let input_index = if has_title { 3 } else { 1 };
     let input_layout = InputLayoutContext::new(chunks[0], layout[input_index], has_title);
     let style = InputStyleContext::new(text_color, placeholder_color, field_bg_color);
-    draw_input_text_and_cursor(f, &options, input_layout, style);
+    draw_input_text_and_cursor(f, options, &input_layout, &style);
 
     // Error
     let error_index = if has_title { 4 } else { 2 };
@@ -560,8 +566,8 @@ pub fn draw_confirmation_popup(
 fn draw_input_text_and_cursor(
     f: &mut ratatui::Frame,
     options: &InputPopupOptions,
-    layout: InputLayoutContext,
-    style: InputStyleContext,
+    layout: &InputLayoutContext,
+    style: &InputStyleContext,
 ) {
     let input_width = (layout.chunk.width as usize).saturating_sub(4);
     let cursor_pos = options.cursor_position;
@@ -601,7 +607,7 @@ fn draw_input_text_and_cursor(
     if cursor_visual_offset < input_width {
         let y_offset = if layout.has_title { 3 } else { 1 };
         f.set_cursor_position(Position::new(
-            layout.chunk.x + 2 + cursor_visual_offset as u16,
+            layout.chunk.x + 2 + u16::try_from(cursor_visual_offset).unwrap_or(u16::MAX),
             layout.chunk.y + y_offset,
         ));
     }

@@ -15,7 +15,7 @@ pub fn draw_copy_move_popup(f: &mut ratatui::Frame, state: &CopyMoveState, palet
 
     crate::ui::ui_utils::draw_input_popup(
         f,
-        crate::ui::ui_utils::InputPopupOptions {
+        &crate::ui::ui_utils::InputPopupOptions {
             title: Some(&title),
             input_value: &state.destination_input,
             cursor_position: state.cursor_position,

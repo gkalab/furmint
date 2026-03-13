@@ -257,7 +257,7 @@ impl SshManager {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.subsec_nanos())
             .unwrap_or(0);
-        let seed = (i64::from(nanos) % 1000) as f64 / 1000.0; // 0..1
+        let seed = f64::from(u16::try_from(i64::from(nanos) % 1000).unwrap_or(0)) / 1000.0; // 0..1
         let jitter = 1.0 + (seed * 2.0 - 1.0) * self.jitter_pct;
         secs *= jitter;
         if secs < 0.0 {

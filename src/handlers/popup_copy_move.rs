@@ -576,9 +576,8 @@ async fn process_single_path(
     ctx: &ProcessPathContext<'_>,
     decision_state: &mut crate::fs::ops::DecisionState,
 ) -> Result<(), String> {
-    let file_name = match src.file_name() {
-        Some(n) => n,
-        None => return Ok(()),
+    let Some(file_name) = src.file_name() else {
+        return Ok(());
     };
 
     use crate::fs::traits::FileSystem;

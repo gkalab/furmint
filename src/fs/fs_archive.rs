@@ -155,7 +155,7 @@ impl FileSystemProvider for ArchiveFs {
 
     fn read_file_at(&self, path: &Path, offset: u64, len: usize) -> Result<Vec<u8>> {
         let data = self.read_file(path)?;
-        let start = offset as usize;
+        let start = usize::try_from(offset).unwrap_or(data.len());
         if start >= data.len() {
             return Ok(Vec::new());
         }

@@ -52,7 +52,8 @@ impl RpmHandler {
             let pos = reader.stream_position()?;
             let pad = (8 - (pos % 8)) % 8;
             if pad > 0 {
-                reader.seek(SeekFrom::Current(pad as i64))?;
+                let pad = i64::try_from(pad).unwrap_or(0);
+                reader.seek(SeekFrom::Current(pad))?;
             }
         }
 
@@ -100,7 +101,8 @@ impl RpmHandler {
 
         let mut tags = HashMap::new();
         for (tag, ty, offset, cnt) in index_entries {
-            let offset = offset as usize;
+            let offset = usize::try_from(offset).unwrap_or(0);
+            let cnt = u32::try_from(cnt).unwrap_or(0);
             let val = match ty {
                 6 | 9 => {
                     // STRING, I18NSTRING
@@ -168,7 +170,8 @@ impl RpmHandler {
         let pos = rpm_file.stream_position()?;
         let pad = (8 - (pos % 8)) % 8;
         if pad > 0 {
-            rpm_file.seek(SeekFrom::Current(pad as i64))?;
+            let pad = i64::try_from(pad).unwrap_or(0);
+            rpm_file.seek(SeekFrom::Current(pad))?;
         }
 
         // Parse Main Header
@@ -233,8 +236,12 @@ impl RpmHandler {
                         result.push_str(&format!(
                             "{:<15}: {}\n",
                             label,
-                            crate::fs::utils::format_size(Some(*s as u64), false, false)
-                                .trim_start()
+                            crate::fs::utils::format_size(
+                                Some(u64::from(u32::try_from(*s).unwrap_or(0))),
+                                false,
+                                false
+                            )
+                            .trim_start()
                         ));
                         continue;
                     }
@@ -292,9 +299,8 @@ impl ArchiveFormat for RpmHandler {
 
         let mut reader = self.get_payload_reader()?;
         loop {
-            let entry_reader = match NewcReader::new(reader) {
-                Ok(r) => r,
-                Err(_) => break,
+            let Ok(entry_reader) = NewcReader::new(reader) else {
+                break;
             };
 
             let name = entry_reader.entry().name().to_string();
@@ -395,9 +401,8 @@ impl ArchiveFormat for RpmHandler {
     fn read_file(&self, path: &str) -> Result<Vec<u8>> {
         let mut reader = self.get_payload_reader()?;
         loop {
-            let mut entry_reader = match NewcReader::new(reader) {
-                Ok(r) => r,
-                Err(_) => break,
+            let Ok(mut entry_reader) = NewcReader::new(reader) else {
+                break;
             };
 
             let name = entry_reader.entry().name().to_string();
@@ -430,9 +435,8 @@ impl ArchiveFormat for RpmHandler {
         let mut reader = self.get_payload_reader()?;
 
         loop {
-            let mut entry_reader = match NewcReader::new(reader) {
-                Ok(r) => r,
-                Err(_) => break,
+            let Ok(mut entry_reader) = NewcReader::new(reader) else {
+                break;
             };
 
             let name = entry_reader.entry().name().to_string();

@@ -15,8 +15,8 @@ pub fn handle_init_rename(app: &mut AppState) {
             return;
         }
         app.popups.rename.is_visible = true;
-        app.popups.rename.original_name = entry.name.clone();
-        app.popups.rename.new_name = entry.name.clone();
+        app.popups.rename.original_name.clone_from(&entry.name);
+        app.popups.rename.new_name.clone_from(&entry.name);
         app.popups.rename.parent_dir = current_dir;
         app.popups.rename.show_overwrite_confirm = false;
         app.popups.rename.is_dir = entry.is_dir;

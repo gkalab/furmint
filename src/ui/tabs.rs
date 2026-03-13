@@ -51,20 +51,35 @@ pub fn draw_tab_bar(
         } else {
             // Inactive tab
             if palette.is_dark {
-                let r = ((u16::from(palette.base.r) * 3 + u16::from(palette.surface1.r)) / 4) as u8; // 75%
-                let g = ((u16::from(palette.base.g) * 3 + u16::from(palette.surface1.g)) / 4) as u8; // 75%
-                let b = ((u16::from(palette.base.b) * 3 + u16::from(palette.surface1.b)) / 4) as u8; // 75%
+                let r = u8::try_from(
+                    (u16::from(palette.base.r) * 3 + u16::from(palette.surface1.r)) / 4,
+                )
+                .unwrap_or(palette.base.r); // 75%
+                let g = u8::try_from(
+                    (u16::from(palette.base.g) * 3 + u16::from(palette.surface1.g)) / 4,
+                )
+                .unwrap_or(palette.base.g); // 75%
+                let b = u8::try_from(
+                    (u16::from(palette.base.b) * 3 + u16::from(palette.surface1.b)) / 4,
+                )
+                .unwrap_or(palette.base.b); // 75%
                 (
                     Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b),
                     Color::Rgb(r, g, b),
                 )
             } else {
-                let r =
-                    ((u16::from(palette.base.r) * 14 + u16::from(palette.surface1.r)) / 15) as u8; // 93%
-                let g =
-                    ((u16::from(palette.base.g) * 14 + u16::from(palette.surface1.g)) / 15) as u8; // 93%
-                let b =
-                    ((u16::from(palette.base.b) * 14 + u16::from(palette.surface1.b)) / 15) as u8; // 93%
+                let r = u8::try_from(
+                    (u16::from(palette.base.r) * 14 + u16::from(palette.surface1.r)) / 15,
+                )
+                .unwrap_or(palette.base.r); // 93%
+                let g = u8::try_from(
+                    (u16::from(palette.base.g) * 14 + u16::from(palette.surface1.g)) / 15,
+                )
+                .unwrap_or(palette.base.g); // 93%
+                let b = u8::try_from(
+                    (u16::from(palette.base.b) * 14 + u16::from(palette.surface1.b)) / 15,
+                )
+                .unwrap_or(palette.base.b); // 93%
                 (
                     Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b),
                     Color::Rgb(r, g, b),
@@ -89,7 +104,7 @@ pub fn draw_tab_bar(
             format!(" {truncated_title} "),
             Style::default().fg(fg).bg(bg),
         );
-        let title_span_width = title_span.width() as u16;
+        let title_span_width = u16::try_from(title_span.width()).unwrap_or(0);
         spans.push(title_span);
         if icons {
             let right_edge = Span::styled("", Style::default().fg(bg).bg(bg_color));

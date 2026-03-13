@@ -281,7 +281,9 @@ pub fn is_gui_executable(path: &std::path::Path) -> bool {
     }
 
     // Offset to PE header at 0x3C
-    let pe_offset = u32::from_le_bytes([buffer[60], buffer[61], buffer[62], buffer[63]]) as u64;
+    let pe_offset = u64::from(u32::from_le_bytes([
+        buffer[60], buffer[61], buffer[62], buffer[63],
+    ]));
 
     if file.seek(SeekFrom::Start(pe_offset)).is_err() {
         return false;

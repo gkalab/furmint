@@ -138,7 +138,7 @@ fn render_input_field(
 
     if is_active && cursor_visual_offset < input_width {
         f.set_cursor_position(Position::new(
-            chunk.x + 2 + cursor_visual_offset as u16,
+            chunk.x + 2 + u16::try_from(cursor_visual_offset).unwrap_or(0),
             chunk.y + 1,
         ));
     }
@@ -323,7 +323,7 @@ pub fn draw_ssh_password_popup(f: &mut Frame, app: &AppState, palette: &ThemePal
     let cursor_visual_offset = cursor_pos.saturating_sub(scroll_offset);
     if cursor_visual_offset < input_width {
         f.set_cursor_position(Position::new(
-            chunks[0].x + 2 + cursor_visual_offset as u16,
+            chunks[0].x + 2 + u16::try_from(cursor_visual_offset).unwrap_or(0),
             chunks[0].y + 1,
         ));
     }

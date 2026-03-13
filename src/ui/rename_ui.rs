@@ -91,12 +91,12 @@ pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &RenameState, palette: &
     } else {
         crate::ui::ui_utils::draw_input_popup(
             f,
-            crate::ui::ui_utils::InputPopupOptions {
-                title: None,
+            &crate::ui::ui_utils::InputPopupOptions {
+                title: Some(" Rename "),
                 input_value: &state.new_name,
                 cursor_position: state.cursor_position,
                 error: state.error.as_deref(),
-                placeholder: "Rename",
+                placeholder: "",
                 width: 60,
             },
             palette,

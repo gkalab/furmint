@@ -109,8 +109,9 @@ pub fn draw_fuzzy_search_popup(
 
     // Calculate popup size (centered, 60% width, 50% height)
     let area = f.area();
-    let popup_width = (f32::from(area.width) * 0.6).min(80.0) as u16;
-    let popup_height = (f32::from(area.height) * 0.5).min(20.0) as u16;
+    let popup_width = u16::try_from((u32::from(area.width) * 6 / 10).min(80)).unwrap_or(area.width);
+    let popup_height =
+        u16::try_from((u32::from(area.height) * 5 / 10).min(20)).unwrap_or(area.height);
     let popup_area = crate::ui::ui_utils::centered_rect_absolute(popup_width, popup_height, area);
 
     // Clear the popup area first
@@ -191,7 +192,7 @@ pub fn draw_fuzzy_search_popup(
             line,
             Rect {
                 x: list_inner_area.x,
-                y: list_inner_area.y + row_idx as u16,
+                y: list_inner_area.y + u16::try_from(row_idx).unwrap_or(0),
                 width: list_inner_area.width,
                 height: 1,
             },
@@ -282,7 +283,7 @@ fn draw_input_box(
     let cursor_visual_offset = cursor_pos.saturating_sub(input_scroll_offset);
     if cursor_visual_offset < input_width {
         f.set_cursor_position(ratatui::layout::Position::new(
-            area.x + 2 + cursor_visual_offset as u16,
+            area.x + 2 + u16::try_from(cursor_visual_offset).unwrap_or(0),
             area.y + 1,
         ));
     }

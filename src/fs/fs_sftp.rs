@@ -618,7 +618,10 @@ impl FileSystemProvider for SftpFs {
                 return Some(Err(anyhow!("Operation cancelled")));
             }
 
-            let len = std::cmp::min(chunk_size, (total_size - offset) as usize);
+            let len = std::cmp::min(
+                chunk_size,
+                usize::try_from(total_size - offset).unwrap_or(usize::MAX),
+            );
             if len == 0 {
                 break;
             }
