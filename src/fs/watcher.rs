@@ -50,7 +50,7 @@ impl AppWatcher {
     /// # Errors
     ///
     /// Returns an error if the file watcher cannot be initialized.
-    pub fn new(tx: UnboundedSender<WatcherEvent>) -> anyhow::Result<Self> {
+    pub fn new(tx: &UnboundedSender<WatcherEvent>) -> anyhow::Result<Self> {
         // Create a debouncer that sends events to the channel
         // We need to clone tx because the closure can differ
         let tx = tx.clone();
@@ -169,9 +169,9 @@ pub struct RemoteWatcher {
 
 impl RemoteWatcher {
     #[must_use]
-    pub fn new(tx: UnboundedSender<WatcherEvent>) -> Self {
+    pub fn new(tx: &UnboundedSender<WatcherEvent>) -> Self {
         Self {
-            tx,
+            tx: tx.clone(),
             last_poll: std::time::Instant::now(),
         }
     }
@@ -212,7 +212,7 @@ mod tests {
     #[test]
     fn test_new_initializes_state() {
         let (tx, _rx) = mpsc::unbounded_channel();
-        let watcher = AppWatcher::new(tx);
+        let watcher = AppWatcher::new(&tx);
         assert!(watcher.is_ok());
         let watcher = watcher.unwrap();
         assert_eq!(watcher.watched_paths.len(), 0);
@@ -222,7 +222,7 @@ mod tests {
     #[test]
     fn test_watch_adds_new_path() {
         let (tx, _rx) = mpsc::unbounded_channel();
-        let mut watcher = AppWatcher::new(tx).unwrap();
+        let mut watcher = AppWatcher::new(&tx).unwrap();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().to_path_buf();
         let res = watcher.watch(&path);
@@ -233,7 +233,7 @@ mod tests {
     #[test]
     fn test_unwatch_removes_path() {
         let (tx, _rx) = mpsc::unbounded_channel();
-        let mut watcher = AppWatcher::new(tx).unwrap();
+        let mut watcher = AppWatcher::new(&tx).unwrap();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().to_path_buf();
         watcher.watch(&path).unwrap();
@@ -245,7 +245,7 @@ mod tests {
     #[test]
     fn test_update_watched_paths_sync() {
         let (tx, _rx) = mpsc::unbounded_channel();
-        let mut watcher = AppWatcher::new(tx).unwrap();
+        let mut watcher = AppWatcher::new(&tx).unwrap();
         let dir1 = tempfile::tempdir().unwrap();
         let dir2 = tempfile::tempdir().unwrap();
         let p1 = dir1.path().to_path_buf();
@@ -263,7 +263,7 @@ mod tests {
     #[test]
     fn test_debouncer_uses_file_id_map() {
         let (tx, _rx) = mpsc::unbounded_channel();
-        let watcher = AppWatcher::new(tx).unwrap();
+        let watcher = AppWatcher::new(&tx).unwrap();
 
         // This is a type-level assertion.
         // We try to pass the debouncer to a function that explicitly expects FileIdMap.
