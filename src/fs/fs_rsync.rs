@@ -142,6 +142,11 @@ pub async fn rsync_transfer(
 }
 
 #[cfg(not(unix))]
+///
+/// # Errors
+///
+/// Not supported on this platform
+#[allow(clippy::unused_async)]
 pub async fn rsync_transfer(
     _src_fs: &dyn crate::fs::traits::FileSystem,
     _dest_fs: &dyn crate::fs::traits::FileSystem,
