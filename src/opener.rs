@@ -26,7 +26,7 @@ impl FileOpener for SystemOpener {
         }
         #[cfg(not(target_os = "linux"))]
         {
-            open::that(path).map_err(|e| anyhow::anyhow!("Error opening file: {}", e))
+            open::that(path).map_err(|e| anyhow::anyhow!("Error opening file: {e}"))
         }
     }
 }

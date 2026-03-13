@@ -72,7 +72,7 @@ pub mod unix_clipboard {
 
 #[cfg(target_os = "windows")]
 pub mod win_clipboard {
-    use super::*;
+    use super::{FileClipboard, FileClipboardAction, FileClipboardData};
     use anyhow::Context;
     use std::ffi::OsStr;
 
@@ -106,6 +106,7 @@ pub mod win_clipboard {
     }
 
     impl WindowsFileClipboard {
+        #[must_use]
         pub fn new() -> Self {
             Self {
                 cache: Arc::new(Mutex::new(None)),
@@ -131,15 +132,6 @@ pub mod win_clipboard {
     }
 
     fn paths_to_dropfiles_buffer(paths: &[PathBuf]) -> Vec<u8> {
-        let mut wide: Vec<u16> = Vec::new();
-        for p in paths {
-            let s: &OsStr = p.as_os_str();
-            let mut v: Vec<u16> = s.encode_wide().collect();
-            v.push(0);
-            wide.extend_from_slice(&v);
-        }
-        wide.push(0);
-
         #[repr(C)]
         #[derive(Clone, Copy)]
         struct Dropfiles {
@@ -149,6 +141,15 @@ pub mod win_clipboard {
             f_nc: i32,   // Replacing BOOL (4 bytes) with i32
             f_wide: i32, // Replacing BOOL (4 bytes) with i32
         }
+
+        let mut wide: Vec<u16> = Vec::new();
+        for p in paths {
+            let s: &OsStr = p.as_os_str();
+            let mut v: Vec<u16> = s.encode_wide().collect();
+            v.push(0);
+            wide.extend_from_slice(&v);
+        }
+        wide.push(0);
 
         let header = Dropfiles {
             p_files: std::mem::size_of::<Dropfiles>() as u32,
@@ -162,7 +163,7 @@ pub mod win_clipboard {
 
         let header_bytes = unsafe {
             std::slice::from_raw_parts(
-                &header as *const Dropfiles as *const u8,
+                (&raw const header).cast::<u8>(),
                 std::mem::size_of::<Dropfiles>(),
             )
         };
@@ -194,7 +195,7 @@ pub mod win_clipboard {
         }
 
         unsafe {
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr as *mut u8, bytes.len());
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr.cast::<u8>(), bytes.len());
             let _ = GlobalUnlock(hglobal);
         }
 
@@ -269,8 +270,10 @@ pub mod win_clipboard {
 
                     if !hglobal_effect.0.is_null() {
                         let ptr = GlobalLock(hglobal_effect);
-                        if !ptr.is_null() {
-                            *(ptr as *mut u32) = to_drop_effect(data.action);
+                        if ptr.is_null() {
+                            let _ = GlobalFree(Some(hglobal_effect));
+                        } else {
+                            *ptr.cast::<u32>() = to_drop_effect(data.action);
                             let _ = GlobalUnlock(hglobal_effect);
                             if let Err(e) = SetClipboardData(format, Some(HANDLE(hglobal_effect.0)))
                             {
@@ -279,8 +282,6 @@ pub mod win_clipboard {
                                     anyhow::anyhow!("SetClipboardData format failed: {e}",),
                                 );
                             }
-                        } else {
-                            let _ = GlobalFree(Some(hglobal_effect));
                         }
                     }
                 }
@@ -320,7 +321,7 @@ pub mod win_clipboard {
                     #[allow(clippy::collapsible_if)]
                     if let Ok(h) = GetClipboardData(CF_HDROP) {
                         if !h.0.is_null() {
-                            let hdrop = HDROP(h.0 as *mut _);
+                            let hdrop = HDROP(h.0.cast());
                             let count = DragQueryFileW(hdrop, 0xFFFF_FFFF, None);
 
                             for i in 0..count {

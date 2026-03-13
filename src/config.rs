@@ -296,7 +296,7 @@ fn check_program_exists(p: &str) -> Option<String> {
             return Some(p_win);
         }
         for ext in [".exe", ".cmd", ".bat", ".com"] {
-            let with_ext = format!("{}{}", p, ext);
+            let with_ext = format!("{p}{ext}");
             if std::path::Path::new(&with_ext).exists() {
                 return Some(with_ext);
             }

@@ -22,7 +22,7 @@ pub fn get_available_drives() -> Vec<String> {
         for i in 0..26 {
             if (mask >> i) & 1 == 1 {
                 let drive_letter = (b'A' + i as u8) as char;
-                drives.push(format!("{}:\\", drive_letter));
+                drives.push(format!("{drive_letter}:\\"));
             }
         }
         drives

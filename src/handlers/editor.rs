@@ -297,7 +297,7 @@ fn get_default_editor() -> String {
 #[cfg(target_os = "windows")]
 fn get_default_editor() -> String {
     use winreg::RegKey;
-    use winreg::enums::*;
+    use winreg::enums::HKEY_CLASSES_ROOT;
 
     let hkcr = RegKey::predef(HKEY_CLASSES_ROOT);
 

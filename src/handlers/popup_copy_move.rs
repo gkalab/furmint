@@ -178,8 +178,8 @@ fn validate_copy_move(
 
             #[cfg(windows)]
             let (n_src, n_dest) = (
-                s_src.to_lowercase().replace("/", "\\"),
-                s_dest.to_lowercase().replace("/", "\\"),
+                s_src.to_lowercase().replace('/', "\\"),
+                s_dest.to_lowercase().replace('/', "\\"),
             );
             #[cfg(not(windows))]
             let (n_src, n_dest) = (s_src.to_string(), s_dest.to_string());
@@ -214,7 +214,7 @@ fn validate_copy_move(
                     let s_eff = eff_dest_abs.to_string_lossy();
                     #[cfg(windows)]
                     let n_eff = {
-                        let s = s_eff.to_lowercase().replace("/", "\\");
+                        let s = s_eff.to_lowercase().replace('/', "\\");
                         s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
                     };
                     #[cfg(not(windows))]

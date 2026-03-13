@@ -29,7 +29,7 @@ pub async fn empty_trash() -> std::result::Result<usize, String> {
             if SUCCEEDED(res) {
                 Ok(0)
             } else {
-                Err(format!("Failed: SHEmptyRecycleBinW error code {:#x}", res))
+                Err(format!("Failed: SHEmptyRecycleBinW error code {res:#x}"))
             }
         }
     }
@@ -177,7 +177,7 @@ pub fn get_attributes(meta: &Metadata, is_dir: bool, is_symlink: bool) -> String
         let _ = meta;
         let _ = is_symlink;
         let s = if is_dir { "<DIR>" } else { "<FILE>" };
-        format!("{:<10}", s)
+        format!("{s:<10}")
     }
 }
 
@@ -269,12 +269,12 @@ pub fn format_modified(modified: Option<SystemTime>) -> String {
 /// Returns true if the file is a Windows GUI executable.
 /// Returns false for console apps, scripts, or errors.
 #[cfg(any(windows, test))]
+#[must_use]
 pub fn is_gui_executable(path: &std::path::Path) -> bool {
     use std::io::{Read, Seek, SeekFrom};
 
-    let mut file = match std::fs::File::open(path) {
-        Ok(f) => f,
-        Err(_) => return false,
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
     };
 
     let mut buffer = [0u8; 64];
@@ -348,7 +348,15 @@ pub fn is_executable(full_path: &std::path::Path, e: &FileEntry) -> bool {
     {
         let _ = full_path;
         let lower = e.name.to_lowercase();
-        lower.ends_with(".exe") || lower.ends_with(".bat") || lower.ends_with(".cmd")
+        Path::new(&lower)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case(".exe"))
+            || Path::new(&lower)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case(".bat"))
+            || Path::new(&lower)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case(".cmd"))
     }
 }
 
