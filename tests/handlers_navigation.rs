@@ -706,8 +706,11 @@ fn test_timeout_resets_search_state() {
     assert_eq!(app.left.active_tab().cursor, 0);
 
     // Simulate timeout by setting last_type_time to old value
-    app.left.active_tab_mut().search.last_type_time =
-        Some(std::time::Instant::now() - std::time::Duration::from_secs(2));
+    app.left.active_tab_mut().search.last_type_time = Some(
+        std::time::Instant::now()
+            .checked_sub(std::time::Duration::from_secs(2))
+            .unwrap(),
+    );
 
     // Call reset_search as event loop would when timeout expired
     reset_search(&mut app);
@@ -751,8 +754,11 @@ fn test_periodic_reset_expired_search() {
     assert_eq!(app.left.active_tab().search.matching_indices.len(), 2);
 
     // Simulate timeout by setting last_type_time to old value
-    app.left.active_tab_mut().search.last_type_time =
-        Some(std::time::Instant::now() - std::time::Duration::from_secs(2));
+    app.left.active_tab_mut().search.last_type_time = Some(
+        std::time::Instant::now()
+            .checked_sub(std::time::Duration::from_secs(2))
+            .unwrap(),
+    );
 
     // Call reset_expired_search as periodic check would
     reset_expired_search(&mut app);
@@ -838,8 +844,7 @@ fn test_update_viewer_content_shows_error_for_large_file() {
     let msg = &app.file_viewer.content[0];
     assert!(
         msg.to_lowercase().contains("too large"),
-        "unexpected error: {}",
-        msg
+        "unexpected error: {msg}"
     );
 }
 
@@ -868,8 +873,7 @@ fn test_update_viewer_content_shows_error_for_binary() {
 
     assert!(
         msg.to_lowercase().contains("binary"),
-        "unexpected error: {}",
-        msg
+        "unexpected error: {msg}"
     );
 }
 

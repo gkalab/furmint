@@ -42,7 +42,6 @@ async fn test_zip_timestamps() {
     let epoch = SystemTime::UNIX_EPOCH;
     assert!(
         modified > epoch,
-        "Modified time should be after Unix epoch, but got {:?}",
-        modified
+        "Modified time should be after Unix epoch, but got {modified:?}"
     );
 }

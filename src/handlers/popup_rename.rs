@@ -34,16 +34,17 @@ pub fn handle_init_rename(app: &mut AppState) {
 
 pub fn handle_rename_event(code: KeyCode, modifiers: KeyModifiers, app: &mut AppState) -> bool {
     if app.popups.rename.show_overwrite_confirm {
-        match code {
-            KeyCode::Char('y' | 'Y') => {
+        use crate::handlers::popup_utils::{ChoiceResult, get_choice};
+        match get_choice(code) {
+            ChoiceResult::Confirmed => {
                 perform_rename(app, true);
                 app.popups.rename.reset();
             }
-            KeyCode::Char('n' | 'N') | KeyCode::Esc => {
+            ChoiceResult::Cancelled => {
                 app.popups.rename.show_overwrite_confirm = false;
                 app.popups.rename.reset();
             }
-            _ => {}
+            ChoiceResult::None => {}
         }
         return false;
     }

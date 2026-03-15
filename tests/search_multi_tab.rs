@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 fn create_test_tab(name: &str, entries: Vec<FileEntry>) -> Tab {
-    let current_dir = PathBuf::from(format!("/tmp/{}", name));
+    let current_dir = PathBuf::from(format!("/tmp/{name}"));
     Tab {
         area: ratatui::layout::Rect::default(),
         provider: Arc::new(LocalFs::new()),
@@ -41,12 +41,13 @@ fn test_multi_tab_search_timeout() {
             is_symlink: false,
             size: Some(10),
             modified: None,
-            attributes: "".to_string(),
+            attributes: String::new(),
             selected: false,
         }],
     );
     left_tab.search.buffer = "a".to_string();
-    left_tab.search.last_type_time = Some(Instant::now() - Duration::from_secs(2)); // Expired
+    left_tab.search.last_type_time =
+        Some(Instant::now().checked_sub(Duration::from_secs(2)).unwrap()); // Expired
 
     let mut right_tab = create_test_tab(
         "right",
@@ -56,7 +57,7 @@ fn test_multi_tab_search_timeout() {
             is_symlink: false,
             size: Some(10),
             modified: None,
-            attributes: "".to_string(),
+            attributes: String::new(),
             selected: false,
         }],
     );
@@ -131,7 +132,7 @@ fn test_reload_optimization_and_persistence() {
                 is_symlink: false,
                 size: None,
                 modified: None,
-                attributes: "".to_string(),
+                attributes: String::new(),
                 selected: false,
             },
             FileEntry {
@@ -140,7 +141,7 @@ fn test_reload_optimization_and_persistence() {
                 is_symlink: false,
                 size: Some(10),
                 modified: None,
-                attributes: "".to_string(),
+                attributes: String::new(),
                 selected: false,
             },
         ],
@@ -160,7 +161,7 @@ fn test_reload_optimization_and_persistence() {
             is_symlink: false,
             size: Some(10),
             modified: None,
-            attributes: "".to_string(),
+            attributes: String::new(),
             selected: false,
         },
         FileEntry {
@@ -169,7 +170,7 @@ fn test_reload_optimization_and_persistence() {
             is_symlink: false,
             size: None,
             modified: None,
-            attributes: "".to_string(),
+            attributes: String::new(),
             selected: false,
         },
     ];
@@ -191,7 +192,7 @@ fn test_reload_optimization_and_persistence() {
             is_symlink: false,
             size: None,
             modified: None,
-            attributes: "".to_string(),
+            attributes: String::new(),
             selected: false,
         },
         FileEntry {
@@ -200,7 +201,7 @@ fn test_reload_optimization_and_persistence() {
             is_symlink: false,
             size: Some(20),
             modified: None,
-            attributes: "".to_string(),
+            attributes: String::new(),
             selected: false,
         },
     ];

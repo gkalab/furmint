@@ -440,8 +440,7 @@ mod tests {
         // Note: actual size may vary due to filesystem block allocation
         assert!(
             size >= 25,
-            "Directory size should be at least 25 bytes, got {}",
-            size
+            "Directory size should be at least 25 bytes, got {size}"
         );
 
         // Clean up

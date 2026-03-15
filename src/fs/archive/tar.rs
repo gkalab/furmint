@@ -3,7 +3,6 @@ use super::common::{self, ArchiveEntryMetadata};
 use crate::fs::traits::TaskProgressContext;
 use crate::fs::utils::mode_to_attributes;
 use anyhow::{Context, Result};
-use filetime::{FileTime, set_file_mtime};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek};
@@ -202,84 +201,43 @@ impl ArchiveFormat for TarHandler {
         // Fallback to Rust implementation
         let reader = self.get_reader()?;
         let mut archive = tar::Archive::new(reader);
-        let is_root = src_str.is_empty() || src_str == ".";
         let mut dir_mtimes = Vec::new();
         let mut last_update = std::time::Instant::now();
+        let opts = common::ExtractOptions {
+            src_str,
+            dest,
+            is_dir,
+            progress,
+        };
 
         for entry in archive.entries()? {
             if progress.cancel.load(Ordering::Relaxed) {
                 return Ok(());
             }
             let mut entry = entry?;
-            let name_raw = entry.path()?.to_string_lossy().replace('\\', "/");
-            let name = name_raw.trim_end_matches('/');
+            let name_raw = entry.path()?.to_string_lossy().to_string();
+            let is_entry_dir = entry.header().entry_type().is_dir();
+            let is_symlink = entry.header().entry_type().is_symlink();
+            let size = entry.size();
+            let mtime = entry
+                .header()
+                .mtime()
+                .ok()
+                .map(|m| SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(m));
 
-            let should_extract = if is_root {
-                true
-            } else {
-                name == src_str || name.starts_with(&format!("{src_str}/"))
-            };
-
-            if should_extract {
-                let rel_path = if is_root {
-                    PathBuf::from(name)
-                } else {
-                    Path::new(name)
-                        .strip_prefix(src_str)
-                        .map_or_else(|_| PathBuf::from(name), std::path::Path::to_path_buf)
-                };
-
-                let rel_name_str = rel_path.to_string_lossy().to_string();
-                if rel_name_str.is_empty() && entry.header().entry_type().is_dir() {
-                    continue;
-                }
-
-                let target = if rel_name_str.is_empty() {
-                    dest.to_path_buf()
-                } else {
-                    dest.join(&rel_name_str)
-                };
-                let mtime = entry
-                    .header()
-                    .mtime()
-                    .ok()
-                    .map(|m| SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(m));
-
-                if entry.header().entry_type().is_dir() {
-                    std::fs::create_dir_all(&target)?;
-                    if let Some(mt) = mtime {
-                        dir_mtimes.push((target, mt));
-                    }
-                } else {
-                    if let Some(parent) = target.parent() {
-                        std::fs::create_dir_all(parent)?;
-                    }
-                    let mut out = File::create(&target)?;
-                    std::io::copy(&mut entry, &mut out)?;
-                    let size = entry.size();
-                    progress.processed_bytes.fetch_add(size, Ordering::Relaxed);
-                    if let Some(mt) = mtime {
-                        let _ = set_file_mtime(&target, FileTime::from_system_time(mt));
-                    }
-                }
-
-                let p = progress.processed_items.fetch_add(1, Ordering::Relaxed) + 1;
-                let now = std::time::Instant::now();
-                if p.is_multiple_of(10)
-                    || now.duration_since(last_update) > std::time::Duration::from_millis(100)
-                {
-                    let _ = progress.tx.send(crate::tasks::TaskEvent::UpdateCurrentFile(
-                        progress.id,
-                        rel_name_str,
-                    ));
-                    let _ = progress.tx.send(crate::tasks::TaskEvent::UpdateProgress(
-                        progress.id,
-                        p,
-                        0,
-                    ));
-                    last_update = now;
-                }
-            }
+            common::handle_extraction_entry(
+                &mut entry,
+                &common::ExtractionEntryMetadata {
+                    name_raw: &name_raw,
+                    is_dir: is_entry_dir,
+                    is_symlink,
+                    size,
+                    mtime,
+                },
+                &opts,
+                &mut dir_mtimes,
+                &mut last_update,
+            )?;
         }
 
         common::preserve_mtimes(dir_mtimes);

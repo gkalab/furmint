@@ -38,6 +38,16 @@ impl RenameState {
     }
 }
 
+impl crate::state::PopupState for RenameState {
+    fn reset(&mut self) {
+        self.reset();
+    }
+
+    fn set_visible(&mut self, visible: bool) {
+        self.is_visible = visible;
+    }
+}
+
 impl Default for RenameState {
     fn default() -> Self {
         Self::new()

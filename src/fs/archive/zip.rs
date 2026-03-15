@@ -4,7 +4,6 @@ use crate::fs::traits::TaskProgressContext;
 use crate::fs::utils::mode_to_attributes;
 use anyhow::{Context, Result};
 use chrono::TimeZone;
-use filetime::{FileTime, set_file_mtime};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
@@ -110,7 +109,7 @@ impl ZipHandler {
         &self,
         src_str: &str,
         dest: &Path,
-        _is_dir: bool,
+        is_dir: bool,
         progress: &TaskProgressContext,
     ) -> Result<()> {
         let file = File::open(&self.path).context("Failed to open archive")?;
@@ -139,73 +138,36 @@ impl ZipHandler {
             return Ok(());
         }
 
+        let opts = common::ExtractOptions {
+            src_str,
+            dest,
+            is_dir,
+            progress,
+        };
+
         for i in 0..archive.len() {
             if progress.cancel.load(Ordering::Relaxed) {
                 return Ok(());
             }
             let mut zip_file = archive.by_index(i).context("Failed to get zip index")?;
             let name_raw = zip_file.name().to_string();
-            let name = name_raw.replace('\\', "/");
-            let name = name.trim_end_matches('/');
+            let is_entry_dir = zip_file.is_dir() | name_raw.ends_with('/');
+            let size = zip_file.size();
+            let mtime = Some(Self::zip_dt_to_system_time(zip_file.last_modified()));
 
-            let should_extract = if is_root {
-                true
-            } else {
-                name == src_str || name.starts_with(&format!("{src_str}/"))
-            };
-
-            if should_extract {
-                let rel_path = if is_root {
-                    PathBuf::from(name)
-                } else {
-                    Path::new(name)
-                        .strip_prefix(src_str)
-                        .map_or_else(|_| PathBuf::from(name), std::path::Path::to_path_buf)
-                };
-
-                let rel_name_str = rel_path.to_string_lossy().to_string();
-                if rel_name_str.is_empty() && zip_file.is_dir() {
-                    continue;
-                }
-
-                let target = if rel_name_str.is_empty() {
-                    dest.to_path_buf()
-                } else {
-                    dest.join(&rel_name_str)
-                };
-                let mtime = Self::zip_dt_to_system_time(zip_file.last_modified());
-
-                if zip_file.is_dir() || name_raw.ends_with('/') {
-                    std::fs::create_dir_all(&target)?;
-                    dir_mtimes.push((target, mtime));
-                } else {
-                    if let Some(parent) = target.parent() {
-                        std::fs::create_dir_all(parent)?;
-                    }
-                    let mut out = File::create(&target)?;
-                    std::io::copy(&mut zip_file, &mut out)?;
-                    let size = zip_file.size();
-                    progress.processed_bytes.fetch_add(size, Ordering::Relaxed);
-                    let _ = set_file_mtime(&target, FileTime::from_system_time(mtime));
-                }
-
-                let p = progress.processed_items.fetch_add(1, Ordering::Relaxed) + 1;
-                let now = std::time::Instant::now();
-                if p.is_multiple_of(10)
-                    || now.duration_since(last_update) > std::time::Duration::from_millis(100)
-                {
-                    let _ = progress.tx.send(crate::tasks::TaskEvent::UpdateCurrentFile(
-                        progress.id,
-                        rel_name_str,
-                    ));
-                    let _ = progress.tx.send(crate::tasks::TaskEvent::UpdateProgress(
-                        progress.id,
-                        p,
-                        0,
-                    ));
-                    last_update = now;
-                }
-            }
+            common::handle_extraction_entry(
+                &mut zip_file,
+                &common::ExtractionEntryMetadata {
+                    name_raw: &name_raw,
+                    is_dir: is_entry_dir,
+                    is_symlink: false, // ZipFile doesn't expose symlink easily here, assuming false for now
+                    size,
+                    mtime,
+                },
+                &opts,
+                &mut dir_mtimes,
+                &mut last_update,
+            )?;
         }
 
         common::preserve_mtimes(dir_mtimes);

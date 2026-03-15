@@ -153,7 +153,7 @@ impl SshManager {
         let grace = Duration::from_secs(self.read_timeout_secs);
         let hard = Duration::from_secs(self.watchdog_secs);
         let keepalive = self.keepalive_interval;
-        let session_id = self.generate_session_id(&host, port);
+        let session_id = Self::generate_session_id(&host, port);
 
         self.spawn_blocking_with_watchdog(
             move || -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
@@ -267,7 +267,7 @@ impl SshManager {
     }
 
     #[must_use]
-    pub fn generate_session_id(&self, host: &str, port: u16) -> String {
+    pub fn generate_session_id(host: &str, port: u16) -> String {
         use std::time::SystemTime;
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -297,7 +297,7 @@ impl SshManager {
             .into_std()
             .map_err(|e| SshError::Internal(e.to_string()))?;
 
-        let session_id = self.generate_session_id(&host, port);
+        let session_id = Self::generate_session_id(&host, port);
 
         let grace = Duration::from_secs(self.read_timeout_secs);
         let hard = Duration::from_secs(self.watchdog_secs);
@@ -594,25 +594,19 @@ mod tests {
         let got = d.as_secs_f64();
         assert!(
             got >= low && got <= high,
-            "got {} not in [{}..{}]",
-            got,
-            low,
-            high
+            "got {got} not in [{low}..{high}]"
         );
     }
 
     #[test]
     fn test_generate_session_id() {
-        let mgr = SshManager::new(None);
-
-        let id1 = mgr.generate_session_id("example.com", 22);
+        let id1 = SshManager::generate_session_id("example.com", 22);
         assert!(id1.starts_with("ssh_example.com_22_"));
         // Verify it contains a timestamp-like suffix
         let suffix = &id1["ssh_example.com_22_".len()..];
         assert!(
             suffix.parse::<u64>().is_ok(),
-            "suffix should be numeric: {}",
-            suffix
+            "suffix should be numeric: {suffix}"
         );
     }
 

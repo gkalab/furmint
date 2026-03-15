@@ -37,7 +37,7 @@ fn test_app_with_entry(name: &str, is_dir: bool, path: &std::path::Path) -> AppS
         popups: fm::app::Popups::new(),
         task_manager: fm::tasks::TaskManager::new(task_tx),
         ssh_manager: std::sync::Arc::new(SshManager::default()),
-        task_decision_txs: Default::default(),
+        task_decision_txs: std::collections::HashMap::new(),
         show_task_manager: false,
         dir_history: fm::dir_history::DirectoryHistory::new().unwrap(),
         watcher: None,
@@ -131,8 +131,8 @@ fn test_rename_navigation() {
 fn test_rename_overwrite_flow() {
     use std::fs::File;
     // Use tempfile for guaranteed isolation and cleanup
-    let tmp_dir = tempfile::tempdir().unwrap();
-    let temp_dir = tmp_dir.path();
+    let temp = tempfile::tempdir().unwrap();
+    let temp_dir = temp.path();
 
     let file1 = temp_dir.join("file1.txt");
     let file2 = temp_dir.join("file2.txt");

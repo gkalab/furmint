@@ -67,14 +67,14 @@ fn minimal_state_with_entries(
         right: make_tab_manager(make_tab("/right", right_entries, right_cursor)),
         active,
         // Popups and config fields as default/minimal:
-        file_viewer: Default::default(),
-        fuzzy_search: Default::default(),
+        file_viewer: fm::state::FileViewerState::default(),
+        fuzzy_search: fm::ui::fuzzy_search_ui::FuzzySearchState::default(),
         popups: fm::app::Popups::new(),
         task_manager: TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
         ssh_manager: std::sync::Arc::new(SshManager::default()),
         task_decision_txs: HashMap::new(),
         show_task_manager: false,
-        dir_history: Default::default(),
+        dir_history: fm::dir_history::DirectoryHistory::default(),
         watcher: None,
         input_polling_handle: None,
         needs_redraw: false,
@@ -340,7 +340,7 @@ fn test_handle_clipboard_action_sets_message() {
         is_symlink: false,
         size: Some(10),
         modified: None,
-        attributes: "".to_string(),
+        attributes: String::new(),
         selected: true,
     }];
     let mut app = minimal_state_with_entries(PanelSide::Left, entries, vec![], 0, 0);

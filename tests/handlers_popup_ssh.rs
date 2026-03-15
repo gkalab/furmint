@@ -27,7 +27,7 @@ fn basic_app_state() -> AppState {
         popups: fm::app::Popups::new(),
         task_manager: TaskManager::new(task_tx),
         ssh_manager: std::sync::Arc::new(SshManager::default()),
-        task_decision_txs: Default::default(),
+        task_decision_txs: std::collections::HashMap::new(),
         show_task_manager: false,
         dir_history: DirectoryHistory::new().unwrap(),
         watcher: None,
@@ -161,10 +161,11 @@ fn test_ssh_insert_delete() {
 
 #[test]
 fn test_history_search_reset() {
+    use fm::ssh_history::SshConnectionInfo;
+    use std::time::Instant;
     let mut app = basic_app_state();
     handle_ssh_connection_init(&mut app);
 
-    use fm::ssh_history::SshConnectionInfo;
     app.ssh_history.connections.push(SshConnectionInfo {
         name: Some("Target".to_string()),
         connection_string: "user@target".to_string(),
@@ -185,9 +186,11 @@ fn test_history_search_reset() {
 
     // Wait is simulated by manually clearing or manipulating last_key_time
     // but the core logic can be tested by making a second call with a past instant
-    use std::time::Instant;
-    app.popups.ssh_connection.last_key_time =
-        Some(Instant::now() - std::time::Duration::from_secs(2));
+    app.popups.ssh_connection.last_key_time = Some(
+        Instant::now()
+            .checked_sub(std::time::Duration::from_secs(2))
+            .unwrap(),
+    );
     handle_history_search(&mut app, 'z');
     assert_eq!(app.popups.ssh_connection.search_query, "z");
 }

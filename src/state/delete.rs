@@ -26,6 +26,16 @@ impl DeleteState {
     }
 }
 
+impl crate::state::PopupState for DeleteState {
+    fn reset(&mut self) {
+        self.reset();
+    }
+
+    fn set_visible(&mut self, visible: bool) {
+        self.is_visible = visible;
+    }
+}
+
 impl Default for DeleteState {
     fn default() -> Self {
         Self::new()

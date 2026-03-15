@@ -77,13 +77,7 @@ impl FileSystem for MockFileSystem {
             && !self.removed_files.lock().await.contains(path))
     }
     async fn is_dir(&self, path: &Path) -> anyhow::Result<bool> {
-        Ok(self
-            .files
-            .lock()
-            .await
-            .get(path)
-            .map(|e| e.is_dir)
-            .unwrap_or(false))
+        Ok(self.files.lock().await.get(path).is_some_and(|e| e.is_dir))
     }
     async fn create_dir_all(&self, path: &Path) -> anyhow::Result<()> {
         let mut fail = self.fail_next_create_dir.lock().await;
@@ -676,15 +670,14 @@ async fn test_move_rename_optimization_no_conflict() {
     // We wrap it in timeout to avoid hanging if the bug is present
     let res = tokio::time::timeout(std::time::Duration::from_millis(500), res).await;
 
-    match res {
-        Ok(r) => assert!(r.is_ok(), "Operation failed: {:?}", r.err()),
-        Err(_) => {
-            // Check if there was a conflict event
-            if let Ok(TaskEvent::Conflict(_, _, _)) = rx.try_recv() {
-                panic!("BUG DETECTED: Conflict triggered for successful move!");
-            }
-            panic!("Operation timed out - likely waiting for conflict resolution!");
+    if let Ok(r) = res {
+        assert!(r.is_ok(), "Operation failed: {:?}", r.err());
+    } else {
+        // Check if there was a conflict event
+        if let Ok(TaskEvent::Conflict(_, _, _)) = rx.try_recv() {
+            panic!("BUG DETECTED: Conflict triggered for successful move!");
         }
+        panic!("Operation timed out - likely waiting for conflict resolution!");
     }
 
     assert!(!fs.try_exists(&src).await.unwrap());

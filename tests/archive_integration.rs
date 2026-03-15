@@ -24,7 +24,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
 use tokio::sync::mpsc;
 
-/// Mock file opener that records if open() was called
+/// Mock file opener that records if `open()` was called
 struct MockOpener {
     called: AtomicBool,
 }
@@ -157,7 +157,7 @@ async fn test_open_supported_archive_tar_gz() {
             assert_eq!(filename, "test.tar.gz");
             assert_eq!(path, archive_path);
         }
-        _ => panic!("Expected ArchiveLoaded event, got {:?}", event),
+        _ => panic!("Expected ArchiveLoaded event, got {event:?}"),
     }
 }
 
@@ -471,7 +471,7 @@ async fn test_archive_download_cancellation() {
 
         // Create many files to ensure we have time to cancel
         for i in 0..1000 {
-            zip.start_file(format!("file_{}.txt", i), options).unwrap();
+            zip.start_file(format!("file_{i}.txt"), options).unwrap();
             zip.write_all(b"some data").unwrap();
         }
 
@@ -580,13 +580,11 @@ async fn test_zip_timestamp_preservation() {
 
     assert!(
         diff_file < Duration::from_secs(2),
-        "File timestamp diff too large: {:?}",
-        diff_file
+        "File timestamp diff too large: {diff_file:?}"
     );
     assert!(
         diff_dir < Duration::from_secs(2),
-        "Dir timestamp diff too large: {:?}",
-        diff_dir
+        "Dir timestamp diff too large: {diff_dir:?}"
     );
 }
 
@@ -596,8 +594,8 @@ async fn test_tar_timestamp_preservation() {
     let archive_path = temp_dir.path().join("test.tar.gz");
     let dest_dir = temp_dir.path().join("extracted_tar");
 
-    let past_time_secs = 1735732800; // 2025-01-01 12:00:00 UTC
-    let expected = SystemTime::UNIX_EPOCH + Duration::from_secs(past_time_secs);
+    let mtime = 1_735_732_800; // 2025-01-01 12:00:00 UTC
+    let expected = SystemTime::UNIX_EPOCH + Duration::from_secs(mtime);
 
     {
         let file = File::create(&archive_path).unwrap();
@@ -609,7 +607,7 @@ async fn test_tar_timestamp_preservation() {
         dir_header.set_entry_type(tar::EntryType::Directory);
         dir_header.set_mode(0o755);
         dir_header.set_size(0);
-        dir_header.set_mtime(past_time_secs);
+        dir_header.set_mtime(mtime);
         dir_header.set_cksum();
         tar.append_data(&mut dir_header, "dir", &[] as &[u8])
             .unwrap();
@@ -618,7 +616,7 @@ async fn test_tar_timestamp_preservation() {
         let mut file_header = tar::Header::new_gnu();
         file_header.set_mode(0o644);
         file_header.set_size(7);
-        file_header.set_mtime(past_time_secs);
+        file_header.set_mtime(mtime);
         file_header.set_cksum();
         tar.append_data(&mut file_header, "dir/file.txt", b"content" as &[u8])
             .unwrap();
@@ -664,13 +662,11 @@ async fn test_tar_timestamp_preservation() {
 
     assert!(
         diff_file < Duration::from_secs(1),
-        "File timestamp diff too large: {:?}",
-        diff_file
+        "File timestamp diff too large: {diff_file:?}"
     );
     assert!(
         diff_dir < Duration::from_secs(1),
-        "Dir timestamp diff too large: {:?}",
-        diff_dir
+        "Dir timestamp diff too large: {diff_dir:?}"
     );
 }
 
@@ -852,7 +848,7 @@ async fn test_archive_fs_read_and_download_rpm() {
 
         // Payload (uncompressed CPIO)
         let builder = cpio::NewcBuilder::new("file1.txt")
-            .mode(0o100644)
+            .mode(0o100_644)
             .mtime(1000);
         let data = b"hello rpm";
         let mut writer = builder.write(file, u32::try_from(data.len()).unwrap());

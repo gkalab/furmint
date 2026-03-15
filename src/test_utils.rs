@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 #[cfg(any(test, feature = "test-utils"))]
+#[must_use]
 pub fn create_test_tab() -> Tab {
     Tab {
         area: ratatui::layout::Rect::default(),
@@ -31,6 +32,7 @@ pub fn create_test_tab() -> Tab {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
+#[must_use]
 pub fn create_test_tab_with_entries() -> Tab {
     let entries = vec![
         FileEntry {
@@ -88,7 +90,13 @@ pub fn create_test_tab_with_entries() -> Tab {
     }
 }
 
+/// Creates a test application state.
+///
+/// # Panics
+///
+/// Panics if `DirectoryHistory` or `SshConnectionHistory` fails to initialize.
 #[cfg(any(test, feature = "test-utils"))]
+#[must_use]
 pub fn create_test_app() -> AppState {
     let test_tab = create_test_tab();
 

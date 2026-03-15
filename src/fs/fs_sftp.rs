@@ -748,6 +748,7 @@ mod tests {
         assert_eq!(format_permissions(None), "----------");
     }
 
+    #[allow(clippy::struct_excessive_bools)]
     pub struct MockSftp {
         list_entries: Vec<(String, u32)>, // (name, perms)
         fail_list: bool,
@@ -902,8 +903,8 @@ mod tests {
             }
             Ok(())
         }
-        fn sftp(&self) -> std::result::Result<&MockSftp, String> {
-            Ok(self)
+        fn sftp(&self) -> &MockSftp {
+            self
         }
     }
     struct MockFile;
@@ -950,7 +951,7 @@ mod tests {
                 .session
                 .lock()
                 .map_err(|e| format!("Session mutex poisoned: {e}"))?;
-            let sftp = session.sftp()?;
+            let sftp = session.sftp();
             f(sftp)
         }
 
@@ -1260,7 +1261,7 @@ fn test_with_sftp_success() {
             fail_sftp: false,
         }),
     };
-    let result = sftpfs.with_sftp(|sftp| sftp.test_op());
+    let result = sftpfs.with_sftp(DummySftp::test_op);
     assert_eq!(result.unwrap(), "ok");
 }
 #[test]
@@ -1271,7 +1272,7 @@ fn test_with_sftp_sftp_fails() {
             fail_sftp: true,
         }),
     };
-    let result = sftpfs.with_sftp(|sftp| sftp.test_op());
+    let result = sftpfs.with_sftp(DummySftp::test_op);
     assert!(result.is_err());
     assert!(format!("{}", result.unwrap_err()).contains("Failed to open SFTP channel"));
 }
@@ -1284,15 +1285,14 @@ fn test_with_sftp_mutex_poisoned() {
     struct PoisonedSession;
     struct PoisonedSftpFs;
     impl PoisonedSftpFs {
-        fn with_sftp<F, R>(&self, _f: F) -> Result<R>
+        fn with_sftp<F, R>(_f: F) -> Result<R>
         where
             F: FnOnce(&DummySftp) -> Result<R>,
         {
             Err(anyhow!("Session mutex poisoned"))
         }
     }
-    let sftpfs = PoisonedSftpFs;
-    let result = sftpfs.with_sftp(|_| Ok("never"));
+    let result = PoisonedSftpFs::with_sftp(|_| Ok("never"));
     assert!(result.is_err());
     assert!(format!("{}", result.unwrap_err()).contains("Session mutex poisoned"));
 }

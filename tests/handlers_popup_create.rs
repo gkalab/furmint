@@ -25,7 +25,7 @@ fn basic_app_state() -> AppState {
         popups: fm::app::Popups::new(),
         task_manager: fm::tasks::TaskManager::new(task_tx),
         ssh_manager: std::sync::Arc::new(SshManager::default()),
-        task_decision_txs: Default::default(),
+        task_decision_txs: std::collections::HashMap::new(),
         show_task_manager: false,
         dir_history: fm::dir_history::DirectoryHistory::new().unwrap(),
         watcher: None,

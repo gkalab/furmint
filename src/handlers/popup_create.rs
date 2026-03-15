@@ -27,7 +27,6 @@ pub fn handle_create_directory_event(
 ) -> bool {
     match code {
         KeyCode::Esc => {
-            app.popups.create_directory.is_visible = false;
             app.popups.create_directory.reset();
         }
         KeyCode::Enter => {
@@ -42,7 +41,6 @@ pub fn handle_create_directory_event(
             let result = app.active_tab_mut().provider.create_dir(&new_path);
             match result {
                 Ok(()) => {
-                    app.popups.create_directory.is_visible = false;
                     app.popups.create_directory.reset();
                     // Reload active tab and focus on the new directory
                     let _ = app.active_tab_mut().reload_and_focus(&new_name);

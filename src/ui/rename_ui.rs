@@ -92,7 +92,7 @@ pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &RenameState, palette: &
         crate::ui::ui_utils::draw_input_popup(
             f,
             &crate::ui::ui_utils::InputPopupOptions {
-                title: Some(" Rename "),
+                title: Some("Rename"),
                 input_value: &state.new_name,
                 cursor_position: state.cursor_position,
                 error: state.error.as_deref(),
@@ -127,7 +127,7 @@ mod tests {
             original_name: String::from("original.txt"),
             parent_dir: PathBuf::from("/tmp"),
             is_dir: false,
-            error: err.map(|e| e.to_string()),
+            error: err.map(std::string::ToString::to_string),
         }
     }
 

@@ -259,7 +259,7 @@ fn test_can_swap_active_tabs() {
         fn write_file_at(&self, _path: &Path, _offset: u64, _data: &[u8]) -> anyhow::Result<()> {
             Ok(())
         }
-        fn display_prefix(&self) -> &str {
+        fn display_prefix(&self) -> &'static str {
             ""
         }
         fn is_local(&self) -> bool {

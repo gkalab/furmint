@@ -653,7 +653,7 @@ mod tests {
         // Verify destination file exists and has same permissions
         assert!(dst_file.exists());
         let dst_perms = std::fs::metadata(&dst_file).unwrap().permissions().mode() & 0o777;
-        assert_eq!(dst_perms, 0o755, "Expected 0o755, got 0{:o}", dst_perms);
+        assert_eq!(dst_perms, 0o755, "Expected 0o755, got 0{dst_perms:o}");
     }
 
     #[tokio::test]

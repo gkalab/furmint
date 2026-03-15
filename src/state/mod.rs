@@ -29,3 +29,8 @@ pub use quit::QuitConfirmationState;
 pub use remote_edit::RemoteEditState;
 pub use rename::RenameState;
 pub use ssh::{SshConnectionState, SshPasswordState};
+
+pub trait PopupState {
+    fn reset(&mut self);
+    fn set_visible(&mut self, visible: bool);
+}

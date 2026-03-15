@@ -24,6 +24,16 @@ impl CreateDirectoryState {
     }
 }
 
+impl crate::state::PopupState for CreateDirectoryState {
+    fn reset(&mut self) {
+        self.reset();
+    }
+
+    fn set_visible(&mut self, visible: bool) {
+        self.is_visible = visible;
+    }
+}
+
 impl Default for CreateDirectoryState {
     fn default() -> Self {
         Self::new()

@@ -13,7 +13,11 @@ fn test_truncate_middle_with_ellipsis_short() {
 fn test_truncate_middle_with_ellipsis_long() {
     let s = ui_utils::truncate_middle_with_ellipsis("verylongfilename.txt", 10);
     assert!(s.starts_with("very"));
-    assert!(s.ends_with(".txt"));
+    assert!(
+        std::path::Path::new(&s)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("txt"))
+    );
     assert_eq!(s.chars().count(), 10);
 }
 

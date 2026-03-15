@@ -441,7 +441,7 @@ mod tests {
         app.left.tabs[0].entries = vec![entry];
         app.left.tabs[0].current_dir = std::path::PathBuf::from("/tmp");
         app.editor_cfg = EditorConfig {
-            command: Some("".to_string()),
+            command: Some(String::new()),
             in_terminal: Some(true),
         };
         handle_edit(&mut app).await;
@@ -476,7 +476,7 @@ mod tests {
             false
         }
 
-        fn display_prefix(&self) -> &str {
+        fn display_prefix(&self) -> &'static str {
             "mock://"
         }
 

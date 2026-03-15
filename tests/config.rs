@@ -108,7 +108,7 @@ fn test_validate_editor_viewer_config() {
     assert!(validate_editor_config(&editor).is_ok());
 
     let editor_empty = EditorConfig {
-        command: Some("".to_string()),
+        command: Some(String::new()),
         in_terminal: Some(true),
     };
     assert!(validate_editor_config(&editor_empty).is_err());

@@ -263,7 +263,7 @@ mod tests {
             is_symlink: false,
             size: Some(12),
             modified: None,
-            attributes: "".to_string(),
+            attributes: String::new(),
             selected: false,
         }];
         app.right.active_tab_mut().current_dir = std::path::PathBuf::from("/mock");
@@ -297,7 +297,7 @@ mod tests {
             is_symlink: false,
             size: Some(0),
             modified: None,
-            attributes: "".to_string(),
+            attributes: String::new(),
             selected: true,
         }];
 
@@ -340,7 +340,7 @@ mod tests {
                 is_symlink: false,
                 size: Some(10),
                 modified: None,
-                attributes: "".to_string(),
+                attributes: String::new(),
                 selected: false,
             },
             FileEntry {
@@ -349,7 +349,7 @@ mod tests {
                 is_symlink: false,
                 size: Some(10),
                 modified: None,
-                attributes: "".to_string(),
+                attributes: String::new(),
                 selected: false,
             },
         ];

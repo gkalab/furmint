@@ -262,12 +262,12 @@ mod tests {
     /// If someone changes the type to `NoCache`, this test will fail to compile.
     #[test]
     fn test_debouncer_uses_file_id_map() {
-        let (tx, _rx) = mpsc::unbounded_channel();
-        let watcher = AppWatcher::new(&tx).unwrap();
-
         // This is a type-level assertion.
         // We try to pass the debouncer to a function that explicitly expects FileIdMap.
         fn assert_file_id_map_cache<W: notify::Watcher>(_d: &Debouncer<W, FileIdMap>) {}
+
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let watcher = AppWatcher::new(&tx).unwrap();
 
         assert_file_id_map_cache(&watcher.debouncer);
     }

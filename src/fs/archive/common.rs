@@ -149,3 +149,130 @@ pub fn preserve_mtimes(mut dir_mtimes: Vec<(PathBuf, SystemTime)>) {
         let _ = set_file_mtime(&dir, FileTime::from_system_time(mtime));
     }
 }
+
+/// Options for archive extraction.
+pub struct ExtractOptions<'a> {
+    pub src_str: &'a str,
+    pub dest: &'a Path,
+    pub is_dir: bool,
+    pub progress: &'a crate::fs::traits::TaskProgressContext,
+}
+
+/// Metadata for extraction of a single entry.
+pub struct ExtractionEntryMetadata<'a> {
+    pub name_raw: &'a str,
+    pub is_dir: bool,
+    pub is_symlink: bool,
+    pub size: u64,
+    pub mtime: Option<SystemTime>,
+}
+
+/// Handles extraction of a single archive entry.
+///
+/// Returns `Ok(true)` if the entry was extracted, `Ok(false)` if it was skipped.
+///
+/// # Errors
+///
+/// Returns an error if extraction fails.
+pub fn handle_extraction_entry<R: std::io::Read>(
+    mut reader: R,
+    entry_meta: &ExtractionEntryMetadata<'_>,
+    opts: &ExtractOptions,
+    dir_mtimes: &mut Vec<(PathBuf, SystemTime)>,
+    last_update: &mut std::time::Instant,
+) -> anyhow::Result<bool> {
+    let name = entry_meta.name_raw.replace('\\', "/");
+    let name = name.trim_end_matches('/');
+    let is_root = opts.src_str.is_empty() || opts.src_str == ".";
+
+    let should_extract = if is_root {
+        true
+    } else {
+        name == opts.src_str || name.starts_with(&format!("{}/", opts.src_str))
+    };
+
+    if !should_extract {
+        return Ok(false);
+    }
+
+    let rel_path = if is_root {
+        PathBuf::from(name)
+    } else {
+        Path::new(name)
+            .strip_prefix(opts.src_str)
+            .map_or_else(|_| PathBuf::from(name), std::path::Path::to_path_buf)
+    };
+
+    let rel_name_str = rel_path.to_string_lossy().to_string();
+    if rel_name_str.is_empty() && entry_meta.is_dir {
+        return Ok(true);
+    }
+
+    let target = if rel_name_str.is_empty() {
+        opts.dest.to_path_buf()
+    } else {
+        opts.dest.join(&rel_name_str)
+    };
+
+    if entry_meta.is_dir {
+        std::fs::create_dir_all(&target)?;
+        if let Some(mt) = entry_meta.mtime {
+            dir_mtimes.push((target, mt));
+        }
+    } else if entry_meta.is_symlink {
+        let mut link_target = Vec::new();
+        reader.read_to_end(&mut link_target)?;
+        #[cfg(unix)]
+        {
+            let link_target_str = String::from_utf8_lossy(&link_target);
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            if target.exists() {
+                let _ = std::fs::remove_file(&target);
+            }
+            std::os::unix::fs::symlink(link_target_str.as_ref(), &target)?;
+        }
+    } else {
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let mut out = std::fs::File::create(&target)?;
+        std::io::copy(&mut reader, &mut out)?;
+        opts.progress
+            .processed_bytes
+            .fetch_add(entry_meta.size, std::sync::atomic::Ordering::Relaxed);
+        if let Some(mt) = entry_meta.mtime {
+            let _ = set_file_mtime(&target, FileTime::from_system_time(mt));
+        }
+    }
+
+    let p = opts
+        .progress
+        .processed_items
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        + 1;
+    let now = std::time::Instant::now();
+    if p.is_multiple_of(10)
+        || now.duration_since(*last_update) > std::time::Duration::from_millis(100)
+    {
+        let _ = opts
+            .progress
+            .tx
+            .send(crate::tasks::TaskEvent::UpdateCurrentFile(
+                opts.progress.id,
+                rel_name_str,
+            ));
+        let _ = opts
+            .progress
+            .tx
+            .send(crate::tasks::TaskEvent::UpdateProgress(
+                opts.progress.id,
+                p,
+                0,
+            ));
+        *last_update = now;
+    }
+
+    Ok(true)
+}

@@ -511,6 +511,7 @@ impl AppState {
     }
 
     #[cfg(any(test, feature = "test-utils"))]
+    #[must_use]
     pub fn test_default() -> Self {
         crate::test_utils::create_test_app()
     }

@@ -26,4 +26,5 @@ pub mod editor;
 pub mod external;
 pub mod input;
 pub mod input_utils;
+pub mod popup_utils;
 pub mod terminal;

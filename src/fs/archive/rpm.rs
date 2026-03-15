@@ -1,4 +1,4 @@
-use crate::fs::archive::{ArchiveFormat, ScanResult};
+use crate::fs::archive::{ArchiveFormat, ScanResult, common};
 use crate::fs::fs_archive::ArchiveEntry;
 use crate::fs::traits::TaskProgressContext;
 use crate::fs::utils::FileEntry;
@@ -444,76 +444,59 @@ impl ArchiveFormat for RpmHandler {
     ) -> Result<()> {
         let mut reader = self.get_payload_reader()?;
 
+        let opts = common::ExtractOptions {
+            src_str: src_path,
+            dest,
+            is_dir,
+            progress,
+        };
+
+        let mut dir_mtimes = Vec::new();
+        let mut last_update = std::time::Instant::now();
+
         loop {
             let Ok(mut entry_reader) = NewcReader::new(reader) else {
                 break;
             };
 
-            let name = entry_reader.entry().name().to_string();
-            if name == "TRAILER!!!" {
+            let name_raw = entry_reader.entry().name().to_string();
+            if name_raw == "TRAILER!!!" {
                 break;
             }
 
-            let p = PathBuf::from(name.trim_start_matches('.').trim_start_matches('/'));
-            let p_str = p.to_string_lossy().replace('\\', "/");
-            let p_str = p_str.trim_end_matches('/');
+            let name = name_raw.trim_start_matches('.').trim_start_matches('/');
+            let is_entry_dir = entry_reader.entry().mode() & 0o040_000 != 0;
+            let is_symlink = entry_reader.entry().mode() & 0o120_000 == 0o120_000;
+            let size = u64::from(entry_reader.entry().file_size());
+            let mtime = Some(
+                std::time::SystemTime::UNIX_EPOCH
+                    + std::time::Duration::from_secs(u64::from(entry_reader.entry().mtime())),
+            );
 
-            let should_extract = if is_dir {
-                if src_path == "." || src_path.is_empty() {
-                    true
-                } else {
-                    p_str == src_path || p_str.starts_with(&format!("{src_path}/"))
-                }
-            } else {
-                p_str == src_path
-            };
+            common::handle_extraction_entry(
+                &mut entry_reader,
+                &common::ExtractionEntryMetadata {
+                    name_raw: name,
+                    is_dir: is_entry_dir,
+                    is_symlink,
+                    size,
+                    mtime,
+                },
+                &opts,
+                &mut dir_mtimes,
+                &mut last_update,
+            )?;
 
-            if should_extract {
-                let target = if is_dir {
-                    let rel_path = p.strip_prefix(src_path).unwrap_or(&p);
-                    dest.join(rel_path)
-                } else {
-                    dest.to_path_buf()
-                };
-
-                if entry_reader.entry().mode() & 0o040_000 != 0 {
-                    std::fs::create_dir_all(&target)?;
-                } else if entry_reader.entry().mode() & 0o120_000 == 0o120_000 {
-                    let mut link_target = Vec::new();
-                    entry_reader.read_to_end(&mut link_target)?;
-                    #[cfg(unix)]
-                    {
-                        let link_target_str = String::from_utf8_lossy(&link_target);
-                        std::os::unix::fs::symlink(link_target_str.as_ref(), &target)?;
-                    }
-                } else {
-                    if let Some(parent) = target.parent() {
-                        std::fs::create_dir_all(parent)?;
-                    }
-                    let mut out = File::create(&target)?;
-                    std::io::copy(&mut entry_reader, &mut out)?;
-
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::fs::PermissionsExt;
-                        std::fs::set_permissions(
-                            &target,
-                            std::fs::Permissions::from_mode(entry_reader.entry().mode()),
-                        )?;
-                    }
-                }
-
-                let p_count = progress.processed_items.fetch_add(1, Ordering::Relaxed) + 1;
-                if p_count.is_multiple_of(10) {
-                    let _ = progress.tx.send(crate::tasks::TaskEvent::UpdateProgress(
-                        progress.id,
-                        p_count,
-                        0,
-                    ));
-                }
-            }
             reader = entry_reader.finish()?;
         }
+
+        common::preserve_mtimes(dir_mtimes);
+        let p_final = progress.processed_items.load(Ordering::Relaxed);
+        let _ = progress.tx.send(crate::tasks::TaskEvent::UpdateProgress(
+            progress.id,
+            p_final,
+            0,
+        ));
 
         let p_final = progress.processed_items.load(Ordering::Relaxed);
         let _ = progress.tx.send(crate::tasks::TaskEvent::UpdateProgress(
