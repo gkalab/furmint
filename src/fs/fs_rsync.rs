@@ -504,8 +504,8 @@ mod tests {
         let result = parse_rsync_progress(line);
         assert!(result.is_some());
         let progress = result.unwrap();
-        assert_eq!(progress.bytes_transferred, 1234567);
-        assert_eq!(progress.total_bytes, 2743482); // 1234567 / 0.45
+        assert_eq!(progress.bytes_transferred, 1_234_567);
+        assert_eq!(progress.total_bytes, 2_743_482); // 1234567 / 0.45
     }
 
     #[test]

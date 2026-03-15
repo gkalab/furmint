@@ -7,6 +7,10 @@ edition = "2024"
 winres = "0.1"
 
 [dev-dependencies]
+fm = { path = ".", features = ["test-utils"] }
+
+[features]
+test-utils = []
 
 [dependencies]
 async-trait = "0.1"

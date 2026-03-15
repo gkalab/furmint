@@ -13,6 +13,7 @@ pub mod ssh_history;
 pub mod ssh_manager;
 pub mod state;
 pub mod tasks;
+pub mod test_utils;
 pub mod theme;
 pub mod ui;
 
