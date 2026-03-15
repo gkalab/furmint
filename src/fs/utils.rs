@@ -346,17 +346,11 @@ pub fn is_executable(full_path: &std::path::Path, e: &FileEntry) -> bool {
     }
     #[cfg(windows)]
     {
-        let _ = full_path;
-        let lower = e.name.to_lowercase();
-        Path::new(&lower)
-            .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case(".exe"))
-            || Path::new(&lower)
-                .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case(".bat"))
-            || Path::new(&lower)
-                .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case(".cmd"))
+        if let Some(ext) = full_path.extension().and_then(|e| e.to_str()) {
+            let ext = ext.to_ascii_lowercase();
+            return matches!(ext.as_str(), "exe" | "bat" | "cmd" | "com");
+        }
+        false
     }
 }
 
@@ -553,10 +547,8 @@ mod tests {
         #[cfg(windows)]
         {
             // Test executable detection by file extension on Windows
-            let fake_path = std::path::PathBuf::from("C:\\nonexistent\\file.exe");
-
-            let exe_entry = FileEntry {
-                name: "program.exe".to_string(),
+            let some_entry = FileEntry {
+                name: "some_name".to_string(),
                 is_dir: false,
                 is_symlink: false,
                 size: Some(1024),
@@ -565,31 +557,17 @@ mod tests {
                 selected: false,
             };
 
-            assert!(is_executable(&fake_path, &exe_entry));
+            let fake_path = std::path::PathBuf::from("C:\\nonexistent\\program.exe");
+            assert!(is_executable(&fake_path, &some_entry));
 
-            let bat_entry = FileEntry {
-                name: "script.bat".to_string(),
-                is_dir: false,
-                is_symlink: false,
-                size: Some(512),
-                modified: None,
-                attributes: "<FILE>".to_string(),
-                selected: false,
-            };
+            let fake_path = std::path::PathBuf::from("C:\\nonexistent\\script.bat");
+            assert!(is_executable(&fake_path, &some_entry));
 
-            assert!(is_executable(&fake_path, &bat_entry));
+            let fake_path = std::path::PathBuf::from("C:\\nonexistent\\command.com");
+            assert!(is_executable(&fake_path, &some_entry));
 
-            let cmd_entry = FileEntry {
-                name: "command.cmd".to_string(),
-                is_dir: false,
-                is_symlink: false,
-                size: Some(256),
-                modified: None,
-                attributes: "<FILE>".to_string(),
-                selected: false,
-            };
-
-            assert!(is_executable(&fake_path, &cmd_entry));
+            let fake_path = std::path::PathBuf::from("C:\\nonexistent\\script.cmd");
+            assert!(is_executable(&fake_path, &some_entry));
 
             let txt_entry = FileEntry {
                 name: "document.txt".to_string(),
@@ -601,7 +579,8 @@ mod tests {
                 selected: false,
             };
 
-            assert!(!is_executable(&fake_path, &txt_entry));
+            let fake_path = std::path::PathBuf::from("C:\\nonexistent\\document.txt");
+            assert!(!is_executable(&fake_path, &some_entry));
 
             let dir_entry = FileEntry {
                 name: "folder".to_string(),
@@ -612,7 +591,6 @@ mod tests {
                 attributes: "<DIR>".to_string(),
                 selected: false,
             };
-
             assert!(!is_executable(&fake_path, &dir_entry));
         }
     }
