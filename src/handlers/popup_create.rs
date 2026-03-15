@@ -73,7 +73,6 @@ pub async fn handle_create_file_event(
     code: KeyCode,
     modifiers: KeyModifiers,
     app: &mut AppState,
-    input_tx: &tokio::sync::mpsc::UnboundedSender<crossterm::event::Event>,
 ) -> bool {
     use std::path::Path;
     match code {
@@ -149,7 +148,6 @@ pub async fn handle_create_file_event(
                 app,
                 &path_buf,
                 file_name_opt,
-                input_tx,
             )
             .await;
             if let Err(e) = editor_result {

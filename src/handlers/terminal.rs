@@ -278,10 +278,7 @@ pub fn handle_open_terminal(app: &mut AppState) {
 /// # Errors
 ///
 /// Returns an error if the console cannot be toggled.
-pub async fn handle_toggle_console(
-    app: &mut AppState,
-    input_tx: &tokio::sync::mpsc::UnboundedSender<crossterm::event::Event>,
-) -> anyhow::Result<()> {
+pub async fn handle_toggle_console(app: &mut AppState) -> anyhow::Result<()> {
     // 1. Abort input polling
     if let Some(handle) = app.input_polling_handle.take() {
         handle.abort();
@@ -343,10 +340,7 @@ pub async fn handle_toggle_console(
         std::io::stdout().execute(EnableMouseCapture)?;
     }
 
-    // 7. Restart input polling
-    app.input_polling_handle = Some(crate::event_loop::spawn_input_polling(input_tx.clone()));
-
-    // 8. Refresh all tabs in both panels
+    // 7. Refresh all tabs in both panels
     let refresh_tab = |tab: &mut crate::app::Tab| {
         if let Ok(entries) = tab.provider.list_dir(&tab.current_dir) {
             tab.entries = entries;

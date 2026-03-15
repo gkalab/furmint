@@ -15,12 +15,7 @@ use crate::handlers::popup_ssh::{handle_ssh_connection_event, handle_ssh_passwor
 use crate::handlers::terminal::handle_toggle_console;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 
-pub async fn route_event(
-    ev: Event,
-    app: &mut AppState,
-    keyboard: &KeyboardConfig,
-    input_tx: tokio::sync::mpsc::UnboundedSender<crossterm::event::Event>,
-) -> bool {
+pub async fn route_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) -> bool {
     match ev {
         Event::Key(KeyEvent {
             kind: crossterm::event::KeyEventKind::Press,
@@ -38,14 +33,13 @@ pub async fn route_event(
             }
 
             // 2. Handle Visible Popups
-            if let Some(handled) = handle_popup_events(app, code, modifiers, &input_tx).await {
+            if let Some(handled) = handle_popup_events(app, code, modifiers).await {
                 return handled;
             }
 
             // 3. Handle File Viewer and Global Toggles
             if let Some(handled) =
-                handle_global_interceptors(app, keyboard, code, modifiers, &shortcut, &input_tx)
-                    .await
+                handle_global_interceptors(app, keyboard, code, modifiers, &shortcut).await
             {
                 return handled;
             }
@@ -57,10 +51,7 @@ pub async fn route_event(
             }
 
             // 4. Default to main panel
-            crate::handlers::input::handle_main_panel_event(
-                code, modifiers, app, keyboard, input_tx,
-            )
-            .await
+            crate::handlers::input::handle_main_panel_event(code, modifiers, app, keyboard).await
         }
         Event::Mouse(mouse_event) => {
             crate::handlers::mouse::handle_mouse_event(app, mouse_event);
@@ -111,7 +102,6 @@ async fn handle_popup_events(
     app: &mut AppState,
     code: KeyCode,
     modifiers: KeyModifiers,
-    input_tx: &tokio::sync::mpsc::UnboundedSender<crossterm::event::Event>,
 ) -> Option<bool> {
     if app.popups.error.is_visible {
         return Some(handle_error_event(code, app).await);
@@ -137,7 +127,7 @@ async fn handle_popup_events(
         return Some(handle_create_directory_event(code, modifiers, app));
     }
     if app.popups.create_file.is_visible {
-        return Some(handle_create_file_event(code, modifiers, app, input_tx).await);
+        return Some(handle_create_file_event(code, modifiers, app).await);
     }
     if app.popups.delete.is_visible {
         return Some(handle_delete_event(code, app));
@@ -173,7 +163,6 @@ async fn handle_global_interceptors(
     code: KeyCode,
     modifiers: KeyModifiers,
     shortcut: &str,
-    input_tx: &tokio::sync::mpsc::UnboundedSender<crossterm::event::Event>,
 ) -> Option<bool> {
     // F3 / Viewer toggle
     if code == KeyCode::F(3) && modifiers == KeyModifiers::NONE {
@@ -212,7 +201,7 @@ async fn handle_global_interceptors(
         .is_some_and(|keys| keys.iter().any(|s| s == shortcut));
 
     if toggle_console_match {
-        if let Err(e) = handle_toggle_console(app, input_tx).await {
+        if let Err(e) = handle_toggle_console(app).await {
             app.active_tab_mut().error = Some(format!("Error toggling console: {e}"));
         }
         return Some(false);

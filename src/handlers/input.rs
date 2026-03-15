@@ -28,7 +28,6 @@ pub async fn handle_main_panel_event(
     modifiers: KeyModifiers,
     app: &mut AppState,
     keyboard: &KeyboardConfig,
-    input_tx: tokio::sync::mpsc::UnboundedSender<crossterm::event::Event>,
 ) -> bool {
     let shortcut = keyevent_to_string(code, modifiers);
 
@@ -65,7 +64,7 @@ pub async fn handle_main_panel_event(
         && keys.contains(&shortcut)
     {
         // Await edit action, pass input_tx
-        handle_edit(app, input_tx.clone()).await;
+        handle_edit(app).await;
         return false;
     }
 

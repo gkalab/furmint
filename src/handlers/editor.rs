@@ -3,12 +3,11 @@
 use crate::app::AppState;
 use crate::fs::fs_provider::FileSystemProvider;
 use crossterm::ExecutableCommand;
-use crossterm::event::{DisableMouseCapture, EnableMouseCapture, Event as CrosstermEvent};
+use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use std::path::Path;
 use std::sync::Arc;
-use tokio::sync::mpsc::UnboundedSender;
 
-pub async fn handle_edit(app: &mut AppState, input_tx: UnboundedSender<CrosstermEvent>) {
+pub async fn handle_edit(app: &mut AppState) {
     if let Some(entry) = app.active_tab().current_entry().cloned()
         && !entry.is_dir
     {
@@ -16,7 +15,7 @@ pub async fn handle_edit(app: &mut AppState, input_tx: UnboundedSender<Crossterm
         let provider = app.active_tab().provider.clone();
 
         if !provider.is_local() {
-            if let Err(e) = edit_file_remote(app, &file_path, provider, &input_tx).await {
+            if let Err(e) = edit_file_remote(app, &file_path, provider).await {
                 app.active_tab_mut().error = Some(e.to_string());
             }
             return;
@@ -45,8 +44,7 @@ pub async fn handle_edit(app: &mut AppState, input_tx: UnboundedSender<Crossterm
 
         let entry_name = entry.name.clone();
         if let Err(e) =
-            open_file_in_editor_with_env_handling(app, &file_path, Some(entry_name), &input_tx)
-                .await
+            open_file_in_editor_with_env_handling(app, &file_path, Some(entry_name)).await
         {
             app.active_tab_mut().error = Some(format!("Error launching editor: {e}"));
         }
@@ -57,7 +55,6 @@ async fn edit_file_remote(
     app: &mut AppState,
     remote_path: &Path,
     provider: Arc<dyn FileSystemProvider>,
-    input_tx: &UnboundedSender<CrosstermEvent>,
 ) -> anyhow::Result<()> {
     let filename = remote_path
         .file_name()
@@ -117,7 +114,6 @@ async fn edit_file_remote(
             let _ = watcher.watch(&panel_current_dir);
         }
         app.sync_watcher();
-        app.input_polling_handle = Some(crate::event_loop::spawn_input_polling(input_tx.clone()));
 
         if let Err(e) = edit_result {
             let _ = tokio::fs::remove_file(&temp_path).await;
@@ -321,7 +317,6 @@ pub async fn open_file_in_editor_with_env_handling(
     app: &mut AppState,
     file_path: &std::path::Path,
     filename_to_select: Option<String>,
-    input_tx: &tokio::sync::mpsc::UnboundedSender<crossterm::event::Event>,
 ) -> anyhow::Result<()> {
     if let Some(handle) = app.input_polling_handle.take() {
         handle.abort();
@@ -364,7 +359,6 @@ pub async fn open_file_in_editor_with_env_handling(
             }
         }
     }
-    app.input_polling_handle = Some(crate::event_loop::spawn_input_polling(input_tx.clone()));
     app.needs_redraw = true;
     if let Some(e) = err {
         Err(anyhow::anyhow!(e))
@@ -433,7 +427,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_edit_invalid_command_sets_error() {
-        let (tx, _) = unbounded_channel();
+        let (_tx, _) = unbounded_channel::<crate::tasks::TaskEvent>();
         let entry = FileEntry {
             name: "file.txt".to_string(),
             is_dir: false,
@@ -450,7 +444,7 @@ mod tests {
             command: Some("".to_string()),
             in_terminal: Some(true),
         };
-        handle_edit(&mut app, tx).await;
+        handle_edit(&mut app).await;
         let error = app.left.active_tab().error.clone();
         assert!(
             error.is_some(),

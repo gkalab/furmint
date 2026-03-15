@@ -125,27 +125,27 @@ fn test_handle_create_directory_navigation() {
 #[tokio::test]
 async fn test_handle_create_file_event() {
     let mut app = basic_app_state();
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let (_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
     handle_init_create_file(&mut app);
 
-    handle_create_file_event(KeyCode::Char('f'), KeyModifiers::NONE, &mut app, &tx).await;
+    handle_create_file_event(KeyCode::Char('f'), KeyModifiers::NONE, &mut app).await;
     assert_eq!(app.popups.create_file.input_value, "f");
 
-    handle_create_file_event(KeyCode::Backspace, KeyModifiers::NONE, &mut app, &tx).await;
+    handle_create_file_event(KeyCode::Backspace, KeyModifiers::NONE, &mut app).await;
     assert_eq!(app.popups.create_file.input_value, "");
 
-    handle_create_file_event(KeyCode::Esc, KeyModifiers::NONE, &mut app, &tx).await;
+    handle_create_file_event(KeyCode::Esc, KeyModifiers::NONE, &mut app).await;
     assert!(!app.popups.create_file.is_visible);
 }
 
 #[tokio::test]
 async fn test_handle_create_file_errors() {
     let mut app = basic_app_state();
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let (_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
     handle_init_create_file(&mut app);
 
     // Empty name
-    handle_create_file_event(KeyCode::Enter, KeyModifiers::NONE, &mut app, &tx).await;
+    handle_create_file_event(KeyCode::Enter, KeyModifiers::NONE, &mut app).await;
     assert!(app.popups.create_file.error.is_some());
     assert!(
         app.popups
@@ -164,7 +164,7 @@ async fn test_handle_create_file_errors() {
     app.popups.create_file.input_value = "fm_existing.txt".to_string();
     app.popups.create_file.cursor_position = 15;
 
-    handle_create_file_event(KeyCode::Enter, KeyModifiers::NONE, &mut app, &tx).await;
+    handle_create_file_event(KeyCode::Enter, KeyModifiers::NONE, &mut app).await;
     assert!(app.popups.create_file.error.is_some());
     assert!(
         app.popups
@@ -181,7 +181,7 @@ async fn test_handle_create_file_errors() {
     let input = format!("some_dir{}", std::path::MAIN_SEPARATOR);
     app.popups.create_file.input_value = input.clone();
     app.popups.create_file.cursor_position = input.len();
-    handle_create_file_event(KeyCode::Enter, KeyModifiers::NONE, &mut app, &tx).await;
+    handle_create_file_event(KeyCode::Enter, KeyModifiers::NONE, &mut app).await;
     assert!(app.popups.create_file.error.is_some());
     assert!(
         app.popups
@@ -196,13 +196,13 @@ async fn test_handle_create_file_errors() {
 #[tokio::test]
 async fn test_handle_create_file_tilde_expansion() {
     let mut app = basic_app_state();
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let (_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
     handle_init_create_file(&mut app);
 
     // Test ~ expansion (just check if it doesn't immediately fail with "Unsupported")
     app.popups.create_file.input_value = "~".to_string();
     app.popups.create_file.cursor_position = 1;
-    handle_create_file_event(KeyCode::Enter, KeyModifiers::NONE, &mut app, &tx).await;
+    handle_create_file_event(KeyCode::Enter, KeyModifiers::NONE, &mut app).await;
     // It might fail because it's a directory, but shouldn't be "Unsupported ~username"
     if let Some(err) = &app.popups.create_file.error {
         assert!(!err.contains("Unsupported ~username"));
@@ -210,7 +210,7 @@ async fn test_handle_create_file_tilde_expansion() {
 
     app.popups.create_file.input_value = "~user".to_string();
     app.popups.create_file.cursor_position = 5;
-    handle_create_file_event(KeyCode::Enter, KeyModifiers::NONE, &mut app, &tx).await;
+    handle_create_file_event(KeyCode::Enter, KeyModifiers::NONE, &mut app).await;
     assert!(
         app.popups
             .create_file
@@ -228,29 +228,29 @@ fn test_handle_create_file_navigation() {
     app.popups.create_file.input_value = "test.txt".to_string();
     app.popups.create_file.cursor_position = 8;
 
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let (_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
     let rt = tokio::runtime::Builder::new_current_thread()
         .build()
         .unwrap();
 
     rt.block_on(async {
-        handle_create_file_event(KeyCode::Left, KeyModifiers::NONE, &mut app, &tx).await;
+        handle_create_file_event(KeyCode::Left, KeyModifiers::NONE, &mut app).await;
         assert_eq!(app.popups.create_file.cursor_position, 7);
 
-        handle_create_file_event(KeyCode::Right, KeyModifiers::NONE, &mut app, &tx).await;
+        handle_create_file_event(KeyCode::Right, KeyModifiers::NONE, &mut app).await;
         assert_eq!(app.popups.create_file.cursor_position, 8);
 
-        handle_create_file_event(KeyCode::Home, KeyModifiers::NONE, &mut app, &tx).await;
+        handle_create_file_event(KeyCode::Home, KeyModifiers::NONE, &mut app).await;
         assert_eq!(app.popups.create_file.cursor_position, 0);
 
-        handle_create_file_event(KeyCode::End, KeyModifiers::NONE, &mut app, &tx).await;
+        handle_create_file_event(KeyCode::End, KeyModifiers::NONE, &mut app).await;
         assert_eq!(app.popups.create_file.cursor_position, 8);
 
-        handle_create_file_event(KeyCode::Delete, KeyModifiers::NONE, &mut app, &tx).await; // nothing to delete at end
+        handle_create_file_event(KeyCode::Delete, KeyModifiers::NONE, &mut app).await; // nothing to delete at end
         assert_eq!(app.popups.create_file.input_value, "test.txt");
 
         app.popups.create_file.cursor_position = 0;
-        handle_create_file_event(KeyCode::Delete, KeyModifiers::NONE, &mut app, &tx).await;
+        handle_create_file_event(KeyCode::Delete, KeyModifiers::NONE, &mut app).await;
         assert_eq!(app.popups.create_file.input_value, "est.txt");
     });
 }

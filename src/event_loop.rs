@@ -64,6 +64,11 @@ pub async fn run_event_loop(
     draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
 
     while !should_exit {
+        // Automatically resume input polling if it was taken by a handler
+        if app.input_polling_handle.is_none() {
+            app.input_polling_handle = Some(spawn_input_polling(input_tx.clone()));
+        }
+
         // Explicit redraw if requested (e.g. after editor or console toggle)
         if app.needs_redraw {
             terminal.clear()?;
@@ -79,13 +84,13 @@ pub async fn run_event_loop(
                             }
                             // Handle input events
                             Some(event) = input_rx.recv() => {
-                let mut exit = handle_event(event, app, &keyboard, input_tx.clone()).await;
+                let mut exit = handle_event(event, app, &keyboard).await;
                 // Drain any other immediately available events to prevent buffering
                 // This allows skipping frames if input is faster than rendering
         while !exit {
             match input_rx.try_recv() {
                 Ok(ev) => {
-                    if handle_event(ev, app, &keyboard, input_tx.clone()).await {
+                    if handle_event(ev, app, &keyboard).await {
                         exit = true;
                     }
                 }
@@ -220,13 +225,8 @@ fn draw_ui(
 }
 
 /// Returns true if the event is a quit event (Ctrl-q or Esc)
-pub async fn handle_event(
-    ev: Event,
-    app: &mut AppState,
-    keyboard: &KeyboardConfig,
-    input_tx: tokio::sync::mpsc::UnboundedSender<crossterm::event::Event>,
-) -> bool {
-    crate::handlers::main_handler::route_event(ev, app, keyboard, input_tx).await
+pub async fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) -> bool {
+    crate::handlers::main_handler::route_event(ev, app, keyboard).await
 }
 
 #[cfg(test)]
@@ -356,7 +356,7 @@ mod tests {
         app.right.active_tab_mut().current_dir = std::path::PathBuf::from("/mock");
 
         let keyboard = KeyboardConfig::default();
-        let (input_tx, _) = tokio::sync::mpsc::unbounded_channel();
+        let (_input_tx, _) = tokio::sync::mpsc::unbounded_channel::<crossterm::event::Event>();
 
         // Initial state: cursor at 0, file1 not selected
         assert_eq!(app.left.active_tab().cursor, 0);
@@ -371,7 +371,6 @@ mod tests {
             }),
             &mut app,
             &keyboard,
-            input_tx,
         )
         .await;
 
