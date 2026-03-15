@@ -1,6 +1,3 @@
-// Clippy allows - complex type is acceptable for task representation
-#![allow(clippy::type_complexity)]
-
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -22,6 +19,18 @@ pub struct Task {
     pub rsync: bool,
     pub current_file: Option<String>,
     pub cancel_flag: Arc<AtomicBool>,
+    pub completed_at: Option<std::time::Instant>,
+}
+
+#[derive(Clone, Debug)]
+pub struct TaskInfo {
+    pub id: usize,
+    pub name: String,
+    pub status: TaskStatus,
+    pub progress: Option<(usize, usize)>,
+    pub byte_progress: Option<(u64, u64)>,
+    pub rsync: bool,
+    pub current_file: Option<String>,
     pub completed_at: Option<std::time::Instant>,
 }
 
@@ -229,35 +238,22 @@ impl TaskManager {
     /// # Panics
     ///
     /// Panics if the tasks mutex cannot be locked.
-    pub fn get_tasks(
-        &self,
-    ) -> Vec<(
-        usize,
-        String,
-        TaskStatus,
-        Option<(usize, usize)>,
-        Option<(u64, u64)>,
-        bool,
-        Option<String>,
-        Option<std::time::Instant>,
-    )> {
+    pub fn get_tasks(&self) -> Vec<TaskInfo> {
         let tasks = self.tasks.lock().unwrap();
         let mut result: Vec<_> = tasks
             .iter()
-            .map(|(id, t)| {
-                (
-                    *id,
-                    t.name.clone(),
-                    t.status.clone(),
-                    t.progress,
-                    t.byte_progress,
-                    t.rsync,
-                    t.current_file.clone(),
-                    t.completed_at,
-                )
+            .map(|(id, t)| TaskInfo {
+                id: *id,
+                name: t.name.clone(),
+                status: t.status.clone(),
+                progress: t.progress,
+                byte_progress: t.byte_progress,
+                rsync: t.rsync,
+                current_file: t.current_file.clone(),
+                completed_at: t.completed_at,
             })
             .collect();
-        result.sort_by(|a, b| b.0.cmp(&a.0));
+        result.sort_by(|a, b| b.id.cmp(&a.id));
         result
     }
 
@@ -382,15 +378,15 @@ mod tests {
 
         // Task should be running
         assert_eq!(manager.get_tasks().len(), 1);
-        assert_eq!(manager.get_tasks()[0].2, TaskStatus::Running);
+        assert_eq!(manager.get_tasks()[0].status, TaskStatus::Running);
 
         // Mark as completed
         manager.update_task_status(id, &TaskStatus::Completed);
 
         // Should NOT be removed immediately
         assert_eq!(manager.get_tasks().len(), 1);
-        assert_eq!(manager.get_tasks()[0].2, TaskStatus::Completed);
-        assert!(manager.get_tasks()[0].7.is_some());
+        assert_eq!(manager.get_tasks()[0].status, TaskStatus::Completed);
+        assert!(manager.get_tasks()[0].completed_at.is_some());
 
         // Cleanup should not remove it yet (it's new)
         manager.cleanup_tasks();
@@ -413,9 +409,9 @@ mod tests {
         let tasks = tm.get_tasks();
         assert_eq!(tasks.len(), 3);
         // Should be id3, id2, id1
-        assert_eq!(tasks[0].0, id3);
-        assert_eq!(tasks[1].0, id2);
-        assert_eq!(tasks[2].0, id1);
+        assert_eq!(tasks[0].id, id3);
+        assert_eq!(tasks[1].id, id2);
+        assert_eq!(tasks[2].id, id1);
 
         // Verify selected task id mapping matches visual order
         tm.selected_index.store(0, Ordering::Relaxed);
@@ -450,12 +446,12 @@ mod tests {
 
         tm.update_task_status(id, &TaskStatus::Completed);
         let tasks = tm.get_tasks();
-        assert!(matches!(tasks[0].2, TaskStatus::Completed));
-        assert!(tasks[0].7.is_some()); // completed_at should be set
+        assert!(matches!(tasks[0].status, TaskStatus::Completed));
+        assert!(tasks[0].completed_at.is_some()); // completed_at should be set
 
         tm.update_task_progress(id, 50, 100);
         let tasks = tm.get_tasks();
-        assert_eq!(tasks[0].3, Some((50, 100)));
+        assert_eq!(tasks[0].progress, Some((50, 100)));
     }
 
     #[tokio::test]

@@ -128,17 +128,15 @@ pub fn draw_task_manager(
     let style_ctx = TaskStyleContext::new(palette, text_color, list_bg_color, highlight_style);
 
     let mut list_items = Vec::new();
-    for (idx, (id, name, status, progress, byte_progress, rsync, current_file, _completed_at)) in
-        tasks.into_iter().enumerate()
-    {
+    for (idx, t) in tasks.into_iter().enumerate() {
         let data = TaskDisplayData::new(
-            id,
-            name,
-            status,
-            progress,
-            byte_progress,
-            rsync,
-            current_file,
+            t.id,
+            t.name,
+            t.status,
+            t.progress,
+            t.byte_progress,
+            t.rsync,
+            t.current_file,
         );
         list_items.push(format_task_item(idx, selected_index, &data, &style_ctx));
     }

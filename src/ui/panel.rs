@@ -541,7 +541,7 @@ fn draw_left_panel_status(
     let tasks = ctx.task_manager.get_tasks();
     let running_count = tasks
         .iter()
-        .filter(|(_, _, s, _, _, _, _, _)| matches!(s, crate::tasks::TaskStatus::Running))
+        .filter(|t| matches!(t.status, crate::tasks::TaskStatus::Running))
         .count();
 
     if running_count > 0 {
@@ -574,11 +574,11 @@ fn draw_left_panel_status(
         // Check for recently completed/failed/cancelled tasks
         let last_finished = tasks
             .iter()
-            .filter(|(_, _, _, _, _, _, _, completed_at)| completed_at.is_some())
-            .max_by_key(|(_, _, _, _, _, _, _, completed_at)| *completed_at);
+            .filter(|t| t.completed_at.is_some())
+            .max_by_key(|t| t.completed_at);
 
-        if let Some((_, _, status_task, _, _, _, _, _)) = last_finished {
-            let (text, task_fg) = match status_task {
+        if let Some(t) = last_finished {
+            let (text, task_fg) = match &t.status {
                 crate::tasks::TaskStatus::Completed => {
                     (String::new(), ctx.palette.green) // no text for task completed status
                 }
@@ -629,19 +629,9 @@ fn draw_right_panel_status(
     let active_task = tasks
         .iter()
         .rev()
-        .find(|t| matches!(t.2, crate::tasks::TaskStatus::Running));
+        .find(|t| matches!(t.status, crate::tasks::TaskStatus::Running));
 
-    if let Some((
-        _,
-        _,
-        crate::tasks::TaskStatus::Running,
-        progress,
-        byte_progress,
-        rsync,
-        current_file,
-        _,
-    )) = active_task
-    {
+    if let Some(t) = active_task {
         // Calculate available width for progress info
         // We need to leave room for the status message on the right
         let status_width = u16::try_from(status.chars().count()).unwrap_or(u16::MAX);
@@ -649,10 +639,10 @@ fn draw_right_panel_status(
         let available_progress_width = status_area.width.saturating_sub(status_width + spacing);
 
         let progress_spans = get_task_progress_spans(
-            progress.as_ref().copied(),
-            byte_progress.as_ref().copied(),
-            *rsync,
-            current_file.as_deref(),
+            t.progress,
+            t.byte_progress,
+            t.rsync,
+            t.current_file.as_deref(),
             available_progress_width as usize,
             ctx.palette,
         );
