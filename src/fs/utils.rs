@@ -569,16 +569,6 @@ mod tests {
             let fake_path = std::path::PathBuf::from("C:\\nonexistent\\script.cmd");
             assert!(is_executable(&fake_path, &some_entry));
 
-            let txt_entry = FileEntry {
-                name: "document.txt".to_string(),
-                is_dir: false,
-                is_symlink: false,
-                size: Some(1024),
-                modified: None,
-                attributes: "<FILE>".to_string(),
-                selected: false,
-            };
-
             let fake_path = std::path::PathBuf::from("C:\\nonexistent\\document.txt");
             assert!(!is_executable(&fake_path, &some_entry));
 
