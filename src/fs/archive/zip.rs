@@ -51,6 +51,19 @@ impl ZipHandler {
     fn get_unix_mode<R: std::io::Read>(zip_file: &zip::read::ZipFile<R>) -> Option<u32> {
         zip_file.unix_mode().filter(|&m| m != 0)
     }
+
+    fn get_metadata_mode(metadata: &std::fs::Metadata) -> u32 {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            metadata.permissions().mode()
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = metadata;
+            0o644
+        }
+    }
 }
 
 impl ZipHandler {
@@ -340,12 +353,7 @@ impl ArchiveFormat for ZipHandler {
                             zip::DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).unwrap()
                         }),
                 )
-                .unix_permissions(if cfg!(unix) {
-                    use std::os::unix::fs::PermissionsExt;
-                    metadata.permissions().mode()
-                } else {
-                    0o644
-                });
+                .unix_permissions(Self::get_metadata_mode(&metadata));
 
             writer.start_file(dest_in_archive, options)?;
             std::io::copy(&mut src_file, &mut writer)?;
