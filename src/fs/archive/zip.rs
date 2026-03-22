@@ -64,6 +64,20 @@ impl ZipHandler {
             0o644
         }
     }
+
+    fn system_time_to_zip_dt(t: SystemTime) -> zip::DateTime {
+        use chrono::{Datelike, Timelike};
+        let dt: chrono::DateTime<chrono::Utc> = t.into();
+        zip::DateTime::from_date_and_time(
+            u16::try_from(dt.year()).unwrap_or(1980),
+            u8::try_from(dt.month()).unwrap_or(1),
+            u8::try_from(dt.day()).unwrap_or(1),
+            u8::try_from(dt.hour()).unwrap_or(0),
+            u8::try_from(dt.minute()).unwrap_or(0),
+            u8::try_from(dt.second()).unwrap_or(0),
+        )
+        .unwrap_or_else(|_| zip::DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).unwrap())
+    }
 }
 
 impl ZipHandler {
@@ -338,27 +352,10 @@ impl ArchiveFormat for ZipHandler {
             let mut src_file = File::open(src).context("Failed to open source file")?;
             let metadata = src_file.metadata()?;
             let options = SimpleFileOptions::default()
-                .last_modified_time(
-                    metadata
-                        .modified()
-                        .ok()
-                        .and_then(|t| {
-                            use chrono::{Datelike, Timelike};
-                            let dt: chrono::DateTime<chrono::Utc> = t.into();
-                            zip::DateTime::from_date_and_time(
-                                u16::try_from(dt.year()).unwrap_or(1980),
-                                u8::try_from(dt.month()).unwrap_or(1),
-                                u8::try_from(dt.day()).unwrap_or(1),
-                                u8::try_from(dt.hour()).unwrap_or(0),
-                                u8::try_from(dt.minute()).unwrap_or(0),
-                                u8::try_from(dt.second()).unwrap_or(0),
-                            )
-                            .ok()
-                        })
-                        .unwrap_or_else(|| {
-                            zip::DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).unwrap()
-                        }),
-                )
+                .last_modified_time(metadata.modified().ok().map_or_else(
+                    || zip::DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).unwrap(),
+                    Self::system_time_to_zip_dt,
+                ))
                 .unix_permissions(Self::get_metadata_mode(&metadata));
 
             writer.start_file(dest_in_archive, options)?;
@@ -375,7 +372,7 @@ impl ArchiveFormat for ZipHandler {
     /// # Errors
     ///
     /// Returns an error if the archive cannot be rewritten.
-    fn add_directory(&self, dest_in_archive: &str) -> Result<()> {
+    fn add_directory(&self, dest_in_archive: &str, mtime: Option<SystemTime>) -> Result<()> {
         let parent = self.path.parent().unwrap_or(Path::new("."));
         let mut temp_file = tempfile::NamedTempFile::new_in(parent)?;
         let temp_path = temp_file.path().to_path_buf();
@@ -408,10 +405,55 @@ impl ArchiveFormat for ZipHandler {
             }
 
             let options = SimpleFileOptions::default()
-                .last_modified_time(zip::DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).unwrap())
+                .last_modified_time(mtime.map_or_else(
+                    || Self::system_time_to_zip_dt(SystemTime::now()),
+                    Self::system_time_to_zip_dt,
+                ))
                 .unix_permissions(0o755);
 
             writer.add_directory(dest_norm_str, options)?;
+            writer.finish()?;
+        }
+
+        std::fs::rename(temp_path, &self.path)?;
+        Ok(())
+    }
+
+    /// Sets the modified time of a file or directory within the archive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be rewritten.
+    fn set_modified_time(&self, path: &str, mtime: SystemTime) -> Result<()> {
+        let parent = self.path.parent().unwrap_or(Path::new("."));
+        let mut temp_file = tempfile::NamedTempFile::new_in(parent)?;
+        let temp_path = temp_file.path().to_path_buf();
+
+        let path_norm = common::normalize_path(path);
+        let path_norm_str = path_norm.to_string_lossy().to_string();
+
+        {
+            let file = File::open(&self.path).context("Failed to open archive")?;
+            let mut archive = zip::ZipArchive::new(file).context("Failed to read zip")?;
+            let mut writer = zip::ZipWriter::new(temp_file.as_file_mut());
+
+            for i in 0..archive.len() {
+                let mut zip_file = archive.by_index(i).context("Failed to get zip index")?;
+                let name = zip_file.name().to_string();
+                let name_norm = common::normalize_path(&name);
+                let name_norm_str = name_norm.to_string_lossy().to_string();
+
+                if name_norm_str == path_norm_str {
+                    let options = SimpleFileOptions::default()
+                        .last_modified_time(Self::system_time_to_zip_dt(mtime))
+                        .unix_permissions(zip_file.unix_mode().unwrap_or(0o644));
+
+                    writer.start_file(name, options)?;
+                    std::io::copy(&mut zip_file, &mut writer)?;
+                } else {
+                    writer.raw_copy_file(zip_file)?;
+                }
+            }
             writer.finish()?;
         }
 

@@ -68,9 +68,24 @@ pub trait ArchiveFormat: Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the directory cannot be added or if the format is read-only.
-    fn add_directory(&self, _dest_in_archive: &str) -> Result<()> {
+    fn add_directory(
+        &self,
+        _dest_in_archive: &str,
+        _mtime: Option<std::time::SystemTime>,
+    ) -> Result<()> {
         Err(anyhow::anyhow!(
             "Adding directories to this archive format is not supported"
+        ))
+    }
+
+    /// Sets the modified time of a file or directory within the archive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the modified time cannot be set or if the format is read-only.
+    fn set_modified_time(&self, _path: &str, _mtime: std::time::SystemTime) -> Result<()> {
+        Err(anyhow::anyhow!(
+            "Setting modified time in this archive format is not supported"
         ))
     }
 

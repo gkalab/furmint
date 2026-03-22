@@ -134,7 +134,7 @@ impl FileSystemProvider for ArchiveFs {
         let path_str = rel_path.to_string_lossy().replace('\\', "/");
         let path_str = path_str.trim_end_matches('/');
 
-        self.handler.add_directory(path_str)?;
+        self.handler.add_directory(path_str, None)?;
         self.scan_archive()?;
         Ok(())
     }
@@ -314,8 +314,21 @@ impl FileSystemProvider for ArchiveFs {
             .and_then(|e| e.file_entry.modified)
     }
 
-    fn set_modified_time(&self, _path: &Path, _mtime: std::time::SystemTime) -> bool {
-        false
+    fn set_modified_time(&self, path: &Path, mtime: std::time::SystemTime) -> bool {
+        let rel_path = if path.has_root() {
+            path.strip_prefix("/").unwrap_or(path)
+        } else {
+            path
+        };
+        let p_str = rel_path.to_string_lossy().replace('\\', "/");
+        let p_str = p_str.trim_end_matches('/');
+
+        if self.handler.set_modified_time(p_str, mtime).is_ok() {
+            let _ = self.scan_archive();
+            true
+        } else {
+            false
+        }
     }
 
     fn context_key(&self) -> String {

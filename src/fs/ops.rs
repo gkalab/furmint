@@ -254,8 +254,12 @@ async fn handle_directory(
     }
 
     // Normal recursive path (no download optimisation).
+    let src_mtime = ctx.src_fs.get_modified_time(src).await;
     if !ensure_dest_directory(ctx, decision_state, dest, dest_exists, dest_is_dir).await? {
         return Ok(());
+    }
+    if let Some(mtime) = src_mtime {
+        let _ = ctx.dest_fs.set_modified_time(dest, mtime).await;
     }
 
     update_progress_and_postprocess(ctx, decision_state, src, stack);
