@@ -370,6 +370,55 @@ impl ArchiveFormat for ZipHandler {
         Ok(())
     }
 
+    /// Adds a directory to the archive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be rewritten.
+    fn add_directory(&self, dest_in_archive: &str) -> Result<()> {
+        let parent = self.path.parent().unwrap_or(Path::new("."));
+        let mut temp_file = tempfile::NamedTempFile::new_in(parent)?;
+        let temp_path = temp_file.path().to_path_buf();
+
+        let mut dest_str = dest_in_archive.to_string();
+        if !dest_str.ends_with('/') {
+            dest_str.push('/');
+        }
+        let dest_norm = common::normalize_path(&dest_str);
+        let dest_norm_str = dest_norm.to_string_lossy().to_string();
+
+        {
+            let mut writer = zip::ZipWriter::new(temp_file.as_file_mut());
+
+            if self.path.exists() {
+                let file = File::open(&self.path).context("Failed to open archive")?;
+                let mut archive = zip::ZipArchive::new(file).context("Failed to read zip")?;
+
+                for i in 0..archive.len() {
+                    let zip_file = archive.by_index(i).context("Failed to get zip index")?;
+                    let name = zip_file.name();
+                    let name_norm = common::normalize_path(name);
+                    let name_norm_str = name_norm.to_string_lossy().to_string();
+
+                    // If we're replacing an existing entry, skip it
+                    if name_norm_str != dest_norm_str {
+                        writer.raw_copy_file(zip_file)?;
+                    }
+                }
+            }
+
+            let options = SimpleFileOptions::default()
+                .last_modified_time(zip::DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).unwrap())
+                .unix_permissions(0o755);
+
+            writer.add_directory(dest_norm_str, options)?;
+            writer.finish()?;
+        }
+
+        std::fs::rename(temp_path, &self.path)?;
+        Ok(())
+    }
+
     /// Renames a file or directory within the archive.
     ///
     /// # Errors

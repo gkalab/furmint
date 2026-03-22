@@ -31,7 +31,10 @@ fn basic_app_state() -> AppState {
         watcher: None,
         input_polling_handle: None,
         needs_redraw: false,
-        global: fm::config::GlobalConfig::default(),
+        global: fm::config::GlobalConfig {
+            mouse: Some(false),
+            ..fm::config::GlobalConfig::default()
+        },
         editor_cfg: fm::config::EditorConfig::default(),
         viewer_cfg: fm::config::ViewerConfig::default(),
         ssh_history: SshConnectionHistory::new().unwrap(),

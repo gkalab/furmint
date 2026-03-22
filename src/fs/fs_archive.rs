@@ -125,8 +125,18 @@ impl FileSystemProvider for ArchiveFs {
         Ok(result)
     }
 
-    fn create_dir(&self, _path: &Path) -> Result<()> {
-        Err(anyhow::anyhow!("ArchiveFileSystem is read-only"))
+    fn create_dir(&self, path: &Path) -> Result<()> {
+        let rel_path = if path.has_root() {
+            path.strip_prefix("/").unwrap_or(path)
+        } else {
+            path
+        };
+        let path_str = rel_path.to_string_lossy().replace('\\', "/");
+        let path_str = path_str.trim_end_matches('/');
+
+        self.handler.add_directory(path_str)?;
+        self.scan_archive()?;
+        Ok(())
     }
 
     fn create_file(&self, _path: &Path) -> Result<()> {

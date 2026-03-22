@@ -131,28 +131,8 @@ pub async fn handle_create_file_event(
                 return false;
             }
 
-            // Reload entries and focus on the new file BEFORE opening editor
-            // so if it's an external editor, the UI is already updated.
-            if let Some(name) = path_buf.file_name().and_then(|n| n.to_str()) {
-                let _ = app.active_tab_mut().reload_and_focus(name);
-            }
-
-            // Open in editor using environment helper
-            let file_name_opt = path_buf
-                .file_name()
-                .and_then(|n| n.to_str())
-                .map(std::string::ToString::to_string);
-            let editor_result = crate::handlers::editor::open_file_in_editor_with_env_handling(
-                app,
-                &path_buf,
-                file_name_opt,
-            )
-            .await;
-            if let Err(e) = editor_result {
-                app.popups.create_file.error = Some(format!("Failed to open in editor: {e}"));
-                return false;
-            }
-            app.popups.create_file.reset();
+            // Success
+            handle_post_create_actions(app, path_buf).await;
         }
         _ => {
             crate::handlers::input_utils::handle_text_input(
@@ -169,4 +149,46 @@ pub async fn handle_create_file_event(
         }
     }
     false
+}
+
+async fn handle_post_create_actions(app: &mut AppState, path_buf: std::path::PathBuf) -> bool {
+    let is_zip = path_buf
+        .extension()
+        .and_then(|s| s.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"));
+
+    if is_zip {
+        // Focus the file first so handle_enter can find it
+        if let Some(name) = path_buf.file_name().and_then(|n| n.to_str()) {
+            let _ = app.active_tab_mut().reload_and_focus(name);
+        }
+        app.popups.create_file.reset();
+        crate::handlers::navigation::handle_enter(app);
+        return false;
+    }
+
+    // Reload entries and focus on the new file BEFORE opening editor
+    // so if it's an external editor, the UI is already updated.
+    if let Some(name) = path_buf.file_name().and_then(|n| n.to_str()) {
+        let _ = app.active_tab_mut().reload_and_focus(name);
+    }
+
+    // Open in editor using environment helper
+    let file_name_opt = path_buf
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(std::string::ToString::to_string);
+
+    app.popups.create_file.reset();
+    let editor_result = crate::handlers::editor::open_file_in_editor_with_env_handling(
+        app,
+        &path_buf,
+        file_name_opt,
+    )
+    .await;
+    if let Err(e) = editor_result {
+        app.active_tab_mut().error = Some(format!("Failed to open in editor: {e}"));
+        return false;
+    }
+    true
 }

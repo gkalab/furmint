@@ -63,6 +63,17 @@ pub trait ArchiveFormat: Send + Sync {
         ))
     }
 
+    /// Adds a directory to the archive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the directory cannot be added or if the format is read-only.
+    fn add_directory(&self, _dest_in_archive: &str) -> Result<()> {
+        Err(anyhow::anyhow!(
+            "Adding directories to this archive format is not supported"
+        ))
+    }
+
     /// Renames a file or directory within the archive.
     ///
     /// # Errors

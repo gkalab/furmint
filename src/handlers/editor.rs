@@ -21,27 +21,6 @@ pub async fn handle_edit(app: &mut AppState) {
             return;
         }
 
-        let (cmd, in_terminal) = {
-            let editor_cfg = &app.editor_cfg;
-            (
-                editor_cfg.command.clone(),
-                editor_cfg.in_terminal.unwrap_or(true),
-            )
-        };
-
-        if let Some(cmd_str) = cmd {
-            if let Err(e) = crate::handlers::external::launch_external_program(
-                app,
-                &cmd_str,
-                &file_path,
-                in_terminal,
-                "editor",
-            ) {
-                app.active_tab_mut().error = Some(e);
-            }
-            return;
-        }
-
         let entry_name = entry.name.clone();
         if let Err(e) =
             open_file_in_editor_with_env_handling(app, &file_path, Some(entry_name)).await
@@ -225,6 +204,42 @@ fn spawn_editor_no_wait(
     }
 }
 
+fn launch_and_wait_for_editor_sync(
+    file_path: &Path,
+    cmd: Option<&str>,
+    in_terminal: bool,
+) -> anyhow::Result<()> {
+    if let Some(cmd_str) = cmd {
+        let (program, mut args) = crate::config::parse_command(cmd_str);
+        if program.is_empty() {
+            return Err(anyhow::anyhow!("Invalid editor command"));
+        }
+        args.push(file_path.to_string_lossy().to_string());
+
+        if in_terminal {
+            use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
+            disable_raw_mode()?;
+            let status = std::process::Command::new(&program)
+                .args(&args)
+                .status()
+                .map_err(|e| anyhow::anyhow!("Failed to run editor: {e}"));
+            enable_raw_mode()?;
+            status?;
+            Ok(())
+        } else {
+            std::process::Command::new(&program)
+                .args(&args)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()?;
+            Ok(())
+        }
+    } else {
+        open_in_default_editor(file_path)
+    }
+}
+
 async fn upload_edited_file(
     temp_path: &Path,
     remote_path: &Path,
@@ -328,12 +343,23 @@ pub async fn open_file_in_editor_with_env_handling(
             let _ = watcher.unwatch(path);
         }
     }
+    let use_mouse = app.global.mouse.unwrap_or(true);
     let result = tokio::task::spawn_blocking({
         let path = file_path.to_path_buf();
+        let cmd = app.editor_cfg.command.clone();
+        let in_terminal = app.editor_cfg.in_terminal.unwrap_or(true);
         move || {
-            let _ = std::io::stdout().execute(DisableMouseCapture);
-            let res = open_in_default_editor(&path);
-            let _ = std::io::stdout().execute(EnableMouseCapture);
+            if use_mouse {
+                let _ = std::io::stdout().execute(DisableMouseCapture);
+            }
+            let res = if let Some(cmd_str) = cmd {
+                launch_and_wait_for_editor_sync(&path, Some(&cmd_str), in_terminal)
+            } else {
+                open_in_default_editor(&path)
+            };
+            if use_mouse {
+                let _ = std::io::stdout().execute(EnableMouseCapture);
+            }
             res
         }
     })

@@ -122,7 +122,10 @@ pub fn create_test_app() -> AppState {
         remote_watcher: None,
         input_polling_handle: None,
         needs_redraw: false,
-        global: crate::config::GlobalConfig::default(),
+        global: crate::config::GlobalConfig {
+            mouse: Some(false),
+            ..crate::config::GlobalConfig::default()
+        },
         editor_cfg: crate::config::EditorConfig::default(),
         viewer_cfg: crate::config::ViewerConfig::default(),
         ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),

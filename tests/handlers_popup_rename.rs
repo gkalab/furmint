@@ -43,7 +43,10 @@ fn test_app_with_entry(name: &str, is_dir: bool, path: &std::path::Path) -> AppS
         watcher: None,
         input_polling_handle: None,
         needs_redraw: false,
-        global: fm::config::GlobalConfig::default(),
+        global: fm::config::GlobalConfig {
+            mouse: Some(false),
+            ..fm::config::GlobalConfig::default()
+        },
         editor_cfg: fm::config::EditorConfig::default(),
         viewer_cfg: fm::config::ViewerConfig::default(),
         ssh_history: SshConnectionHistory::new().unwrap(),

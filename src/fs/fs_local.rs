@@ -33,7 +33,18 @@ impl FileSystemProvider for LocalFs {
     }
 
     fn create_file(&self, path: &Path) -> Result<()> {
-        std::fs::File::create(path)?;
+        let is_zip = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"));
+
+        if is_zip {
+            let file = std::fs::File::create(path)?;
+            let zip_writer = zip::ZipWriter::new(file);
+            zip_writer.finish()?;
+        } else {
+            std::fs::File::create(path)?;
+        }
         Ok(())
     }
 
