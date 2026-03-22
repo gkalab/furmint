@@ -1,6 +1,6 @@
 use crate::fs::fs_archive::ArchiveEntry;
 use crate::fs::utils::FileEntry;
-use filetime::{FileTime, set_file_mtime};
+use filetime::{FileTime, set_file_handle_times, set_file_mtime};
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
 use std::path::{Path, PathBuf};
@@ -244,20 +244,24 @@ pub fn handle_extraction_entry<R: std::io::Read>(
             std::fs::create_dir_all(parent)?;
         }
         {
-            let mut out = std::fs::File::create(&target)?;
+            let out = std::fs::File::create(&target)?;
+            let mut out = out;
             std::io::copy(&mut reader, &mut out)?;
+
+            if let Some(mt) = entry_meta.mtime {
+                set_file_handle_times(&out, None, Some(FileTime::from_system_time(mt)))?;
+            }
+            #[cfg(unix)]
+            if let Some(mode) = entry_meta.mode {
+                use std::os::unix::fs::PermissionsExt;
+                out.set_permissions(std::fs::Permissions::from_mode(mode))?;
+            }
+
+            out.sync_all()?;
         }
         opts.progress
             .processed_bytes
             .fetch_add(entry_meta.size, std::sync::atomic::Ordering::Relaxed);
-        if let Some(mt) = entry_meta.mtime {
-            set_file_mtime(&target, FileTime::from_system_time(mt))?;
-        }
-        #[cfg(unix)]
-        if let Some(mode) = entry_meta.mode {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&target, std::fs::Permissions::from_mode(mode))?;
-        }
     }
 
     let p = opts

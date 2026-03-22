@@ -33,8 +33,8 @@ impl ZipHandler {
     }
 
     fn zip_dt_to_system_time(dt: zip::DateTime) -> std::time::SystemTime {
-        use chrono::{Local, TimeZone};
-        let dt = Local
+        use chrono::{TimeZone, Utc};
+        let dt = Utc
             .with_ymd_and_hms(
                 dt.year().into(),
                 dt.month().into(),
@@ -44,7 +44,7 @@ impl ZipHandler {
                 dt.second().into(),
             )
             .single()
-            .unwrap_or_else(|| Local.timestamp_opt(0, 0).unwrap());
+            .unwrap_or_else(|| Utc.timestamp_opt(0, 0).unwrap());
         dt.into()
     }
 
@@ -81,15 +81,17 @@ impl ZipHandler {
 
             let is_dir = file.is_dir() || file.name().ends_with('/');
             let size = file.size();
-            let modified = file.last_modified().map_or(SystemTime::UNIX_EPOCH, Self::zip_dt_to_system_time);
+            let modified = file
+                .last_modified()
+                .map_or(SystemTime::UNIX_EPOCH, Self::zip_dt_to_system_time);
 
             let unix_mode = Self::get_unix_mode(&file);
             let attributes = if let Some(mode) = unix_mode {
                 mode_to_attributes(mode, is_dir, false)
             } else if is_dir {
-                "dr-xr-xr-x".to_string()
+                "drwxr-xr-x".to_string()
             } else {
-                "-r--r--r--".to_string()
+                "-rw-r--r--".to_string()
             };
 
             common::add_to_tree(
@@ -143,7 +145,9 @@ impl ZipHandler {
             let is_dir = false;
             let size = zip_file.size();
             let mode = Self::get_unix_mode(&zip_file).or(Some(0o100_644));
-            let mtime = zip_file.last_modified().map_or(SystemTime::UNIX_EPOCH, Self::zip_dt_to_system_time);
+            let mtime = zip_file
+                .last_modified()
+                .map_or(SystemTime::UNIX_EPOCH, Self::zip_dt_to_system_time);
 
             let opts = common::ExtractOptions {
                 src_str,
@@ -190,7 +194,9 @@ impl ZipHandler {
             } else {
                 Some(0o100_644)
             });
-            let mtime = zip_file.last_modified().map_or(SystemTime::UNIX_EPOCH, Self::zip_dt_to_system_time);
+            let mtime = zip_file
+                .last_modified()
+                .map_or(SystemTime::UNIX_EPOCH, Self::zip_dt_to_system_time);
 
             common::handle_extraction_entry(
                 &mut zip_file,
