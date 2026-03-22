@@ -40,6 +40,39 @@ pub trait ArchiveFormat: Send + Sync {
         is_dir: bool,
         progress: &TaskProgressContext,
     ) -> Result<()>;
+
+    /// Deletes a file from the archive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be deleted or if the format is read-only.
+    fn delete_file(&self, _path: &str) -> Result<()> {
+        Err(anyhow::anyhow!(
+            "Deleting from this archive format is not supported"
+        ))
+    }
+
+    /// Adds a file from the local filesystem to the archive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be added or if the format is read-only.
+    fn add_file(&self, _src: &Path, _dest_in_archive: &str) -> Result<()> {
+        Err(anyhow::anyhow!(
+            "Adding to this archive format is not supported"
+        ))
+    }
+
+    /// Renames a file or directory within the archive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the rename fails or if the format is read-only.
+    fn rename_file(&self, _from: &str, _to: &str) -> Result<()> {
+        Err(anyhow::anyhow!(
+            "Renaming in this archive format is not supported"
+        ))
+    }
 }
 
 /// Returns an archive handler for the given path based on file extension.

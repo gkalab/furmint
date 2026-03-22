@@ -133,12 +133,40 @@ impl FileSystemProvider for ArchiveFs {
         Err(anyhow::anyhow!("ArchiveFileSystem is read-only"))
     }
 
-    fn delete(&self, _path: &Path, _recursive: bool) -> Result<()> {
-        Err(anyhow::anyhow!("ArchiveFileSystem is read-only"))
+    fn delete(&self, path: &Path, _recursive: bool) -> Result<()> {
+        let rel_path = if path.has_root() {
+            path.strip_prefix("/").unwrap_or(path)
+        } else {
+            path
+        };
+        let path_str = rel_path.to_string_lossy().replace('\\', "/");
+        let path_str = path_str.trim_end_matches('/');
+
+        self.handler.delete_file(path_str)?;
+        self.scan_archive()?;
+        Ok(())
     }
 
-    fn rename(&self, _from: &Path, _to: &Path) -> Result<()> {
-        Err(anyhow::anyhow!("ArchiveFileSystem is read-only"))
+    fn rename(&self, from: &Path, to: &Path) -> Result<()> {
+        let rel_from = if from.has_root() {
+            from.strip_prefix("/").unwrap_or(from)
+        } else {
+            from
+        };
+        let from_str = rel_from.to_string_lossy().replace('\\', "/");
+        let from_str = from_str.trim_end_matches('/');
+
+        let rel_to = if to.has_root() {
+            to.strip_prefix("/").unwrap_or(to)
+        } else {
+            to
+        };
+        let to_str = rel_to.to_string_lossy().replace('\\', "/");
+        let to_str = to_str.trim_end_matches('/');
+
+        self.handler.rename_file(from_str, to_str)?;
+        self.scan_archive()?;
+        Ok(())
     }
 
     fn read_file(&self, path: &Path) -> Result<Vec<u8>> {
@@ -163,12 +191,28 @@ impl FileSystemProvider for ArchiveFs {
         Ok(data[start..end].to_vec())
     }
 
-    fn write_file(&self, _path: &Path, _data: &[u8]) -> Result<()> {
-        Err(anyhow::anyhow!("ArchiveFileSystem is read-only"))
+    fn write_file(&self, path: &Path, data: &[u8]) -> Result<()> {
+        let rel_path = if path.has_root() {
+            path.strip_prefix("/").unwrap_or(path)
+        } else {
+            path
+        };
+        let path_str = rel_path.to_string_lossy().replace('\\', "/");
+        let path_str = path_str.trim_end_matches('/');
+
+        let temp_dir = tempfile::tempdir()?;
+        let temp_file_path = temp_dir.path().join("upload");
+        std::fs::write(&temp_file_path, data)?;
+
+        self.handler.add_file(&temp_file_path, path_str)?;
+        self.scan_archive()?;
+        Ok(())
     }
 
     fn write_file_at(&self, _path: &Path, _offset: u64, _data: &[u8]) -> Result<()> {
-        Err(anyhow::anyhow!("ArchiveFileSystem is read-only"))
+        Err(anyhow::anyhow!(
+            "ArchiveFileSystem write_file_at is not supported"
+        ))
     }
 
     fn display_prefix(&self) -> &'static str {
@@ -278,6 +322,41 @@ impl FileSystemProvider for ArchiveFs {
 
     async fn calc_dir_size(&self, _path: &Path) -> anyhow::Result<u64> {
         Ok(0)
+    }
+
+    async fn copy_from_local(
+        &self,
+        src_fs: &dyn crate::fs::traits::FileSystem,
+        src: &Path,
+        dest: &Path,
+        _progress: &crate::fs::traits::TaskProgressContext,
+    ) -> Option<anyhow::Result<()>> {
+        if !src_fs.is_local() {
+            return None;
+        }
+
+        let src = src.to_path_buf();
+        let dest = dest.to_path_buf();
+        let handler = self.handler.clone();
+        let this = self.clone();
+
+        Some(
+            tokio::task::spawn_blocking(move || {
+                let rel_dest = if dest.has_root() {
+                    dest.strip_prefix("/").unwrap_or(&dest)
+                } else {
+                    &dest
+                };
+                let dest_str = rel_dest.to_string_lossy().replace('\\', "/");
+                let dest_str = dest_str.trim_end_matches('/').to_string();
+
+                handler.add_file(&src, &dest_str)?;
+                this.scan_archive()?;
+                Ok(())
+            })
+            .await
+            .unwrap_or_else(|e| Err(anyhow::anyhow!("Join error: {e}"))),
+        )
     }
 
     async fn copy_to_local(

@@ -920,3 +920,130 @@ async fn test_archive_fs_read_and_download_rpm() {
         "hello rpm"
     );
 }
+
+#[tokio::test]
+async fn test_zip_delete_and_add() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive_path = temp_dir.path().join("modify.zip");
+
+    // 1. Create a ZIP with two files
+    {
+        let file = File::create(&archive_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default();
+
+        zip.start_file("file1.txt", options).unwrap();
+        zip.write_all(b"content1").unwrap();
+        zip.start_file("file2.txt", options).unwrap();
+        zip.write_all(b"content2").unwrap();
+        zip.finish().unwrap();
+    }
+
+    let archive_fs = ArchiveFs::new(&archive_path).unwrap();
+
+    // 2. Delete file1.txt
+    archive_fs.delete(Path::new("file1.txt"), false).unwrap();
+
+    // Verify file1.txt is gone and file2.txt remains
+    assert!(!archive_fs.exists(Path::new("file1.txt")));
+    assert!(archive_fs.exists(Path::new("file2.txt")));
+    assert_eq!(
+        archive_fs.read_file(Path::new("file2.txt")).unwrap(),
+        b"content2"
+    );
+
+    // 3. Add a new file from local filesystem
+    let extra_file = temp_dir.path().join("extra.txt");
+    std::fs::write(&extra_file, b"extra content").unwrap();
+
+    // Set specific mtime and permissions
+    let mtime = SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000); // Year 2027
+    filetime::set_file_mtime(&extra_file, filetime::FileTime::from_system_time(mtime)).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&extra_file, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    let local_fs = fm::fs::provider::ProviderFileSystem(Arc::new(fm::fs::fs_local::LocalFs::new()));
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let progress = TaskProgressContext {
+        id: 99,
+        tx,
+        cancel: Arc::new(AtomicBool::new(false)),
+        processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+    };
+
+    archive_fs
+        .copy_from_local(&local_fs, &extra_file, Path::new("extra.txt"), &progress)
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Verify extra.txt exists with correct content and metadata
+    assert!(archive_fs.exists(Path::new("extra.txt")));
+    assert_eq!(
+        archive_fs.read_file(Path::new("extra.txt")).unwrap(),
+        b"extra content"
+    );
+
+    let entry = archive_fs.get_entry(Path::new("extra.txt")).unwrap();
+    let entry_mtime = entry.file_entry.modified.unwrap();
+    let diff = if entry_mtime > mtime {
+        entry_mtime.duration_since(mtime).unwrap()
+    } else {
+        mtime.duration_since(entry_mtime).unwrap()
+    };
+    assert!(diff < Duration::from_secs(2)); // ZIP resolution
+    #[cfg(unix)]
+    {
+        assert!(entry.file_entry.attributes.contains('x'));
+    }
+}
+
+#[tokio::test]
+async fn test_zip_rename() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive_path = temp_dir.path().join("rename.zip");
+
+    // 1. Create a ZIP with a file and a directory
+    {
+        let file = File::create(&archive_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default();
+
+        zip.start_file("old_name.txt", options).unwrap();
+        zip.write_all(b"rename me").unwrap();
+        zip.add_directory("old_dir", options).unwrap();
+        zip.start_file("old_dir/inner.txt", options).unwrap();
+        zip.write_all(b"inner content").unwrap();
+        zip.finish().unwrap();
+    }
+
+    let archive_fs = ArchiveFs::new(&archive_path).unwrap();
+
+    // 2. Rename file
+    archive_fs
+        .rename(Path::new("old_name.txt"), Path::new("new_name.txt"))
+        .unwrap();
+    assert!(!archive_fs.exists(Path::new("old_name.txt")));
+    assert!(archive_fs.exists(Path::new("new_name.txt")));
+    assert_eq!(
+        archive_fs.read_file(Path::new("new_name.txt")).unwrap(),
+        b"rename me"
+    );
+
+    // 3. Rename directory
+    archive_fs
+        .rename(Path::new("old_dir"), Path::new("new_dir"))
+        .unwrap();
+    assert!(!archive_fs.exists(Path::new("old_dir")));
+    assert!(!archive_fs.exists(Path::new("old_dir/inner.txt")));
+    assert!(archive_fs.exists(Path::new("new_dir")));
+    assert!(archive_fs.exists(Path::new("new_dir/inner.txt")));
+    assert_eq!(
+        archive_fs.read_file(Path::new("new_dir/inner.txt")).unwrap(),
+        b"inner content"
+    );
+}
