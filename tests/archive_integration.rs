@@ -124,6 +124,90 @@ fn create_file_entry(name: &str, is_dir: bool) -> FileEntry {
 }
 
 #[tokio::test]
+async fn test_zip_extract_attributes() {
+    // 1. Setup ZIP with a file and a subdirectory
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive_path = temp_dir.path().join("test_attributes.zip");
+
+    {
+        let file = File::create(&archive_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+
+        // File with specific permissions
+        let mut options = zip::write::SimpleFileOptions::default();
+        options = options.unix_permissions(0o755); // rwxr-xr-x
+        zip.start_file("executable.sh", options).unwrap();
+        zip.write_all(b"#!/bin/bash\necho hello").unwrap();
+
+        // Directory with specific permissions
+        let mut dir_options = zip::write::SimpleFileOptions::default();
+        dir_options = dir_options.unix_permissions(0o700); // rwx------
+        zip.add_directory("private_dir", dir_options).unwrap();
+
+        // File inside the private directory
+        let mut sub_file_options = zip::write::SimpleFileOptions::default();
+        sub_file_options = sub_file_options.unix_permissions(0o640); // rw-r-----
+        zip.start_file("private_dir/secret.txt", sub_file_options)
+            .unwrap();
+        zip.write_all(b"top secret").unwrap();
+
+        zip.finish().unwrap();
+    }
+
+    // 2. Load ArchiveFs
+    let archive_fs = fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap();
+
+    // 3. Test download (extraction with attribute preservation)
+    let dest_dir = temp_dir.path().join("extracted_zip_attributes");
+    std::fs::create_dir_all(&dest_dir).unwrap();
+
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
+    let progress = fm::fs::traits::TaskProgressContext {
+        id: 0,
+        tx,
+        cancel: Arc::new(AtomicBool::new(false)),
+        processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+    };
+    let local_fs = fm::fs::provider::ProviderFileSystem(Arc::new(LocalFs::new()));
+
+    // Extract everything
+    archive_fs
+        .extract(Path::new("."), &local_fs, &dest_dir, &progress)
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Verify file content
+    assert_eq!(
+        std::fs::read_to_string(dest_dir.join("executable.sh")).unwrap(),
+        "#!/bin/bash\necho hello"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dest_dir.join("private_dir/secret.txt")).unwrap(),
+        "top secret"
+    );
+
+    // Verify permissions (Unix-like systems only)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let executable_path = dest_dir.join("executable.sh");
+        let executable_metadata = std::fs::metadata(&executable_path).unwrap();
+        assert_eq!(executable_metadata.permissions().mode() & 0o777, 0o755);
+
+        let private_dir_path = dest_dir.join("private_dir");
+        let private_dir_metadata = std::fs::metadata(&private_dir_path).unwrap();
+        assert_eq!(private_dir_metadata.permissions().mode() & 0o777, 0o700);
+
+        let secret_file_path = dest_dir.join("private_dir/secret.txt");
+        let secret_file_metadata = std::fs::metadata(&secret_file_path).unwrap();
+        assert_eq!(secret_file_metadata.permissions().mode() & 0o777, 0o640);
+    }
+}
+
+#[tokio::test]
 async fn test_open_supported_archive_tar_gz() {
     // 1. Setup temporary directory and create a dummy .tar.gz
     let temp_dir = tempfile::tempdir().unwrap();
@@ -1043,7 +1127,9 @@ async fn test_zip_rename() {
     assert!(archive_fs.exists(Path::new("new_dir")));
     assert!(archive_fs.exists(Path::new("new_dir/inner.txt")));
     assert_eq!(
-        archive_fs.read_file(Path::new("new_dir/inner.txt")).unwrap(),
+        archive_fs
+            .read_file(Path::new("new_dir/inner.txt"))
+            .unwrap(),
         b"inner content"
     );
 }

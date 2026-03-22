@@ -225,6 +225,7 @@ impl ArchiveFormat for TarHandler {
                 .ok()
                 .map(|m| SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(m));
 
+            let mode = entry.header().mode().ok();
             common::handle_extraction_entry(
                 &mut entry,
                 &common::ExtractionEntryMetadata {
@@ -233,6 +234,7 @@ impl ArchiveFormat for TarHandler {
                     is_symlink,
                     size,
                     mtime,
+                    mode,
                 },
                 &opts,
                 &mut dir_mtimes,

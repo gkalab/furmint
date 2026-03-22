@@ -165,6 +165,7 @@ pub struct ExtractionEntryMetadata<'a> {
     pub is_symlink: bool,
     pub size: u64,
     pub mtime: Option<SystemTime>,
+    pub mode: Option<u32>,
 }
 
 /// Handles extraction of a single archive entry.
@@ -217,7 +218,12 @@ pub fn handle_extraction_entry<R: std::io::Read>(
     if entry_meta.is_dir {
         std::fs::create_dir_all(&target)?;
         if let Some(mt) = entry_meta.mtime {
-            dir_mtimes.push((target, mt));
+            dir_mtimes.push((target.clone(), mt));
+        }
+        #[cfg(unix)]
+        if let Some(mode) = entry_meta.mode {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&target, std::fs::Permissions::from_mode(mode))?;
         }
     } else if entry_meta.is_symlink {
         let mut link_target = Vec::new();
@@ -237,13 +243,20 @@ pub fn handle_extraction_entry<R: std::io::Read>(
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let mut out = std::fs::File::create(&target)?;
-        std::io::copy(&mut reader, &mut out)?;
+        {
+            let mut out = std::fs::File::create(&target)?;
+            std::io::copy(&mut reader, &mut out)?;
+        }
         opts.progress
             .processed_bytes
             .fetch_add(entry_meta.size, std::sync::atomic::Ordering::Relaxed);
         if let Some(mt) = entry_meta.mtime {
-            let _ = set_file_mtime(&target, FileTime::from_system_time(mt));
+            set_file_mtime(&target, FileTime::from_system_time(mt))?;
+        }
+        #[cfg(unix)]
+        if let Some(mode) = entry_meta.mode {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&target, std::fs::Permissions::from_mode(mode))?;
         }
     }
 

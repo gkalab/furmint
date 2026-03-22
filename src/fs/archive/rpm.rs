@@ -473,6 +473,7 @@ impl ArchiveFormat for RpmHandler {
                     + std::time::Duration::from_secs(u64::from(entry_reader.entry().mtime())),
             );
 
+            let mode = Some(entry_reader.entry().mode());
             common::handle_extraction_entry(
                 &mut entry_reader,
                 &common::ExtractionEntryMetadata {
@@ -481,6 +482,7 @@ impl ArchiveFormat for RpmHandler {
                     is_symlink,
                     size,
                     mtime,
+                    mode,
                 },
                 &opts,
                 &mut dir_mtimes,

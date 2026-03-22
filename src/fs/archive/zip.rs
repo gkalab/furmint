@@ -3,7 +3,6 @@ use super::common::{self, ArchiveEntryMetadata};
 use crate::fs::traits::TaskProgressContext;
 use crate::fs::utils::mode_to_attributes;
 use anyhow::{Context, Result};
-use chrono::TimeZone;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
@@ -33,22 +32,24 @@ impl ZipHandler {
         }
     }
 
-    fn zip_dt_to_system_time(dt: Option<zip::DateTime>) -> SystemTime {
-        if let Some(dt) = dt {
-            chrono::Utc
-                .with_ymd_and_hms(
-                    i32::from(dt.year()),
-                    u32::from(dt.month()),
-                    u32::from(dt.day()),
-                    u32::from(dt.hour()),
-                    u32::from(dt.minute()),
-                    u32::from(dt.second()),
-                )
-                .single()
-                .map_or(SystemTime::UNIX_EPOCH, SystemTime::from)
-        } else {
-            SystemTime::UNIX_EPOCH
-        }
+    fn zip_dt_to_system_time(dt: zip::DateTime) -> std::time::SystemTime {
+        use chrono::{Local, TimeZone};
+        let dt = Local
+            .with_ymd_and_hms(
+                dt.year().into(),
+                dt.month().into(),
+                dt.day().into(),
+                dt.hour().into(),
+                dt.minute().into(),
+                dt.second().into(),
+            )
+            .single()
+            .unwrap_or_else(|| Local.timestamp_opt(0, 0).unwrap());
+        dt.into()
+    }
+
+    fn get_unix_mode<R: std::io::Read>(zip_file: &zip::read::ZipFile<R>) -> Option<u32> {
+        zip_file.unix_mode().filter(|&m| m != 0)
     }
 }
 
@@ -67,9 +68,9 @@ impl ZipHandler {
 
             let is_dir = file.is_dir() || file.name().ends_with('/');
             let size = file.size();
-            let modified = Self::zip_dt_to_system_time(file.last_modified());
+            let modified = file.last_modified().map_or(SystemTime::UNIX_EPOCH, Self::zip_dt_to_system_time);
 
-            let unix_mode = file.unix_mode();
+            let unix_mode = Self::get_unix_mode(&file);
             let attributes = if let Some(mode) = unix_mode {
                 mode_to_attributes(mode, is_dir, false)
             } else if is_dir {
@@ -125,17 +126,33 @@ impl ZipHandler {
             && let Ok(mut zip_file) = archive.by_name(src_str)
             && !zip_file.is_dir()
         {
-            if let Some(parent) = dest.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            let mut out = File::create(dest)?;
-            std::io::copy(&mut zip_file, &mut out)?;
+            let name = zip_file.name().to_string();
+            let is_dir = false;
             let size = zip_file.size();
-            progress.processed_bytes.fetch_add(size, Ordering::Relaxed);
-            let p = progress.processed_items.fetch_add(1, Ordering::Relaxed) + 1;
-            let _ = progress
-                .tx
-                .send(crate::tasks::TaskEvent::UpdateProgress(progress.id, p, 0));
+            let mode = Self::get_unix_mode(&zip_file).or(Some(0o100_644));
+            let mtime = zip_file.last_modified().map_or(SystemTime::UNIX_EPOCH, Self::zip_dt_to_system_time);
+
+            let opts = common::ExtractOptions {
+                src_str,
+                dest,
+                is_dir: false,
+                progress,
+            };
+
+            common::handle_extraction_entry(
+                &mut zip_file,
+                &common::ExtractionEntryMetadata {
+                    name_raw: &name,
+                    is_dir,
+                    is_symlink: false,
+                    size,
+                    mtime: Some(mtime),
+                    mode,
+                },
+                &opts,
+                &mut dir_mtimes,
+                &mut last_update,
+            )?;
             return Ok(());
         }
 
@@ -151,19 +168,26 @@ impl ZipHandler {
                 return Ok(());
             }
             let mut zip_file = archive.by_index(i).context("Failed to get zip index")?;
-            let name_raw = zip_file.name().to_string();
-            let is_entry_dir = zip_file.is_dir() | name_raw.ends_with('/');
+
+            let name = zip_file.name().to_string();
+            let is_dir = zip_file.is_dir() || name.ends_with('/');
             let size = zip_file.size();
-            let mtime = Some(Self::zip_dt_to_system_time(zip_file.last_modified()));
+            let mode = Self::get_unix_mode(&zip_file).or(if is_dir {
+                Some(0o040_755)
+            } else {
+                Some(0o100_644)
+            });
+            let mtime = zip_file.last_modified().map_or(SystemTime::UNIX_EPOCH, Self::zip_dt_to_system_time);
 
             common::handle_extraction_entry(
                 &mut zip_file,
                 &common::ExtractionEntryMetadata {
-                    name_raw: &name_raw,
-                    is_dir: is_entry_dir,
-                    is_symlink: false, // ZipFile doesn't expose symlink easily here, assuming false for now
+                    name_raw: &name,
+                    is_dir,
+                    is_symlink: false, // zip-rs doesn't easily support symlinks here
                     size,
-                    mtime,
+                    mtime: Some(mtime),
+                    mode,
                 },
                 &opts,
                 &mut dir_mtimes,
