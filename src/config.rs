@@ -115,7 +115,7 @@ pub fn default_keyboard_config() -> KeyboardConfig {
         toggle_console: Some(vec!["Ctrl-o".to_string()]),
         swap_tabs: Some(vec!["Ctrl-u".to_string()]),
         open_ssh: Some(vec!["Ctrl-n".to_string()]),
-        reconnect_ssh: Some(vec!["Ctrl-r".to_string()]),
+        reconnect_ssh: Some(vec!["Ctrl-F11".to_string()]),
         calc_dir_size: Some(vec!["Ctrl-Space".to_string()]),
     }
 }
