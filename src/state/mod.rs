@@ -12,6 +12,7 @@ mod help;
 mod quit;
 mod remote_edit;
 mod rename;
+mod rename_tab;
 pub mod ssh;
 
 pub use confirmation::{ConfirmationAction, ConfirmationState};
@@ -28,6 +29,7 @@ pub use help::HelpState;
 pub use quit::QuitConfirmationState;
 pub use remote_edit::RemoteEditState;
 pub use rename::RenameState;
+pub use rename_tab::RenameTabState;
 pub use ssh::{SshConnectionState, SshPasswordState};
 
 pub trait PopupState {

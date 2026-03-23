@@ -40,6 +40,7 @@ pub struct KeyboardConfig {
     pub open_ssh: Option<Vec<String>>,
     pub reconnect_ssh: Option<Vec<String>>,
     pub calc_dir_size: Option<Vec<String>>,
+    pub rename_tab: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -117,6 +118,7 @@ pub fn default_keyboard_config() -> KeyboardConfig {
         open_ssh: Some(vec!["Ctrl-n".to_string()]),
         reconnect_ssh: Some(vec!["Ctrl-F11".to_string()]),
         calc_dir_size: Some(vec!["Ctrl-Space".to_string()]),
+        rename_tab: Some(vec!["Ctrl-r".to_string()]),
     }
 }
 
@@ -178,6 +180,7 @@ pub fn merge_keyboard_config(
         open_ssh: merge_opt!(open_ssh),
         reconnect_ssh: merge_opt!(reconnect_ssh),
         calc_dir_size: merge_opt!(calc_dir_size),
+        rename_tab: merge_opt!(rename_tab),
     }
 }
 
@@ -264,6 +267,7 @@ pub fn validate_keyboard_config(config: &KeyboardConfig) -> Result<()> {
         ("open_ssh", &config.open_ssh),
         ("reconnect_ssh", &config.reconnect_ssh),
         ("calc_dir_size", &config.calc_dir_size),
+        ("rename_tab", &config.rename_tab),
     ];
 
     for (name, keys) in fields {

@@ -28,11 +28,15 @@ pub fn draw_tab_bar(
         let tab_title = tab.title();
 
         // Truncate if too long (max 15 chars for local directories, 25 for others)
-        let max_len = if tab.provider.is_local() { 15 } else { 25 };
-        let truncated_title = if tab_title.len() > max_len {
-            format!("{}…", &tab_title[..max_len - 3])
-        } else {
+        let truncated_title = if tab.custom_title.is_some() {
             tab_title.to_string()
+        } else {
+            let max_len = if tab.provider.is_local() { 15 } else { 25 };
+            if tab_title.len() > max_len {
+                format!("{}…", &tab_title[..max_len - 3])
+            } else {
+                tab_title.to_string()
+            }
         };
 
         // Style based on whether this tab is active

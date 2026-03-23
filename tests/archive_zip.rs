@@ -226,16 +226,36 @@ async fn test_zip_add_files_batch() {
     };
 
     // This should trigger the recursive copy_from_local optimization
-    archive_fs.copy_from_local(&src_fs, &src_dir, Path::new("batch_dir"), &progress).await.unwrap().unwrap();
+    archive_fs
+        .copy_from_local(&src_fs, &src_dir, Path::new("batch_dir"), &progress)
+        .await
+        .unwrap()
+        .unwrap();
 
     // Verify contents
-    assert!(archive_fs.get_entry(Path::new("batch_dir/file1.txt")).is_some());
-    assert!(archive_fs.get_entry(Path::new("batch_dir/file2.txt")).is_some());
-    assert!(archive_fs.get_entry(Path::new("batch_dir/subdir/file3.txt")).is_some());
+    assert!(
+        archive_fs
+            .get_entry(Path::new("batch_dir/file1.txt"))
+            .is_some()
+    );
+    assert!(
+        archive_fs
+            .get_entry(Path::new("batch_dir/file2.txt"))
+            .is_some()
+    );
+    assert!(
+        archive_fs
+            .get_entry(Path::new("batch_dir/subdir/file3.txt"))
+            .is_some()
+    );
 
     // Verify data
-    let data1 = archive_fs.read_file(Path::new("batch_dir/file1.txt")).unwrap();
+    let data1 = archive_fs
+        .read_file(Path::new("batch_dir/file1.txt"))
+        .unwrap();
     assert_eq!(data1, b"content1");
-    let data3 = archive_fs.read_file(Path::new("batch_dir/subdir/file3.txt")).unwrap();
+    let data3 = archive_fs
+        .read_file(Path::new("batch_dir/subdir/file3.txt"))
+        .unwrap();
     assert_eq!(data3, b"content3");
 }

@@ -11,6 +11,7 @@ pub mod main_ui;
 pub mod panel;
 pub mod quit_ui;
 pub mod remote_edit_ui;
+pub mod rename_tab_ui;
 pub mod rename_ui;
 pub mod ssh_ui;
 pub mod tabs;

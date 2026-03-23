@@ -199,6 +199,7 @@ fn build_help_categories(
         ("Prev Tab", &keyboard.tab_prev),
         ("Swap Tabs", &keyboard.swap_tabs),
         ("Close Tab", &keyboard.tab_close),
+        ("Rename Tab", &keyboard.rename_tab),
         ("History Back", &keyboard.back),
         ("History Forward", &keyboard.forward),
     ];

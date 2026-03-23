@@ -11,6 +11,7 @@ use crate::handlers::popup_error::handle_error_event;
 use crate::handlers::popup_fuzzy::handle_fuzzy_search_event;
 use crate::handlers::popup_misc::{handle_quit_popup_event, handle_task_manager_event};
 use crate::handlers::popup_rename::handle_rename_event;
+use crate::handlers::popup_rename_tab::handle_rename_tab_event;
 use crate::handlers::popup_ssh::{handle_ssh_connection_event, handle_ssh_password_event};
 use crate::handlers::terminal::handle_toggle_console;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
@@ -78,6 +79,7 @@ fn handle_quit_and_interceptors(
             && !app.file_viewer.is_visible
             && !app.fuzzy_search.is_visible
             && !app.popups.rename.is_visible
+            && !app.popups.rename_tab.is_visible
             && !app.popups.create_directory.is_visible
             && !app.popups.delete.is_visible
             && !app.popups.copy_move.is_visible
@@ -122,6 +124,9 @@ async fn handle_popup_events(
     }
     if app.popups.rename.is_visible {
         return Some(handle_rename_event(code, modifiers, app));
+    }
+    if app.popups.rename_tab.is_visible {
+        return Some(handle_rename_tab_event(code, modifiers, app));
     }
     if app.popups.create_directory.is_visible {
         return Some(handle_create_directory_event(code, modifiers, app));

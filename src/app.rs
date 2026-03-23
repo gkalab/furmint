@@ -12,7 +12,8 @@ use std::time::Instant;
 pub use crate::state::{
     ConflictState, CopyMoveAction, CopyMoveState, CreateDirectoryState, CreateFileState,
     DeleteState, DriveSelectState, EmptyTrashState, ErrorState, FileViewerState, HelpState,
-    QuitConfirmationState, RemoteEditState, RenameState, SshConnectionState, SshPasswordState,
+    QuitConfirmationState, RemoteEditState, RenameState, RenameTabState, SshConnectionState,
+    SshPasswordState,
 };
 
 /// Cache entry for an opened archive.
@@ -26,6 +27,7 @@ pub struct ArchiveCacheEntry {
 
 pub struct Popups {
     pub rename: RenameState,
+    pub rename_tab: RenameTabState,
     pub create_directory: CreateDirectoryState,
     pub delete: DeleteState,
     pub empty_trash: EmptyTrashState,
@@ -46,6 +48,7 @@ impl Popups {
     pub fn new() -> Self {
         Self {
             rename: RenameState::new(),
+            rename_tab: RenameTabState::new(),
             create_directory: CreateDirectoryState::new(),
             delete: DeleteState::new(),
             empty_trash: EmptyTrashState::new(),
@@ -65,6 +68,7 @@ impl Popups {
     #[must_use]
     pub fn any_visible(&self) -> bool {
         self.rename.is_visible
+            || self.rename_tab.is_visible
             || self.create_directory.is_visible
             || self.delete.is_visible
             || self.empty_trash.is_visible
@@ -515,19 +519,4 @@ impl AppState {
     pub fn test_default() -> Self {
         crate::test_utils::create_test_app()
     }
-}
-
-// Popup state structs moved to src/state/ module
-// Re-exported via pub use at top of file
-
-pub(crate) fn ensure_dir_exists(path: PathBuf) -> PathBuf {
-    let mut current = path;
-    while !current.exists() || !current.is_dir() {
-        if let Some(parent) = current.parent() {
-            current = parent.to_path_buf();
-        } else {
-            return std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
-        }
-    }
-    current
 }

@@ -7,6 +7,7 @@ pub mod tabs;
 pub mod popup_fuzzy;
 
 pub mod popup_rename;
+pub mod popup_rename_tab;
 
 pub mod popup_delete;
 

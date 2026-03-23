@@ -21,6 +21,7 @@ pub struct PersistentTab {
     pub cursor: usize,
     pub sort_column: SortColumn,
     pub sort_direction: SortDirection,
+    pub custom_title: Option<String>,
 }
 
 #[derive(Clone)]
@@ -173,14 +174,12 @@ impl Tab {
     ///
     /// Returns an error if the directory cannot be read.
     pub fn from_persistent(p: PersistentTab) -> anyhow::Result<Self> {
-        let path = crate::app::ensure_dir_exists(p.path);
-        let mut tab = Tab::new(&path)?;
+        let mut tab = Self::new(&p.path)?;
+        tab.cursor = p.cursor;
         tab.sort.column = p.sort_column;
         tab.sort.direction = p.sort_direction;
+        tab.custom_title = p.custom_title;
         tab.sort_entries();
-        if p.cursor < tab.entries.len() {
-            tab.cursor = p.cursor;
-        }
         Ok(tab)
     }
 
@@ -191,6 +190,7 @@ impl Tab {
             cursor: self.cursor,
             sort_column: self.sort.column,
             sort_direction: self.sort.direction,
+            custom_title: self.custom_title.clone(),
         }
     }
 
@@ -1003,5 +1003,17 @@ mod tests {
 
         // Clean up
         std::fs::remove_dir_all(&test_dir).ok();
+    }
+
+    #[test]
+    fn test_persistent_tab_custom_title() {
+        let mut tab = Tab::new(Path::new(".")).unwrap();
+        tab.custom_title = Some("Custom Tab Name".to_string());
+
+        let persistent = tab.to_persistent();
+        assert_eq!(persistent.custom_title, Some("Custom Tab Name".to_string()));
+
+        let restored = Tab::from_persistent(persistent).unwrap();
+        assert_eq!(restored.custom_title, Some("Custom Tab Name".to_string()));
     }
 }

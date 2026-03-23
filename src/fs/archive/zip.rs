@@ -94,7 +94,10 @@ impl ZipHandler {
 
     fn rewrite_all_entries<F>(&self, mut f: F) -> Result<()>
     where
-        F: FnMut(&mut zip::write::ZipWriter<&mut std::fs::File>, zip::read::ZipFile<'_, std::fs::File>) -> Result<()>,
+        F: FnMut(
+            &mut zip::write::ZipWriter<&mut std::fs::File>,
+            zip::read::ZipFile<'_, std::fs::File>,
+        ) -> Result<()>,
     {
         let parent = self.path.parent().unwrap_or(Path::new("."));
         let mut temp_file = tempfile::NamedTempFile::new_in(parent)?;
@@ -350,10 +353,14 @@ impl ArchiveFormat for ZipHandler {
                 .or_else(|_| {
                     let f = File::create(&self.path)?;
                     zip::ZipWriter::new(f).finish()?;
-                    std::fs::OpenOptions::new().read(true).write(true).open(&self.path)
+                    std::fs::OpenOptions::new()
+                        .read(true)
+                        .write(true)
+                        .open(&self.path)
                 })?;
 
-            let mut writer = zip::ZipWriter::new_append(file).context("Failed to open zip for appending")?;
+            let mut writer =
+                zip::ZipWriter::new_append(file).context("Failed to open zip for appending")?;
             let mut src_file = File::open(src).context("Failed to open source file")?;
             let metadata = src_file.metadata()?;
             let options = SimpleFileOptions::default()
@@ -382,7 +389,10 @@ impl ArchiveFormat for ZipHandler {
         })?;
 
         // Add the new file to the rewritten archive
-        let file = std::fs::OpenOptions::new().read(true).write(true).open(&self.path)?;
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&self.path)?;
         let mut writer = zip::ZipWriter::new_append(file)?;
         let mut src_file = File::open(src)?;
         let metadata = src_file.metadata()?;
@@ -420,10 +430,14 @@ impl ArchiveFormat for ZipHandler {
                 .or_else(|_| {
                     let f = File::create(&self.path)?;
                     zip::ZipWriter::new(f).finish()?;
-                    std::fs::OpenOptions::new().read(true).write(true).open(&self.path)
+                    std::fs::OpenOptions::new()
+                        .read(true)
+                        .write(true)
+                        .open(&self.path)
                 })?;
 
-            let mut writer = zip::ZipWriter::new_append(file).context("Failed to open zip for appending")?;
+            let mut writer =
+                zip::ZipWriter::new_append(file).context("Failed to open zip for appending")?;
             let options = SimpleFileOptions::default()
                 .last_modified_time(mtime.map_or_else(
                     || Self::system_time_to_zip_dt(SystemTime::now()),
@@ -449,7 +463,10 @@ impl ArchiveFormat for ZipHandler {
         })?;
 
         // Add the directory to the rewritten archive
-        let file = std::fs::OpenOptions::new().read(true).write(true).open(&self.path)?;
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&self.path)?;
         let mut writer = zip::ZipWriter::new_append(file)?;
         let options = SimpleFileOptions::default()
             .last_modified_time(mtime.map_or_else(

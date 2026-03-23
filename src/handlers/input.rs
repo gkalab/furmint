@@ -16,6 +16,7 @@ use crate::handlers::{
     popup_create::{handle_init_create_directory, handle_init_create_file},
     popup_delete::handle_init_delete,
     popup_rename::handle_init_rename,
+    popup_rename_tab::handle_init_rename_tab,
     popup_ssh::{handle_reconnect_ssh, handle_ssh_connection_init},
     tabs::{handle_close_tab, handle_new_tab, handle_next_tab, handle_prev_tab},
     terminal::handle_open_terminal,
@@ -174,6 +175,12 @@ fn handle_tab_shortcuts(app: &mut AppState, keyboard: &KeyboardConfig, shortcut:
         && keys.iter().any(|s| s == shortcut)
     {
         handle_close_tab(app);
+        return true;
+    }
+    if let Some(keys) = &keyboard.rename_tab
+        && keys.iter().any(|s| s == shortcut)
+    {
+        handle_init_rename_tab(app);
         return true;
     }
     false
