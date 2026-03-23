@@ -362,6 +362,7 @@ impl FileSystemProvider for ArchiveFs {
         let dest = dest.to_path_buf();
         let handler = self.handler.clone();
         let this = self.clone();
+        let src_fs_is_local = src_fs.is_local();
 
         Some(
             tokio::task::spawn_blocking(move || {
@@ -373,7 +374,46 @@ impl FileSystemProvider for ArchiveFs {
                 let dest_str = rel_dest.to_string_lossy().replace('\\', "/");
                 let dest_str = dest_str.trim_end_matches('/').to_string();
 
-                handler.add_file(&src, &dest_str)?;
+                if src_fs_is_local && src.is_dir() {
+                    let mut files_to_add = Vec::new();
+                    let mut dirs_to_add = Vec::new();
+
+                    // Walk directory and collect files/dirs
+                    for entry in walkdir::WalkDir::new(&src) {
+                        let entry = entry?;
+                        let rel_path = entry.path().strip_prefix(&src)?;
+                        let mut entry_dest = dest_str.clone();
+                        if !rel_path.as_os_str().is_empty() {
+                            if !entry_dest.is_empty() {
+                                entry_dest.push('/');
+                            }
+                            entry_dest.push_str(&rel_path.to_string_lossy().replace('\\', "/"));
+                        }
+
+                        if entry.file_type().is_dir() {
+                            if !rel_path.as_os_str().is_empty() {
+                                dirs_to_add.push((entry_dest, entry.metadata()?.modified().ok()));
+                            }
+                        } else {
+                            files_to_add.push((entry.path().to_path_buf(), entry_dest));
+                        }
+                    }
+
+                    // Add directories first
+                    for (d_dest, mtime) in dirs_to_add {
+                        handler.add_directory(&d_dest, mtime)?;
+                    }
+
+                    // Batch add files
+                    let files_refs: Vec<(&Path, &str)> = files_to_add
+                        .iter()
+                        .map(|(p, d)| (p.as_path(), d.as_str()))
+                        .collect();
+                    handler.add_files(&files_refs)?;
+                } else {
+                    handler.add_file(&src, &dest_str)?;
+                }
+
                 this.scan_archive()?;
                 Ok(())
             })

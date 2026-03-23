@@ -194,3 +194,48 @@ async fn test_zip_timestamps() {
         "Modified time should be after Unix epoch, but got {modified:?}"
     );
 }
+
+#[tokio::test]
+async fn test_zip_add_files_batch() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_dir = temp_dir.path().join("src_dir");
+    std::fs::create_dir(&src_dir).unwrap();
+    std::fs::write(src_dir.join("file1.txt"), b"content1").unwrap();
+    std::fs::write(src_dir.join("file2.txt"), b"content2").unwrap();
+    let sub_dir = src_dir.join("subdir");
+    std::fs::create_dir(&sub_dir).unwrap();
+    std::fs::write(sub_dir.join("file3.txt"), b"content3").unwrap();
+
+    let archive_path = temp_dir.path().join("test_batch.zip");
+    {
+        let file = File::create(&archive_path).unwrap();
+        let zip = zip::ZipWriter::new(file);
+        zip.finish().unwrap();
+    }
+
+    let src_fs = ProviderFileSystem(std::sync::Arc::new(LocalFs::new()));
+    let archive_fs = ArchiveFs::new(&archive_path).unwrap();
+    let _dest_fs = ProviderFileSystem(std::sync::Arc::new(archive_fs.clone()));
+
+    let progress = fm::fs::traits::TaskProgressContext {
+        id: 1,
+        tx: tokio::sync::mpsc::unbounded_channel().0,
+        cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        processed_bytes: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        processed_items: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+    };
+
+    // This should trigger the recursive copy_from_local optimization
+    archive_fs.copy_from_local(&src_fs, &src_dir, Path::new("batch_dir"), &progress).await.unwrap().unwrap();
+
+    // Verify contents
+    assert!(archive_fs.get_entry(Path::new("batch_dir/file1.txt")).is_some());
+    assert!(archive_fs.get_entry(Path::new("batch_dir/file2.txt")).is_some());
+    assert!(archive_fs.get_entry(Path::new("batch_dir/subdir/file3.txt")).is_some());
+
+    // Verify data
+    let data1 = archive_fs.read_file(Path::new("batch_dir/file1.txt")).unwrap();
+    assert_eq!(data1, b"content1");
+    let data3 = archive_fs.read_file(Path::new("batch_dir/subdir/file3.txt")).unwrap();
+    assert_eq!(data3, b"content3");
+}

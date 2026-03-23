@@ -321,12 +321,51 @@ impl ArchiveFormat for ZipHandler {
     ///
     /// Returns an error if the archive cannot be rewritten or the source file cannot be read.
     fn add_file(&self, src: &Path, dest_in_archive: &str) -> Result<()> {
+        let dest_norm = common::normalize_path(dest_in_archive);
+        let dest_norm_str = dest_norm.to_string_lossy().to_string();
+
+        // Check if file exists and contains the destination path
+        let exists_in_archive = if self.path.exists() {
+            let file = File::open(&self.path).context("Failed to open archive")?;
+            let mut archive = zip::ZipArchive::new(file).context("Failed to read zip")?;
+            archive.by_name(&dest_norm_str).is_ok()
+        } else {
+            false
+        };
+
+        if !exists_in_archive {
+            // Optimization: use append mode to avoid rewriting the whole archive
+            let file = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&self.path)
+                .or_else(|_| {
+                    // Create empty archive if it doesn't exist
+                    let f = File::create(&self.path)?;
+                    zip::ZipWriter::new(f).finish()?;
+                    std::fs::OpenOptions::new().read(true).write(true).open(&self.path)
+                })?;
+
+            let mut writer = zip::ZipWriter::new_append(file).context("Failed to open zip for appending")?;
+            let mut src_file = File::open(src).context("Failed to open source file")?;
+            let metadata = src_file.metadata()?;
+            let options = SimpleFileOptions::default()
+                .last_modified_time(metadata.modified().ok().map_or_else(
+                    || zip::DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).unwrap(),
+                    Self::system_time_to_zip_dt,
+                ))
+                .unix_permissions(Self::get_metadata_mode(&metadata));
+
+            writer.start_file(dest_in_archive, options)?;
+            std::io::copy(&mut src_file, &mut writer)?;
+            writer.finish()?;
+            return Ok(());
+        }
+
+        // Fallback: full rewrite for replacement or if anything above fails
         let parent = self.path.parent().unwrap_or(Path::new("."));
         let mut temp_file = tempfile::NamedTempFile::new_in(parent)?;
         let temp_path = temp_file.path().to_path_buf();
-
-        let dest_norm = common::normalize_path(dest_in_archive);
-        let dest_norm_str = dest_norm.to_string_lossy().to_string();
 
         {
             let mut writer = zip::ZipWriter::new(temp_file.as_file_mut());
@@ -373,16 +412,49 @@ impl ArchiveFormat for ZipHandler {
     ///
     /// Returns an error if the archive cannot be rewritten.
     fn add_directory(&self, dest_in_archive: &str, mtime: Option<SystemTime>) -> Result<()> {
-        let parent = self.path.parent().unwrap_or(Path::new("."));
-        let mut temp_file = tempfile::NamedTempFile::new_in(parent)?;
-        let temp_path = temp_file.path().to_path_buf();
-
         let mut dest_str = dest_in_archive.to_string();
         if !dest_str.ends_with('/') {
             dest_str.push('/');
         }
         let dest_norm = common::normalize_path(&dest_str);
         let dest_norm_str = dest_norm.to_string_lossy().to_string();
+
+        // Check if entry exists
+        let exists_in_archive = if self.path.exists() {
+            let file = File::open(&self.path).context("Failed to open archive")?;
+            let mut archive = zip::ZipArchive::new(file).context("Failed to read zip")?;
+            archive.by_name(&dest_norm_str).is_ok()
+        } else {
+            false
+        };
+
+        if !exists_in_archive {
+            let file = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&self.path)
+                .or_else(|_| {
+                    let f = File::create(&self.path)?;
+                    zip::ZipWriter::new(f).finish()?;
+                    std::fs::OpenOptions::new().read(true).write(true).open(&self.path)
+                })?;
+
+            let mut writer = zip::ZipWriter::new_append(file).context("Failed to open zip for appending")?;
+            let options = SimpleFileOptions::default()
+                .last_modified_time(mtime.map_or_else(
+                    || Self::system_time_to_zip_dt(SystemTime::now()),
+                    Self::system_time_to_zip_dt,
+                ))
+                .unix_permissions(0o755);
+
+            writer.add_directory(dest_norm_str, options)?;
+            writer.finish()?;
+            return Ok(());
+        }
+
+        let parent = self.path.parent().unwrap_or(Path::new("."));
+        let mut temp_file = tempfile::NamedTempFile::new_in(parent)?;
+        let temp_path = temp_file.path().to_path_buf();
 
         {
             let mut writer = zip::ZipWriter::new(temp_file.as_file_mut());
@@ -526,6 +598,17 @@ impl ArchiveFormat for ZipHandler {
         }
 
         std::fs::rename(temp_path, &self.path)?;
+        Ok(())
+    }
+
+    /// Adds multiple files to the archive.
+    fn add_files(&self, files: &[(&Path, &str)]) -> Result<()> {
+        // Since add_file already optimizes with new_append for new entries,
+        // calling it in a loop is much faster than before.
+        // For even more performance, we could open the ZipWriter once here.
+        for (src, dest) in files {
+            self.add_file(src, dest)?;
+        }
         Ok(())
     }
 }

@@ -63,6 +63,18 @@ pub trait ArchiveFormat: Send + Sync {
         ))
     }
 
+    /// Adds multiple files from the local filesystem to the archive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any file cannot be added or if the format is read-only.
+    fn add_files(&self, files: &[(&Path, &str)]) -> Result<()> {
+        for (src, dest) in files {
+            self.add_file(src, dest)?;
+        }
+        Ok(())
+    }
+
     /// Adds a directory to the archive.
     ///
     /// # Errors
