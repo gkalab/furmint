@@ -78,6 +78,41 @@ impl ZipHandler {
         )
         .unwrap_or_else(|_| zip::DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).unwrap())
     }
+
+    fn has_entry(&self, name: &str) -> bool {
+        if !self.path.exists() {
+            return false;
+        }
+        let Ok(file) = File::open(&self.path) else {
+            return false;
+        };
+        let Ok(mut archive) = zip::ZipArchive::new(file) else {
+            return false;
+        };
+        archive.by_name(name).is_ok()
+    }
+
+    fn rewrite_all_entries<F>(&self, mut f: F) -> Result<()>
+    where
+        F: FnMut(&mut zip::write::ZipWriter<&mut std::fs::File>, zip::read::ZipFile<'_, std::fs::File>) -> Result<()>,
+    {
+        let parent = self.path.parent().unwrap_or(Path::new("."));
+        let mut temp_file = tempfile::NamedTempFile::new_in(parent)?;
+        let temp_path = temp_file.path().to_path_buf();
+        {
+            let file = File::open(&self.path).context("Failed to open archive")?;
+            let mut archive = zip::ZipArchive::new(file).context("Failed to read zip")?;
+            let mut writer = zip::ZipWriter::new(temp_file.as_file_mut());
+
+            for i in 0..archive.len() {
+                let zip_file = archive.by_index(i).context("Failed to get zip index")?;
+                f(&mut writer, zip_file)?;
+            }
+            writer.finish()?;
+        }
+        std::fs::rename(temp_path, &self.path)?;
+        Ok(())
+    }
 }
 
 impl ZipHandler {
@@ -279,40 +314,22 @@ impl ArchiveFormat for ZipHandler {
     ///
     /// Returns an error if the archive cannot be rewritten.
     fn delete_file(&self, path_str: &str) -> Result<()> {
-        let parent = self.path.parent().unwrap_or(Path::new("."));
-        let mut temp_file = tempfile::NamedTempFile::new_in(parent)?;
-        let temp_path = temp_file.path().to_path_buf();
+        let path_norm = common::normalize_path(path_str);
+        let path_norm_str = path_norm.to_string_lossy().to_string();
 
-        {
-            let file = File::open(&self.path).context("Failed to open archive")?;
-            let mut archive = zip::ZipArchive::new(file).context("Failed to read zip")?;
+        self.rewrite_all_entries(|writer, zip_file| {
+            let name = zip_file.name();
+            let name_norm = common::normalize_path(name);
+            let name_norm_str = name_norm.to_string_lossy().to_string();
 
-            let mut writer = zip::ZipWriter::new(temp_file.as_file_mut());
+            let should_delete = name_norm_str == path_norm_str
+                || name_norm_str.starts_with(&(path_norm_str.clone() + "/"));
 
-            let path_norm = common::normalize_path(path_str);
-            let path_norm_str = path_norm.to_string_lossy().to_string();
-
-            for i in 0..archive.len() {
-                let zip_file = archive.by_index(i).context("Failed to get zip index")?;
-                let name = zip_file.name();
-                let name_norm = common::normalize_path(name);
-                let name_norm_str = name_norm.to_string_lossy().to_string();
-
-                let should_delete = if name_norm_str == path_norm_str {
-                    true
-                } else {
-                    name_norm_str.starts_with(&(path_norm_str.clone() + "/"))
-                };
-
-                if !should_delete {
-                    writer.raw_copy_file(zip_file)?;
-                }
+            if !should_delete {
+                writer.raw_copy_file(zip_file)?;
             }
-            writer.finish()?;
-        }
-
-        std::fs::rename(temp_path, &self.path)?;
-        Ok(())
+            Ok(())
+        })
     }
 
     /// Adds a file to the archive.
@@ -324,23 +341,13 @@ impl ArchiveFormat for ZipHandler {
         let dest_norm = common::normalize_path(dest_in_archive);
         let dest_norm_str = dest_norm.to_string_lossy().to_string();
 
-        // Check if file exists and contains the destination path
-        let exists_in_archive = if self.path.exists() {
-            let file = File::open(&self.path).context("Failed to open archive")?;
-            let mut archive = zip::ZipArchive::new(file).context("Failed to read zip")?;
-            archive.by_name(&dest_norm_str).is_ok()
-        } else {
-            false
-        };
-
-        if !exists_in_archive {
-            // Optimization: use append mode to avoid rewriting the whole archive
+        if !self.has_entry(&dest_norm_str) {
+            // ... (optimized append logic) ...
             let file = std::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
                 .open(&self.path)
                 .or_else(|_| {
-                    // Create empty archive if it doesn't exist
                     let f = File::create(&self.path)?;
                     zip::ZipWriter::new(f).finish()?;
                     std::fs::OpenOptions::new().read(true).write(true).open(&self.path)
@@ -362,47 +369,33 @@ impl ArchiveFormat for ZipHandler {
             return Ok(());
         }
 
-        // Fallback: full rewrite for replacement or if anything above fails
-        let parent = self.path.parent().unwrap_or(Path::new("."));
-        let mut temp_file = tempfile::NamedTempFile::new_in(parent)?;
-        let temp_path = temp_file.path().to_path_buf();
+        // Fallback: full rewrite for replacement using rewrite_all_entries
+        self.rewrite_all_entries(|writer, zip_file| {
+            let name = zip_file.name();
+            let name_norm = common::normalize_path(name);
+            let name_norm_str = name_norm.to_string_lossy().to_string();
 
-        {
-            let mut writer = zip::ZipWriter::new(temp_file.as_file_mut());
-
-            if self.path.exists() {
-                let file = File::open(&self.path).context("Failed to open archive")?;
-                let mut archive = zip::ZipArchive::new(file).context("Failed to read zip")?;
-
-                for i in 0..archive.len() {
-                    let zip_file = archive.by_index(i).context("Failed to get zip index")?;
-                    let name = zip_file.name();
-                    let name_norm = common::normalize_path(name);
-                    let name_norm_str = name_norm.to_string_lossy().to_string();
-
-                    // If we're replacing an existing file, skip it
-                    if name_norm_str != dest_norm_str {
-                        writer.raw_copy_file(zip_file)?;
-                    }
-                }
+            if name_norm_str != dest_norm_str {
+                writer.raw_copy_file(zip_file)?;
             }
+            Ok(())
+        })?;
 
-            // Add the new file
-            let mut src_file = File::open(src).context("Failed to open source file")?;
-            let metadata = src_file.metadata()?;
-            let options = SimpleFileOptions::default()
-                .last_modified_time(metadata.modified().ok().map_or_else(
-                    || zip::DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).unwrap(),
-                    Self::system_time_to_zip_dt,
-                ))
-                .unix_permissions(Self::get_metadata_mode(&metadata));
+        // Add the new file to the rewritten archive
+        let file = std::fs::OpenOptions::new().read(true).write(true).open(&self.path)?;
+        let mut writer = zip::ZipWriter::new_append(file)?;
+        let mut src_file = File::open(src)?;
+        let metadata = src_file.metadata()?;
+        let options = SimpleFileOptions::default()
+            .last_modified_time(metadata.modified().ok().map_or_else(
+                || zip::DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).unwrap(),
+                Self::system_time_to_zip_dt,
+            ))
+            .unix_permissions(Self::get_metadata_mode(&metadata));
 
-            writer.start_file(dest_in_archive, options)?;
-            std::io::copy(&mut src_file, &mut writer)?;
-            writer.finish()?;
-        }
-
-        std::fs::rename(temp_path, &self.path)?;
+        writer.start_file(dest_in_archive, options)?;
+        std::io::copy(&mut src_file, &mut writer)?;
+        writer.finish()?;
         Ok(())
     }
 
@@ -419,16 +412,7 @@ impl ArchiveFormat for ZipHandler {
         let dest_norm = common::normalize_path(&dest_str);
         let dest_norm_str = dest_norm.to_string_lossy().to_string();
 
-        // Check if entry exists
-        let exists_in_archive = if self.path.exists() {
-            let file = File::open(&self.path).context("Failed to open archive")?;
-            let mut archive = zip::ZipArchive::new(file).context("Failed to read zip")?;
-            archive.by_name(&dest_norm_str).is_ok()
-        } else {
-            false
-        };
-
-        if !exists_in_archive {
+        if !self.has_entry(&dest_norm_str) {
             let file = std::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
@@ -452,42 +436,30 @@ impl ArchiveFormat for ZipHandler {
             return Ok(());
         }
 
-        let parent = self.path.parent().unwrap_or(Path::new("."));
-        let mut temp_file = tempfile::NamedTempFile::new_in(parent)?;
-        let temp_path = temp_file.path().to_path_buf();
+        // Fallback: full rewrite for replacement
+        self.rewrite_all_entries(|writer, zip_file| {
+            let name = zip_file.name();
+            let name_norm = common::normalize_path(name);
+            let name_norm_str = name_norm.to_string_lossy().to_string();
 
-        {
-            let mut writer = zip::ZipWriter::new(temp_file.as_file_mut());
-
-            if self.path.exists() {
-                let file = File::open(&self.path).context("Failed to open archive")?;
-                let mut archive = zip::ZipArchive::new(file).context("Failed to read zip")?;
-
-                for i in 0..archive.len() {
-                    let zip_file = archive.by_index(i).context("Failed to get zip index")?;
-                    let name = zip_file.name();
-                    let name_norm = common::normalize_path(name);
-                    let name_norm_str = name_norm.to_string_lossy().to_string();
-
-                    // If we're replacing an existing entry, skip it
-                    if name_norm_str != dest_norm_str {
-                        writer.raw_copy_file(zip_file)?;
-                    }
-                }
+            if name_norm_str != dest_norm_str {
+                writer.raw_copy_file(zip_file)?;
             }
+            Ok(())
+        })?;
 
-            let options = SimpleFileOptions::default()
-                .last_modified_time(mtime.map_or_else(
-                    || Self::system_time_to_zip_dt(SystemTime::now()),
-                    Self::system_time_to_zip_dt,
-                ))
-                .unix_permissions(0o755);
+        // Add the directory to the rewritten archive
+        let file = std::fs::OpenOptions::new().read(true).write(true).open(&self.path)?;
+        let mut writer = zip::ZipWriter::new_append(file)?;
+        let options = SimpleFileOptions::default()
+            .last_modified_time(mtime.map_or_else(
+                || Self::system_time_to_zip_dt(SystemTime::now()),
+                Self::system_time_to_zip_dt,
+            ))
+            .unix_permissions(0o755);
 
-            writer.add_directory(dest_norm_str, options)?;
-            writer.finish()?;
-        }
-
-        std::fs::rename(temp_path, &self.path)?;
+        writer.add_directory(dest_norm_str, options)?;
+        writer.finish()?;
         Ok(())
     }
 
@@ -497,40 +469,26 @@ impl ArchiveFormat for ZipHandler {
     ///
     /// Returns an error if the archive cannot be rewritten.
     fn set_modified_time(&self, path: &str, mtime: SystemTime) -> Result<()> {
-        let parent = self.path.parent().unwrap_or(Path::new("."));
-        let mut temp_file = tempfile::NamedTempFile::new_in(parent)?;
-        let temp_path = temp_file.path().to_path_buf();
-
         let path_norm = common::normalize_path(path);
         let path_norm_str = path_norm.to_string_lossy().to_string();
 
-        {
-            let file = File::open(&self.path).context("Failed to open archive")?;
-            let mut archive = zip::ZipArchive::new(file).context("Failed to read zip")?;
-            let mut writer = zip::ZipWriter::new(temp_file.as_file_mut());
+        self.rewrite_all_entries(|writer, mut zip_file| {
+            let name = zip_file.name().to_string();
+            let name_norm = common::normalize_path(&name);
+            let name_norm_str = name_norm.to_string_lossy().to_string();
 
-            for i in 0..archive.len() {
-                let mut zip_file = archive.by_index(i).context("Failed to get zip index")?;
-                let name = zip_file.name().to_string();
-                let name_norm = common::normalize_path(&name);
-                let name_norm_str = name_norm.to_string_lossy().to_string();
+            if name_norm_str == path_norm_str {
+                let options = SimpleFileOptions::default()
+                    .last_modified_time(Self::system_time_to_zip_dt(mtime))
+                    .unix_permissions(zip_file.unix_mode().unwrap_or(0o644));
 
-                if name_norm_str == path_norm_str {
-                    let options = SimpleFileOptions::default()
-                        .last_modified_time(Self::system_time_to_zip_dt(mtime))
-                        .unix_permissions(zip_file.unix_mode().unwrap_or(0o644));
-
-                    writer.start_file(name, options)?;
-                    std::io::copy(&mut zip_file, &mut writer)?;
-                } else {
-                    writer.raw_copy_file(zip_file)?;
-                }
+                writer.start_file(name, options)?;
+                std::io::copy(&mut zip_file, writer)?;
+            } else {
+                writer.raw_copy_file(zip_file)?;
             }
-            writer.finish()?;
-        }
-
-        std::fs::rename(temp_path, &self.path)?;
-        Ok(())
+            Ok(())
+        })
     }
 
     /// Renames a file or directory within the archive.
@@ -539,66 +497,46 @@ impl ArchiveFormat for ZipHandler {
     ///
     /// Returns an error if the archive cannot be rewritten.
     fn rename_file(&self, from: &str, to: &str) -> Result<()> {
-        let parent = self.path.parent().unwrap_or(Path::new("."));
-        let mut temp_file = tempfile::NamedTempFile::new_in(parent)?;
-        let temp_path = temp_file.path().to_path_buf();
-
         let from_norm = common::normalize_path(from);
         let from_norm_str = from_norm.to_string_lossy().to_string();
         let to_norm = common::normalize_path(to);
         let to_norm_str = to_norm.to_string_lossy().to_string();
 
-        {
-            let file = File::open(&self.path).context("Failed to open archive")?;
-            let mut archive = zip::ZipArchive::new(file).context("Failed to read zip")?;
+        self.rewrite_all_entries(|writer, mut zip_file| {
+            let name_raw = zip_file.name().to_string();
+            let name_norm = common::normalize_path(&name_raw);
+            let name_norm_str = name_norm.to_string_lossy().to_string();
 
-            let mut writer = zip::ZipWriter::new(temp_file.as_file_mut());
-
-            for i in 0..archive.len() {
-                let (new_name, changed) = {
-                    let zip_file = archive.by_index(i).context("Failed to get zip index")?;
-                    let name = zip_file.name();
-                    let name_raw = name.to_string();
-                    let name_norm = common::normalize_path(name);
-                    let name_norm_str = name_norm.to_string_lossy().to_string();
-
-                    if name_norm_str == from_norm_str {
-                        let mut nn = to_norm_str.clone();
-                        // Preserve trailing slash if original had it
-                        if name_raw.ends_with('/') && !nn.ends_with('/') {
-                            nn.push('/');
-                        }
-                        (nn, true)
-                    } else if name_norm_str.starts_with(&(from_norm_str.clone() + "/")) {
-                        let mut nn = to_norm_str.clone() + &name_norm_str[from_norm_str.len()..];
-                        if name_raw.ends_with('/') && !nn.ends_with('/') {
-                            nn.push('/');
-                        }
-                        (nn, true)
-                    } else {
-                        (name_raw, false)
-                    }
-                };
-
-                let mut zip_file = archive.by_index(i).context("Failed to get zip index")?;
-                if changed {
-                    let options = SimpleFileOptions::default()
-                        .last_modified_time(zip_file.last_modified().unwrap_or_else(|| {
-                            zip::DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).unwrap()
-                        }))
-                        .unix_permissions(zip_file.unix_mode().unwrap_or(0o644));
-
-                    writer.start_file(new_name, options)?;
-                    std::io::copy(&mut zip_file, &mut writer)?;
-                } else {
-                    writer.raw_copy_file(zip_file)?;
+            let (new_name, changed) = if name_norm_str == from_norm_str {
+                let mut nn = to_norm_str.clone();
+                if name_raw.ends_with('/') && !nn.ends_with('/') {
+                    nn.push('/');
                 }
-            }
-            writer.finish()?;
-        }
+                (nn, true)
+            } else if name_norm_str.starts_with(&(from_norm_str.clone() + "/")) {
+                let mut nn = to_norm_str.clone() + &name_norm_str[from_norm_str.len()..];
+                if name_raw.ends_with('/') && !nn.ends_with('/') {
+                    nn.push('/');
+                }
+                (nn, true)
+            } else {
+                (name_raw, false)
+            };
 
-        std::fs::rename(temp_path, &self.path)?;
-        Ok(())
+            if changed {
+                let options = SimpleFileOptions::default()
+                    .last_modified_time(zip_file.last_modified().unwrap_or_else(|| {
+                        zip::DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).unwrap()
+                    }))
+                    .unix_permissions(zip_file.unix_mode().unwrap_or(0o644));
+
+                writer.start_file(new_name, options)?;
+                std::io::copy(&mut zip_file, writer)?;
+            } else {
+                writer.raw_copy_file(zip_file)?;
+            }
+            Ok(())
+        })
     }
 
     /// Adds multiple files to the archive.

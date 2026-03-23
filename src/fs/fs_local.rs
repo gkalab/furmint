@@ -236,31 +236,20 @@ impl FileSystemProvider for LocalFs {
     }
 
     async fn calc_dir_size(&self, path: &Path) -> anyhow::Result<u64> {
-        use std::sync::Arc;
-        use std::sync::atomic::{AtomicU64, Ordering};
         use tokio::task;
 
         let path = path.to_path_buf();
 
         // Spawn blocking task for directory traversal
         let total_size = task::spawn_blocking(move || {
-            fn walk_dir(dir: &Path, total: &Arc<AtomicU64>) -> anyhow::Result<()> {
-                for entry in std::fs::read_dir(dir)? {
-                    let entry = entry?;
-                    let metadata = entry.metadata()?;
-
-                    if metadata.is_file() {
-                        total.fetch_add(metadata.len(), Ordering::Relaxed);
-                    } else if metadata.is_dir() {
-                        walk_dir(&entry.path(), total)?;
-                    }
+            let mut total = 0u64;
+            for entry in walkdir::WalkDir::new(&path) {
+                let entry = entry?;
+                if entry.file_type().is_file() {
+                    total += entry.metadata()?.len();
                 }
-                Ok(())
             }
-            let total = Arc::new(AtomicU64::new(0));
-
-            walk_dir(&path, &total)?;
-            Ok::<u64, anyhow::Error>(total.load(Ordering::Relaxed))
+            Ok::<u64, anyhow::Error>(total)
         })
         .await
         .map_err(|e| anyhow::anyhow!("Task join error: {e}"))??;

@@ -44,13 +44,13 @@ pub async fn empty_trash() -> std::result::Result<usize, String> {
             return Ok(0);
         }
         let mut removed = 0;
-        for entry in fs::read_dir(&trash_dir).map_err(|e| e.to_string())? {
-            let entry = entry.map_err(|e| e.to_string())?;
+        for entry in walkdir::WalkDir::new(&trash_dir).min_depth(1).max_depth(1) {
+            let Ok(entry) = entry else { continue };
             let path = entry.path();
             if path.is_dir() {
-                fs::remove_dir_all(&path).map_err(|e| e.to_string())?;
+                fs::remove_dir_all(path).map_err(|e| e.to_string())?;
             } else {
-                fs::remove_file(&path).map_err(|e| e.to_string())?;
+                fs::remove_file(path).map_err(|e| e.to_string())?;
             }
             removed += 1;
         }
@@ -68,13 +68,13 @@ pub async fn empty_trash() -> std::result::Result<usize, String> {
         let mut removed = 0;
         for dir in &[&files, &info] {
             if dir.exists() {
-                for entry in fs::read_dir(dir).map_err(|e| e.to_string())? {
-                    let entry = entry.map_err(|e| e.to_string())?;
+                for entry in walkdir::WalkDir::new(dir).min_depth(1).max_depth(1) {
+                    let Ok(entry) = entry else { continue };
                     let path = entry.path();
                     if path.is_dir() {
-                        fs::remove_dir_all(&path).map_err(|e| e.to_string())?;
+                        fs::remove_dir_all(path).map_err(|e| e.to_string())?;
                     } else {
-                        fs::remove_file(&path).map_err(|e| e.to_string())?;
+                        fs::remove_file(path).map_err(|e| e.to_string())?;
                     }
                     removed += 1;
                 }
