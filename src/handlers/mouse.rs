@@ -90,6 +90,7 @@ fn handle_tab_bar_click(app: &mut AppState, side: PanelSide, x: u16, y: u16) {
     for (idx, rect) in tab_areas.iter().enumerate() {
         if is_in_rect((x, y), *rect) {
             tab_manager.active_tab_index = idx;
+            crate::handlers::navigation::update_viewer_content(app);
             break;
         }
     }
@@ -120,6 +121,8 @@ fn handle_panel_click(app: &mut AppState, side: PanelSide, y: u16, is_double_cli
         tab.cursor = row_idx;
         if is_double_click {
             crate::handlers::navigation::handle_enter(app);
+        } else {
+            crate::handlers::navigation::update_viewer_content(app);
         }
     }
 }
@@ -182,6 +185,7 @@ fn handle_scroll(app: &mut AppState, up: bool) {
     } else {
         tab.cursor = (tab.cursor + 3).min(tab.entries.len().saturating_sub(1));
     }
+    crate::handlers::navigation::update_viewer_content(app);
 }
 
 fn is_in_rect(pos: (u16, u16), rect: Rect) -> bool {
