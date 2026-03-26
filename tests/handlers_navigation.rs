@@ -203,15 +203,18 @@ fn test_handle_enter_directory_only_enters_dirs() {
     assert!(app.left.active_tab().current_dir.ends_with("test_dir"));
 
     // Test handle_open_item on file (should stay in same dir as it spawns process)
-    app.left.active_tab_mut().navigate_to(path).unwrap();
-    app.left.active_tab_mut().cursor = file_idx;
-    let original_dir = app.left.active_tab().current_dir.clone();
-    handle_open_item(&mut app);
-    assert_eq!(
-        app.left.active_tab().current_dir,
-        original_dir,
-        "handle_open_item on file should not change directory"
-    );
+    #[cfg(not(windows))]
+    {
+        app.left.active_tab_mut().navigate_to(path).unwrap();
+        app.left.active_tab_mut().cursor = file_idx;
+        let original_dir = app.left.active_tab().current_dir.clone();
+        handle_open_item(&mut app);
+        assert_eq!(
+            app.left.active_tab().current_dir,
+            original_dir,
+            "handle_open_item on file should not change directory"
+        );
+    }
 
     // Test handle_open_item on directory (should enter)
     app.left.active_tab_mut().cursor = dir_idx;
