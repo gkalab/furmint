@@ -26,7 +26,20 @@ impl FileOpener for SystemOpener {
         }
         #[cfg(not(target_os = "linux"))]
         {
-            open::that(path).map_err(|e| anyhow::anyhow!("Error opening file: {e}"))
+            if let Err(e) = open::that(path) {
+                #[cfg(target_os = "windows")]
+                {
+                    if std::process::Command::new("explorer")
+                        .arg(path)
+                        .spawn()
+                        .is_ok()
+                    {
+                        return Ok(());
+                    }
+                }
+                return Err(anyhow::anyhow!("Error opening file: {e}"));
+            }
+            Ok(())
         }
     }
 }
