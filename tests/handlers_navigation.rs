@@ -72,6 +72,8 @@ fn test_app(entries: Vec<FileEntry>) -> AppState {
         left_tab_areas: Vec::new(),
         right_tab_areas: Vec::new(),
         last_click: None,
+        #[cfg(windows)]
+        pending_context_menu: None,
     }
 }
 

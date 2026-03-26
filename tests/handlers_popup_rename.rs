@@ -61,6 +61,8 @@ fn test_app_with_entry(name: &str, is_dir: bool, path: &std::path::Path) -> AppS
         left_tab_areas: Vec::new(),
         right_tab_areas: Vec::new(),
         last_click: None,
+        #[cfg(windows)]
+        pending_context_menu: None,
     }
 }
 

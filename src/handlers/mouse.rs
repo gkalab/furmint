@@ -8,6 +8,9 @@ pub fn handle_mouse_event(app: &mut AppState, event: MouseEvent) {
         MouseEventKind::Down(MouseButton::Left) => {
             handle_left_click(app, event.column, event.row);
         }
+        MouseEventKind::Down(MouseButton::Right) => {
+            handle_right_click(app, event.column, event.row);
+        }
         MouseEventKind::Drag(MouseButton::Left) => {
             handle_drag(app, event.column, event.row);
         }
@@ -80,6 +83,65 @@ fn handle_left_click(app: &mut AppState, x: u16, y: u16) {
         handle_panel_click(app, PanelSide::Right, y, is_double_click);
     }
 }
+
+#[cfg(windows)]
+fn handle_right_click(app: &mut AppState, x: u16, y: u16) {
+    let click_pos = (x, y);
+
+    // Determine which panel was clicked and set it active.
+    let side = if is_in_rect(click_pos, app.left_panel_area) {
+        app.active = crate::app::PanelSide::Left;
+        Some(crate::app::PanelSide::Left)
+    } else if is_in_rect(click_pos, app.right_panel_area) {
+        app.active = crate::app::PanelSide::Right;
+        Some(crate::app::PanelSide::Right)
+    } else {
+        None
+    };
+
+    let Some(side) = side else { return };
+
+    let (tab, area) = match side {
+        crate::app::PanelSide::Left => (app.left.active_tab_mut(), app.left_panel_area),
+        crate::app::PanelSide::Right => (app.right.active_tab_mut(), app.right_panel_area),
+    };
+
+    // Only act on local providers.
+    if !tab.provider.is_local() {
+        return;
+    }
+
+    let borders = app.global.borders.unwrap_or(false);
+    let border_offset = u16::from(borders);
+    let header_height = 1u16;
+    let content_start_y = area.y + border_offset + header_height;
+
+    if borders && (y <= area.y || y >= area.y + area.height.saturating_sub(1)) {
+        return; // border row
+    }
+    if y < content_start_y {
+        return; // header row
+    }
+
+    let row_idx = (y - content_start_y) as usize + tab.scroll_offset;
+    if row_idx >= tab.entries.len() {
+        return;
+    }
+
+    // Move cursor to the right-clicked row.
+    tab.cursor = row_idx;
+
+    let full_path = tab.current_dir.join(&tab.entries[row_idx].name);
+
+    // Refresh the panel in case the context menu action changed files.
+    crate::handlers::navigation::update_viewer_content(app);
+
+    // Store the path to be processed on the next event loop iteration.
+    app.pending_context_menu = Some(full_path);
+}
+
+#[cfg(not(windows))]
+fn handle_right_click(_app: &mut AppState, _x: u16, _y: u16) {}
 
 fn handle_tab_bar_click(app: &mut AppState, side: PanelSide, x: u16, y: u16) {
     let (tab_manager, tab_areas) = match side {

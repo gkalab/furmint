@@ -128,6 +128,7 @@ pub struct AppState {
     pub left_panel_area: ratatui::layout::Rect,
     pub right_panel_area: ratatui::layout::Rect,
     pub last_click: Option<(Instant, u16, u16)>,
+    pub pending_context_menu: Option<std::path::PathBuf>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -203,6 +204,7 @@ impl AppState {
             left_panel_area: ratatui::layout::Rect::default(),
             right_panel_area: ratatui::layout::Rect::default(),
             last_click: None,
+            pending_context_menu: None,
         }
     }
 

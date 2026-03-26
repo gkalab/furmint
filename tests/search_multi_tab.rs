@@ -104,6 +104,8 @@ fn test_multi_tab_search_timeout() {
         left_tab_areas: Vec::new(),
         right_tab_areas: Vec::new(),
         last_click: None,
+        #[cfg(windows)]
+        pending_context_menu: None,
     };
 
     // Before reset

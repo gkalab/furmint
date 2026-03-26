@@ -47,6 +47,8 @@ fn test_app(file_lines: usize) -> AppState {
         left_tab_areas: Vec::new(),
         right_tab_areas: Vec::new(),
         last_click: None,
+        #[cfg(windows)]
+        pending_context_menu: None,
     };
     // Populate content lines
     app.file_viewer.content = vec!["line".to_string(); file_lines];

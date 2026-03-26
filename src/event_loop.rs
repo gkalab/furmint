@@ -110,6 +110,16 @@ pub async fn run_event_loop(
 
                                 // Sync watcher if navigation happened
                                 app.sync_watcher();
+
+                                #[cfg(windows)]
+                                if let Some(path) = app.pending_context_menu.take() {
+                                    let _ = crossterm::terminal::disable_raw_mode();
+                                    if let Err(e) = crate::context_menu::show_context_menu(&path) {
+                                        app.active_tab_mut().error = Some(e.to_string());
+                                    }
+                                    let _ = crossterm::terminal::enable_raw_mode();
+                                    draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
+                                }
                             }
                             // Handle task events
                             Some(event) = task_rx.recv() => {
