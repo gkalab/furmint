@@ -48,7 +48,6 @@ fn basic_app_state() -> AppState {
         left_tab_areas: Vec::new(),
         right_tab_areas: Vec::new(),
         last_click: None,
-        #[cfg(windows)]
         pending_context_menu: None,
     }
 }

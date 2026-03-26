@@ -51,7 +51,6 @@ fn app_with_conflict(task_id: usize) -> (AppState, mpsc::Receiver<TaskDecision>)
         left_tab_areas: Vec::new(),
         right_tab_areas: Vec::new(),
         last_click: None,
-        #[cfg(windows)]
         pending_context_menu: None,
     };
 
