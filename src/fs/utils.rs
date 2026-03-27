@@ -111,7 +111,15 @@ impl FileEntry {
 
         let name = entry.file_name().to_string_lossy().to_string();
         let is_symlink = file_type.is_symlink();
-        let is_dir = file_type.is_dir();
+        let mut is_dir = file_type.is_dir();
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::FileTypeExt;
+            if is_symlink && file_type.is_symlink_dir() {
+                is_dir = true;
+            }
+        }
 
         // On Windows/Unix, we might want to follow symlinks to see if they are directories
         // However, following symlinks is expensive over network drives.
@@ -175,8 +183,13 @@ pub fn get_attributes(meta: &Metadata, is_dir: bool, is_symlink: bool) -> String
     #[cfg(not(unix))]
     {
         let _ = meta;
-        let _ = is_symlink;
-        let s = if is_dir { "<DIR>" } else { "<FILE>" };
+        let s = if is_symlink {
+            "<LNK>"
+        } else if is_dir {
+            "<DIR>"
+        } else {
+            "<FILE>"
+        };
         format!("{s:<10}")
     }
 }
