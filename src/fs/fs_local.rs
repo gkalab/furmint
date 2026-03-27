@@ -29,36 +29,25 @@ pub fn is_network_path(path: &Path) -> bool {
     #[cfg(windows)]
     {
         use std::os::windows::ffi::OsStrExt;
+        const DRIVE_REMOTE: u32 = 3;
         let path_str = path.as_os_str();
         let wide: Vec<u16> = path_str.encode_wide().collect();
 
         // Check for UNC path (\\server\share)
-        if wide.len() >= 3 && wide[0] == b'\\' as u16 && wide[1] == b'\\' as u16 {
+        if wide.len() >= 3 && wide[0] == u16::from(b'\\') && wide[1] == u16::from(b'\\') {
             return true;
         }
-
         // Check for mapped drive (e.g., Z:\)
-        // GetDriveTypeW can tell us if it's a network drive
-        if wide.len() >= 2 && wide[1] == b':' as u16 {
-            use std::ffi::OsStr;
-            use std::os::windows::ffi::OsStrExt;
-
+        if wide.len() >= 2 && wide[1] == u16::from(b':') {
             // Create a drive string like "Z:\0"
             let mut drive_str: Vec<u16> = wide[..2].to_vec();
-            drive_str.push(b'\\' as u16);
+            drive_str.push(u16::from(b'\\'));
             drive_str.push(0);
-
-            // DRIVE_REMOTE = 3
-            const DRIVE_REMOTE: u32 = 3;
-            let drive_type = unsafe {
-                winapi::um::fileapi::GetDriveTypeW(drive_str.as_ptr())
-            };
-
+            let drive_type = unsafe { winapi::um::fileapi::GetDriveTypeW(drive_str.as_ptr()) };
             if drive_type == DRIVE_REMOTE {
                 return true;
             }
         }
-
         false
     }
 
