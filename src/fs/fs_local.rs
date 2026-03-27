@@ -29,7 +29,7 @@ pub fn is_network_path(path: &Path) -> bool {
     #[cfg(windows)]
     {
         use std::os::windows::ffi::OsStrExt;
-        const DRIVE_REMOTE: u32 = 3;
+        const DRIVE_REMOTE: u32 = 4;
         let path_str = path.as_os_str();
         let wide: Vec<u16> = path_str.encode_wide().collect();
 
