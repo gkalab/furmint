@@ -262,10 +262,16 @@ impl AppState {
             // Watch visible tabs
             let mut paths = Vec::new();
             if self.left.active_tab().provider.is_local() {
-                paths.push(self.left.active_tab().current_dir.clone());
+                let path = &self.left.active_tab().current_dir;
+                if !crate::fs::fs_local::is_network_path(path) {
+                    paths.push(path.clone());
+                }
             }
             if self.right.active_tab().provider.is_local() {
-                paths.push(self.right.active_tab().current_dir.clone());
+                let path = &self.right.active_tab().current_dir;
+                if !crate::fs::fs_local::is_network_path(path) {
+                    paths.push(path.clone());
+                }
             }
             let _ = watcher.update_watched_paths(&paths);
         }
