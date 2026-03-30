@@ -25,8 +25,9 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
             app.task_manager.update_task_status(id, &status);
             if let crate::tasks::TaskStatus::Completed = status {
                 // If we have a watcher, it should handle local refreshes.
-                // We mainly need to ensure remote tabs are refreshed.
-                if app.watcher.is_none() {
+                // However, on Windows we don't watch network shares for performance reasons,
+                // so we need to manually refresh if any tab is on a network share.
+                if app.watcher.is_none() || app.is_any_tab_on_network_share() {
                     app.refresh_active_tabs();
                 } else {
                     app.reload_remote();

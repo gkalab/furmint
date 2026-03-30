@@ -44,6 +44,9 @@ pub fn handle_create_directory_event(
                     app.popups.create_directory.reset();
                     // Reload active tab and focus on the new directory
                     let _ = app.active_tab_mut().reload_and_focus(&new_name);
+                    if app.is_any_tab_on_network_share() {
+                        app.refresh_active_tabs();
+                    }
                 }
                 Err(e) => {
                     app.popups.create_directory.error = Some(e.to_string());
@@ -162,6 +165,9 @@ async fn handle_post_create_actions(app: &mut AppState, path_buf: std::path::Pat
         if let Some(name) = path_buf.file_name().and_then(|n| n.to_str()) {
             let _ = app.active_tab_mut().reload_and_focus(name);
         }
+        if app.is_any_tab_on_network_share() {
+            app.refresh_active_tabs();
+        }
         app.popups.create_file.reset();
         crate::handlers::navigation::handle_enter(app);
         return false;
@@ -171,6 +177,9 @@ async fn handle_post_create_actions(app: &mut AppState, path_buf: std::path::Pat
     // so if it's an external editor, the UI is already updated.
     if let Some(name) = path_buf.file_name().and_then(|n| n.to_str()) {
         let _ = app.active_tab_mut().reload_and_focus(name);
+    }
+    if app.is_any_tab_on_network_share() {
+        app.refresh_active_tabs();
     }
 
     // Open in editor using environment helper

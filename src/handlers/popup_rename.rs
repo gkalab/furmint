@@ -117,6 +117,9 @@ pub(crate) fn perform_rename(app: &mut AppState, _overwrite: bool) {
                     if let Some(idx) = panel.entries.iter().position(|e| e.name == new_name) {
                         panel.cursor = idx;
                     }
+                    if app.is_any_tab_on_network_share() {
+                        app.refresh_active_tabs();
+                    }
                 }
                 Err(e) => {
                     panel.error = Some(format!("Error refreshing directory: {e}"));

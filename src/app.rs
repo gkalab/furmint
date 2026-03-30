@@ -277,6 +277,18 @@ impl AppState {
         }
     }
 
+    /// Returns true if any active tab is on a network share.
+    /// This is used to determine if manual refreshes are needed since file watching
+    /// is disabled for these paths on Windows for performance reasons.
+    #[must_use]
+    pub fn is_any_tab_on_network_share(&self) -> bool {
+        let left_path = &self.left.active_tab().current_dir;
+        let right_path = &self.right.active_tab().current_dir;
+
+        (self.left.active_tab().provider.is_local() && crate::fs::fs_local::is_network_path(left_path))
+            || (self.right.active_tab().provider.is_local() && crate::fs::fs_local::is_network_path(right_path))
+    }
+
     pub fn cleanup_sensitive_data(&mut self) {
         self.ssh_manager.clear_all_passwords();
     }
