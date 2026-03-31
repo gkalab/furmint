@@ -1,6 +1,4 @@
 use crate::config::SshConfig;
-#[cfg(unix)]
-use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[cfg(unix)]
@@ -307,14 +305,14 @@ impl SshManager {
         port: u16,
         user: String,
         password: String,
-        _target_path: Option<String>,
+        target_path: Option<String>,
     ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
         let session_id = Self::generate_session_id(&host, port);
         let timeout = Duration::from_secs(self.watchdog_secs);
 
         let fs = tokio::time::timeout(
             timeout,
-            self.connect_ssh_backend(host, port, user, password, _target_path),
+            self.connect_ssh_backend(host, port, user, password, target_path),
         )
         .await
         .map_err(|_| SshError::Network(NetworkError::ConnectionTimedOut))??;

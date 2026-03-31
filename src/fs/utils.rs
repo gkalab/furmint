@@ -111,6 +111,7 @@ impl FileEntry {
 
         let name = entry.file_name().to_string_lossy().to_string();
         let is_symlink = file_type.is_symlink();
+        #[cfg_attr(not(windows), allow(unused_mut))]
         let mut is_dir = file_type.is_dir();
 
         #[cfg(windows)]
