@@ -16,6 +16,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
+use super::utils::find_default_ssh_keys;
+
 pub(crate) struct SshClientHandler;
 
 impl client::Handler for SshClientHandler {
@@ -740,27 +742,6 @@ impl FileSystemProvider for SftpFs {
         }
         Some(Ok(()))
     }
-}
-
-fn find_default_ssh_keys() -> Vec<PathBuf> {
-    let home = std::env::home_dir().unwrap_or_else(|| PathBuf::from("C:\\Users\\default"));
-    let ssh_dir = home.join(".ssh");
-    if !ssh_dir.is_dir() {
-        return Vec::new();
-    }
-    // Search for common OpenSSH identity files.
-    [
-        "id_ed25519",
-        "id_ecdsa",
-        "id_rsa",
-        "id_ed25519_sk",
-        "id_ecdsa_sk",
-        "id_rsa_sk",
-    ]
-    .iter()
-    .filter(|&&f| ssh_dir.join(f).exists())
-    .map(|f| ssh_dir.join(f))
-    .collect()
 }
 
 fn format_permissions(perm: Option<u32>) -> String {

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use chrono::{DateTime, Local};
 use std::fs::{self, Metadata};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 /// Empties the user trash. Returns the number of deleted items, or an error.
@@ -365,6 +365,38 @@ pub fn is_executable(full_path: &std::path::Path, e: &FileEntry) -> bool {
         }
         false
     }
+}
+
+/// Returns a list of default SSH private key paths found in the user's home directory.
+#[must_use]
+pub fn find_default_ssh_keys() -> Vec<PathBuf> {
+    let home = std::env::home_dir().unwrap_or_else(|| {
+        #[cfg(windows)]
+        {
+            PathBuf::from("C:\\Users\\default")
+        }
+        #[cfg(not(windows))]
+        {
+            PathBuf::from("/root")
+        }
+    });
+    let ssh_dir = home.join(".ssh");
+    if !ssh_dir.is_dir() {
+        return Vec::new();
+    }
+    // Search for common OpenSSH identity files.
+    [
+        "id_ed25519",
+        "id_ecdsa",
+        "id_rsa",
+        "id_ed25519_sk",
+        "id_ecdsa_sk",
+        "id_rsa_sk",
+    ]
+    .iter()
+    .filter(|&&f| ssh_dir.join(f).exists())
+    .map(|f| ssh_dir.join(f))
+    .collect()
 }
 
 #[cfg(test)]
