@@ -994,8 +994,9 @@ mod tests {
                 .unwrap_or(None)
         }
 
+        #[cfg(unix)]
         #[allow(dead_code)]
-        fn set_permissions(&self, path: &std::path::Path, mode: u32) -> bool {
+        fn set_permissions_unix(&self, path: &std::path::Path, mode: u32) -> bool {
             self.with_sftp(|sftp| {
                 Ok(sftp
                     .setstat(
@@ -1297,6 +1298,7 @@ fn test_with_sftp_mutex_poisoned() {
     assert!(format!("{}", result.unwrap_err()).contains("Session mutex poisoned"));
 }
 
+#[cfg(unix)]
 #[test]
 fn test_display_prefix_and_is_local() {
     use crate::fs::fs_provider::FileSystemProvider;
@@ -1309,6 +1311,7 @@ fn test_display_prefix_and_is_local() {
     assert!(!FileSystemProvider::is_local(&fs));
 }
 
+#[cfg(unix)]
 #[test]
 fn test_context_key() {
     use crate::fs::fs_provider::FileSystemProvider;

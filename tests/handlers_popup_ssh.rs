@@ -203,6 +203,7 @@ fn test_handle_reconnect_ssh_no_op_for_local() {
     assert!(!app.popups.ssh_password.is_visible);
 }
 
+#[cfg(unix)]
 #[test]
 fn test_handle_reconnect_ssh_sets_up_password_prompt() {
     use fm::fs::fs_sftp::SftpFs;

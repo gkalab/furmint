@@ -285,8 +285,10 @@ impl AppState {
         let left_path = &self.left.active_tab().current_dir;
         let right_path = &self.right.active_tab().current_dir;
 
-        (self.left.active_tab().provider.is_local() && crate::fs::fs_local::is_network_path(left_path))
-            || (self.right.active_tab().provider.is_local() && crate::fs::fs_local::is_network_path(right_path))
+        (self.left.active_tab().provider.is_local()
+            && crate::fs::fs_local::is_network_path(left_path))
+            || (self.right.active_tab().provider.is_local()
+                && crate::fs::fs_local::is_network_path(right_path))
     }
 
     pub fn cleanup_sensitive_data(&mut self) {

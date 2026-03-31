@@ -25,7 +25,7 @@ libc = "0.2"
 md5 = "0.8"
 notify = "8.2"
 notify-debouncer-full = "0.7"
-rand = "0.10"
+rand = "0.9"
 ratatui = "0.30"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -56,7 +56,6 @@ trash = "5.2"
 open = "5.3"
 shell-escape = "0.1"
 shell-words = "1.1"
-ssh2 = "0.9"
 clipboard = "0.4"
 image = { version = "0.25", features = ["default"] }
 ratatui-image = { version = "10.0", default-features = false, features = ["tokio", "image-defaults", "crossterm"] }
@@ -70,6 +69,9 @@ cpio = "0.4"
 zstd = "0.13"
 
 [target.'cfg(windows)'.dependencies]
+russh = { version = "0.59", default-features = false, features = ["ring"] }
+russh-sftp = "2.1"
+
 winreg = "0.55"
 winapi = { version = "0.3.9", features = ["shellapi", "fileapi", "winnt"] }
 windows = { version = "0.62", features = [
@@ -86,6 +88,7 @@ windows = { version = "0.62", features = [
 
 [target.'cfg(unix)'.dependencies]
 openssh = "0.11"
+ssh2 = "0.9.5"
 
 [profile.release]
 codegen-units = 1

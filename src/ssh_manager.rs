@@ -1,4 +1,5 @@
 use crate::config::SshConfig;
+#[cfg(unix)]
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -136,6 +137,10 @@ impl SshManager {
     /// # Errors
     ///
     /// Returns an error if the connection fails.
+    /// # Errors
+    ///
+    /// Returns an error if the connection or public key authentication fails.
+    #[cfg(unix)]
     pub async fn try_connect_with_keys(
         &self,
         host: String,
@@ -161,7 +166,13 @@ impl SshManager {
                     ssh2::Session::new().map_err(|e| SshError::Internal(e.to_string()))?;
                 sess.set_tcp_stream(tcp);
                 sess.handshake()
-                    .map_err(|e| SshError::Network(NetworkError::Other(e.to_string())))?;
+                    .map_err(|e| {
+                        let mut msg = e.to_string();
+                        if matches!(e.code(), ssh2::ErrorCode::Session(-5)) {
+                            msg.push_str(" (Check if your server requires modern SHA-2 RSA or Curve25519; ensure you're using ssh2 0.9.5+)");
+                        }
+                        SshError::Network(NetworkError::Other(msg))
+                    })?;
 
                 let agent_result = sess.agent();
                 let mut agent_connected = false;
@@ -222,6 +233,31 @@ impl SshManager {
         .map_err(|e| SshError::Internal(format!("Connection error: {e:?}")))?
     }
 
+    /// Windows variant, uses russh.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the connection fails or authentication with any found key fails.
+    #[cfg(windows)]
+    pub async fn try_connect_with_keys(
+        &self,
+        host: String,
+        port: u16,
+        user: String,
+    ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
+        let session_id = Self::generate_session_id(&host, port);
+        let timeout = Duration::from_secs(self.watchdog_secs);
+        let fs = tokio::time::timeout(
+            timeout,
+            crate::fs::fs_sftp_russh::SftpFs::connect_pubkey(&host, port, &user),
+        )
+        .await
+        .map_err(|_| SshError::Network(NetworkError::ConnectionTimedOut))?
+        .map_err(|_e| SshError::Auth(AuthError::KeyAuthFailed))?;
+        Ok((session_id, fs))
+    }
+
+    #[cfg(unix)]
     fn find_default_ssh_keys() -> Vec<PathBuf> {
         let home = std::env::home_dir().unwrap_or_else(|| PathBuf::from("/root"));
         let ssh_dir = home.join(".ssh");
@@ -281,6 +317,7 @@ impl SshManager {
     /// # Errors
     ///
     /// Returns an error if the connection fails.
+    #[cfg(unix)]
     pub async fn connect_ssh(
         &self,
         host: String,
@@ -312,7 +349,13 @@ impl SshManager {
                     ssh2::Session::new().map_err(|e| SshError::Internal(e.to_string()))?;
                 sess.set_tcp_stream(tcp);
                 sess.handshake()
-                    .map_err(|e| SshError::Network(NetworkError::Other(e.to_string())))?;
+                    .map_err(|e| {
+                        let mut msg = e.to_string();
+                        if matches!(e.code(), ssh2::ErrorCode::Session(-5)) {
+                            msg.push_str(" (Check if your server requires modern SHA-2 RSA or Curve25519; ensure you're using ssh2 0.9.5+)");
+                        }
+                        SshError::Network(NetworkError::Other(msg))
+                    })?;
                 sess.userauth_password(&user_clone, &password)
                     .map_err(|_| SshError::Auth(AuthError::PasswordAuthFailed))?;
                 if !sess.authenticated() {
@@ -329,6 +372,32 @@ impl SshManager {
         )
         .await
         .map_err(|e| SshError::Internal(format!("Connection failed: {e:?}")))?
+    }
+
+    /// Windows variant, uses russh.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the connection or password authentication fails.
+    #[cfg(windows)]
+    pub async fn connect_ssh(
+        &self,
+        host: String,
+        port: u16,
+        user: String,
+        password: String,
+        _target_path: Option<String>,
+    ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
+        let session_id = Self::generate_session_id(&host, port);
+        let timeout = Duration::from_secs(self.watchdog_secs);
+        let fs = tokio::time::timeout(
+            timeout,
+            crate::fs::fs_sftp_russh::SftpFs::connect_password(&host, port, &user, &password),
+        )
+        .await
+        .map_err(|_| SshError::Network(NetworkError::ConnectionTimedOut))?
+        .map_err(|_e| SshError::Auth(AuthError::PasswordAuthFailed))?;
+        Ok((session_id, fs))
     }
 
     /// Registers a new SSH session.
