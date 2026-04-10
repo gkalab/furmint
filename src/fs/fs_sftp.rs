@@ -197,7 +197,7 @@ impl FileSystemProvider for SftpFs {
             let normalized = normalize_sftp_path(path);
             let mut file = sftp
                 .open(Path::new(&normalized))
-                .map_err(|_| anyhow!("Failed to open file: {}", normalized))?;
+                .map_err(|_| anyhow!("Failed to open file: {normalized}"))?;
             let mut buffer = Vec::new();
             file.read_to_end(&mut buffer)
                 .map_err(|e| anyhow!("Failed to read file: {e}"))?;
@@ -211,7 +211,7 @@ impl FileSystemProvider for SftpFs {
             let normalized = normalize_sftp_path(path);
             let mut file = sftp
                 .open(Path::new(&normalized))
-                .map_err(|_| anyhow!("Failed to open file: {}", normalized))?;
+                .map_err(|_| anyhow!("Failed to open file: {normalized}"))?;
             file.seek(SeekFrom::Start(offset))?;
             let mut buffer = vec![0; len];
             let n = file.read(&mut buffer)?;
@@ -475,7 +475,7 @@ impl FileSystemProvider for SftpFs {
             let normalized_src = Path::new(&normalized_src_str);
             let file = sftp
                 .open(normalized_src)
-                .map_err(|_| anyhow!("Failed to open source file: {}", normalized_src_str))?;
+                .map_err(|_| anyhow!("Failed to open source file: {normalized_src_str}"))?;
             let perms = sftp
                 .stat(normalized_src)
                 .ok()
@@ -562,7 +562,7 @@ impl FileSystemProvider for SftpFs {
     ) -> Option<anyhow::Result<()>> {
         use std::io::Write;
 
-        if src_fs.is_dir(src).await {
+        if src_fs.is_dir(src).await.unwrap_or(false) {
             return None;
         }
 
@@ -690,29 +690,29 @@ impl SftpFs {
 
 #[cfg(test)]
 mod tests {
-    use super::format_permissions;
+    use super::format_sftp_permissions;
     use anyhow::Result;
     use std::sync::Mutex;
 
     #[test]
     fn test_format_permissions_dir() {
-        assert_eq!(format_permissions(Some(0o040_755)), "drwxr-xr-x");
+        assert_eq!(format_sftp_permissions(0o040_755), "drwxr-xr-x");
     }
     #[test]
     fn test_format_permissions_symlink() {
-        assert_eq!(format_permissions(Some(0o120_000 | 0o777)), "lrwxrwxrwx");
+        assert_eq!(format_sftp_permissions(0o120_000 | 0o777), "lrwxrwxrwx");
     }
     #[test]
     fn test_format_permissions_regular_file() {
-        assert_eq!(format_permissions(Some(0o100_000 | 0o777)), "-rwxrwxrwx");
+        assert_eq!(format_sftp_permissions(0o100_000 | 0o777), "-rwxrwxrwx");
     }
     #[test]
     fn test_format_permissions_read_only_file() {
-        assert_eq!(format_permissions(Some(0o100_000 | 0o400)), "-r--------");
+        assert_eq!(format_sftp_permissions(0o100_000 | 0o400), "-r--------");
     }
     #[test]
     fn test_format_permissions_none() {
-        assert_eq!(format_permissions(None), "----------");
+        assert_eq!(format_sftp_permissions(0), "----------");
     }
 
     #[allow(clippy::struct_excessive_bools)]
