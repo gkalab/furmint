@@ -16,7 +16,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
-use super::utils::find_default_ssh_keys;
+use super::utils::{
+    build_du_command, calculate_optimal_chunk_size, find_default_ssh_keys, format_sftp_permissions,
+    is_dot_or_dotdot, normalize_sftp_path,
+};
 
 pub(crate) struct SshClientHandler;
 
@@ -155,26 +158,6 @@ impl SftpFs {
         })
     }
 
-    fn normalize_path(path: &Path) -> String {
-        let mut s = path.to_string_lossy().replace('\\', "/");
-        if !s.starts_with('/') {
-            s = format!("/{s}");
-        }
-        while s.contains("//") {
-            s = s.replace("//", "/");
-        }
-        s
-    }
-
-    fn calculate_optimal_chunk_size(file_size: u64) -> usize {
-        match file_size {
-            0..=512_000 => 512 * 1024,
-            512_001..=8_000_000 => 2 * 1024 * 1024,
-            8_000_001..=200_000_000 => 8 * 1024 * 1024,
-            _ => 16 * 1024 * 1024,
-        }
-    }
-
     /// Run an async SFTP closure from a synchronous context using
     /// `block_in_place` + the current Tokio handle.
     fn run_async<F, Fut, R>(&self, f: F) -> Result<R>
@@ -194,7 +177,7 @@ impl SftpFs {
             .map_err(|e| anyhow!("readdir {path}: {e}"))?;
         for entry in entries {
             let name = entry.file_name().clone();
-            if name == "." || name == ".." {
+            if is_dot_or_dotdot(&name) {
                 continue;
             }
             let child = format!("{}/{}", path.trim_end_matches('/'), name);
@@ -255,9 +238,9 @@ impl FileSystemProvider for SftpFs {
 
     fn list_dir(&self, path: &Path) -> Result<Vec<FileEntry>> {
         self.run_async(|sftp| async move {
-            let path_str = SftpFs::normalize_path(path);
+            let path_str = normalize_sftp_path(path);
             let entries = sftp
-                .read_dir(path_str)
+                .read_dir(&path_str)
                 .await
                 .map_err(|e| anyhow!("Failed to read directory: {e}"))?;
 
@@ -293,7 +276,7 @@ impl FileSystemProvider for SftpFs {
                     is_symlink,
                     size,
                     modified,
-                    attributes: format_permissions(meta.permissions),
+                    attributes: format_sftp_permissions(meta.permissions.unwrap_or(0)),
                     selected: false,
                 });
             }
@@ -303,7 +286,7 @@ impl FileSystemProvider for SftpFs {
 
     fn create_dir(&self, path: &Path) -> Result<()> {
         self.run_async(|sftp| async move {
-            let p = SftpFs::normalize_path(path);
+            let p = normalize_sftp_path(path);
             sftp.create_dir(p)
                 .await
                 .map_err(|e| anyhow!("Failed to create directory: {e}"))
@@ -312,7 +295,7 @@ impl FileSystemProvider for SftpFs {
 
     fn create_file(&self, path: &Path) -> Result<()> {
         self.run_async(|sftp| async move {
-            let p = SftpFs::normalize_path(path);
+            let p = normalize_sftp_path(path);
             sftp.create(p)
                 .await
                 .map_err(|e| anyhow!("Failed to create file: {e}"))?;
@@ -322,9 +305,9 @@ impl FileSystemProvider for SftpFs {
 
     fn delete(&self, path: &Path, recursive: bool) -> Result<()> {
         self.run_async(|sftp| async move {
-            let p = SftpFs::normalize_path(path);
+            let p = normalize_sftp_path(path);
             let meta = sftp
-                .metadata(p.as_str())
+                .metadata(&p)
                 .await
                 .map_err(|e| anyhow!("Failed to stat path: {e}"))?;
             if meta.is_dir() {
@@ -345,7 +328,7 @@ impl FileSystemProvider for SftpFs {
 
     fn rename(&self, from: &Path, to: &Path) -> Result<()> {
         self.run_async(|sftp| async move {
-            sftp.rename(SftpFs::normalize_path(from), SftpFs::normalize_path(to))
+            sftp.rename(normalize_sftp_path(from), normalize_sftp_path(to))
                 .await
                 .map_err(|e| anyhow!("Failed to rename: {e}"))
         })
@@ -353,7 +336,7 @@ impl FileSystemProvider for SftpFs {
 
     fn read_file(&self, path: &Path) -> Result<Vec<u8>> {
         self.run_async(|sftp| async move {
-            sftp.read(SftpFs::normalize_path(path))
+            sftp.read(normalize_sftp_path(path))
                 .await
                 .map_err(|e| anyhow!("Failed to read file: {e}"))
         })
@@ -361,7 +344,7 @@ impl FileSystemProvider for SftpFs {
 
     fn read_file_at(&self, path: &Path, offset: u64, len: usize) -> Result<Vec<u8>> {
         self.run_async(|sftp| async move {
-            let p = SftpFs::normalize_path(path);
+            let p = normalize_sftp_path(path);
             let mut file = sftp
                 .open(p)
                 .await
@@ -382,7 +365,7 @@ impl FileSystemProvider for SftpFs {
     fn write_file(&self, path: &Path, data: &[u8]) -> Result<()> {
         let data = data.to_vec();
         self.run_async(|sftp| async move {
-            sftp.write(SftpFs::normalize_path(path), &data)
+            sftp.write(normalize_sftp_path(path), &data)
                 .await
                 .map_err(|e| anyhow!("Failed to write file: {e}"))
         })
@@ -391,7 +374,7 @@ impl FileSystemProvider for SftpFs {
     fn write_file_at(&self, path: &Path, offset: u64, data: &[u8]) -> Result<()> {
         let data = data.to_vec();
         self.run_async(|sftp| async move {
-            let p = SftpFs::normalize_path(path);
+            let p = normalize_sftp_path(path);
             if offset == 0 {
                 sftp.write(p, &data)
                     .await
@@ -435,7 +418,7 @@ impl FileSystemProvider for SftpFs {
 
     fn exists(&self, path: &Path) -> bool {
         self.run_async(|sftp| async move {
-            sftp.try_exists(SftpFs::normalize_path(path))
+            sftp.try_exists(normalize_sftp_path(path))
                 .await
                 .map_err(|e| anyhow!("{e}"))
         })
@@ -445,7 +428,7 @@ impl FileSystemProvider for SftpFs {
     fn is_dir(&self, path: &Path) -> bool {
         self.run_async(|sftp| async move {
             let meta = sftp
-                .metadata(SftpFs::normalize_path(path))
+                .metadata(normalize_sftp_path(path))
                 .await
                 .map_err(|e| anyhow!("{e}"))?;
             Ok(meta.is_dir())
@@ -456,7 +439,7 @@ impl FileSystemProvider for SftpFs {
     fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
         self.run_async(|sftp| async move {
             let s = sftp
-                .canonicalize(SftpFs::normalize_path(path))
+                .canonicalize(normalize_sftp_path(path))
                 .await
                 .map_err(|e| anyhow!("Failed to canonicalize: {e}"))?;
             Ok(PathBuf::from(s))
@@ -466,7 +449,7 @@ impl FileSystemProvider for SftpFs {
     fn get_permissions(&self, path: &Path) -> Option<u32> {
         self.run_async(|sftp| async move {
             let meta = sftp
-                .metadata(SftpFs::normalize_path(path))
+                .metadata(normalize_sftp_path(path))
                 .await
                 .map_err(|e| anyhow!("{e}"))?;
             Ok(meta.permissions.map(|p| p & 0o777))
@@ -477,7 +460,7 @@ impl FileSystemProvider for SftpFs {
 
     fn set_permissions(&self, path: &Path, mode: u32) -> bool {
         self.run_async(|sftp| async move {
-            let p = SftpFs::normalize_path(path);
+            let p = normalize_sftp_path(path);
             sftp.set_metadata(
                 p,
                 FileAttributes {
@@ -500,7 +483,7 @@ impl FileSystemProvider for SftpFs {
     fn get_modified_time(&self, path: &Path) -> Option<std::time::SystemTime> {
         self.run_async(|sftp| async move {
             let meta = sftp
-                .metadata(SftpFs::normalize_path(path))
+                .metadata(normalize_sftp_path(path))
                 .await
                 .map_err(|e| anyhow!("{e}"))?;
             Ok(meta
@@ -518,7 +501,7 @@ impl FileSystemProvider for SftpFs {
             .unwrap_or(0);
         self.run_async(|sftp| async move {
             sftp.set_metadata(
-                SftpFs::normalize_path(path),
+                normalize_sftp_path(path),
                 FileAttributes {
                     size: None,
                     uid: None,
@@ -545,22 +528,12 @@ impl FileSystemProvider for SftpFs {
     }
 
     fn display_path(&self, path: &Path) -> String {
-        let mut s = path.to_string_lossy().replace('\\', "/");
-        if !s.starts_with('/') {
-            s = format!("/{s}");
-        }
-        while s.contains("//") {
-            s = s.replace("//", "/");
-        }
-        s
+        normalize_sftp_path(path)
     }
 
     async fn calc_dir_size(&self, path: &Path) -> anyhow::Result<u64> {
-        let path_str = Self::normalize_path(path);
-        let cmd = format!(
-            "du -sb '{}' 2>/dev/null || echo 0",
-            shell_escape::escape(std::borrow::Cow::Borrowed(&path_str))
-        );
+        let path_str = normalize_sftp_path(path);
+        let cmd = build_du_command(&path_str);
 
         let mut channel = self
             .session
@@ -599,7 +572,7 @@ impl FileSystemProvider for SftpFs {
         dest: &Path,
         progress: &crate::fs::traits::TaskProgressContext,
     ) -> Option<anyhow::Result<()>> {
-        let src_str = Self::normalize_path(src);
+        let src_str = normalize_sftp_path(src);
         let dest_path = dest.to_path_buf();
 
         let (total_size, perms) = match self.sftp.metadata(src_str.as_str()).await {
@@ -622,7 +595,7 @@ impl FileSystemProvider for SftpFs {
             Err(e) => return Some(Err(anyhow!("Failed to open source: {e}"))),
         };
 
-        let chunk_size = Self::calculate_optimal_chunk_size(total_size);
+        let chunk_size = calculate_optimal_chunk_size(total_size);
         let mut buf = vec![0u8; chunk_size];
         let mut offset = 0u64;
 
@@ -665,7 +638,7 @@ impl FileSystemProvider for SftpFs {
         dest: &Path,
         progress: &crate::fs::traits::TaskProgressContext,
     ) -> Option<anyhow::Result<()>> {
-        let dest_str = Self::normalize_path(dest);
+        let dest_str = normalize_sftp_path(dest);
         let src_path = src.to_path_buf();
 
         let total_size = match src_fs.get_size(&src_path).await {
@@ -673,7 +646,7 @@ impl FileSystemProvider for SftpFs {
             Err(e) => return Some(Err(e)),
         };
         let src_perms = src_fs.get_permissions(&src_path).await;
-        let chunk_size = Self::calculate_optimal_chunk_size(total_size);
+        let chunk_size = calculate_optimal_chunk_size(total_size);
 
         if total_size == 0 {
             return Some(
@@ -742,26 +715,4 @@ impl FileSystemProvider for SftpFs {
         }
         Some(Ok(()))
     }
-}
-
-fn format_permissions(perm: Option<u32>) -> String {
-    let perm = perm.unwrap_or(0);
-    let mut s = String::with_capacity(10);
-    s.push(if (perm & 0o170_000) == 0o040_000 {
-        'd'
-    } else if (perm & 0o170_000) == 0o120_000 {
-        'l'
-    } else {
-        '-'
-    });
-    s.push(if perm & 0o400 != 0 { 'r' } else { '-' });
-    s.push(if perm & 0o200 != 0 { 'w' } else { '-' });
-    s.push(if perm & 0o100 != 0 { 'x' } else { '-' });
-    s.push(if perm & 0o040 != 0 { 'r' } else { '-' });
-    s.push(if perm & 0o020 != 0 { 'w' } else { '-' });
-    s.push(if perm & 0o010 != 0 { 'x' } else { '-' });
-    s.push(if perm & 0o004 != 0 { 'r' } else { '-' });
-    s.push(if perm & 0o002 != 0 { 'w' } else { '-' });
-    s.push(if perm & 0o001 != 0 { 'x' } else { '-' });
-    s
 }

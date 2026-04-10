@@ -5,6 +5,11 @@ use ssh2::{FileStat, Session};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use super::utils::{
+    build_du_command, calculate_optimal_chunk_size, format_sftp_permissions, is_dot_or_dotdot,
+    normalize_sftp_path,
+};
+
 pub struct SftpFs {
     session: Mutex<Session>,
     _host: String,
@@ -41,28 +46,6 @@ impl SftpFs {
         f(&sftp)
     }
 
-    fn normalize_path(path: &Path) -> PathBuf {
-        let mut s = path.to_string_lossy().replace('\\', "/");
-        // Ensure starts with /
-        if !s.starts_with('/') {
-            s = format!("/{s}");
-        }
-        // Remove double slashes
-        while s.contains("//") {
-            s = s.replace("//", "/");
-        }
-        PathBuf::from(s)
-    }
-
-    fn calculate_optimal_chunk_size(file_size: u64) -> usize {
-        match file_size {
-            0..=512_000 => 512 * 1024,              // 512KB for tiny files (≤512KB)
-            512_001..=8_000_000 => 2 * 1024 * 1024, // 2MB for small files (512KB-8MB)
-            8_000_001..=200_000_000 => 8 * 1024 * 1024, // 8MB for medium files (8MB-200MB)
-            _ => 16 * 1024 * 1024,                  // 16MB for large files (>200MB)
-        }
-    }
-
     pub async fn download(
         &self,
         src: &Path,
@@ -96,7 +79,7 @@ impl Drop for SftpFs {
 impl FileSystemProvider for SftpFs {
     fn list_dir(&self, path: &Path) -> Result<Vec<FileEntry>> {
         self.with_sftp(|sftp| {
-            let normalized_path = Self::normalize_path(path);
+            let normalized_path = PathBuf::from(normalize_sftp_path(path));
             let entries = if let Ok(e) = sftp.readdir(&normalized_path) {
                 e
             } else {
@@ -133,6 +116,10 @@ impl FileSystemProvider for SftpFs {
                     continue;
                 }
 
+                if is_dot_or_dotdot(&name) {
+                    continue;
+                }
+
                 let is_dir = stat.is_dir();
                 let is_symlink = stat.file_type().is_symlink();
                 let size = if is_dir { None } else { stat.size };
@@ -146,7 +133,7 @@ impl FileSystemProvider for SftpFs {
                     is_symlink,
                     size,
                     modified,
-                    attributes: format_permissions(stat.perm),
+                    attributes: format_sftp_permissions(stat.perm.unwrap_or(0)),
                     selected: false,
                 });
             }
@@ -157,14 +144,14 @@ impl FileSystemProvider for SftpFs {
 
     fn create_dir(&self, path: &Path) -> Result<()> {
         self.with_sftp(|sftp| {
-            sftp.mkdir(Self::normalize_path(path).as_path(), 0o755)
+            sftp.mkdir(Path::new(&normalize_sftp_path(path)), 0o755)
                 .map_err(|e| anyhow!("Failed to create directory: {e}"))
         })
     }
 
     fn create_file(&self, path: &Path) -> Result<()> {
         self.with_sftp(|sftp| {
-            sftp.create(Self::normalize_path(path).as_path())
+            sftp.create(Path::new(&normalize_sftp_path(path)))
                 .map_err(|e| anyhow!("Failed to create file: {e}"))?;
             Ok(())
         })
@@ -172,7 +159,7 @@ impl FileSystemProvider for SftpFs {
 
     fn delete(&self, path: &Path, recursive: bool) -> Result<()> {
         self.with_sftp(|sftp| {
-            let normalized_path = Self::normalize_path(path);
+            let normalized_path = PathBuf::from(normalize_sftp_path(path));
             let stat = sftp
                 .stat(&normalized_path)
                 .map_err(|e| anyhow!("Failed to stat path: {e}"))?;
@@ -196,8 +183,8 @@ impl FileSystemProvider for SftpFs {
     fn rename(&self, from: &Path, to: &Path) -> Result<()> {
         self.with_sftp(|sftp| {
             sftp.rename(
-                Self::normalize_path(from).as_path(),
-                Self::normalize_path(to).as_path(),
+                Path::new(&normalize_sftp_path(from)),
+                Path::new(&normalize_sftp_path(to)),
                 None,
             )
             .map_err(|e| anyhow!("Failed to rename: {e}"))
@@ -207,10 +194,10 @@ impl FileSystemProvider for SftpFs {
     fn read_file(&self, path: &Path) -> Result<Vec<u8>> {
         self.with_sftp(|sftp| {
             use std::io::Read;
-            let normalized = Self::normalize_path(path);
+            let normalized = normalize_sftp_path(path);
             let mut file = sftp
-                .open(&normalized)
-                .map_err(|_| anyhow!("Failed to open file: {}", normalized.display()))?;
+                .open(Path::new(&normalized))
+                .map_err(|_| anyhow!("Failed to open file: {}", normalized))?;
             let mut buffer = Vec::new();
             file.read_to_end(&mut buffer)
                 .map_err(|e| anyhow!("Failed to read file: {e}"))?;
@@ -221,10 +208,10 @@ impl FileSystemProvider for SftpFs {
     fn read_file_at(&self, path: &Path, offset: u64, len: usize) -> Result<Vec<u8>> {
         self.with_sftp(|sftp| {
             use std::io::{Read, Seek, SeekFrom};
-            let normalized = Self::normalize_path(path);
+            let normalized = normalize_sftp_path(path);
             let mut file = sftp
-                .open(&normalized)
-                .map_err(|_| anyhow!("Failed to open file: {}", normalized.display()))?;
+                .open(Path::new(&normalized))
+                .map_err(|_| anyhow!("Failed to open file: {}", normalized))?;
             file.seek(SeekFrom::Start(offset))?;
             let mut buffer = vec![0; len];
             let n = file.read(&mut buffer)?;
@@ -237,7 +224,7 @@ impl FileSystemProvider for SftpFs {
         self.with_sftp(|sftp| {
             use std::io::Write;
             let mut file = sftp
-                .create(Self::normalize_path(path).as_path())
+                .create(Path::new(&normalize_sftp_path(path)))
                 .map_err(|e| anyhow!("Failed to create file: {e}"))?;
             file.write_all(data)
                 .map_err(|e| anyhow!("Failed to write file: {e}"))?;
@@ -248,13 +235,14 @@ impl FileSystemProvider for SftpFs {
     fn write_file_at(&self, path: &Path, offset: u64, data: &[u8]) -> Result<()> {
         self.with_sftp(|sftp| {
             use std::io::{Seek, SeekFrom, Write};
-            let normalized = Self::normalize_path(path);
+            let normalized_str = normalize_sftp_path(path);
+            let normalized = Path::new(&normalized_str);
             let mut file = if offset == 0 {
-                sftp.create(&normalized)
+                sftp.create(normalized)
                     .map_err(|e| anyhow!("Failed to create file: {e}"))?
             } else {
                 sftp.open_mode(
-                    &normalized,
+                    normalized,
                     ssh2::OpenFlags::READ | ssh2::OpenFlags::WRITE,
                     0o644,
                     ssh2::OpenType::File,
@@ -293,14 +281,14 @@ impl FileSystemProvider for SftpFs {
     }
 
     fn exists(&self, path: &Path) -> bool {
-        self.with_sftp(|sftp| Ok(sftp.stat(Self::normalize_path(path).as_path()).is_ok()))
+        self.with_sftp(|sftp| Ok(sftp.stat(Path::new(&normalize_sftp_path(path))).is_ok()))
             .unwrap_or(false)
     }
 
     fn is_dir(&self, path: &Path) -> bool {
         self.with_sftp(|sftp| {
             Ok(sftp
-                .stat(Self::normalize_path(path).as_path())
+                .stat(Path::new(&normalize_sftp_path(path)))
                 .map(|s| s.is_dir())
                 .unwrap_or(false))
         })
@@ -310,7 +298,7 @@ impl FileSystemProvider for SftpFs {
     fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
         self.with_sftp(|sftp| {
             let path = sftp
-                .realpath(&Self::normalize_path(path))
+                .realpath(Path::new(&normalize_sftp_path(path)))
                 .map_err(|e| anyhow!("Failed to canonicalize path: {e}"))?;
             Ok(path)
         })
@@ -319,7 +307,7 @@ impl FileSystemProvider for SftpFs {
     fn get_permissions(&self, path: &Path) -> Option<u32> {
         self.with_sftp(|sftp| {
             Ok(sftp
-                .stat(Self::normalize_path(path).as_path())
+                .stat(Path::new(&normalize_sftp_path(path)))
                 .ok()
                 .and_then(|stat| stat.perm.map(|p| p & 0o777)))
         })
@@ -328,8 +316,11 @@ impl FileSystemProvider for SftpFs {
 
     fn set_permissions(&self, path: &Path, mode: u32) -> bool {
         self.with_sftp(|sftp| {
-            let normalized_path = Self::normalize_path(path);
-            let real_path = sftp.realpath(&normalized_path).unwrap_or(normalized_path);
+            let normalized_str = normalize_sftp_path(path);
+            let normalized_path = Path::new(&normalized_str);
+            let real_path = sftp
+                .realpath(normalized_path)
+                .unwrap_or_else(|_| normalized_path.to_path_buf());
             sftp.setstat(
                 &real_path,
                 FileStat {
@@ -349,7 +340,7 @@ impl FileSystemProvider for SftpFs {
     fn get_modified_time(&self, path: &Path) -> Option<std::time::SystemTime> {
         self.with_sftp(|sftp| {
             Ok(sftp
-                .stat(Self::normalize_path(path).as_path())
+                .stat(Path::new(&normalize_sftp_path(path)))
                 .ok()
                 .and_then(|stat| {
                     stat.mtime
@@ -366,8 +357,11 @@ impl FileSystemProvider for SftpFs {
         };
 
         self.with_sftp(|sftp| {
-            let normalized_path = Self::normalize_path(path);
-            let real_path = sftp.realpath(&normalized_path).unwrap_or(normalized_path);
+            let normalized_str = normalize_sftp_path(path);
+            let normalized_path = Path::new(&normalized_str);
+            let real_path = sftp
+                .realpath(normalized_path)
+                .unwrap_or_else(|_| normalized_path.to_path_buf());
             sftp.setstat(
                 &real_path,
                 FileStat {
@@ -394,27 +388,16 @@ impl FileSystemProvider for SftpFs {
     }
 
     fn display_path(&self, path: &Path) -> String {
-        let mut s = path.to_string_lossy().replace('\\', "/");
-        if !s.starts_with('/') {
-            s = format!("/{s}");
-        }
-        while s.contains("//") {
-            s = s.replace("//", "/");
-        }
-        s
+        normalize_sftp_path(path)
     }
 
     async fn calc_dir_size(&self, path: &Path) -> anyhow::Result<u64> {
         use std::io::Read;
 
-        let normalized_path = Self::normalize_path(path);
-        let path_str = normalized_path.to_string_lossy();
+        let path_str = normalize_sftp_path(path);
 
-        // Use du -sb for accurate byte count (follows symlinks by default, -s for summary)
-        let cmd = format!(
-            "du -sb '{}' 2>/dev/null || echo 0",
-            shell_escape::escape(path_str)
-        );
+        // Use du -sb for accurate byte count
+        let cmd = build_du_command(&path_str);
 
         let session = self
             .session
@@ -472,8 +455,8 @@ impl FileSystemProvider for SftpFs {
                 Err(e) => return Some(Err(e)),
             };
 
-            let normalized_src = Self::normalize_path(src);
-            match sftp.stat(&normalized_src) {
+            let normalized_src = normalize_sftp_path(src);
+            match sftp.stat(Path::new(&normalized_src)) {
                 Ok(stat) => stat.size.unwrap_or(0),
                 Err(e) => return Some(Err(anyhow!("Failed to stat file: {e}"))),
             }
@@ -484,12 +467,13 @@ impl FileSystemProvider for SftpFs {
 
         // Open source file once in blocking context
         let (mut src_file, perms) = match self.with_sftp(|sftp| {
-            let normalized_src = Self::normalize_path(&src_path);
+            let normalized_src_str = normalize_sftp_path(&src_path);
+            let normalized_src = Path::new(&normalized_src_str);
             let file = sftp
-                .open(&normalized_src)
-                .map_err(|_| anyhow!("Failed to open source file: {}", normalized_src.display()))?;
+                .open(normalized_src)
+                .map_err(|_| anyhow!("Failed to open source file: {}", normalized_src_str))?;
             let perms = sftp
-                .stat(&normalized_src)
+                .stat(normalized_src)
                 .ok()
                 .and_then(|stat| stat.perm.map(|p| p & 0o777));
             Ok((file, perms))
@@ -517,7 +501,7 @@ impl FileSystemProvider for SftpFs {
             return Some(Ok(()));
         }
 
-        let chunk_size = SftpFs::calculate_optimal_chunk_size(total_size);
+        let chunk_size = calculate_optimal_chunk_size(total_size);
         let mut buffer = vec![0; chunk_size];
         let mut offset = 0u64;
 
@@ -579,23 +563,24 @@ impl FileSystemProvider for SftpFs {
             Err(e) => return Some(Err(e)),
         };
 
-        let chunk_size = SftpFs::calculate_optimal_chunk_size(total_size);
+        let chunk_size = calculate_optimal_chunk_size(total_size);
         let src_path = src.to_path_buf();
         let dest_path = dest.to_path_buf();
         let src_perms = src_fs.get_permissions(&src_path).await;
 
         if total_size == 0 {
             return Some(self.with_sftp(|sftp| {
-                let normalized_dest = Self::normalize_path(&dest_path);
+                let normalized_dest_str = normalize_sftp_path(&dest_path);
+                let normalized_dest = Path::new(&normalized_dest_str);
                 let mut file = sftp
-                    .create(&normalized_dest)
+                    .create(normalized_dest)
                     .map_err(|e| anyhow!("Failed to create destination file: {e}"))?;
 
                 if let Some(mode) = src_perms
-                    && let Ok(mut stat) = sftp.stat(&normalized_dest)
+                    && let Ok(mut stat) = sftp.stat(normalized_dest)
                 {
                     stat.perm = Some(mode);
-                    let _ = sftp.setstat(&normalized_dest, stat);
+                    let _ = sftp.setstat(normalized_dest, stat);
                 }
                 file.write_all(&[])
                     .map_err(|e| anyhow!("Failed to write empty file: {e}"))?;
@@ -604,8 +589,9 @@ impl FileSystemProvider for SftpFs {
         }
 
         let mut dest_file = match self.with_sftp(|sftp| {
-            let normalized_dest = Self::normalize_path(&dest_path);
-            sftp.create(&normalized_dest)
+            let normalized_dest_str = normalize_sftp_path(&dest_path);
+            let normalized_dest = Path::new(&normalized_dest_str);
+            sftp.create(normalized_dest)
                 .map_err(|e| anyhow!("Failed to create destination file: {e}"))
         }) {
             Ok(f) => f,
@@ -655,10 +641,11 @@ impl FileSystemProvider for SftpFs {
 
         if let Some(mode) = src_perms {
             let _ = self.with_sftp(|sftp| {
-                let normalized_dest = Self::normalize_path(&dest_path);
-                if let Ok(mut stat) = sftp.stat(&normalized_dest) {
+                let normalized_dest_str = normalize_sftp_path(&dest_path);
+                let normalized_dest = Path::new(&normalized_dest_str);
+                if let Ok(mut stat) = sftp.stat(normalized_dest) {
                     stat.perm = Some(mode);
-                    let _ = sftp.setstat(&normalized_dest, stat);
+                    let _ = sftp.setstat(normalized_dest, stat);
                 }
                 Ok::<(), anyhow::Error>(())
             });
@@ -674,8 +661,11 @@ impl SftpFs {
     fn delete_recursive_internal(sftp: &ssh2::Sftp, path: &Path) -> Result<()> {
         let entries = sftp.readdir(path)?;
         for (entry_path, stat) in entries {
-            let file_name = entry_path.file_name().and_then(|n| n.to_str());
-            if file_name == Some(".") || file_name == Some("..") {
+            let file_name = entry_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            if is_dot_or_dotdot(file_name) {
                 continue;
             }
 
@@ -688,37 +678,6 @@ impl SftpFs {
         sftp.rmdir(path)?;
         Ok(())
     }
-}
-
-fn format_permissions(perm: Option<u32>) -> String {
-    let perm = perm.unwrap_or(0);
-    let mut s = String::with_capacity(10);
-
-    // Type (simplified, use exact match for file type)
-    s.push(if (perm & 0o170_000) == 0o040_000 {
-        'd'
-    } else if (perm & 0o170_000) == 0o120_000 {
-        'l'
-    } else {
-        '-'
-    });
-
-    // User
-    s.push(if perm & 0o400 != 0 { 'r' } else { '-' });
-    s.push(if perm & 0o200 != 0 { 'w' } else { '-' });
-    s.push(if perm & 0o100 != 0 { 'x' } else { '-' });
-
-    // Group
-    s.push(if perm & 0o040 != 0 { 'r' } else { '-' });
-    s.push(if perm & 0o020 != 0 { 'w' } else { '-' });
-    s.push(if perm & 0o010 != 0 { 'x' } else { '-' });
-
-    // Other
-    s.push(if perm & 0o004 != 0 { 'r' } else { '-' });
-    s.push(if perm & 0o002 != 0 { 'w' } else { '-' });
-    s.push(if perm & 0o001 != 0 { 'x' } else { '-' });
-
-    s
 }
 
 #[cfg(test)]

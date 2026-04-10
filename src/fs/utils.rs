@@ -400,6 +400,81 @@ pub fn find_default_ssh_keys() -> Vec<PathBuf> {
     .collect()
 }
 
+/// Standardizes a path for SFTP servers (forward slashes, leading slash, no double slashes, no trailing slash except root).
+#[must_use]
+pub fn normalize_sftp_path(path: &Path) -> String {
+    let mut s = path.to_string_lossy().replace('\\', "/");
+
+    // Ensure leading slash
+    if !s.starts_with('/') {
+        s = format!("/{s}");
+    }
+
+    // Remove double slashes
+    while s.contains("//") {
+        s = s.replace("//", "/");
+    }
+
+    // Remove trailing slash for non-root paths
+    if s.len() > 1 && s.ends_with('/') {
+        s.pop();
+    }
+
+    s
+}
+
+/// Returns true if the name is "." or "..".
+#[must_use]
+pub fn is_dot_or_dotdot(name: &str) -> bool {
+    name == "." || name == ".."
+}
+
+/// Returns an optimal chunk size for SFTP transfers based on the total file size.
+#[must_use]
+pub fn calculate_optimal_chunk_size(file_size: u64) -> usize {
+    match file_size {
+        0..=512_000 => 512 * 1024,              // 512KB for tiny files (≤512KB)
+        512_001..=8_000_000 => 2 * 1024 * 1024, // 2MB for small files (512KB-8MB)
+        8_000_001..=200_000_000 => 8 * 1024 * 1024, // 8MB for medium files (8MB-200MB)
+        _ => 16 * 1024 * 1024,                  // 16MB for large files (>200MB)
+    }
+}
+
+/// Formats a Unix permission mode into a standard 10-character string (e.g., "-rwxr-xr-x").
+#[must_use]
+pub fn format_sftp_permissions(perm: u32) -> String {
+    let mut s = String::with_capacity(10);
+    // Type (simplified mask check)
+    s.push(if (perm & 0o170_000) == 0o040_000 {
+        'd'
+    } else if (perm & 0o170_000) == 0o120_000 {
+        'l'
+    } else {
+        '-'
+    });
+    // User
+    s.push(if perm & 0o400 != 0 { 'r' } else { '-' });
+    s.push(if perm & 0o200 != 0 { 'w' } else { '-' });
+    s.push(if perm & 0o100 != 0 { 'x' } else { '-' });
+    // Group
+    s.push(if perm & 0o040 != 0 { 'r' } else { '-' });
+    s.push(if perm & 0o020 != 0 { 'w' } else { '-' });
+    s.push(if perm & 0o010 != 0 { 'x' } else { '-' });
+    // Others
+    s.push(if perm & 0o004 != 0 { 'r' } else { '-' });
+    s.push(if perm & 0o002 != 0 { 'w' } else { '-' });
+    s.push(if perm & 0o001 != 0 { 'x' } else { '-' });
+    s
+}
+
+/// Builds a `du -sb` command string for remote execution, properly escaped.
+#[must_use]
+pub fn build_du_command(path: &str) -> String {
+    // Manual single-quote escaping: wrap in ' and replace ' with '\''
+    let escaped = path.replace('\'', "'\\''");
+    format!("du -sb '{escaped}' 2>/dev/null || echo 0")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -690,5 +765,29 @@ mod tests {
         let _ = std::fs::remove_file(gui_exe);
         let _ = std::fs::remove_file(cli_exe);
         let _ = std::fs::remove_file(invalid_exe);
+    }
+
+    #[test]
+    fn test_normalize_sftp_path() {
+        assert_eq!(normalize_sftp_path(Path::new("foo")), "/foo");
+        assert_eq!(normalize_sftp_path(Path::new("/foo/bar/")), "/foo/bar");
+        assert_eq!(
+            normalize_sftp_path(Path::new("C:\\foo\\bar")),
+            "/C:/foo/bar"
+        );
+        assert_eq!(normalize_sftp_path(Path::new("//foo///bar")), "/foo/bar");
+        assert_eq!(normalize_sftp_path(Path::new("/")), "/");
+    }
+
+    #[test]
+    fn test_build_du_command() {
+        assert_eq!(
+            build_du_command("/path/with spaces"),
+            "du -sb '/path/with spaces' 2>/dev/null || echo 0"
+        );
+        assert_eq!(
+            build_du_command("/path'with'quotes"),
+            "du -sb '/path'\\''with'\\''quotes' 2>/dev/null || echo 0"
+        );
     }
 }
