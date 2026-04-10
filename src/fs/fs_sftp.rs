@@ -440,7 +440,7 @@ impl FileSystemProvider for SftpFs {
     ) -> Option<anyhow::Result<()>> {
         use std::io::Read;
 
-        let total_size = {
+        let (total_size, is_dir) = {
             let sftp_res = self
                 .session
                 .lock()
@@ -457,10 +457,14 @@ impl FileSystemProvider for SftpFs {
 
             let normalized_src = normalize_sftp_path(src);
             match sftp.stat(Path::new(&normalized_src)) {
-                Ok(stat) => stat.size.unwrap_or(0),
+                Ok(stat) => (stat.size.unwrap_or(0), stat.is_dir()),
                 Err(e) => return Some(Err(anyhow!("Failed to stat file: {e}"))),
             }
         };
+
+        if is_dir {
+            return None;
+        }
 
         let src_path = src.to_path_buf();
         let dest_path = dest.to_path_buf();
@@ -557,6 +561,10 @@ impl FileSystemProvider for SftpFs {
         progress: &crate::fs::traits::TaskProgressContext,
     ) -> Option<anyhow::Result<()>> {
         use std::io::Write;
+
+        if src_fs.is_dir(src).await {
+            return None;
+        }
 
         let total_size = match src_fs.get_size(src).await {
             Ok(s) => s,

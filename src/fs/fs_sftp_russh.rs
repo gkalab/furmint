@@ -575,10 +575,18 @@ impl FileSystemProvider for SftpFs {
         let src_str = normalize_sftp_path(src);
         let dest_path = dest.to_path_buf();
 
-        let (total_size, perms) = match self.sftp.metadata(src_str.as_str()).await {
-            Ok(m) => (m.size.unwrap_or(0), m.permissions.map(|p| p & 0o777)),
+        let (total_size, perms, is_dir) = match self.sftp.metadata(src_str.as_str()).await {
+            Ok(m) => (
+                m.size.unwrap_or(0),
+                m.permissions.map(|p| p & 0o777),
+                (m.permissions.unwrap_or(0) & 0o170_000) == 0o040_000,
+            ),
             Err(e) => return Some(Err(anyhow!("Failed to stat: {e}"))),
         };
+
+        if is_dir {
+            return None;
+        }
 
         if total_size == 0 {
             if let Err(e) = dest_fs.write_file(&dest_path, &[]).await {
@@ -640,6 +648,10 @@ impl FileSystemProvider for SftpFs {
     ) -> Option<anyhow::Result<()>> {
         let dest_str = normalize_sftp_path(dest);
         let src_path = src.to_path_buf();
+
+        if src_fs.is_dir(&src_path).await.unwrap_or(false) {
+            return None;
+        }
 
         let total_size = match src_fs.get_size(&src_path).await {
             Ok(s) => s,
