@@ -180,28 +180,27 @@ impl RpmHandler {
 
         let mut result = String::new();
 
-        // Check for signatures in sig_tags
-        // 1000: SIGTAG_PGP, 1005: SIGTAG_GPG, 268: SIGTAG_RSA, 267: SIGTAG_DSA
-        let is_signed = sig_tags.contains_key(&1000)
+        // Check for cryptographic signatures in signature header
+        // 1002: RPMSIGTAG_PGP, 1005: RPMSIGTAG_GPG, 267: DSAHEADER, 268: RSAHEADER
+        let is_signed = sig_tags.contains_key(&1002)
             || sig_tags.contains_key(&1005)
-            || sig_tags.contains_key(&268)
-            || sig_tags.contains_key(&267);
+            || sig_tags.contains_key(&267)
+            || sig_tags.contains_key(&268);
 
         let common_tags = [
             (1000, "Name"),
             (1001, "Version"),
             (1002, "Release"),
             (1022, "Architecture"),
-            (1016, "Summary"),
-            (1011, "License"),
-            (1014, "Packager"),
-            (1020, "URL"),
-            (1021, "OS"),
+            (1016, "Group"),
+            (1009, "Size"),
+            (1014, "License"),
+            (-1, "Signed"),
             (1006, "Build Date"),
             (1007, "Build Host"),
-            (1023, "Vendor"),
-            (1009, "Size"),
-            (-1, "Signed"),
+            (1011, "Vendor"),
+            (1020, "URL"),
+            (1004, "Summary"),
             (1005, "Description"),
         ];
 

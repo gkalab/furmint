@@ -957,8 +957,8 @@ async fn test_archive_fs_read_and_download_rpm() {
         let mut file = File::create(&signed_rpm_path).unwrap();
         file.write_all(&[0u8; 96]).unwrap();
 
-        // Signature header with SIGTAG_PGP (1000)
-        write_header(&mut file, vec![(1000, 7, b"signature-data")]);
+        // Signature header with RPMSIGTAG_PGP (1002)
+        write_header(&mut file, vec![(1002, 7, b"signature-data")]);
         let pos = file.stream_position().unwrap();
         let pad = (8 - (pos % 8)) % 8;
         file.write_all(&vec![0u8; pad as usize]).unwrap();
