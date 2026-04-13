@@ -94,6 +94,7 @@ fn test_multi_tab_search_timeout() {
         editor_cfg: fm::config::EditorConfig::default(),
         viewer_cfg: fm::config::ViewerConfig::default(),
         ssh_history: fm::ssh_history::SshConnectionHistory::new().unwrap(),
+        bookmark_store: fm::bookmarks::BookmarkStore::test_default(),
         clipboard: Box::new(ClipboardBackend::new()),
         archive_cache: std::collections::HashMap::new(),
         opener: Arc::new(fm::opener::SystemOpener),

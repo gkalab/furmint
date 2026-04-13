@@ -3,6 +3,7 @@ use crate::config::KeyboardConfig;
 use crate::handlers::file_viewer::handle_file_viewer_event;
 use crate::handlers::input_utils::keyevent_to_string;
 use crate::handlers::navigation::update_viewer_content;
+use crate::handlers::popup_bookmark::handle_bookmark_event;
 use crate::handlers::popup_conflict::handle_conflict_event;
 use crate::handlers::popup_copy_move::handle_copy_move_event;
 use crate::handlers::popup_create::{handle_create_directory_event, handle_create_file_event};
@@ -77,7 +78,7 @@ fn handle_quit_and_interceptors(
     if (quit_match && code != KeyCode::Esc)
         || (quit_match
             && !app.file_viewer.is_visible
-            && !app.fuzzy_search.is_visible
+            && !app.fuzzy_search.list.is_visible
             && !app.popups.rename.is_visible
             && !app.popups.rename_tab.is_visible
             && !app.popups.create_directory.is_visible
@@ -119,7 +120,7 @@ async fn handle_popup_events(
     if app.popups.quit_confirmation.is_visible {
         return Some(handle_quit_popup_event(code, app));
     }
-    if app.fuzzy_search.is_visible {
+    if app.fuzzy_search.list.is_visible {
         return Some(handle_fuzzy_search_event(code, modifiers, app));
     }
     if app.popups.rename.is_visible {
@@ -148,6 +149,10 @@ async fn handle_popup_events(
     }
     if app.popups.ssh_connection.is_visible {
         handle_ssh_connection_event(app, code, modifiers);
+        return Some(false);
+    }
+    if app.popups.bookmark.list.is_visible {
+        handle_bookmark_event(code, modifiers, app);
         return Some(false);
     }
     if app.popups.ssh_password.is_visible {

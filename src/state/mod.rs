@@ -1,4 +1,5 @@
-mod confirmation;
+pub mod bookmark;
+pub mod confirmation;
 mod conflict;
 mod copy_move;
 mod create_dir;
@@ -15,6 +16,7 @@ mod rename;
 mod rename_tab;
 pub mod ssh;
 
+pub use bookmark::BookmarkState;
 pub use confirmation::{ConfirmationAction, ConfirmationState};
 pub use conflict::ConflictState;
 pub use copy_move::{CopyMoveAction, CopyMoveState};

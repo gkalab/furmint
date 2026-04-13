@@ -73,13 +73,13 @@ pub async fn handle_main_panel_event(
     if let Some(keys) = &keyboard.search
         && keys.contains(&shortcut)
     {
-        app.fuzzy_search.is_visible = true;
+        app.fuzzy_search.list.is_visible = true;
         app.fuzzy_search.reset();
         // Initialize with all directories sorted by score
         let context_key = app.active_tab().provider.context_key();
         let results = app.dir_history.fuzzy_search(&context_key, "");
-        app.fuzzy_search.filtered_dirs = results.into_iter().map(|(p, _)| p).collect();
-        app.fuzzy_search.selected_index = 0;
+        app.fuzzy_search.list.items = results.into_iter().map(|(p, _)| p).collect();
+        app.fuzzy_search.list.selected_index = 0;
         return false;
     }
 
@@ -143,6 +143,11 @@ pub async fn handle_main_panel_event(
         && keys.contains(&shortcut)
     {
         app.active_tab_mut().select_all();
+        return false;
+    }
+
+    // Bookmarks
+    if handle_bookmark_shortcuts(app, keyboard, &shortcut) {
         return false;
     }
 
@@ -491,4 +496,26 @@ fn handle_basic_nav(app: &mut AppState, code: KeyCode, modifiers: KeyModifiers) 
             _ => {}
         }
     }
+}
+
+fn handle_bookmark_shortcuts(
+    app: &mut AppState,
+    keyboard: &KeyboardConfig,
+    shortcut: &str,
+) -> bool {
+    if let Some(keys) = &keyboard.add_bookmark
+        && keys.iter().any(|s| s == shortcut)
+    {
+        crate::handlers::popup_bookmark::handle_bookmark_add(app);
+        return true;
+    }
+    if let Some(keys) = &keyboard.open_bookmarks
+        && keys.iter().any(|s| s == shortcut)
+    {
+        app.popups.bookmark.list.is_visible = true;
+        // Search all bookmarks on open
+        app.popups.bookmark.list.items = app.bookmark_store.fuzzy_search("");
+        return true;
+    }
+    false
 }

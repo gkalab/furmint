@@ -49,6 +49,7 @@ fn basic_app_state() -> AppState {
         right_tab_areas: Vec::new(),
         last_click: None,
         pending_context_menu: None,
+        bookmark_store: fm::bookmarks::BookmarkStore::test_default(),
     }
 }
 

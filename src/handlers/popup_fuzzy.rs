@@ -9,10 +9,10 @@ fn update_fuzzy_search_results(
     dir_history: &crate::dir_history::DirectoryHistory,
     context_key: &str,
 ) {
-    let results = dir_history.fuzzy_search(context_key, &state.input);
-    state.filtered_dirs = results.into_iter().map(|(p, _)| p).collect();
-    state.selected_index = 0;
-    state.scroll_offset = 0;
+    let results = dir_history.fuzzy_search(context_key, &state.list.input);
+    state.list.items = results.into_iter().map(|(p, _)| p).collect();
+    state.list.selected_index = 0;
+    state.list.scroll_offset = 0;
 }
 
 pub(crate) fn handle_fuzzy_search_event(
@@ -24,7 +24,7 @@ pub(crate) fn handle_fuzzy_search_event(
 
     match code {
         KeyCode::Esc => {
-            app.fuzzy_search.is_visible = false;
+            app.fuzzy_search.list.is_visible = false;
             app.fuzzy_search.reset();
         }
         KeyCode::Enter => {
@@ -35,7 +35,7 @@ pub(crate) fn handle_fuzzy_search_event(
                     app.dir_history.record_visit(&context_key, &selected_dir);
                 }
             }
-            app.fuzzy_search.is_visible = false;
+            app.fuzzy_search.list.is_visible = false;
             app.fuzzy_search.reset();
         }
         KeyCode::Up => {
@@ -54,8 +54,8 @@ pub(crate) fn handle_fuzzy_search_event(
             if crate::handlers::input_utils::handle_text_input(
                 code,
                 modifiers,
-                &mut app.fuzzy_search.input,
-                &mut app.fuzzy_search.cursor_position,
+                &mut app.fuzzy_search.list.input,
+                &mut app.fuzzy_search.list.cursor_position,
                 false,
             ) {
                 update_fuzzy_search_results(&mut app.fuzzy_search, &app.dir_history, &context_key);

@@ -1,5 +1,6 @@
 pub mod app;
 pub mod app_state;
+pub mod bookmarks;
 pub mod clipboard;
 pub mod config;
 #[cfg(windows)]
@@ -68,6 +69,7 @@ pub async fn run() -> Result<()> {
     let persistent_state = crate::app::AppState::load_state().ok().flatten();
 
     let (image_load_tx, mut image_load_rx) = tokio::sync::mpsc::unbounded_channel();
+    let bookmark_store = crate::bookmarks::BookmarkStore::new()?;
 
     let ctx = crate::app::AppConfigContext {
         palette: &palette,
@@ -80,6 +82,7 @@ pub async fn run() -> Result<()> {
         remote_watcher: Some(Box::new(fs::watcher::RemoteWatcher::new(&watcher_tx))
             as Box<dyn fs::watcher::FileSystemWatcher>),
         task_manager,
+        bookmark_store,
     };
 
     let mut app = if let Some(state) = persistent_state {

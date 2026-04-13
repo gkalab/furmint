@@ -3,11 +3,13 @@ pub struct ConfirmationState {
     pub message: String,
     pub truncate: bool,
     pub action: ConfirmationAction,
+    pub selected_no: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfirmationAction {
     DeleteSshHistory(usize),
+    DeleteBookmark(usize),
     None,
 }
 
@@ -19,6 +21,7 @@ impl ConfirmationState {
             message,
             truncate,
             action,
+            selected_no: true,
         }
     }
 }

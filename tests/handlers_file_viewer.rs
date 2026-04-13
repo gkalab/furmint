@@ -48,6 +48,7 @@ fn test_app(file_lines: usize) -> AppState {
         right_tab_areas: Vec::new(),
         last_click: None,
         pending_context_menu: None,
+        bookmark_store: fm::bookmarks::BookmarkStore::test_default(),
     };
     // Populate content lines
     app.file_viewer.content = vec!["line".to_string(); file_lines];

@@ -3,6 +3,7 @@ pub use crate::app_state::tabs::{
     TabManager,
 };
 use crate::clipboard::FileClipboard;
+use crate::state::BookmarkState;
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -41,6 +42,7 @@ pub struct Popups {
     pub ssh_connection: SshConnectionState,
     pub ssh_password: SshPasswordState,
     pub remote_edit: RemoteEditState,
+    pub bookmark: BookmarkState,
 }
 
 impl Popups {
@@ -62,6 +64,7 @@ impl Popups {
             ssh_connection: SshConnectionState::new(),
             ssh_password: SshPasswordState::new(),
             remote_edit: RemoteEditState::new(),
+            bookmark: BookmarkState::new(),
         }
     }
 
@@ -82,6 +85,7 @@ impl Popups {
             || self.ssh_connection.is_visible
             || self.ssh_password.is_visible
             || self.remote_edit.is_visible
+            || self.bookmark.list.is_visible
     }
 }
 
@@ -100,6 +104,7 @@ pub struct AppState {
     pub popups: Popups,
     pub task_manager: crate::tasks::TaskManager,
     pub ssh_manager: std::sync::Arc<crate::ssh_manager::SshManager>,
+    pub bookmark_store: crate::bookmarks::BookmarkStore,
 
     // Channels to communicate decisions back to tasks
     pub task_decision_txs:
@@ -154,6 +159,7 @@ pub struct AppConfigContext<'a> {
     pub watcher: Option<Box<dyn crate::fs::watcher::FileSystemWatcher>>,
     pub remote_watcher: Option<Box<dyn crate::fs::watcher::FileSystemWatcher>>,
     pub task_manager: crate::tasks::TaskManager,
+    pub bookmark_store: crate::bookmarks::BookmarkStore,
 }
 
 impl AppState {
@@ -179,6 +185,7 @@ impl AppState {
             fuzzy_search: crate::ui::fuzzy_search_ui::FuzzySearchState::new(),
             popups: crate::app::Popups::new(),
             task_manager: ctx.task_manager,
+            bookmark_store: ctx.bookmark_store,
             // Wire up ssh manager with task event channel so it can emit SshConnected events
             ssh_manager: std::sync::Arc::new(crate::ssh_manager::SshManager::new(Some(
                 &ctx.ssh_cfg,

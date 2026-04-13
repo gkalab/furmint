@@ -200,4 +200,5 @@ pub fn draw_all_popups(
         crate::ui::ssh_ui::draw_ssh_password_popup(f, app, palette);
     }
     crate::ui::remote_edit_ui::draw_remote_edit_popup(f, &app.popups.remote_edit, palette);
+    crate::ui::bookmark_ui::draw_bookmark_popup(f, &mut app.popups.bookmark, palette);
 }

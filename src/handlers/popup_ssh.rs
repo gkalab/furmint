@@ -44,7 +44,7 @@ fn handle_ssh_confirmation(app: &mut AppState, code: KeyCode) -> bool {
                             }
                         }
                     }
-                    ConfirmationAction::None => {}
+                    ConfirmationAction::DeleteBookmark(_) | ConfirmationAction::None => {}
                 }
                 return true;
             }

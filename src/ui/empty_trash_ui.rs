@@ -19,6 +19,7 @@ pub fn draw_empty_trash_popup(
         message: message.to_string(),
         truncate: false,
         action: crate::state::ConfirmationAction::None,
+        selected_no: true,
     };
 
     crate::ui::ui_utils::draw_confirmation_popup(f, &confirmation_state, palette, 60, 7, bg_color);

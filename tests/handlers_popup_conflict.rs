@@ -52,6 +52,7 @@ fn app_with_conflict(task_id: usize) -> (AppState, mpsc::Receiver<TaskDecision>)
         right_tab_areas: Vec::new(),
         last_click: None,
         pending_context_menu: None,
+        bookmark_store: fm::bookmarks::BookmarkStore::test_default(),
     };
 
     app.popups.conflict.is_visible = true;

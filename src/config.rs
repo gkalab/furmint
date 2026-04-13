@@ -41,6 +41,8 @@ pub struct KeyboardConfig {
     pub reconnect_ssh: Option<Vec<String>>,
     pub calc_dir_size: Option<Vec<String>>,
     pub rename_tab: Option<Vec<String>>,
+    pub add_bookmark: Option<Vec<String>>,
+    pub open_bookmarks: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -119,6 +121,8 @@ pub fn default_keyboard_config() -> KeyboardConfig {
         reconnect_ssh: Some(vec!["Ctrl-F11".to_string()]),
         calc_dir_size: Some(vec!["Ctrl-Space".to_string()]),
         rename_tab: Some(vec!["Ctrl-r".to_string()]),
+        add_bookmark: Some(vec!["Ctrl-d".to_string()]),
+        open_bookmarks: Some(vec!["Ctrl-b".to_string()]),
     }
 }
 
@@ -181,6 +185,8 @@ pub fn merge_keyboard_config(
         reconnect_ssh: merge_opt!(reconnect_ssh),
         calc_dir_size: merge_opt!(calc_dir_size),
         rename_tab: merge_opt!(rename_tab),
+        add_bookmark: merge_opt!(add_bookmark),
+        open_bookmarks: merge_opt!(open_bookmarks),
     }
 }
 
@@ -268,6 +274,8 @@ pub fn validate_keyboard_config(config: &KeyboardConfig) -> Result<()> {
         ("reconnect_ssh", &config.reconnect_ssh),
         ("calc_dir_size", &config.calc_dir_size),
         ("rename_tab", &config.rename_tab),
+        ("add_bookmark", &config.add_bookmark),
+        ("open_bookmarks", &config.open_bookmarks),
     ];
 
     for (name, keys) in fields {

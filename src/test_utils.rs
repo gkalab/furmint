@@ -129,6 +129,7 @@ pub fn create_test_app() -> AppState {
         editor_cfg: crate::config::EditorConfig::default(),
         viewer_cfg: crate::config::ViewerConfig::default(),
         ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
+        bookmark_store: crate::bookmarks::BookmarkStore::test_default(),
         clipboard: Box::new(crate::clipboard::InMemoryFileClipboard::new()),
         archive_cache: std::collections::HashMap::new(),
         opener: std::sync::Arc::new(crate::opener::SystemOpener),

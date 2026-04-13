@@ -218,6 +218,13 @@ fn build_help_categories(
     vec![
         ("Navigation", navigation),
         (
+            "Bookmarks",
+            vec![
+                ("Add Bookmark", &keyboard.add_bookmark),
+                ("Open Bookmarks", &keyboard.open_bookmarks),
+            ],
+        ),
+        (
             "File Operations",
             vec![
                 ("New File", &keyboard.new_file),
