@@ -17,7 +17,7 @@ pub fn handle_file_viewer_event(code: KeyCode, modifiers: KeyModifiers, app: &mu
             if let Err(e) = ctx.set_contents(text) {
                 app.active_tab_mut().error = Some(format!("Failed to set clipboard: {e}"));
             } else {
-                app.active_tab_mut().clipboard_msg = Some((
+                app.active_tab_mut().status_msg = Some((
                     "Text copied to clipboard".to_string(),
                     std::time::Instant::now(),
                 ));

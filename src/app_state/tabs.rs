@@ -124,7 +124,7 @@ pub struct Tab {
     pub scroll_offset: usize,
     pub error: Option<String>,
     pub custom_title: Option<String>,
-    pub clipboard_msg: Option<(String, std::time::Instant)>,
+    pub status_msg: Option<(String, std::time::Instant)>,
     /// Cache of calculated directory sizes: path -> size in bytes
     pub dir_sizes: std::collections::HashMap<PathBuf, u64>,
 }
@@ -161,7 +161,7 @@ impl Tab {
             scroll_offset: 0,
             error: None,
             custom_title: None,
-            clipboard_msg: None,
+            status_msg: None,
             dir_sizes: std::collections::HashMap::new(),
         };
         tab.sort_entries();

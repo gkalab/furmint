@@ -43,7 +43,7 @@ fn make_tab(path: &str, entries: Vec<FileEntry>, cursor: usize) -> Tab {
         scroll_offset: 0,
         error: None,
         custom_title: None,
-        clipboard_msg: None,
+        status_msg: None,
         dir_sizes: HashMap::new(),
     }
 }
@@ -351,7 +351,7 @@ fn test_handle_clipboard_action_sets_message() {
 
     fm::handlers::popup_copy_move::handle_clipboard_copy(&mut app);
 
-    assert!(app.active_tab().clipboard_msg.is_some());
-    let (msg, _) = app.active_tab().clipboard_msg.as_ref().unwrap();
+    assert!(app.active_tab().status_msg.is_some());
+    let (msg, _) = app.active_tab().status_msg.as_ref().unwrap();
     assert_eq!(msg, "1 item copied");
 }

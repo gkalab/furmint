@@ -470,7 +470,7 @@ pub fn draw_panel_status(
             panel.search.matching_indices.len()
         )
     } else {
-        let items_info = if let Some((msg, instant)) = &panel.clipboard_msg
+        let items_info = if let Some((msg, instant)) = &panel.status_msg
             && instant.elapsed() < std::time::Duration::from_secs(3)
         {
             msg.clone()
@@ -493,7 +493,7 @@ pub fn draw_panel_status(
                 ctx.palette.yellow.g,
                 ctx.palette.yellow.b,
             )
-        } else if let Some((_, instant)) = &panel.clipboard_msg
+        } else if let Some((_, instant)) = &panel.status_msg
             && instant.elapsed() < std::time::Duration::from_secs(3)
         {
             Color::Rgb(

@@ -95,7 +95,7 @@ fn handle_clipboard_action(app: &mut AppState, action: crate::clipboard::FileCli
         crate::clipboard::FileClipboardAction::Copy => "copied",
         crate::clipboard::FileClipboardAction::Cut => "cut",
     };
-    app.active_tab_mut().clipboard_msg = Some((
+    app.active_tab_mut().status_msg = Some((
         format!(
             "{} item{} {}",
             count,

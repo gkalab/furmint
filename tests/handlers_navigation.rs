@@ -33,7 +33,7 @@ fn test_app(entries: Vec<FileEntry>) -> AppState {
         scroll_offset: 0,
         error: None,
         custom_title: None,
-        clipboard_msg: None,
+        status_msg: None,
         dir_sizes: std::collections::HashMap::new(),
     };
     AppState {

@@ -316,7 +316,7 @@ fn test_can_swap_active_tabs() {
         scroll_offset: 0,
         error: None,
         custom_title: None,
-        clipboard_msg: None,
+        status_msg: None,
         dir_sizes: std::collections::HashMap::new(),
     };
 
