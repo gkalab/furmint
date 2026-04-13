@@ -21,6 +21,7 @@ pub fn get_available_drives() -> Vec<String> {
         let mask = unsafe { GetLogicalDrives() };
         for i in 0..26 {
             if (mask >> i) & 1 == 1 {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let drive_letter = (b'A' + i as u8) as char;
                 drives.push(format!("{drive_letter}:\\"));
             }

@@ -152,6 +152,7 @@ pub mod win_clipboard {
         wide.push(0);
 
         let header = Dropfiles {
+            #[allow(clippy::cast_possible_truncation)]
             p_files: std::mem::size_of::<Dropfiles>() as u32,
             pt_x: 0,
             pt_y: 0,
