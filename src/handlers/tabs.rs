@@ -17,12 +17,14 @@ pub(crate) fn handle_new_tab(app: &mut AppState) {
 pub(crate) fn handle_next_tab(app: &mut AppState) {
     let tab_manager = app.active_tab_manager_mut();
     tab_manager.next_tab();
+    let _ = tab_manager.active_tab_mut().reload();
     update_viewer_content(app);
 }
 
 pub(crate) fn handle_prev_tab(app: &mut AppState) {
     let tab_manager = app.active_tab_manager_mut();
     tab_manager.prev_tab();
+    let _ = tab_manager.active_tab_mut().reload();
     update_viewer_content(app);
 }
 
