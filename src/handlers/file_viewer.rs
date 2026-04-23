@@ -36,7 +36,7 @@ pub fn handle_file_viewer_event(code: KeyCode, modifiers: KeyModifiers, app: &mu
             }
         }
         KeyCode::Down => {
-            if app.file_viewer.scroll_offset + 1 < app.file_viewer.content.len() {
+            if app.file_viewer.scroll_offset + 1 < app.file_viewer.total_lines() {
                 app.file_viewer.scroll_offset += 1;
             }
         }
@@ -60,7 +60,7 @@ pub fn handle_file_viewer_event(code: KeyCode, modifiers: KeyModifiers, app: &mu
         }
         KeyCode::PageDown => {
             let visible_rows = 20;
-            let max_scroll = app.file_viewer.content.len().saturating_sub(1);
+            let max_scroll = app.file_viewer.total_lines().saturating_sub(1);
             if app.file_viewer.scroll_offset + visible_rows <= max_scroll {
                 app.file_viewer.scroll_offset += visible_rows;
             } else {
@@ -71,7 +71,7 @@ pub fn handle_file_viewer_event(code: KeyCode, modifiers: KeyModifiers, app: &mu
             app.file_viewer.scroll_offset = 0;
         }
         KeyCode::End => {
-            app.file_viewer.scroll_offset = app.file_viewer.content.len().saturating_sub(1);
+            app.file_viewer.scroll_offset = app.file_viewer.total_lines().saturating_sub(1);
         }
         _ => {}
     }

@@ -11,6 +11,7 @@ pub mod event_loop;
 pub mod fs;
 pub mod handlers;
 pub mod icons;
+pub mod large_text;
 pub mod opener;
 pub mod ssh_history;
 pub mod ssh_manager;

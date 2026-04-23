@@ -231,7 +231,7 @@ fn handle_file_viewer_scroll(app: &mut AppState, up: bool) {
     if up {
         app.file_viewer.scroll_offset = app.file_viewer.scroll_offset.saturating_sub(3);
     } else {
-        let max_scroll = app.file_viewer.content.len().saturating_sub(1);
+        let max_scroll = app.file_viewer.total_lines().saturating_sub(1);
         app.file_viewer.scroll_offset = (app.file_viewer.scroll_offset + 3).min(max_scroll);
     }
 }

@@ -21,6 +21,8 @@ pub struct FileViewerState {
     pub current_load_id: usize,
     pub area: ratatui::layout::Rect,
     pub selection: Option<((usize, usize), (usize, usize))>,
+    pub large_file_reader: Option<crate::large_text::file_reader::FileReader>,
+    pub large_file_indexer: Option<crate::large_text::line_indexer::LineIndexer>,
 }
 
 pub struct ImageLoadResult {
@@ -72,6 +74,8 @@ impl FileViewerState {
             current_load_id: 0,
             area: ratatui::layout::Rect::default(),
             selection: None,
+            large_file_reader: None,
+            large_file_indexer: None,
         }
     }
 
@@ -84,6 +88,8 @@ impl FileViewerState {
         self.horizontal_scroll_offset = 0;
         self.language = lumis::languages::Language::default();
         self.selection = None;
+        self.large_file_reader = None;
+        self.large_file_indexer = None;
     }
 
     pub fn init_picker(&mut self) {
@@ -248,9 +254,33 @@ impl FileViewerState {
         let limit = usize::try_from(limit_bytes).unwrap_or(usize::MAX);
         let limit_u64 = limit_bytes;
 
+        // Read small chunk to check for binary and encoding
+        let chunk = match provider.read_file_at(&self.path, 0u64, 8192usize) {
+            Ok(buf) => buf,
+            Err(e) => {
+                self.content = vec![format!("Error reading file: {e}")];
+                return;
+            }
+        };
+
         if let Some(s) = size
             && s > limit_u64
         {
+            if provider.is_local() {
+                // Try vendored large_text for local files
+                let encoding = crate::large_text::file_reader::detect_encoding(&chunk);
+                if let Ok(reader) =
+                    crate::large_text::file_reader::FileReader::new(path.to_path_buf(), encoding)
+                {
+                    let mut indexer = crate::large_text::line_indexer::LineIndexer::new();
+                    indexer.index_file(&reader);
+                    self.large_file_reader = Some(reader);
+                    self.large_file_indexer = Some(indexer);
+                    self.language = lumis::languages::Language::default(); // Disable syntax highlighting
+                    return;
+                }
+            }
+
             self.content = vec![format!(
                 "File too large to display (size: {}, limit: {})",
                 crate::fs::utils::format_size(Some(s), false, false),
@@ -259,14 +289,6 @@ impl FileViewerState {
             return;
         }
 
-        // Read small chunk to check for binary
-        let chunk = match provider.read_file_at(&self.path, 0u64, 8192usize) {
-            Ok(buf) => buf,
-            Err(e) => {
-                self.content = vec![format!("Error reading file: {e}")];
-                return;
-            }
-        };
         if chunk.contains(&0) {
             self.content = vec!["Binary file detected".to_string()];
             return;
@@ -322,7 +344,17 @@ impl FileViewerState {
 
         let mut selected_lines = Vec::new();
         for r in start_r..=end_r {
-            if let Some(line) = self.content.get(r) {
+            let line_opt = if let Some(indexer) = &self.large_file_indexer {
+                self.large_file_reader.as_ref().and_then(|reader| {
+                    indexer
+                        .get_line_with_reader(r, reader)
+                        .map(|(s, e)| reader.get_chunk(s, e))
+                })
+            } else {
+                self.content.get(r).cloned()
+            };
+
+            if let Some(line) = line_opt {
                 if start_r == end_r {
                     // Selection is within a single line
                     let s = line
@@ -357,7 +389,17 @@ impl FileViewerState {
     /// Handles tab expansion (4 spaces) and wide characters.
     #[must_use]
     pub fn display_col_to_char_idx(&self, row: usize, display_col: usize) -> usize {
-        let Some(line) = self.content.get(row) else {
+        let line_opt = if let Some(indexer) = &self.large_file_indexer {
+            self.large_file_reader.as_ref().and_then(|reader| {
+                indexer
+                    .get_line_with_reader(row, reader)
+                    .map(|(s, e)| reader.get_chunk(s, e))
+            })
+        } else {
+            self.content.get(row).cloned()
+        };
+
+        let Some(line) = line_opt else {
             return display_col;
         };
 
@@ -379,7 +421,17 @@ impl FileViewerState {
 
     /// Selects the word or syntax chunk at the given display coordinates.
     pub fn select_word_at(&mut self, row: usize, display_col: usize) {
-        let Some(line) = self.content.get(row) else {
+        let line_opt = if let Some(indexer) = &self.large_file_indexer {
+            self.large_file_reader.as_ref().and_then(|reader| {
+                indexer
+                    .get_line_with_reader(row, reader)
+                    .map(|(s, e)| reader.get_chunk(s, e))
+            })
+        } else {
+            self.content.get(row).cloned()
+        };
+
+        let Some(line) = line_opt else {
             self.selection = None;
             return;
         };
@@ -396,22 +448,25 @@ impl FileViewerState {
         let mut found = false;
 
         // Try syntax-aware selection first
-        let highlighter = lumis::highlight::Highlighter::new(self.language, self.theme.clone());
-        let segments = highlighter.highlight(line).unwrap_or_default();
+        if self.large_file_indexer.is_none() {
+            let highlighter = lumis::highlight::Highlighter::new(self.language, self.theme.clone());
+            let segments = highlighter.highlight(&line).unwrap_or_default();
 
-        if segments.len() > 1 {
-            let mut current_char_idx = 0;
-            for (_, text) in segments {
-                let segment_char_count = text.chars().count();
-                if char_idx >= current_char_idx && char_idx < current_char_idx + segment_char_count
-                {
-                    // Found the syntax chunk
-                    start = current_char_idx;
-                    end = current_char_idx + segment_char_count;
-                    found = true;
-                    break;
+            if segments.len() > 1 {
+                let mut current_char_idx = 0;
+                for (_, text) in segments {
+                    let segment_char_count = text.chars().count();
+                    if char_idx >= current_char_idx
+                        && char_idx < current_char_idx + segment_char_count
+                    {
+                        // Found the syntax chunk
+                        start = current_char_idx;
+                        end = current_char_idx + segment_char_count;
+                        found = true;
+                        break;
+                    }
+                    current_char_idx += segment_char_count;
                 }
-                current_char_idx += segment_char_count;
             }
         }
 
@@ -449,5 +504,14 @@ impl FileViewerState {
         }
 
         self.selection = Some(((row, start), (row, end)));
+    }
+
+    #[must_use]
+    pub fn total_lines(&self) -> usize {
+        if let Some(indexer) = &self.large_file_indexer {
+            indexer.total_lines()
+        } else {
+            self.content.len()
+        }
     }
 }

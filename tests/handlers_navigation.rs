@@ -827,18 +827,24 @@ fn test_handle_type_char_populates_highlights() {
 }
 
 #[test]
-fn test_update_viewer_content_shows_error_for_large_file() {
+fn test_update_viewer_content_loads_large_file() {
     use std::io::Write;
     let temp_dir = tempfile::tempdir().unwrap();
     let file_path = temp_dir.path().join("large.txt");
     let mut f = std::fs::File::create(&file_path).unwrap();
     let mb = 11;
+    // Create a file with distinct lines to verify indexing
+    for i in 0..1000 {
+        writeln!(f, "Line {:04}", i).unwrap();
+    }
+    // Fill the rest to reach 11MB
     f.write_all(&vec![b'a'; mb * 1024 * 1024]).unwrap();
+
     let mut app = test_app(vec![FileEntry {
         name: "large.txt".to_string(),
         is_dir: false,
         is_symlink: false,
-        size: Some((mb * 1024 * 1024) as u64),
+        size: Some(std::fs::metadata(&file_path).unwrap().len()),
         modified: None,
         attributes: String::new(),
         selected: false,
@@ -846,11 +852,18 @@ fn test_update_viewer_content_shows_error_for_large_file() {
     app.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
     app.file_viewer.is_visible = true;
     update_viewer_content(&mut app);
-    let msg = &app.file_viewer.content[0];
-    assert!(
-        msg.to_lowercase().contains("too large"),
-        "unexpected error: {msg}"
-    );
+
+    // Should NOT have error message in content
+    assert!(app.file_viewer.content.is_empty());
+    // Should have large file components initialized
+    assert!(app.file_viewer.large_file_reader.is_some());
+    assert!(app.file_viewer.large_file_indexer.is_some());
+
+    // Verify we can read the first line
+    let indexer = app.file_viewer.large_file_indexer.as_ref().unwrap();
+    let reader = app.file_viewer.large_file_reader.as_ref().unwrap();
+    let (s, e) = indexer.get_line_with_reader(0, reader).unwrap();
+    assert_eq!(reader.get_chunk(s, e).trim(), "Line 0000");
 }
 
 #[test]

@@ -59,12 +59,17 @@ pub fn draw_file_viewer(
         return;
     }
 
-    if viewer.content.is_empty() {
+    if viewer.content.is_empty() && viewer.large_file_indexer.is_none() {
         return;
     }
 
     let visible_lines = inner_area.height as usize;
-    let max_lines = viewer.content.len();
+    let (max_lines, is_large_file) = if let Some(indexer) = &viewer.large_file_indexer {
+        (indexer.total_lines(), true)
+    } else {
+        (viewer.content.len(), false)
+    };
+
     // Clamp scroll offset to valid range
     let start_line = viewer.scroll_offset.min(max_lines.saturating_sub(1));
     let end_line = (start_line + visible_lines).min(max_lines);
@@ -79,42 +84,19 @@ pub fn draw_file_viewer(
     let normalized_selection = viewer.selection.map(normalize_selection);
 
     let mut lines = Vec::new();
-    for (i, line) in viewer.content[start_line..end_line].iter().enumerate() {
-        let line_idx = start_line + i;
-        let selection_range = normalized_selection.and_then(|((r1, c1), (r2, c2))| {
-            if line_idx < r1 || line_idx > r2 {
-                None
-            } else if line_idx > r1 && line_idx < r2 {
-                Some((0, usize::MAX))
-            } else if r1 == r2 {
-                Some((c1, c2))
-            } else if line_idx == r1 {
-                Some((c1, usize::MAX))
-            } else {
-                Some((0, c2))
-            }
-        });
-
-        let segments = highlighter.highlight(line).unwrap_or_default();
-        let ranges: Vec<(&lumis::themes::Style, &str)> = segments
-            .iter()
-            .map(|(style, text)| (style.as_ref(), *text))
-            .collect();
-
-        let spans = generate_line_spans(
-            ranges,
-            viewer.horizontal_scroll_offset,
-            inner_area.width as usize,
+    for i in start_line..end_line {
+        if let Some(line) = render_viewer_line(&ViewerLineContext {
+            line_idx: i,
+            viewer,
+            is_large_file,
+            highlighter: &highlighter,
             default_fg,
-            selection_range,
-            Some(Color::Rgb(
-                palette.surface0.r,
-                palette.surface0.g,
-                palette.surface0.b,
-            )),
-        );
-
-        lines.push(Line::from(spans));
+            normalized_selection,
+            max_width: inner_area.width as usize,
+            palette,
+        }) {
+            lines.push(line);
+        }
     }
 
     f.render_widget(Paragraph::new(lines), inner_area);
@@ -140,6 +122,84 @@ pub fn draw_file_viewer(
             active: viewer.focused,
         },
     );
+}
+
+struct ViewerLineContext<'a> {
+    line_idx: usize,
+    viewer: &'a FileViewerState,
+    is_large_file: bool,
+    highlighter: &'a Highlighter,
+    default_fg: Option<Color>,
+    normalized_selection: Option<((usize, usize), (usize, usize))>,
+    max_width: usize,
+    palette: &'a ThemePalette,
+}
+
+fn render_viewer_line(ctx: &ViewerLineContext) -> Option<Line<'static>> {
+    let selection_range = ctx.normalized_selection.and_then(|((r1, c1), (r2, c2))| {
+        if ctx.line_idx < r1 || ctx.line_idx > r2 {
+            None
+        } else if ctx.line_idx > r1 && ctx.line_idx < r2 {
+            Some((0, usize::MAX))
+        } else if r1 == r2 {
+            Some((c1, c2))
+        } else if ctx.line_idx == r1 {
+            Some((c1, usize::MAX))
+        } else {
+            Some((0, c2))
+        }
+    });
+
+    let line_content = if ctx.is_large_file {
+        ctx.viewer.large_file_indexer.as_ref().and_then(|indexer| {
+            ctx.viewer.large_file_reader.as_ref().and_then(|reader| {
+                indexer
+                    .get_line_with_reader(ctx.line_idx, reader)
+                    .map(|(s, e)| reader.get_chunk(s, e))
+            })
+        })
+    } else {
+        ctx.viewer.content.get(ctx.line_idx).cloned()
+    };
+
+    let line_content = line_content?;
+
+    let spans = if ctx.is_large_file {
+        let style = lumis::themes::Style::default();
+        generate_line_spans(
+            vec![(&style, line_content.as_str())],
+            ctx.viewer.horizontal_scroll_offset,
+            ctx.max_width,
+            ctx.default_fg,
+            selection_range,
+            Some(Color::Rgb(
+                ctx.palette.surface0.r,
+                ctx.palette.surface0.g,
+                ctx.palette.surface0.b,
+            )),
+        )
+    } else {
+        let segments = ctx.highlighter.highlight(&line_content).unwrap_or_default();
+        let ranges: Vec<(&lumis::themes::Style, &str)> = segments
+            .iter()
+            .map(|(style, text)| (style.as_ref(), *text))
+            .collect();
+
+        generate_line_spans(
+            ranges,
+            ctx.viewer.horizontal_scroll_offset,
+            ctx.max_width,
+            ctx.default_fg,
+            selection_range,
+            Some(Color::Rgb(
+                ctx.palette.surface0.r,
+                ctx.palette.surface0.g,
+                ctx.palette.surface0.b,
+            )),
+        )
+    };
+
+    Some(Line::from(spans))
 }
 
 /// Generates spans for a single line, handling horizontal scrolling and width constraints
