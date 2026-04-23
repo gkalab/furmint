@@ -263,6 +263,11 @@ impl FileViewerState {
             }
         };
 
+        if crate::large_text::file_reader::is_binary(&chunk) {
+            self.content = vec!["Binary file detected".to_string()];
+            return;
+        }
+
         if let Some(s) = size
             && s > limit_u64
         {
@@ -286,11 +291,6 @@ impl FileViewerState {
                 crate::fs::utils::format_size(Some(s), false, false),
                 crate::fs::utils::format_size(Some(limit_u64), false, false)
             )];
-            return;
-        }
-
-        if chunk.contains(&0) {
-            self.content = vec!["Binary file detected".to_string()];
             return;
         }
 
