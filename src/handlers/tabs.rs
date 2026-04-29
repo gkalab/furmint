@@ -1,15 +1,41 @@
 //! Tab management event handlers for new, next, previous, and close tab.
 
 use crate::app::AppState;
+use crate::fs::fs_local::LocalFs;
+use crate::fs::fs_provider::FileSystemProvider;
 use crate::handlers::navigation::update_viewer_content;
+use directories::UserDirs;
+use std::sync::Arc;
 
 pub(crate) fn handle_new_tab(app: &mut AppState) {
-    let tab_manager = app.active_tab_manager_mut();
+    let (target_dir, provider, cursor) = {
+        let tab = app.active_tab();
+        if tab.is_archive() {
+            let archive_file_path = tab.provider.archive_path();
+            let parent_dir = archive_file_path
+                .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
+                .unwrap_or_else(|| {
+                    UserDirs::new().map_or_else(
+                        || std::path::PathBuf::from("."),
+                        |u| u.home_dir().to_path_buf(),
+                    )
+                });
+            (
+                parent_dir,
+                Arc::new(LocalFs::new()) as Arc<dyn FileSystemProvider>,
+                None,
+            )
+        } else {
+            (
+                tab.current_dir.clone(),
+                tab.provider.clone(),
+                Some(tab.cursor),
+            )
+        }
+    };
 
-    // Create new tab at the same directory as the current tab, preserving cursor position
-    let current_dir = tab_manager.active_tab().current_dir.clone();
-    let cursor_pos = tab_manager.active_tab().cursor;
-    if let Err(e) = tab_manager.new_tab(&current_dir, Some(cursor_pos)) {
+    let tab_manager = app.active_tab_manager_mut();
+    if let Err(e) = tab_manager.new_tab_with_provider(&target_dir, provider, cursor) {
         tab_manager.active_tab_mut().error = Some(format!("Error creating tab: {e}"));
     }
 }

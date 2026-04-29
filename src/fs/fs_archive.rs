@@ -237,6 +237,10 @@ impl FileSystemProvider for ArchiveFs {
         true
     }
 
+    fn archive_path(&self) -> Option<PathBuf> {
+        Some(self.archive_path.clone())
+    }
+
     fn exists(&self, path: &Path) -> bool {
         let rel_path = if path.has_root() {
             path.strip_prefix("/").unwrap_or(path)

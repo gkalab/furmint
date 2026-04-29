@@ -843,7 +843,21 @@ impl TabManager {
     ///
     /// Returns an error if the directory cannot be read.
     pub fn new_tab(&mut self, path: &Path, cursor: Option<usize>) -> anyhow::Result<()> {
-        let mut tab = Tab::new(path)?;
+        self.new_tab_with_provider(path, Arc::new(LocalFs::new()), cursor)
+    }
+
+    /// Creates a new tab with a custom filesystem provider.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the directory cannot be listed.
+    pub fn new_tab_with_provider(
+        &mut self,
+        path: &Path,
+        provider: Arc<dyn FileSystemProvider>,
+        cursor: Option<usize>,
+    ) -> anyhow::Result<()> {
+        let mut tab = Tab::with_provider(path, provider)?;
         // Inherit sort settings from current active tab
         {
             let active = self.active_tab();
@@ -1015,5 +1029,17 @@ mod tests {
 
         let restored = Tab::from_persistent(persistent).unwrap();
         assert_eq!(restored.custom_title, Some("Custom Tab Name".to_string()));
+    }
+
+    #[test]
+    fn test_new_tab_with_provider() {
+        let mut manager = TabManager::new(Path::new(".")).unwrap();
+        let provider = Arc::new(crate::fs::fs_local::LocalFs::new());
+        let test_path = Path::new("..");
+        manager
+            .new_tab_with_provider(test_path, provider, None)
+            .unwrap();
+        assert_eq!(manager.tabs.len(), 2);
+        assert_eq!(manager.active_tab().current_dir, test_path.to_path_buf());
     }
 }

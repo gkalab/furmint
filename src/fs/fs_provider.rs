@@ -122,6 +122,11 @@ pub trait FileSystemProvider: Send + Sync {
         false
     }
 
+    /// If this is an archive provider, return the local path to the archive file.
+    fn archive_path(&self) -> Option<std::path::PathBuf> {
+        None
+    }
+
     /// Check if a path exists.
     fn exists(&self, path: &Path) -> bool;
 
