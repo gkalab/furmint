@@ -4,6 +4,7 @@ use crate::app::AppState;
 use crossterm::ExecutableCommand;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode};
+use directories::UserDirs;
 use std::process::Command;
 
 #[cfg(target_os = "linux")]
@@ -264,8 +265,20 @@ pub fn spawn_terminal(
     Err(anyhow::anyhow!("Unsupported OS"))
 }
 
+fn get_terminal_working_dir(app: &AppState) -> std::path::PathBuf {
+    let tab = app.active_tab();
+    if tab.provider.is_local() {
+        tab.current_dir.clone()
+    } else {
+        UserDirs::new().map_or_else(
+            || std::path::PathBuf::from("."),
+            |u| u.home_dir().to_path_buf(),
+        )
+    }
+}
+
 pub fn handle_open_terminal(app: &mut AppState) {
-    let current_dir = app.active_tab().current_dir.clone();
+    let current_dir = get_terminal_working_dir(app);
     let configured_terminal = app.global.terminal.clone();
 
     if let Err(e) = spawn_terminal(&current_dir, configured_terminal, &[], false) {
@@ -299,7 +312,7 @@ pub async fn handle_toggle_console(app: &mut AppState) -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to reset terminal: {e}"))?;
 
     // 3. Pause watcher
-    let panel_current_dir = app.active_tab().current_dir.clone();
+    let panel_current_dir = get_terminal_working_dir(app);
     if let Some(watcher) = &mut app.watcher {
         let paths = watcher.watched_paths();
         for path in &paths {
@@ -362,5 +375,101 @@ pub async fn handle_toggle_console(app: &mut AppState) -> anyhow::Result<()> {
         Err(anyhow::anyhow!(e))
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils::create_test_app;
+    use async_trait::async_trait;
+
+    struct MockRemoteFs;
+
+    #[async_trait]
+    impl crate::fs::fs_provider::FileSystemProvider for MockRemoteFs {
+        fn is_local(&self) -> bool {
+            false
+        }
+        fn list_dir(
+            &self,
+            _: &std::path::Path,
+        ) -> anyhow::Result<Vec<crate::fs::utils::FileEntry>> {
+            Ok(vec![])
+        }
+        fn create_dir(&self, _: &std::path::Path) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn create_file(&self, _: &std::path::Path) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn delete(&self, _: &std::path::Path, _: bool) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn rename(&self, _: &std::path::Path, _: &std::path::Path) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn read_file(&self, _: &std::path::Path) -> anyhow::Result<Vec<u8>> {
+            Ok(vec![])
+        }
+        fn read_file_at(&self, _: &std::path::Path, _: u64, _: usize) -> anyhow::Result<Vec<u8>> {
+            Ok(vec![])
+        }
+        fn write_file(&self, _: &std::path::Path, _: &[u8]) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn write_file_at(&self, _: &std::path::Path, _: u64, _: &[u8]) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn display_prefix(&self) -> &str {
+            ""
+        }
+        fn exists(&self, _: &std::path::Path) -> bool {
+            true
+        }
+        fn is_dir(&self, _: &std::path::Path) -> bool {
+            true
+        }
+        fn canonicalize(&self, path: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
+            Ok(path.to_path_buf())
+        }
+        fn get_permissions(&self, _: &std::path::Path) -> Option<u32> {
+            None
+        }
+        fn set_permissions(&self, _: &std::path::Path, _: u32) -> bool {
+            false
+        }
+        fn get_modified_time(&self, _: &std::path::Path) -> Option<std::time::SystemTime> {
+            None
+        }
+        fn set_modified_time(&self, _: &std::path::Path, _: std::time::SystemTime) -> bool {
+            false
+        }
+        fn context_key(&self) -> String {
+            "mock".to_string()
+        }
+        fn display_path(&self, path: &std::path::Path) -> String {
+            path.to_string_lossy().to_string()
+        }
+        async fn calc_dir_size(&self, _: &std::path::Path) -> anyhow::Result<u64> {
+            Ok(0)
+        }
+    }
+
+    #[test]
+    fn test_get_terminal_working_dir_local() {
+        let mut app = create_test_app();
+        app.active_tab_mut().current_dir = std::path::PathBuf::from("/some/local/path");
+        let dir = get_terminal_working_dir(&app);
+        assert_eq!(dir, std::path::PathBuf::from("/some/local/path"));
+    }
+
+    #[test]
+    fn test_get_terminal_working_dir_remote() {
+        let mut app = create_test_app();
+        app.active_tab_mut().provider = std::sync::Arc::new(MockRemoteFs);
+        let dir = get_terminal_working_dir(&app);
+        let home = UserDirs::new().unwrap().home_dir().to_path_buf();
+        assert_eq!(dir, home);
     }
 }
