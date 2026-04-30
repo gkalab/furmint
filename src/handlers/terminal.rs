@@ -5,7 +5,9 @@ use crossterm::ExecutableCommand;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode};
 use directories::UserDirs;
-use std::process::Command;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+use std::process::{Command, Stdio};
 
 #[cfg(target_os = "linux")]
 fn spawn_terminal_linux(
@@ -173,13 +175,20 @@ fn spawn_terminal_windows(
         };
 
         if is_gui {
-            // GUI apps should always use 'start' to launch without a parent terminal window staying open
+            // GUI apps should always use 'start' to launch without a parent terminal window staying open.
+            // We use DETACHED_PROCESS and redirect handles to null to avoid inheriting the parent console's
+            // state (like mouse capture/raw mode), which can interfere with the GUI application's mouse input.
             let mut cmd = Command::new("cmd");
             cmd.arg("/C").arg("start").arg("");
             for arg in args {
                 cmd.arg(arg);
             }
-            cmd.current_dir(dir).spawn()?;
+            cmd.current_dir(dir)
+                .creation_flags(0x0800_0008) // DETACHED_PROCESS (0x08) | CREATE_NO_WINDOW (0x08000000)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()?;
             return Ok(());
         }
 
