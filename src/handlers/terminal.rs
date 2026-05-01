@@ -7,7 +7,9 @@ use crossterm::terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode};
 use directories::UserDirs;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
-use std::process::{Command, Stdio};
+#[cfg(target_os = "windows")]
+use std::process::Stdio;
+use std::process::Command;
 
 #[cfg(target_os = "linux")]
 fn spawn_terminal_linux(
