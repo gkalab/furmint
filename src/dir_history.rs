@@ -24,6 +24,9 @@ pub struct DirectoryHistory {
 }
 
 impl DirectoryHistory {
+    pub const MAX_LOCAL_HISTORY_ENTRIES: usize = 200;
+    pub const MAX_REMOTE_HISTORY_ENTRIES: usize = 50;
+
     /// Create a new `DirectoryHistory` with the default cache file location
     ///
     /// # Errors
@@ -194,20 +197,46 @@ impl DirectoryHistory {
     pub fn save(&self) -> Result<()> {
         // Create a temporary struct for serialization
         #[derive(Serialize)]
-        struct SaveData<'a> {
-            entries: &'a HashMap<String, HashMap<PathBuf, DirEntry>>,
+        struct SaveData {
+            entries: HashMap<String, HashMap<PathBuf, DirEntry>>,
         }
 
-        // Filter out archive:* contexts
-        let filtered_entries: HashMap<_, _> = self
-            .entries
-            .iter()
-            .filter(|(ctx, _)| !ctx.starts_with("archive:"))
-            .map(|(ctx, entries)| (ctx.clone(), entries.clone()))
-            .collect();
+        let mut filtered_entries: HashMap<String, HashMap<PathBuf, DirEntry>> = HashMap::new();
+
+        for (ctx, entries) in &self.entries {
+            if ctx.starts_with("archive:") {
+                continue;
+            }
+
+            let limit = if ctx == "local" {
+                Self::MAX_LOCAL_HISTORY_ENTRIES
+            } else {
+                Self::MAX_REMOTE_HISTORY_ENTRIES
+            };
+
+            // Collect entries for this context and calculate scores
+            let mut context_entries: Vec<_> = entries
+                .iter()
+                .map(|(path, entry)| (path, entry, Self::calculate_score(entry)))
+                .collect();
+
+            // Sort by score descending
+            context_entries
+                .sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+
+            // Take top N and rebuild the map for this context
+            let mut pruned_map = HashMap::new();
+            for (path, entry, _) in context_entries.into_iter().take(limit) {
+                pruned_map.insert(path.clone(), entry.clone());
+            }
+
+            if !pruned_map.is_empty() {
+                filtered_entries.insert(ctx.clone(), pruned_map);
+            }
+        }
 
         let data = SaveData {
-            entries: &filtered_entries,
+            entries: filtered_entries,
         };
 
         let content = serde_json::to_string_pretty(&data)?;
