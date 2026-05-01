@@ -37,14 +37,12 @@ impl SshConnectionHistory {
     ///
     /// Returns an error if the history cannot be loaded.
     pub fn new() -> anyhow::Result<Self> {
-        let mut path = directories::ProjectDirs::from("", "", "fm").map_or_else(
-            || PathBuf::from("."),
-            |dirs| dirs.config_dir().to_path_buf(),
-        );
-        if !path.exists() {
-            let _ = fs::create_dir_all(&path);
+        let state_dir = crate::paths::state_dir()
+            .ok_or_else(|| anyhow::anyhow!("Could not determine state directory"))?;
+        if !state_dir.exists() {
+            let _ = fs::create_dir_all(&state_dir);
         }
-        path.push("ssh_history.json");
+        let path = state_dir.join("ssh_history.json");
         let connections = if path.exists() {
             let content = fs::read_to_string(&path)?;
             serde_json::from_str(&content).unwrap_or_default()

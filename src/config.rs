@@ -1,5 +1,4 @@
 use anyhow::{Result, anyhow};
-use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -554,7 +553,7 @@ pub fn load_config() -> Result<(
 
 #[must_use]
 pub fn config_path() -> Option<PathBuf> {
-    ProjectDirs::from("org", "fm", "fm").map(|proj_dirs| proj_dirs.config_dir().join("config.toml"))
+    crate::paths::config_path()
 }
 
 /// Creates a default configuration file.

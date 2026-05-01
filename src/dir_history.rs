@@ -1,5 +1,4 @@
 use anyhow::Result;
-use directories::ProjectDirs;
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use serde::{Deserialize, Serialize};
@@ -42,17 +41,16 @@ impl DirectoryHistory {
         Ok(history)
     }
 
-    /// Get the OS-specific cache file path
+    /// Get the OS-specific history file path
     ///
     /// # Errors
     ///
-    /// Returns an error if the cache directory cannot be determined or created.
+    /// Returns an error if the state directory cannot be determined or created.
     fn get_cache_file_path() -> Result<PathBuf> {
-        let proj_dirs = ProjectDirs::from("org", "fm", "fm")
-            .ok_or_else(|| anyhow::anyhow!("Could not determine cache directory"))?;
-        let cache_dir = proj_dirs.cache_dir();
-        fs::create_dir_all(cache_dir)?;
-        Ok(cache_dir.join("dir_history.json"))
+        let state_dir = crate::paths::state_dir()
+            .ok_or_else(|| anyhow::anyhow!("Could not determine state directory"))?;
+        fs::create_dir_all(&state_dir)?;
+        Ok(state_dir.join("dir_history.json"))
     }
 
     /// Record a visit to a directory within a specific context

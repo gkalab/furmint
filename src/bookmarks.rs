@@ -1,5 +1,4 @@
 use anyhow::Result;
-use directories::ProjectDirs;
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use serde::{Deserialize, Serialize};
@@ -35,11 +34,10 @@ impl BookmarkStore {
     }
 
     fn get_storage_path() -> Result<PathBuf> {
-        let proj_dirs = ProjectDirs::from("", "", "fm")
-            .ok_or_else(|| anyhow::anyhow!("Could not determine config directory"))?;
-        let config_dir = proj_dirs.config_dir();
-        fs::create_dir_all(config_dir)?;
-        Ok(config_dir.join("bookmarks.json"))
+        let state_dir = crate::paths::state_dir()
+            .ok_or_else(|| anyhow::anyhow!("Could not determine state directory"))?;
+        fs::create_dir_all(&state_dir)?;
+        Ok(state_dir.join("bookmarks.json"))
     }
 
     #[cfg(any(test, feature = "test-utils"))]

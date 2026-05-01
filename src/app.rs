@@ -253,13 +253,12 @@ impl AppState {
     ///
     /// # Errors
     ///
-    /// Returns an error if the data directory cannot be determined or created.
+    /// Returns an error if the state directory cannot be determined or created.
     fn get_state_file_path() -> anyhow::Result<PathBuf> {
-        let proj_dirs = directories::ProjectDirs::from("org", "fm", "fm")
-            .ok_or_else(|| anyhow::anyhow!("Could not determine data directory"))?;
-        let data_dir = proj_dirs.data_dir();
-        std::fs::create_dir_all(data_dir)?;
-        Ok(data_dir.join("state.json"))
+        let state_dir = crate::paths::state_dir()
+            .ok_or_else(|| anyhow::anyhow!("Could not determine state directory"))?;
+        std::fs::create_dir_all(&state_dir)?;
+        Ok(state_dir.join("state.json"))
     }
 }
 
