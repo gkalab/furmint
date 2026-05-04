@@ -48,9 +48,9 @@ lumis = { version = "0.2", default-features = false, features = [
     "lang-yaml",
     "lang-xml",
 ] }
-tokio = { version = "1.48", features = ["full"] }
-tempfile = "3.23"
-toml = "1.0"
+tokio = { version = "1.52", features = ["full"] }
+tempfile = "3.27"
+toml = "1.1"
 unicode-width = "0.2"
 trash = "5.2"
 open = "5.3"
@@ -59,10 +59,10 @@ shell-words = "1.1"
 clipboard = "0.4"
 image = { version = "0.25", features = ["default"] }
 ratatui-image = { version = "10.0", default-features = false, features = ["tokio", "image-defaults", "crossterm"] }
-zip = "8.1"
+zip = "8.6"
 walkdir = "2.5"
 tar = "0.4"
-flate2 = "1.0"
+flate2 = "1.1"
 bzip2 = "0.6"
 xz2 = "0.1"
 cpio = "0.4"
