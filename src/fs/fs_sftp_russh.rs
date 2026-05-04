@@ -497,8 +497,7 @@ impl FileSystemProvider for SftpFs {
     fn set_modified_time(&self, path: &Path, mtime: std::time::SystemTime) -> bool {
         let secs = mtime
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| u32::try_from(d.as_secs()).unwrap_or(u32::MAX))
-            .unwrap_or(0);
+            .map_or(0, |d| u32::try_from(d.as_secs()).unwrap_or(u32::MAX));
         self.run_async(|sftp| async move {
             sftp.set_metadata(
                 normalize_sftp_path(path),

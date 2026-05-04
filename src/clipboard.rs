@@ -279,9 +279,7 @@ pub mod win_clipboard {
                             if let Err(e) = SetClipboardData(format, Some(HANDLE(hglobal_effect.0)))
                             {
                                 let _ = GlobalFree(Some(hglobal_effect));
-                                return Err(
-                                    anyhow::anyhow!("SetClipboardData format failed: {e}",),
-                                );
+                                return Err(anyhow::anyhow!("SetClipboardData format failed: {e}"));
                             }
                         }
                     }
