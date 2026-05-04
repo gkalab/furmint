@@ -7,9 +7,9 @@ use crossterm::terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode};
 use directories::UserDirs;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+use std::process::Command;
 #[cfg(target_os = "windows")]
 use std::process::Stdio;
-use std::process::Command;
 
 #[cfg(target_os = "linux")]
 fn spawn_terminal_linux(
@@ -168,7 +168,7 @@ fn spawn_terminal_windows(
     args: &[String],
     wrap_shell: bool,
 ) -> anyhow::Result<()> {
-    if !args.is_empty() {
+    let mut cmd = if !args.is_empty() {
         // Detect if the target is a GUI application to avoid background terminals
         let is_gui = if args[0].to_lowercase().ends_with(".exe") {
             crate::fs::utils::is_gui_executable(std::path::Path::new(&args[0]))
@@ -178,25 +178,14 @@ fn spawn_terminal_windows(
 
         if is_gui {
             // GUI apps should always use 'start' to launch without a parent terminal window staying open.
-            // We use DETACHED_PROCESS and redirect handles to null to avoid inheriting the parent console's
-            // state (like mouse capture/raw mode), which can interfere with the GUI application's mouse input.
             let mut cmd = Command::new("cmd");
             cmd.arg("/C").arg("start").arg("");
             for arg in args {
                 cmd.arg(arg);
             }
-            cmd.current_dir(dir)
-                .creation_flags(0x0800_0008) // DETACHED_PROCESS (0x08) | CREATE_NO_WINDOW (0x08000000)
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()?;
-            return Ok(());
-        }
-
-        if let Some(term) = configured_terminal {
+            cmd
+        } else if let Some(term) = configured_terminal {
             let mut cmd = Command::new(&term);
-            cmd.current_dir(dir);
             let bin = term.to_lowercase();
             if bin.contains("wt") || bin.contains("windows terminal") {
                 cmd.arg("-d").arg(".");
@@ -213,13 +202,11 @@ fn spawn_terminal_windows(
                     cmd.arg("-NoExit");
                 }
                 cmd.arg("-Command");
-            } else {
-                // Default fallback for unknown terminal: try to run the command directly
             }
             for arg in args {
                 cmd.arg(arg);
             }
-            cmd.spawn()?;
+            cmd
         } else {
             let mut cmd = Command::new("cmd");
             // Use 'start' with an empty title to launch in a new window
@@ -230,25 +217,25 @@ fn spawn_terminal_windows(
             for arg in args {
                 cmd.arg(arg);
             }
-            cmd.current_dir(dir).spawn()?;
+            cmd
         }
     } else if let Some(term) = configured_terminal {
-        Command::new("cmd")
-            .arg("/C")
-            .arg("start")
-            .arg("")
-            .arg(term)
-            .current_dir(dir)
-            .spawn()?;
+        let mut cmd = Command::new("cmd");
+        cmd.arg("/C").arg("start").arg("").arg(term);
+        cmd
     } else {
-        Command::new("cmd")
-            .arg("/C")
-            .arg("start")
-            .arg("")
-            .arg("cmd")
-            .current_dir(dir)
-            .spawn()?;
-    }
+        let mut cmd = Command::new("cmd");
+        cmd.arg("/C").arg("start").arg("").arg("cmd");
+        cmd
+    };
+
+    cmd.current_dir(dir)
+        .creation_flags(0x0800_0000) // CREATE_NO_WINDOW (0x08000000) for the intermediate 'cmd /C' to avoid a flash
+        .stdin(Stdio::null()) // Stdio::null() to avoid inheriting the parent console's handles
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+
     Ok(())
 }
 
