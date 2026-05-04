@@ -121,7 +121,7 @@ impl SshManager {
         Self {
             base_backoff: Duration::from_secs(1),
             backoff_factor: 2.0,
-            max_backoff: Duration::from_secs(60),
+            max_backoff: Duration::from_mins(1),
             jitter_pct: 0.2,
             keepalive_interval,
             read_timeout_secs,
@@ -273,8 +273,7 @@ impl SshManager {
 
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map(|d| d.subsec_nanos())
-            .unwrap_or(0);
+            .map_or(0, |d| d.subsec_nanos());
         let seed = f64::from(u16::try_from(i64::from(nanos) % 1000).unwrap_or(0)) / 1000.0; // 0..1
         let jitter = 1.0 + (seed * 2.0 - 1.0) * self.jitter_pct;
         secs *= jitter;
@@ -289,8 +288,7 @@ impl SshManager {
         use std::time::SystemTime;
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+            .map_or(0, |d| d.as_secs());
         format!("ssh_{host}_{port}_{now}")
     }
 

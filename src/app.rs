@@ -315,7 +315,7 @@ impl AppState {
             .collect();
 
         let now = std::time::Instant::now();
-        let timeout = std::time::Duration::from_secs(60);
+        let timeout = std::time::Duration::from_mins(1);
 
         self.archive_cache.retain(|path, entry| {
             let key = format!("archive:{}", path.to_string_lossy());

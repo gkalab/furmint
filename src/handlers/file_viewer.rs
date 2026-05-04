@@ -30,15 +30,11 @@ pub fn handle_file_viewer_event(code: KeyCode, modifiers: KeyModifiers, app: &mu
         KeyCode::Tab => {
             app.file_viewer.focused = false;
         }
-        KeyCode::Up => {
-            if app.file_viewer.scroll_offset > 0 {
-                app.file_viewer.scroll_offset -= 1;
-            }
+        KeyCode::Up if app.file_viewer.scroll_offset > 0 => {
+            app.file_viewer.scroll_offset -= 1;
         }
-        KeyCode::Down => {
-            if app.file_viewer.scroll_offset + 1 < app.file_viewer.total_lines() {
-                app.file_viewer.scroll_offset += 1;
-            }
+        KeyCode::Down if app.file_viewer.scroll_offset + 1 < app.file_viewer.total_lines() => {
+            app.file_viewer.scroll_offset += 1;
         }
         KeyCode::Left => {
             if app.file_viewer.horizontal_scroll_offset >= 10 {

@@ -253,7 +253,7 @@ impl TaskManager {
                 completed_at: t.completed_at,
             })
             .collect();
-        result.sort_by(|a, b| b.id.cmp(&a.id));
+        result.sort_by_key(|b| std::cmp::Reverse(b.id));
         result
     }
 

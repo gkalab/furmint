@@ -59,7 +59,7 @@ impl TarHandler {
             .spawn()
             && let Some(mut stdout) = child.stdout.take()
             && std::io::copy(&mut stdout, temp.as_file_mut()).is_ok()
-            && child.wait().map(|s| s.success()).unwrap_or(false)
+            && child.wait().is_ok_and(|s| s.success())
         {
             decompressed_via_system = true;
         }

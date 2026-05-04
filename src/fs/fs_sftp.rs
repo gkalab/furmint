@@ -247,7 +247,7 @@ impl FileSystemProvider for SftpFs {
                     0o644,
                     ssh2::OpenType::File,
                 )
-                .map_err(|e| anyhow!("Failed to open file for writing at offset {offset}: {e}",))?
+                .map_err(|e| anyhow!("Failed to open file for writing at offset {offset}: {e}"))?
             };
             file.seek(SeekFrom::Start(offset))?;
             file.write_all(data)?;
@@ -289,8 +289,7 @@ impl FileSystemProvider for SftpFs {
         self.with_sftp(|sftp| {
             Ok(sftp
                 .stat(Path::new(&normalize_sftp_path(path)))
-                .map(|s| s.is_dir())
-                .unwrap_or(false))
+                .is_ok_and(|s| s.is_dir()))
         })
         .unwrap_or(false)
     }

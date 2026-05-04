@@ -40,21 +40,15 @@ pub fn handle_drive_select_event(code: KeyCode, app: &mut AppState) -> bool {
         KeyCode::Esc => {
             app.popups.drive_select.reset();
         }
-        KeyCode::Down => {
-            if !app.popups.drive_select.drives.is_empty() {
-                app.popups.drive_select.selected_index = (app.popups.drive_select.selected_index
-                    + 1)
-                    % app.popups.drive_select.drives.len();
-            }
+        KeyCode::Down if !app.popups.drive_select.drives.is_empty() => {
+            app.popups.drive_select.selected_index =
+                (app.popups.drive_select.selected_index + 1) % app.popups.drive_select.drives.len();
         }
-        KeyCode::Up => {
-            if !app.popups.drive_select.drives.is_empty() {
-                if app.popups.drive_select.selected_index == 0 {
-                    app.popups.drive_select.selected_index =
-                        app.popups.drive_select.drives.len() - 1;
-                } else {
-                    app.popups.drive_select.selected_index -= 1;
-                }
+        KeyCode::Up if !app.popups.drive_select.drives.is_empty() => {
+            if app.popups.drive_select.selected_index == 0 {
+                app.popups.drive_select.selected_index = app.popups.drive_select.drives.len() - 1;
+            } else {
+                app.popups.drive_select.selected_index -= 1;
             }
         }
         KeyCode::Char(c) => {

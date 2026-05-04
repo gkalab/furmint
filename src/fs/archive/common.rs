@@ -144,7 +144,7 @@ pub fn finalize_tree<S: BuildHasher + Clone>(
 ///
 /// This function never panics.
 pub fn preserve_mtimes(mut dir_mtimes: Vec<(PathBuf, SystemTime)>) {
-    dir_mtimes.sort_by(|a, b| b.0.as_os_str().len().cmp(&a.0.as_os_str().len()));
+    dir_mtimes.sort_by_key(|b| std::cmp::Reverse(b.0.as_os_str().len()));
     for (dir, mtime) in dir_mtimes {
         let _ = set_file_mtime(&dir, FileTime::from_system_time(mtime));
     }

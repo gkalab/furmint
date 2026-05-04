@@ -158,21 +158,18 @@ fn handle_ssh_history_navigation(app: &mut AppState, code: KeyCode) {
                 }
             }
         }
-        KeyCode::Home => {
+        KeyCode::Home
             if app.popups.ssh_connection.active_field == SshField::History
-                && !app.ssh_history.connections.is_empty()
-            {
-                app.popups.ssh_connection.selected_history_idx = Some(0);
-                update_fields_from_history(app);
-            }
+                && !app.ssh_history.connections.is_empty() =>
+        {
+            app.popups.ssh_connection.selected_history_idx = Some(0);
+            update_fields_from_history(app);
         }
-        KeyCode::End => {
-            if app.popups.ssh_connection.active_field == SshField::History {
-                let count = app.ssh_history.connections.len();
-                if count > 0 {
-                    app.popups.ssh_connection.selected_history_idx = Some(count - 1);
-                    update_fields_from_history(app);
-                }
+        KeyCode::End if app.popups.ssh_connection.active_field == SshField::History => {
+            let count = app.ssh_history.connections.len();
+            if count > 0 {
+                app.popups.ssh_connection.selected_history_idx = Some(count - 1);
+                update_fields_from_history(app);
             }
         }
         _ => {}
@@ -261,10 +258,8 @@ pub fn handle_ssh_connection_event(app: &mut AppState, code: KeyCode, modifiers:
         | KeyCode::End => {
             handle_ssh_history_navigation(app, code);
         }
-        KeyCode::Char(c) => {
-            if app.popups.ssh_connection.active_field == SshField::History {
-                handle_history_search(app, c);
-            }
+        KeyCode::Char(c) if app.popups.ssh_connection.active_field == SshField::History => {
+            handle_history_search(app, c);
         }
         KeyCode::Delete => {
             handle_ssh_delete_history_item(app);

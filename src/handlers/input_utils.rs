@@ -66,10 +66,8 @@ pub fn handle_text_input(
                 return true;
             }
         }
-        KeyCode::Left => {
-            if *cursor_position > 0 {
-                *cursor_position -= 1;
-            }
+        KeyCode::Left if *cursor_position > 0 => {
+            *cursor_position -= 1;
         }
         KeyCode::Right => {
             let len = text.chars().count();
@@ -96,18 +94,16 @@ pub fn handle_text_input(
                 }
             }
         }
-        KeyCode::Char(c) => {
-            if !is_numeric || c.is_ascii_digit() {
-                let idx = *cursor_position;
-                let current_len = text.chars().count();
-                if idx >= current_len {
-                    text.push(c);
-                } else if let Some((byte_idx, _)) = text.char_indices().nth(idx) {
-                    text.insert(byte_idx, c);
-                }
-                *cursor_position += 1;
-                return true;
+        KeyCode::Char(c) if (!is_numeric || c.is_ascii_digit()) => {
+            let idx = *cursor_position;
+            let current_len = text.chars().count();
+            if idx >= current_len {
+                text.push(c);
+            } else if let Some((byte_idx, _)) = text.char_indices().nth(idx) {
+                text.insert(byte_idx, c);
             }
+            *cursor_position += 1;
+            return true;
         }
         _ => {}
     }

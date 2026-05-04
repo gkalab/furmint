@@ -135,7 +135,7 @@ pub async fn rsync_transfer(
         } else {
             "Unknown error".to_string()
         };
-        return Err(anyhow!("rsync failed with status {status}: {error_msg}",));
+        return Err(anyhow!("rsync failed with status {status}: {error_msg}"));
     }
 
     Ok(())
