@@ -12,6 +12,7 @@ use russh::client;
 use russh::keys::ssh_key;
 use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::{FileAttributes, OpenFlags};
+use secrecy::{ExposeSecret, SecretString};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
@@ -39,7 +40,7 @@ pub struct SftpFs {
     sftp: Arc<SftpSession>,
     _host: String,
     _user: String,
-    password: Option<String>,
+    password: Option<SecretString>,
     prefix: String,
 }
 
@@ -73,7 +74,7 @@ impl SftpFs {
             handle,
             host.to_string(),
             user.to_string(),
-            Some(password.to_string()),
+            Some(SecretString::new(password.to_string().into())),
         )
         .await
     }
@@ -131,7 +132,7 @@ impl SftpFs {
         handle: client::Handle<SshClientHandler>,
         host: String,
         user: String,
-        password: Option<String>,
+        password: Option<SecretString>,
     ) -> Result<Self> {
         let channel = handle
             .channel_open_session()
@@ -522,8 +523,10 @@ impl FileSystemProvider for SftpFs {
         self.prefix.clone()
     }
 
-    fn get_password(&self) -> Option<String> {
-        self.password.clone()
+    fn get_password(&self) -> Option<SecretString> {
+        self.password
+            .as_ref()
+            .map(|p| SecretString::new(p.expose_secret().to_string().into()))
     }
 
     fn display_path(&self, path: &Path) -> String {

@@ -1,5 +1,6 @@
 use super::traits::FileSystem;
 use async_trait::async_trait;
+use secrecy::SecretString;
 use std::path::Path;
 
 pub struct ProviderFileSystem(pub std::sync::Arc<dyn crate::fs::fs_provider::FileSystemProvider>);
@@ -222,7 +223,7 @@ impl FileSystem for ProviderFileSystem {
         self.0.is_local()
     }
 
-    fn get_password(&self) -> Option<String> {
+    fn get_password(&self) -> Option<SecretString> {
         self.0.get_password()
     }
 

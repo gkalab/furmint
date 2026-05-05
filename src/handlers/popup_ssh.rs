@@ -1,6 +1,7 @@
 use crate::app::AppState;
 use crate::tasks::{SshContext, TaskEvent, TaskStatus};
 use crossterm::event::{KeyCode, KeyModifiers};
+use secrecy::{ExposeSecret, SecretString};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -420,7 +421,7 @@ fn start_ssh_auth(app: &mut AppState) {
 
                 match result {
                     Ok((session_id, fs)) => {
-                        ssh_manager.cache_password(&session_id, String::new());
+                        ssh_manager.cache_password(&session_id, SecretString::new(String::new().into()));
                         ssh_manager.register_session(
                             session_id.clone(),
                             host.clone(),
@@ -461,7 +462,14 @@ pub fn handle_ssh_password_event(
             }
         }
         KeyCode::Enter => {
-            let password = app.popups.ssh_password.password.clone();
+            let password = SecretString::new(
+                app.popups
+                    .ssh_password
+                    .password
+                    .expose_secret()
+                    .to_string()
+                    .into(),
+            );
             let session_id = app.popups.ssh_password.session_id.clone();
 
             app.popups.ssh_password.is_visible = false;
@@ -500,24 +508,27 @@ pub fn handle_ssh_password_event(
         | KeyCode::Char('v' | _)
         | KeyCode::Backspace
         | KeyCode::Delete => {
-            crate::handlers::input_utils::handle_text_input(
+            let mut p = app.popups.ssh_password.password.expose_secret().to_string();
+            if crate::handlers::input_utils::handle_text_input(
                 code,
                 modifiers,
-                &mut app.popups.ssh_password.password,
+                &mut p,
                 &mut app.popups.ssh_password.cursor_position,
                 false,
-            );
+            ) {
+                app.popups.ssh_password.password = SecretString::new(p.into());
+            }
         }
         _ => {}
     }
     false
 }
 
-fn reconnect_ssh(app: &mut AppState, session_id: String, password: String) {
+fn reconnect_ssh(app: &mut AppState, session_id: String, password: SecretString) {
     let ssh_manager = app.ssh_manager.clone();
     let current_dir = app.active_tab().current_dir.clone();
     let old_session_id = session_id.clone();
-    let password_for_cache = password.clone();
+    let password_for_cache = SecretString::new(password.expose_secret().to_string().into());
     let connection_name = app.active_tab().custom_title.clone();
 
     app.task_manager.spawn_task(
@@ -568,7 +579,7 @@ fn connect_ssh(
     user: String,
     host: String,
     port: u16,
-    password: String,
+    password: SecretString,
     target_path: Option<String>,
     connection_name: Option<String>,
 ) {
@@ -577,7 +588,7 @@ fn connect_ssh(
     let target_path_clone = target_path.clone();
     let host_for_reg = host.clone();
     let user_for_reg = user.clone();
-    let password_for_cache = password.clone();
+    let password_for_cache = SecretString::new(password.expose_secret().to_string().into());
     app.task_manager
         .spawn_task(&name, move |cancel, tx, id| async move {
             let result = tokio::select! {
@@ -635,7 +646,7 @@ fn show_password_popup_for_reconnect(
     app.popups.ssh_password.host.clone_from(&session.host);
     app.popups.ssh_password.user.clone_from(&session.user);
     app.popups.ssh_password.error = error;
-    app.popups.ssh_password.password.clear();
+    app.popups.ssh_password.password = SecretString::new(String::new().into());
     app.popups.ssh_password.cursor_position = 0;
 }
 
@@ -661,7 +672,8 @@ pub fn handle_reconnect_ssh(app: &mut AppState) {
             let ssh_manager = app.ssh_manager.clone();
             let current_dir = app.active_tab().current_dir.clone();
             let session_id = session.session_id.clone();
-            let password_for_cache = cached_password.clone();
+            let password_for_cache =
+                SecretString::new(cached_password.expose_secret().to_string().into());
             let connection_name = app.active_tab().custom_title.clone();
 
             app.task_manager.spawn_task(

@@ -2,6 +2,7 @@
 
 use crate::app::AppState;
 use crossterm::event::KeyCode;
+use secrecy::SecretString;
 
 static LAST_REFRESH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -93,7 +94,7 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
                 app.popups.ssh_password.host.clone_from(&session.host);
                 app.popups.ssh_password.user.clone_from(&session.user);
                 app.popups.ssh_password.error = Some(error);
-                app.popups.ssh_password.password.clear();
+                app.popups.ssh_password.password = SecretString::new(String::new().into());
                 app.popups.ssh_password.cursor_position = 0;
             }
         }
@@ -135,7 +136,7 @@ fn handle_ssh_error(
             app.popups.ssh_password.host = host;
             app.popups.ssh_password.user = user;
             app.popups.ssh_password.error = Some(error.to_string());
-            app.popups.ssh_password.password.clear();
+            app.popups.ssh_password.password = SecretString::new(String::new().into());
             app.popups.ssh_password.cursor_position = 0;
         }
         crate::ssh_manager::SshError::InvalidInput(msg)

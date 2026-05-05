@@ -45,9 +45,11 @@ impl Default for SshConnectionState {
     }
 }
 
+use secrecy::SecretString;
+
 pub struct SshPasswordState {
     pub is_visible: bool,
-    pub password: String,
+    pub password: SecretString,
     pub host: String,
     pub user: String,
     pub session_id: String,
@@ -60,7 +62,7 @@ impl SshPasswordState {
     pub fn new() -> Self {
         Self {
             is_visible: false,
-            password: String::new(),
+            password: SecretString::new(String::new().into()),
             host: String::new(),
             user: String::new(),
             session_id: String::new(),

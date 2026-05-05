@@ -1,6 +1,7 @@
 use crate::fs::fs_provider::FileSystemProvider;
 use crate::fs::utils::FileEntry;
 use anyhow::{Result, anyhow};
+use secrecy::SecretString;
 use ssh2::{FileStat, Session};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -14,13 +15,18 @@ pub struct SftpFs {
     session: Mutex<Session>,
     _host: String,
     _user: String,
-    password: Option<String>,
+    password: Option<SecretString>,
     prefix: String,
 }
 
 impl SftpFs {
     #[must_use]
-    pub fn new(session: Session, host: String, user: String, password: Option<String>) -> Self {
+    pub fn new(
+        session: Session,
+        host: String,
+        user: String,
+        password: Option<SecretString>,
+    ) -> Self {
         let prefix = format!("[{user}@{host}]");
 
         Self {
@@ -382,8 +388,10 @@ impl FileSystemProvider for SftpFs {
         self.prefix.clone()
     }
 
-    fn get_password(&self) -> Option<String> {
-        self.password.clone()
+    fn get_password(&self) -> Option<SecretString> {
+        self.password
+            .as_ref()
+            .map(|p| SecretString::new(p.expose_secret().to_string().into()))
     }
 
     fn display_path(&self, path: &Path) -> String {

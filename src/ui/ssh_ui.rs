@@ -2,6 +2,7 @@ use crate::app::AppState;
 use crate::state::ssh::SshField;
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
+use secrecy::ExposeSecret;
 
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
 
@@ -275,7 +276,8 @@ pub fn draw_ssh_password_popup(f: &mut Frame, app: &AppState, palette: &ThemePal
     let custom_border = crate::ui::ui_utils::field_border_set();
 
     let input_width = (chunks[0].width as usize).saturating_sub(4);
-    let password_mask: String = "•".repeat(app.popups.ssh_password.password.len());
+    let password_len = app.popups.ssh_password.password.expose_secret().len();
+    let password_mask: String = "•".repeat(password_len);
     let cursor_pos = app.popups.ssh_password.cursor_position;
 
     let scroll_offset = if cursor_pos < input_width {
@@ -284,7 +286,7 @@ pub fn draw_ssh_password_popup(f: &mut Frame, app: &AppState, palette: &ThemePal
         cursor_pos - input_width + 1
     };
 
-    let display_text: String = if app.popups.ssh_password.password.is_empty() {
+    let display_text: String = if app.popups.ssh_password.password.expose_secret().is_empty() {
         title.clone()
     } else {
         password_mask
@@ -294,7 +296,7 @@ pub fn draw_ssh_password_popup(f: &mut Frame, app: &AppState, palette: &ThemePal
             .collect()
     };
 
-    let text_style = if app.popups.ssh_password.password.is_empty() {
+    let text_style = if app.popups.ssh_password.password.expose_secret().is_empty() {
         Style::default().fg(placeholder_color)
     } else {
         Style::default().fg(text_color)

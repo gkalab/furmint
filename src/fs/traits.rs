@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use secrecy::SecretString;
 
 #[derive(Clone)]
 pub struct TaskProgressContext {
@@ -57,7 +58,7 @@ pub trait FileSystem: Send + Sync {
     ) -> anyhow::Result<()>;
     fn context_key(&self) -> String;
     fn is_local(&self) -> bool;
-    fn get_password(&self) -> Option<String> {
+    fn get_password(&self) -> Option<SecretString> {
         None
     }
 

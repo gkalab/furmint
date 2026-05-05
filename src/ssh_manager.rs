@@ -1,4 +1,5 @@
 use crate::config::SshConfig;
+use secrecy::{ExposeSecret, SecretString};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[cfg(unix)]
@@ -108,7 +109,8 @@ pub struct SshManager {
     pub read_timeout_secs: u64,
     pub watchdog_secs: u64,
     sessions: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, SessionState>>>,
-    password_cache: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, String>>>,
+    password_cache:
+        std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, SecretString>>>,
 }
 
 impl SshManager {
@@ -302,7 +304,7 @@ impl SshManager {
         host: String,
         port: u16,
         user: String,
-        password: String,
+        password: SecretString,
         target_path: Option<String>,
     ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
         let session_id = Self::generate_session_id(&host, port);
@@ -324,7 +326,7 @@ impl SshManager {
         host: String,
         port: u16,
         user: String,
-        password: String,
+        password: SecretString,
         _target_path: Option<String>,
     ) -> Result<crate::fs::fs_sftp::SftpFs, SshError> {
         let addr = format!("{host}:{port}");
@@ -351,7 +353,7 @@ impl SshManager {
                     }
                     SshError::Network(NetworkError::Other(msg))
                 })?;
-                sess.userauth_password(&user, &password)
+                sess.userauth_password(&user, password.expose_secret())
                     .map_err(|_| SshError::Auth(AuthError::PasswordAuthFailed))?;
                 if !sess.authenticated() {
                     return Err(SshError::Auth(AuthError::PasswordAuthFailed));
@@ -378,12 +380,17 @@ impl SshManager {
         host: String,
         port: u16,
         user: String,
-        password: String,
+        password: SecretString,
         _target_path: Option<String>,
     ) -> Result<crate::fs::fs_sftp::SftpFs, SshError> {
-        crate::fs::fs_sftp_russh::SftpFs::connect_password(&host, port, &user, &password)
-            .await
-            .map_err(|_e| SshError::Auth(AuthError::PasswordAuthFailed))
+        crate::fs::fs_sftp_russh::SftpFs::connect_password(
+            &host,
+            port,
+            &user,
+            password.expose_secret(),
+        )
+        .await
+        .map_err(|_e| SshError::Auth(AuthError::PasswordAuthFailed))
     }
 
     /// Registers a new SSH session.
@@ -447,7 +454,7 @@ impl SshManager {
     /// # Panics
     ///
     /// Panics if the password cache mutex cannot be locked.
-    pub fn cache_password(&self, session_id: &str, password: String) {
+    pub fn cache_password(&self, session_id: &str, password: SecretString) {
         let mut cache = self.password_cache.write().unwrap();
         cache.insert(session_id.to_string(), password);
     }
@@ -458,9 +465,11 @@ impl SshManager {
     ///
     /// Panics if the password cache mutex cannot be locked.
     #[must_use]
-    pub fn get_cached_password(&self, session_id: &str) -> Option<String> {
+    pub fn get_cached_password(&self, session_id: &str) -> Option<SecretString> {
         let cache = self.password_cache.read().unwrap();
-        cache.get(session_id).cloned()
+        cache
+            .get(session_id)
+            .map(|p| SecretString::new(p.expose_secret().to_string().into()))
     }
 
     /// Clears a cached password for a session.
@@ -491,7 +500,7 @@ impl SshManager {
     pub async fn reconnect_session(
         &self,
         session_id: &str,
-        password: String,
+        password: SecretString,
     ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
         let session = self.get_session(session_id).ok_or_else(|| {
             SshError::InvalidInput(format!("Session {session_id} not found for reconnection"))
@@ -530,7 +539,7 @@ impl SshManager {
         host: String,
         port: u16,
         user: String,
-        password: String,
+        password: SecretString,
         target_path: Option<String>,
         max_attempts: Option<u32>,
     ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
@@ -543,7 +552,7 @@ impl SshManager {
                     host.clone(),
                     port,
                     user.clone(),
-                    password.clone(),
+                    SecretString::new(password.expose_secret().to_string().into()),
                     target_path.clone(),
                 )
                 .await
@@ -760,10 +769,10 @@ mod tests {
         // Initially no cached password
         assert!(mgr.get_cached_password(session_id).is_none());
 
-        // Cache password
-        mgr.cache_password(session_id, password.to_string());
+        mgr.cache_password(session_id, SecretString::new(password.to_string().into()));
         assert_eq!(
-            mgr.get_cached_password(session_id),
+            mgr.get_cached_password(session_id)
+                .map(|p| p.expose_secret().to_string()),
             Some(password.to_string())
         );
 
@@ -779,9 +788,10 @@ mod tests {
         assert!(mgr.get_cached_password(session_id2).is_none());
 
         // Cache password
-        mgr.cache_password(session_id2, password2.to_string());
+        mgr.cache_password(session_id2, SecretString::new(password2.to_string().into()));
         assert_eq!(
-            mgr.get_cached_password(session_id2),
+            mgr.get_cached_password(session_id2)
+                .map(|p| p.expose_secret().to_string()),
             Some(password2.to_string())
         );
 
@@ -789,10 +799,10 @@ mod tests {
         mgr.clear_password(session_id2);
         assert!(mgr.get_cached_password(session_id2).is_none());
 
-        // Cache password
-        mgr.cache_password(session_id, password.to_string());
+        mgr.cache_password(session_id, SecretString::new(password.to_string().into()));
         assert_eq!(
-            mgr.get_cached_password(session_id),
+            mgr.get_cached_password(session_id)
+                .map(|p| p.expose_secret().to_string()),
             Some(password.to_string())
         );
 
@@ -801,14 +811,16 @@ mod tests {
         assert!(mgr.get_cached_password(session_id).is_none());
 
         // Test multiple sessions
-        mgr.cache_password("session1", "pass1".to_string());
-        mgr.cache_password("session2", "pass2".to_string());
+        mgr.cache_password("session1", SecretString::new("pass1".to_string().into()));
+        mgr.cache_password("session2", SecretString::new("pass2".to_string().into()));
         assert_eq!(
-            mgr.get_cached_password("session1"),
+            mgr.get_cached_password("session1")
+                .map(|p| p.expose_secret().to_string()),
             Some("pass1".to_string())
         );
         assert_eq!(
-            mgr.get_cached_password("session2"),
+            mgr.get_cached_password("session2")
+                .map(|p| p.expose_secret().to_string()),
             Some("pass2".to_string())
         );
 

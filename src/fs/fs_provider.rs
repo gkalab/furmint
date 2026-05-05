@@ -8,6 +8,7 @@
 use crate::fs::utils::FileEntry;
 use anyhow::Result;
 use async_trait::async_trait;
+use secrecy::SecretString;
 use std::path::Path;
 
 /// Trait for filesystem operations that can be backed by different implementations.
@@ -156,7 +157,7 @@ pub trait FileSystemProvider: Send + Sync {
     fn context_key(&self) -> String;
 
     /// Get the password if this is a password-authenticated connection.
-    fn get_password(&self) -> Option<String> {
+    fn get_password(&self) -> Option<SecretString> {
         None
     }
 
