@@ -57,7 +57,7 @@ trash = "5.2"
 open = "5.3"
 shell-escape = "0.1"
 shell-words = "1.1"
-clipboard = "0.4"
+clipboard = "0.5"
 image = { version = "0.25", features = ["default"] }
 ratatui-image = { version = "10.0", default-features = false, features = ["tokio", "image-defaults", "crossterm"] }
 zip = "8.6"
@@ -75,7 +75,7 @@ zeroize = "1.8"
 regex = "1.12.3"
 
 [target.'cfg(windows)'.dependencies]
-russh = { version = "0.59", default-features = false, features = ["ring"] }
+russh = { version = "0.60", default-features = false, features = ["ring"] }
 russh-sftp = "2.1"
 
 winreg = "0.55"
