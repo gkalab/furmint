@@ -57,7 +57,7 @@ trash = "5.2"
 open = "5.3"
 shell-escape = "0.1"
 shell-words = "1.1"
-clipboard = "0.5"
+clipboard = "0.4"
 image = { version = "0.25", features = ["default"] }
 ratatui-image = { version = "10.0", default-features = false, features = ["tokio", "image-defaults", "crossterm"] }
 zip = "8.6"
