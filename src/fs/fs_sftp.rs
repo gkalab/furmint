@@ -1,7 +1,7 @@
 use crate::fs::fs_provider::FileSystemProvider;
 use crate::fs::utils::FileEntry;
 use anyhow::{Result, anyhow};
-use secrecy::SecretString;
+use secrecy::{ExposeSecret, SecretString};
 use ssh2::{FileStat, Session};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;

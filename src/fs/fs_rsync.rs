@@ -1,6 +1,8 @@
 #[cfg(unix)]
 use anyhow::{Result, anyhow};
 #[cfg(unix)]
+use secrecy::ExposeSecret;
+#[cfg(unix)]
 use std::path::Path;
 #[cfg(unix)]
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -285,7 +287,7 @@ async fn build_rsync_command(
     // Build rsync command with progress monitoring
     let mut cmd = if let Some(ref pass) = password {
         let mut c = tokio::process::Command::new("sshpass");
-        c.arg("-p").arg(pass).arg("rsync");
+        c.arg("-p").arg(pass.expose_secret()).arg("rsync");
         c
     } else {
         tokio::process::Command::new("rsync")
