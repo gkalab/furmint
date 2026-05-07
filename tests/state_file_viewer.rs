@@ -92,3 +92,87 @@ fn test_select_word_at_syntax_quotes() {
         panic!("Selection should not be None");
     }
 }
+
+#[test]
+fn test_search_basic() {
+    let mut state = FileViewerState::new(true, "test");
+    state.area = ratatui::layout::Rect::new(0, 0, 80, 20); // 20 lines viewport
+    state.content = vec![
+        "hello world".to_string(),
+        "this is me".to_string(),
+        "another line".to_string(),
+        "me too".to_string(),
+    ];
+
+    state.search("me");
+    // "this is me" is at line 1. Visible, so no scroll.
+    assert_eq!(state.current_search_match, Some((1, 8, 10)));
+    assert_eq!(state.scroll_offset, 0);
+
+    state.search_next();
+    // "me too" is at line 3. Visible, so no scroll.
+    assert_eq!(state.current_search_match, Some((3, 0, 2)));
+    assert_eq!(state.scroll_offset, 0);
+
+    // Move viewport away
+    state.scroll_offset = 10;
+    state.search_next();
+    // Wrap around to line 1. NOT visible (1 < 10), so jump with context.
+    assert_eq!(state.current_search_match, Some((1, 8, 10)));
+    assert_eq!(state.scroll_offset, 0); // 1 - 4
+}
+
+#[test]
+fn test_search_regex() {
+    let mut state = FileViewerState::new(true, "test");
+    state.area = ratatui::layout::Rect::new(0, 0, 80, 20);
+    state.content = vec!["abc123def".to_string(), "ghi456jkl".to_string()];
+
+    state.search("\\d+");
+    assert_eq!(state.current_search_match, Some((0, 3, 6)));
+
+    state.search_next();
+    assert_eq!(state.current_search_match, Some((1, 3, 6)));
+}
+
+#[test]
+fn test_search_case_insensitive() {
+    let mut state = FileViewerState::new(true, "test");
+    state.area = ratatui::layout::Rect::new(0, 0, 80, 20);
+    state.content = vec!["Hello".to_string(), "world".to_string()];
+
+    state.search("hello");
+    assert_eq!(state.current_search_match, Some((0, 0, 5)));
+}
+
+#[test]
+fn test_search_empty() {
+    let mut state = FileViewerState::new(true, "test");
+    state.content = vec!["abc".to_string()];
+    state.search("");
+    assert_eq!(state.current_search_match, None);
+}
+
+#[test]
+fn test_search_prev() {
+    let mut state = FileViewerState::new(true, "test");
+    state.area = ratatui::layout::Rect::new(0, 0, 80, 20);
+    state.content = vec![
+        "match 1".to_string(),
+        "match 2".to_string(),
+        "match 3".to_string(),
+    ];
+    state.scroll_offset = 2;
+    state.search("match");
+    // Starts from scroll_offset 2, so finds "match 3" at line 2.
+    assert_eq!(state.current_search_match, Some((2, 0, 5)));
+
+    state.search_prev();
+    assert_eq!(state.current_search_match, Some((1, 0, 5)));
+
+    state.search_prev();
+    assert_eq!(state.current_search_match, Some((0, 0, 5)));
+
+    state.search_prev(); // Wrap to bottom
+    assert_eq!(state.current_search_match, Some((2, 0, 5)));
+}

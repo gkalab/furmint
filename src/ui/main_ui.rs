@@ -178,6 +178,7 @@ pub fn draw_all_popups(
     // Draw popups in order of layering
     crate::ui::fuzzy_search_ui::draw_fuzzy_search_popup(f, &mut app.fuzzy_search, palette);
     crate::ui::rename_ui::draw_rename_popup(f, &app.popups.rename, palette);
+    crate::ui::viewer::draw_viewer_search_popup(f, &app.popups.viewer_search, palette);
     crate::ui::rename_tab_ui::draw_rename_tab_popup(f, &app.popups.rename_tab, palette);
     crate::ui::create_dir_ui::draw_create_dir_popup(f, &app.popups.create_directory, palette);
     crate::ui::create_file_ui::draw_create_file_popup(f, &app.popups.create_file, palette);

@@ -34,6 +34,7 @@ fn basic_app_state() -> AppState {
         watcher: None,
         input_polling_handle: None,
         needs_redraw: false,
+        keyboard: fm::config::KeyboardConfig::default(),
         global: GlobalConfig::default(),
         editor_cfg: fm::config::EditorConfig::default(),
         viewer_cfg: fm::config::ViewerConfig::default(),

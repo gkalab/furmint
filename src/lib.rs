@@ -75,6 +75,7 @@ pub async fn run() -> Result<()> {
 
     let ctx = crate::app::AppConfigContext {
         palette: &palette,
+        keyboard: keyboard.clone(),
         global: global_config,
         editor_cfg,
         viewer_cfg,

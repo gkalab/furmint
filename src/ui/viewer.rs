@@ -1,4 +1,4 @@
-use crate::app::FileViewerState;
+use crate::app::{FileViewerSearchState, FileViewerState};
 use crate::theme::ThemePalette;
 use crate::ui::ui_utils::TabScrollbarContext;
 use lumis::highlight::Highlighter;
@@ -124,6 +124,29 @@ pub fn draw_file_viewer(
     );
 }
 
+pub fn draw_viewer_search_popup(
+    f: &mut ratatui::Frame,
+    state: &FileViewerSearchState,
+    palette: &ThemePalette,
+) {
+    if !state.is_visible {
+        return;
+    }
+
+    crate::ui::ui_utils::draw_input_popup(
+        f,
+        &crate::ui::ui_utils::InputPopupOptions {
+            title: Some("Search"),
+            input_value: &state.query,
+            cursor_position: state.cursor_position,
+            error: state.error.as_deref(),
+            placeholder: "Enter regex...",
+            width: 60,
+        },
+        palette,
+    );
+}
+
 struct ViewerLineContext<'a> {
     line_idx: usize,
     viewer: &'a FileViewerState,
@@ -164,20 +187,41 @@ fn render_viewer_line(ctx: &ViewerLineContext) -> Option<Line<'static>> {
 
     let line_content = line_content?;
 
+    let search_ranges: Vec<(usize, usize)> = ctx
+        .viewer
+        .current_search_match
+        .filter(|(line, _, _)| *line == ctx.line_idx)
+        .map(|(_, s, e)| (s, e))
+        .into_iter()
+        .collect();
+
+    let search_fg = Some(Color::Rgb(
+        ctx.palette.base.r,
+        ctx.palette.base.g,
+        ctx.palette.base.b,
+    ));
+
     let spans = if ctx.is_large_file {
         let style = lumis::themes::Style::default();
-        generate_line_spans(
-            vec![(&style, line_content.as_str())],
-            ctx.viewer.horizontal_scroll_offset,
-            ctx.max_width,
-            ctx.default_fg,
-            selection_range,
-            Some(Color::Rgb(
+        generate_line_spans(&LineSpansContext {
+            ranges: vec![(&style, line_content.as_str())],
+            h_offset: ctx.viewer.horizontal_scroll_offset,
+            max_width: ctx.max_width,
+            default_fg: ctx.default_fg,
+            selection: selection_range,
+            selection_bg: Some(Color::Rgb(
                 ctx.palette.surface0.r,
                 ctx.palette.surface0.g,
                 ctx.palette.surface0.b,
             )),
-        )
+            search_ranges: &search_ranges,
+            search_bg: Some(Color::Rgb(
+                ctx.palette.yellow.r,
+                ctx.palette.yellow.g,
+                ctx.palette.yellow.b,
+            )),
+            search_fg,
+        })
     } else {
         let segments = ctx.highlighter.highlight(&line_content).unwrap_or_default();
         let ranges: Vec<(&lumis::themes::Style, &str)> = segments
@@ -185,18 +229,25 @@ fn render_viewer_line(ctx: &ViewerLineContext) -> Option<Line<'static>> {
             .map(|(style, text)| (style.as_ref(), *text))
             .collect();
 
-        generate_line_spans(
+        generate_line_spans(&LineSpansContext {
             ranges,
-            ctx.viewer.horizontal_scroll_offset,
-            ctx.max_width,
-            ctx.default_fg,
-            selection_range,
-            Some(Color::Rgb(
+            h_offset: ctx.viewer.horizontal_scroll_offset,
+            max_width: ctx.max_width,
+            default_fg: ctx.default_fg,
+            selection: selection_range,
+            selection_bg: Some(Color::Rgb(
                 ctx.palette.surface0.r,
                 ctx.palette.surface0.g,
                 ctx.palette.surface0.b,
             )),
-        )
+            search_ranges: &search_ranges,
+            search_bg: Some(Color::Rgb(
+                ctx.palette.yellow.r,
+                ctx.palette.yellow.g,
+                ctx.palette.yellow.b,
+            )),
+            search_fg,
+        })
     };
 
     Some(Line::from(spans))
@@ -205,138 +256,164 @@ fn render_viewer_line(ctx: &ViewerLineContext) -> Option<Line<'static>> {
 /// Generates spans for a single line, handling horizontal scrolling and width constraints
 /// taking into account tab widths and wide characters.
 #[must_use]
-pub fn generate_line_spans(
-    ranges: Vec<(&lumis::themes::Style, &str)>,
-    h_offset: usize,
-    max_width: usize,
-    default_fg: Option<Color>,
-    selection_char_range: Option<(usize, usize)>,
-    selection_bg: Option<Color>,
-) -> Vec<Span<'static>> {
-    let mut display_pos = 0; // Current display column position
-    let mut visible_width = 0; // Display width used so far
-    let mut spans: Vec<Span> = Vec::new();
-    let mut char_idx_counter = 0;
+pub struct LineSpansContext<'a> {
+    pub ranges: Vec<(&'a lumis::themes::Style, &'a str)>,
+    pub h_offset: usize,
+    pub max_width: usize,
+    pub default_fg: Option<Color>,
+    pub selection: Option<(usize, usize)>,
+    pub selection_bg: Option<Color>,
+    pub search_ranges: &'a [(usize, usize)],
+    pub search_bg: Option<Color>,
+    pub search_fg: Option<Color>,
+}
 
-    for (style, text) in ranges {
-        // Stop if we've already filled the available width
-        if visible_width >= max_width {
-            break;
-        }
-
-        // Calculate the TRUE display width of this segment, accounting for tabs
-        let mut text_display_width = 0;
-        let mut temp_pos = display_pos;
+impl LineSpansContext<'_> {
+    fn calculate_text_display_width(text: &str, start_pos: usize) -> usize {
+        let mut width = 0;
+        let mut pos = start_pos;
         for ch in text.chars() {
             let w = if ch == '\t' {
-                4 - (temp_pos % 4)
+                4 - (pos % 4)
             } else {
                 unicode_width::UnicodeWidthChar::width(ch).unwrap_or(1)
             };
-            text_display_width += w;
-            temp_pos += w;
+            width += w;
+            pos += w;
+        }
+        width
+    }
+
+    fn process_char(
+        &self,
+        ch: char,
+        current_pos: usize,
+        _char_idx: usize,
+        visible_width: usize,
+    ) -> Option<(String, usize)> {
+        let ch_width = if ch == '\t' {
+            4 - (current_pos % 4)
+        } else {
+            unicode_width::UnicodeWidthChar::width(ch).unwrap_or(1)
+        };
+
+        let ch_end_pos = current_pos + ch_width;
+        if ch_end_pos <= self.h_offset || current_pos >= self.h_offset + self.max_width {
+            return None;
         }
 
-        let end_display_pos = display_pos + text_display_width;
+        let mut text = String::new();
+        let mut width = 0;
 
-        if end_display_pos > h_offset {
-            // This segment is at least partially visible
-            // We need to handle this character by character for tabs
-            let mut current_display_pos = display_pos;
-
-            for ch in text.chars() {
-                let ch_width = if ch == '\t' {
-                    // Tab width: advance to next multiple of 4
-                    4 - (current_display_pos % 4)
-                } else {
-                    unicode_width::UnicodeWidthChar::width(ch).unwrap_or(1)
-                };
-
-                let ch_end_pos = current_display_pos + ch_width;
-
-                // Check if this character is visible
-                if ch_end_pos > h_offset && current_display_pos < h_offset + max_width {
-                    // Character is at least partially visible
-                    let mut char_text = String::new();
-                    let mut char_visible_width = 0;
-
-                    if current_display_pos >= h_offset {
-                        // Fully visible - check if we have room
-                        if visible_width + ch_width <= max_width {
-                            if ch == '\t' {
-                                for _ in 0..ch_width {
-                                    char_text.push(' ');
-                                }
-                            } else {
-                                char_text.push(ch);
-                            }
-                            char_visible_width = ch_width;
-                        } else {
-                            // Would overflow - stop here
-                            break;
-                        }
-                    } else {
-                        // Partially visible (starts before h_offset)
-                        if ch == '\t' {
-                            let visible_tab_width = ch_end_pos - h_offset;
-                            if visible_width + visible_tab_width <= max_width {
-                                for _ in 0..visible_tab_width {
-                                    char_text.push(' ');
-                                }
-                                char_visible_width = visible_tab_width;
-                            }
-                        }
-                    }
-
-                    if !char_text.is_empty() {
-                        let color = parse_hex_color(Option::from(&style.fg)).or(default_fg);
-                        let mut ratatui_style = if let Some(color) = color {
-                            ratatui::style::Style::default().fg(color)
-                        } else {
-                            ratatui::style::Style::default()
-                        };
-
-                        // Apply selection background
-                        if let Some((sel_start, sel_end)) = selection_char_range
-                            && char_idx_counter >= sel_start
-                            && char_idx_counter < sel_end
-                        {
-                            if let Some(bg) = selection_bg {
-                                ratatui_style = ratatui_style.bg(bg);
-                            } else {
-                                ratatui_style = ratatui_style.bg(Color::Rgb(60, 60, 60)); // Fallback
-                            }
-                        }
-
-                        // Try to merge with previous span if style is same
-                        if let Some(last_span) = spans.last_mut()
-                            && last_span.style == ratatui_style
-                        {
-                            let mut new_content = last_span.content.to_string();
-                            new_content.push_str(&char_text);
-                            last_span.content = new_content.into();
-                        } else {
-                            spans.push(Span::styled(char_text, ratatui_style));
-                        }
-                        visible_width += char_visible_width;
-                        char_idx_counter += 1;
+        if current_pos >= self.h_offset {
+            if visible_width + ch_width <= self.max_width {
+                if ch == '\t' {
+                    for _ in 0..ch_width {
+                        text.push(' ');
                     }
                 } else {
-                    char_idx_counter += 1;
+                    text.push(ch);
                 }
-
-                current_display_pos = ch_end_pos;
-
-                // Stop if we've filled the width
-                if visible_width >= max_width {
-                    break;
+                width = ch_width;
+            }
+        } else if ch == '\t' {
+            let visible_tab_width = ch_end_pos - self.h_offset;
+            if visible_width + visible_tab_width <= self.max_width {
+                for _ in 0..visible_tab_width {
+                    text.push(' ');
                 }
+                width = visible_tab_width;
             }
         }
 
-        display_pos = end_display_pos;
+        if text.is_empty() {
+            None
+        } else {
+            Some((text, width))
+        }
     }
 
+    fn get_char_style(&self, char_idx: usize, base_fg: Option<Color>) -> ratatui::style::Style {
+        let mut style = if let Some(color) = base_fg {
+            ratatui::style::Style::default().fg(color)
+        } else {
+            ratatui::style::Style::default()
+        };
+
+        if let Some((sel_start, sel_end)) = self.selection
+            && char_idx >= sel_start
+            && char_idx < sel_end
+        {
+            style = style.bg(self.selection_bg.unwrap_or(Color::Rgb(60, 60, 60)));
+        }
+
+        for (s, e) in self.search_ranges {
+            if char_idx >= *s && char_idx < *e {
+                if let Some(bg) = self.search_bg {
+                    style = style.bg(bg);
+                }
+                if let Some(fg) = self.search_fg {
+                    style = style.fg(fg);
+                }
+                break;
+            }
+        }
+        style
+    }
+}
+
+#[must_use]
+pub fn generate_line_spans(ctx: &LineSpansContext<'_>) -> Vec<Span<'static>> {
+    let mut display_pos = 0;
+    let mut visible_width = 0;
+    let mut spans: Vec<Span> = Vec::new();
+    let mut char_idx = 0;
+
+    for (style, text) in &ctx.ranges {
+        if visible_width >= ctx.max_width {
+            break;
+        }
+
+        let text_width = LineSpansContext::calculate_text_display_width(text, display_pos);
+        let end_pos = display_pos + text_width;
+
+        if end_pos > ctx.h_offset {
+            let mut current_pos = display_pos;
+            for ch in text.chars() {
+                if let Some((char_text, char_width)) =
+                    ctx.process_char(ch, current_pos, char_idx, visible_width)
+                {
+                    let base_fg = parse_hex_color(Option::from(&style.fg)).or(ctx.default_fg);
+                    let ratatui_style = ctx.get_char_style(char_idx, base_fg);
+
+                    if let Some(last_span) = spans.last_mut()
+                        && last_span.style == ratatui_style
+                    {
+                        let mut new_content = last_span.content.to_string();
+                        new_content.push_str(&char_text);
+                        last_span.content = new_content.into();
+                    } else {
+                        spans.push(Span::styled(char_text, ratatui_style));
+                    }
+                    visible_width += char_width;
+                }
+
+                let ch_w = if ch == '\t' {
+                    4 - (current_pos % 4)
+                } else {
+                    unicode_width::UnicodeWidthChar::width(ch).unwrap_or(1)
+                };
+                current_pos += ch_w;
+                char_idx += 1;
+                if visible_width >= ctx.max_width {
+                    break;
+                }
+            }
+        } else {
+            char_idx += text.chars().count();
+        }
+        display_pos = end_pos;
+    }
     spans
 }
 
@@ -377,7 +454,17 @@ mod tests {
             // Treat the whole line as one range for baseline testing
             let ranges = vec![(&dummy_style, input)];
 
-            let spans = generate_line_spans(ranges, h_offset, max_width, None, None, None);
+            let spans = generate_line_spans(&LineSpansContext {
+                ranges,
+                h_offset,
+                max_width,
+                default_fg: None,
+                selection: None,
+                selection_bg: None,
+                search_ranges: &[],
+                search_bg: None,
+                search_fg: None,
+            });
 
             // Calculate total display width of the generated spans
             let mut total_width = 0;

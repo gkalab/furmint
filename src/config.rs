@@ -42,6 +42,9 @@ pub struct KeyboardConfig {
     pub rename_tab: Option<Vec<String>>,
     pub add_bookmark: Option<Vec<String>>,
     pub open_bookmarks: Option<Vec<String>>,
+    pub viewer_search: Option<Vec<String>>,
+    pub viewer_search_next: Option<Vec<String>>,
+    pub viewer_search_prev: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -122,6 +125,9 @@ pub fn default_keyboard_config() -> KeyboardConfig {
         rename_tab: Some(vec!["Ctrl-r".to_string()]),
         add_bookmark: Some(vec!["Ctrl-d".to_string()]),
         open_bookmarks: Some(vec!["Ctrl-b".to_string()]),
+        viewer_search: Some(vec!["Ctrl-f".to_string(), "/".to_string()]),
+        viewer_search_next: Some(vec!["n".to_string(), "F3".to_string()]),
+        viewer_search_prev: Some(vec!["N".to_string(), "Shift-F3".to_string()]),
     }
 }
 
@@ -186,6 +192,9 @@ pub fn merge_keyboard_config(
         rename_tab: merge_opt!(rename_tab),
         add_bookmark: merge_opt!(add_bookmark),
         open_bookmarks: merge_opt!(open_bookmarks),
+        viewer_search: merge_opt!(viewer_search),
+        viewer_search_next: merge_opt!(viewer_search_next),
+        viewer_search_prev: merge_opt!(viewer_search_prev),
     }
 }
 
@@ -275,6 +284,9 @@ pub fn validate_keyboard_config(config: &KeyboardConfig) -> Result<()> {
         ("rename_tab", &config.rename_tab),
         ("add_bookmark", &config.add_bookmark),
         ("open_bookmarks", &config.open_bookmarks),
+        ("viewer_search", &config.viewer_search),
+        ("viewer_search_next", &config.viewer_search_next),
+        ("viewer_search_prev", &config.viewer_search_prev),
     ];
 
     for (name, keys) in fields {

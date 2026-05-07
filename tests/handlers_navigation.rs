@@ -57,6 +57,7 @@ fn test_app(entries: Vec<FileEntry>) -> AppState {
         watcher: None,
         input_polling_handle: None,
         needs_redraw: false,
+        keyboard: fm::config::KeyboardConfig::default(),
         global: GlobalConfig::default(),
         editor_cfg: fm::config::EditorConfig::default(),
         viewer_cfg: fm::config::ViewerConfig::default(),
@@ -835,7 +836,7 @@ fn test_update_viewer_content_loads_large_file() {
     let mb = 11;
     // Create a file with distinct lines to verify indexing
     for i in 0..1000 {
-        writeln!(f, "Line {:04}", i).unwrap();
+        writeln!(f, "Line {i:04}").unwrap();
     }
     // Fill the rest to reach 11MB
     f.write_all(&vec![b'a'; mb * 1024 * 1024]).unwrap();

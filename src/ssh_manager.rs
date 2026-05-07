@@ -630,7 +630,7 @@ mod tests {
         let mgr = SshManager {
             base_backoff: Duration::from_secs(1),
             backoff_factor: 2.0,
-            max_backoff: Duration::from_secs(60),
+            max_backoff: std::time::Duration::from_mins(1),
             jitter_pct: 0.0,
             keepalive_interval: 10,
             read_timeout_secs: 15,

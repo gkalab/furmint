@@ -668,7 +668,7 @@ mod tests {
 
         std::fs::write(&src_file, b"test content").unwrap();
 
-        let past_time = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_609_459_200);
+        let past_time = std::time::UNIX_EPOCH + std::time::Duration::from_hours(447_072);
         StdFileSystem
             .set_modified_time(&src_file, past_time)
             .await
@@ -698,7 +698,7 @@ mod tests {
 
         std::fs::write(&test_file, b"test").unwrap();
 
-        let past_time = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_609_459_200);
+        let past_time = std::time::UNIX_EPOCH + std::time::Duration::from_hours(447_072);
         let result = StdFileSystem.set_modified_time(&test_file, past_time).await;
         assert!(result.is_ok());
 
@@ -726,7 +726,7 @@ mod tests {
         let original_content = b"Hello, World! This is a test file with some content.";
         std::fs::write(&src_file, original_content).unwrap();
 
-        let past_time = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_609_459_200);
+        let past_time = std::time::UNIX_EPOCH + std::time::Duration::from_hours(447_072);
         StdFileSystem
             .set_modified_time(&src_file, past_time)
             .await

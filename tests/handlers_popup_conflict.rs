@@ -32,6 +32,7 @@ fn app_with_conflict(task_id: usize) -> (AppState, mpsc::Receiver<TaskDecision>)
         watcher: None,
         input_polling_handle: None,
         needs_redraw: false,
+        keyboard: fm::config::KeyboardConfig::default(),
         global: fm::config::GlobalConfig {
             mouse: Some(false),
             ..fm::config::GlobalConfig::default()

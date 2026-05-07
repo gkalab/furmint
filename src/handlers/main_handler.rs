@@ -129,6 +129,11 @@ async fn handle_popup_events(
     if app.popups.rename_tab.is_visible {
         return Some(handle_rename_tab_event(code, modifiers, app));
     }
+    if app.popups.viewer_search.is_visible {
+        return Some(crate::handlers::file_viewer::handle_viewer_search_event(
+            code, modifiers, app,
+        ));
+    }
     if app.popups.create_directory.is_visible {
         return Some(handle_create_directory_event(code, modifiers, app));
     }
@@ -175,7 +180,7 @@ async fn handle_global_interceptors(
     shortcut: &str,
 ) -> Option<bool> {
     // F3 / Viewer toggle
-    if code == KeyCode::F(3) && modifiers == KeyModifiers::NONE {
+    if code == KeyCode::F(3) && modifiers == KeyModifiers::NONE && !app.file_viewer.focused {
         if crate::handlers::file_viewer::handle_external_viewer(app) {
             return Some(false);
         }
@@ -183,9 +188,6 @@ async fn handle_global_interceptors(
         if app.file_viewer.is_visible {
             update_viewer_content(app);
         } else {
-            if app.file_viewer.focused {
-                app.toggle_active_panel();
-            }
             app.file_viewer.focused = false;
         }
         return Some(false);

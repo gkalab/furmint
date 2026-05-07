@@ -266,5 +266,13 @@ fn build_help_categories(
                 ("Reconnect", &keyboard.reconnect_ssh),
             ],
         ),
+        (
+            "File Viewer",
+            vec![
+                ("Search", &keyboard.viewer_search),
+                ("Search Next", &keyboard.viewer_search_next),
+                ("Search Previous", &keyboard.viewer_search_prev),
+            ],
+        ),
     ]
 }

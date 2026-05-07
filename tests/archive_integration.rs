@@ -93,6 +93,7 @@ fn test_app(
         watcher: None,
         input_polling_handle: None,
         needs_redraw: false,
+        keyboard: fm::config::KeyboardConfig::default(),
         global: GlobalConfig::default(),
         editor_cfg: fm::config::EditorConfig::default(),
         viewer_cfg: fm::config::ViewerConfig::default(),
@@ -1043,7 +1044,7 @@ async fn test_zip_delete_and_add() {
     std::fs::write(&extra_file, b"extra content").unwrap();
 
     // Set specific mtime and permissions
-    let mtime = SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000); // Year 2027
+    let mtime = SystemTime::UNIX_EPOCH + Duration::from_hours(500_000); // Year 2027
     filetime::set_file_mtime(&extra_file, filetime::FileTime::from_system_time(mtime)).unwrap();
     #[cfg(unix)]
     {

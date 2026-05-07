@@ -43,6 +43,7 @@ fn test_app_with_entry(name: &str, is_dir: bool, path: &std::path::Path) -> AppS
         watcher: None,
         input_polling_handle: None,
         needs_redraw: false,
+        keyboard: fm::config::KeyboardConfig::default(),
         global: fm::config::GlobalConfig {
             mouse: Some(false),
             ..fm::config::GlobalConfig::default()

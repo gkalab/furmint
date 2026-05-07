@@ -31,6 +31,7 @@ fn basic_app_state() -> AppState {
         watcher: None,
         input_polling_handle: None,
         needs_redraw: false,
+        keyboard: fm::config::KeyboardConfig::default(),
         global: fm::config::GlobalConfig {
             mouse: Some(false),
             ..fm::config::GlobalConfig::default()

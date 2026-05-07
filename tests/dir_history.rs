@@ -96,7 +96,7 @@ fn test_history_limit() {
 
     // Add 250 local entries
     for i in 0..250 {
-        let path = PathBuf::from(format!("/local/path/{}", i));
+        let path = PathBuf::from(format!("/local/path/{i}"));
         let visits = if i < 200 { 10 } else { 1 };
         for _ in 0..visits {
             history.record_visit("local", &path);
@@ -105,7 +105,7 @@ fn test_history_limit() {
 
     // Add 100 remote entries
     for i in 0..100 {
-        let path = PathBuf::from(format!("/remote/path/{}", i));
+        let path = PathBuf::from(format!("/remote/path/{i}"));
         let visits = if i < 50 { 10 } else { 1 };
         for _ in 0..visits {
             history.record_visit("[user@host]", &path);
@@ -136,36 +136,32 @@ fn test_history_limit() {
 
     // Verify high-visit entries are kept
     for i in 0..200 {
-        let path = PathBuf::from(format!("/local/path/{}", i));
+        let path = PathBuf::from(format!("/local/path/{i}"));
         assert!(
             local_entries.contains_key(&path),
-            "Local entry {} should be kept",
-            i
+            "Local entry {i} should be kept"
         );
     }
     for i in 200..250 {
-        let path = PathBuf::from(format!("/local/path/{}", i));
+        let path = PathBuf::from(format!("/local/path/{i}"));
         assert!(
             !local_entries.contains_key(&path),
-            "Local entry {} should be discarded",
-            i
+            "Local entry {i} should be discarded"
         );
     }
 
     for i in 0..50 {
-        let path = PathBuf::from(format!("/remote/path/{}", i));
+        let path = PathBuf::from(format!("/remote/path/{i}"));
         assert!(
             remote_entries.contains_key(&path),
-            "Remote entry {} should be kept",
-            i
+            "Remote entry {i} should be kept"
         );
     }
     for i in 50..100 {
-        let path = PathBuf::from(format!("/remote/path/{}", i));
+        let path = PathBuf::from(format!("/remote/path/{i}"));
         assert!(
             !remote_entries.contains_key(&path),
-            "Remote entry {} should be discarded",
-            i
+            "Remote entry {i} should be discarded"
         );
     }
 }

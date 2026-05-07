@@ -23,6 +23,30 @@ pub struct FileViewerState {
     pub selection: Option<((usize, usize), (usize, usize))>,
     pub large_file_reader: Option<crate::large_text::file_reader::FileReader>,
     pub large_file_indexer: Option<crate::large_text::line_indexer::LineIndexer>,
+    pub search_query: String,
+    pub search_regex: Option<regex::Regex>,
+    pub current_search_match: Option<(usize, usize, usize)>, // (line_idx, start_char, end_char)
+}
+
+#[derive(Default)]
+pub struct FileViewerSearchState {
+    pub is_visible: bool,
+    pub query: String,
+    pub cursor_position: usize,
+    pub error: Option<String>,
+}
+
+impl FileViewerSearchState {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn reset(&mut self) {
+        self.query = String::new();
+        self.cursor_position = 0;
+        self.error = None;
+    }
 }
 
 pub struct ImageLoadResult {
@@ -76,6 +100,9 @@ impl FileViewerState {
             selection: None,
             large_file_reader: None,
             large_file_indexer: None,
+            search_query: String::new(),
+            search_regex: None,
+            current_search_match: None,
         }
     }
 
@@ -90,6 +117,9 @@ impl FileViewerState {
         self.selection = None;
         self.large_file_reader = None;
         self.large_file_indexer = None;
+        self.search_query = String::new();
+        self.search_regex = None;
+        self.current_search_match = None;
     }
 
     pub fn init_picker(&mut self) {
@@ -513,5 +543,226 @@ impl FileViewerState {
         } else {
             self.content.len()
         }
+    }
+
+    #[must_use]
+    pub fn get_line(&self, idx: usize) -> Option<String> {
+        if let Some(indexer) = &self.large_file_indexer
+            && let Some(reader) = &self.large_file_reader
+        {
+            return indexer
+                .get_line_with_reader(idx, reader)
+                .map(|(s, e)| reader.get_chunk(s, e));
+        }
+        self.content.get(idx).cloned()
+    }
+
+    pub fn search(&mut self, query: &str) -> bool {
+        if query.is_empty() {
+            self.search_query = String::new();
+            self.search_regex = None;
+            self.current_search_match = None;
+            return false;
+        }
+
+        let Ok(re) = regex::RegexBuilder::new(query)
+            .case_insensitive(true)
+            .build()
+        else {
+            return false;
+        };
+
+        self.search_query = query.to_string();
+        self.search_regex = Some(re.clone());
+
+        // Find first match at or after current scroll position
+        if let Some(m) = self.find_next_match(self.scroll_offset, 0, &re) {
+            self.current_search_match = Some(m);
+            self.jump_to_match_with_context(m.0);
+            true
+        } else {
+            self.current_search_match = None;
+            false
+        }
+    }
+
+    fn jump_to_match_with_context(&mut self, line_idx: usize) {
+        let viewport_height = self.area.height as usize;
+        // If the match is already visible on the current page, don't scroll.
+        if line_idx >= self.scroll_offset
+            && line_idx < self.scroll_offset + viewport_height.saturating_sub(1)
+        {
+            return;
+        }
+        // Leave 4 lines above for context
+        self.scroll_offset = line_idx.saturating_sub(4);
+    }
+
+    pub fn search_next(&mut self) -> bool {
+        let Some(re) = self.search_regex.clone() else {
+            return false;
+        };
+
+        let viewport_height = self.area.height as usize;
+        let (start_line, start_char) = match self.current_search_match {
+            Some((line, _, end_char)) => {
+                // If current match is visible, search after it.
+                // Otherwise, search from the current scroll offset.
+                if line >= self.scroll_offset && line < self.scroll_offset + viewport_height {
+                    (line, end_char)
+                } else {
+                    (self.scroll_offset, 0)
+                }
+            }
+            None => (self.scroll_offset, 0),
+        };
+
+        if let Some(m) = self.find_next_match(start_line, start_char, &re) {
+            if Some(m) == self.current_search_match {
+                return false;
+            }
+            self.current_search_match = Some(m);
+            self.jump_to_match_with_context(m.0);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn search_prev(&mut self) -> bool {
+        let Some(re) = self.search_regex.clone() else {
+            return false;
+        };
+
+        let viewport_height = self.area.height as usize;
+        let (start_line, start_char) = match self.current_search_match {
+            Some((line, start_char, _)) => {
+                // If current match is visible, search before it.
+                if line >= self.scroll_offset && line < self.scroll_offset + viewport_height {
+                    (line, start_char)
+                } else {
+                    (self.scroll_offset, 0)
+                }
+            }
+            None => (self.scroll_offset, 0),
+        };
+
+        if let Some(m) = self.find_prev_match(start_line, start_char, &re) {
+            if Some(m) == self.current_search_match {
+                return false;
+            }
+            self.current_search_match = Some(m);
+            self.jump_to_match_with_context(m.0);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn find_next_match(
+        &self,
+        start_line: usize,
+        start_char: usize,
+        re: &regex::Regex,
+    ) -> Option<(usize, usize, usize)> {
+        let total = self.total_lines();
+        if total == 0 {
+            return None;
+        }
+
+        // 1. Current line after start_char
+        if let Some(line) = self.get_line(start_line) {
+            let byte_idx = line.chars().take(start_char).map(char::len_utf8).sum();
+            if byte_idx < line.len()
+                && let Some(m) = re.find(&line[byte_idx..])
+            {
+                let m_start = byte_idx + m.start();
+                let m_end = byte_idx + m.end();
+                let start_c = line[..m_start].chars().count();
+                let end_c = start_c + line[m_start..m_end].chars().count();
+                return Some((start_line, start_c, end_c));
+            }
+        }
+
+        // 2. Subsequent lines
+        for i in (start_line + 1)..total {
+            if let Some(line) = self.get_line(i)
+                && let Some(m) = re.find(&line)
+            {
+                let start_c = line[..m.start()].chars().count();
+                let end_c = start_c + line[m.start()..m.end()].chars().count();
+                return Some((i, start_c, end_c));
+            }
+        }
+
+        // 3. Wrap around: 0 to start_line
+        for i in 0..=start_line {
+            if let Some(line) = self.get_line(i)
+                && let Some(m) = re.find(&line)
+            {
+                // Check if this match is before our starting point if it's the same line
+                let m_start_byte = m.start();
+                let start_c = line[..m_start_byte].chars().count();
+
+                if i < start_line || start_c < start_char {
+                    let end_c = start_c + line[m_start_byte..m.end()].chars().count();
+                    return Some((i, start_c, end_c));
+                }
+            }
+        }
+
+        None
+    }
+
+    fn find_prev_match(
+        &self,
+        start_line: usize,
+        start_char: usize,
+        re: &regex::Regex,
+    ) -> Option<(usize, usize, usize)> {
+        let total = self.total_lines();
+        if total == 0 {
+            return None;
+        }
+
+        // 1. Current line before start_char
+        if let Some(line) = self.get_line(start_line) {
+            let byte_limit = line.chars().take(start_char).map(char::len_utf8).sum();
+            if byte_limit > 0
+                && let Some(m) = re.find_iter(&line[..byte_limit]).last()
+            {
+                let start_c = line[..m.start()].chars().count();
+                let end_c = start_c + line[m.start()..m.end()].chars().count();
+                return Some((start_line, start_c, end_c));
+            }
+        }
+
+        // 2. Previous lines
+        for i in (0..start_line).rev() {
+            if let Some(line) = self.get_line(i)
+                && let Some(m) = re.find_iter(&line).last()
+            {
+                let start_c = line[..m.start()].chars().count();
+                let end_c = start_c + line[m.start()..m.end()].chars().count();
+                return Some((i, start_c, end_c));
+            }
+        }
+
+        // 3. Wrap around: bottom to start_line
+        for i in (start_line..total).rev() {
+            if let Some(line) = self.get_line(i)
+                && let Some(m) = re.find_iter(&line).last()
+            {
+                let m_start_byte = m.start();
+                let start_c = line[..m_start_byte].chars().count();
+
+                if i > start_line || start_c > start_char {
+                    let end_c = start_c + line[m_start_byte..m.end()].chars().count();
+                    return Some((i, start_c, end_c));
+                }
+            }
+        }
+
+        None
     }
 }

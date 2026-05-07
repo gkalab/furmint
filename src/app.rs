@@ -12,9 +12,9 @@ use std::time::Instant;
 // Re-export state types from state module for backward compatibility
 pub use crate::state::{
     ConflictState, CopyMoveAction, CopyMoveState, CreateDirectoryState, CreateFileState,
-    DeleteState, DriveSelectState, EmptyTrashState, ErrorState, FileViewerState, HelpState,
-    QuitConfirmationState, RemoteEditState, RenameState, RenameTabState, SshConnectionState,
-    SshPasswordState,
+    DeleteState, DriveSelectState, EmptyTrashState, ErrorState, FileViewerSearchState,
+    FileViewerState, HelpState, QuitConfirmationState, RemoteEditState, RenameState,
+    RenameTabState, SshConnectionState, SshPasswordState,
 };
 
 /// Cache entry for an opened archive.
@@ -43,6 +43,7 @@ pub struct Popups {
     pub ssh_password: SshPasswordState,
     pub remote_edit: RemoteEditState,
     pub bookmark: BookmarkState,
+    pub viewer_search: FileViewerSearchState,
 }
 
 impl Popups {
@@ -65,6 +66,7 @@ impl Popups {
             ssh_password: SshPasswordState::new(),
             remote_edit: RemoteEditState::new(),
             bookmark: BookmarkState::new(),
+            viewer_search: FileViewerSearchState::new(),
         }
     }
 
@@ -86,6 +88,7 @@ impl Popups {
             || self.ssh_password.is_visible
             || self.remote_edit.is_visible
             || self.bookmark.list.is_visible
+            || self.viewer_search.is_visible
     }
 }
 
@@ -118,6 +121,7 @@ pub struct AppState {
     // Input polling task handle
     pub input_polling_handle: Option<tokio::task::JoinHandle<()>>,
     pub needs_redraw: bool, // <--- Added for explicit redraw after editor
+    pub keyboard: crate::config::KeyboardConfig,
     pub global: crate::config::GlobalConfig,
     pub editor_cfg: crate::config::EditorConfig,
     pub viewer_cfg: crate::config::ViewerConfig,
@@ -151,6 +155,7 @@ pub struct PersistentState {
 
 pub struct AppConfigContext<'a> {
     pub palette: &'a crate::theme::ThemePalette,
+    pub keyboard: crate::config::KeyboardConfig,
     pub global: crate::config::GlobalConfig,
     pub editor_cfg: crate::config::EditorConfig,
     pub viewer_cfg: crate::config::ViewerConfig,
@@ -197,6 +202,7 @@ impl AppState {
             remote_watcher: ctx.remote_watcher,
             input_polling_handle: None,
             needs_redraw: false,
+            keyboard: ctx.keyboard,
             global: ctx.global,
             editor_cfg: ctx.editor_cfg,
             viewer_cfg: ctx.viewer_cfg,
@@ -442,6 +448,15 @@ impl AppState {
     /// Returns a mutable reference to the currently active tab
     pub fn active_tab_mut(&mut self) -> &mut Tab {
         self.active_tab_manager_mut().active_tab_mut()
+    }
+
+    /// Returns a mutable reference to the tab that is currently overlaid by the file viewer.
+    /// The file viewer is always displayed on the side opposite to the active panel.
+    pub fn viewer_tab_mut(&mut self) -> &mut Tab {
+        match self.active {
+            PanelSide::Left => self.right.active_tab_mut(),
+            PanelSide::Right => self.left.active_tab_mut(),
+        }
     }
 
     /// Returns a reference to the inactive tab manager

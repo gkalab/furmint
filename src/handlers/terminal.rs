@@ -419,7 +419,7 @@ mod tests {
         fn write_file_at(&self, _: &std::path::Path, _: u64, _: &[u8]) -> anyhow::Result<()> {
             Ok(())
         }
-        fn display_prefix(&self) -> &str {
+        fn display_prefix(&self) -> &'static str {
             ""
         }
         fn exists(&self, _: &std::path::Path) -> bool {
