@@ -1,6 +1,8 @@
+#[cfg(windows)]
+use fm::app::PanelSide;
 use fm::app::{
-    AppState, CreateFileState, HelpState, IncrementalSearch, PanelSide, SortColumn, SortSettings,
-    Tab, TabHistory, TabManager,
+    AppState, CreateFileState, HelpState, IncrementalSearch, SortColumn, SortSettings, Tab,
+    TabHistory, TabManager,
 };
 use fm::app_state::tabs::SortDirection;
 use fm::fs::fs_provider::FileSystemProvider;
@@ -337,6 +339,7 @@ fn test_can_swap_active_tabs() {
 }
 
 #[test]
+#[cfg(windows)]
 fn test_drive_navigation_matches_opposite_pane() {
     struct MockLocalProvider;
     #[async_trait::async_trait]
