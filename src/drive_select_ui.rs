@@ -82,7 +82,43 @@ pub fn handle_drive_select_event(code: KeyCode, app: &mut AppState) -> bool {
 
 fn perform_drive_navigation(app: &mut AppState, drive: &str) {
     let side = app.popups.drive_select.side;
-    let path = std::path::PathBuf::from(drive);
+    let mut path = std::path::PathBuf::from(drive);
+
+    let get_drive = |p: &std::path::Path| -> Option<char> {
+        p.components().find_map(|c| {
+            if let std::path::Component::Prefix(prefix) = c {
+                match prefix.kind() {
+                    std::path::Prefix::Disk(d) | std::path::Prefix::VerbatimDisk(d) => {
+                        Some((d as char).to_ascii_uppercase())
+                    }
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        })
+    };
+
+    if let Some(sel_drive) = get_drive(&path) {
+        let (opp_drive, opp_dir) = {
+            let opposite_tab = match side {
+                PanelSide::Left => app.right.active_tab(),
+                PanelSide::Right => app.left.active_tab(),
+            };
+
+            let opp_drive = if opposite_tab.provider.is_local() {
+                get_drive(&opposite_tab.current_dir)
+            } else {
+                None
+            };
+
+            (opp_drive, opposite_tab.current_dir.clone())
+        };
+
+        if opp_drive == Some(sel_drive) {
+            path = opp_dir;
+        }
+    }
 
     let success = {
         let tab_manager = match side {

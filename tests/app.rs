@@ -1,6 +1,6 @@
 use fm::app::{
-    AppState, CreateFileState, HelpState, IncrementalSearch, SortColumn, SortSettings, Tab,
-    TabHistory, TabManager,
+    AppState, CreateFileState, HelpState, IncrementalSearch, PanelSide, SortColumn, SortSettings,
+    Tab, TabHistory, TabManager,
 };
 use fm::app_state::tabs::SortDirection;
 use fm::fs::fs_provider::FileSystemProvider;
@@ -334,4 +334,230 @@ fn test_can_swap_active_tabs() {
     // Case 3: Swap allowed when both are local
     app.right.tabs[0] = local_tab.clone();
     assert!(app.can_swap_active_tabs().is_ok());
+}
+
+#[test]
+fn test_drive_navigation_matches_opposite_pane() {
+    struct MockLocalProvider;
+    #[async_trait::async_trait]
+    impl FileSystemProvider for MockLocalProvider {
+        fn list_dir(&self, _path: &Path) -> anyhow::Result<Vec<FileEntry>> {
+            Ok(vec![])
+        }
+        fn create_dir(&self, _path: &Path) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn create_file(&self, _path: &Path) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn delete(&self, _path: &Path, _recursive: bool) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn rename(&self, _from: &Path, _to: &Path) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn read_file(&self, _path: &Path) -> anyhow::Result<Vec<u8>> {
+            Ok(vec![])
+        }
+        fn read_file_at(&self, _path: &Path, _offset: u64, _len: usize) -> anyhow::Result<Vec<u8>> {
+            Ok(vec![])
+        }
+        fn write_file(&self, _path: &Path, _data: &[u8]) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn write_file_at(&self, _path: &Path, _offset: u64, _data: &[u8]) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn display_prefix(&self) -> &'static str {
+            ""
+        }
+        fn is_local(&self) -> bool {
+            true
+        }
+        fn exists(&self, _path: &Path) -> bool {
+            true
+        }
+        fn is_dir(&self, _path: &Path) -> bool {
+            true
+        }
+        fn canonicalize(&self, path: &Path) -> anyhow::Result<std::path::PathBuf> {
+            Ok(path.to_path_buf())
+        }
+        fn get_permissions(&self, _path: &Path) -> Option<u32> {
+            None
+        }
+        fn set_permissions(&self, _path: &Path, _mode: u32) -> bool {
+            false
+        }
+        fn get_modified_time(&self, _path: &Path) -> Option<std::time::SystemTime> {
+            None
+        }
+        fn set_modified_time(&self, _path: &Path, _mtime: std::time::SystemTime) -> bool {
+            false
+        }
+        fn context_key(&self) -> String {
+            "local".to_string()
+        }
+        fn display_path(&self, path: &Path) -> String {
+            path.to_string_lossy().to_string()
+        }
+        async fn calc_dir_size(&self, _path: &Path) -> anyhow::Result<u64> {
+            Ok(0)
+        }
+    }
+
+    let provider = Arc::new(MockLocalProvider);
+
+    // Test Case 1: Switching to drive D: on Left (active) while Right is on D:\RightDir.
+    // Since selected drive is different from Left's C:\LeftDir but same as Right's drive,
+    // Left should navigate to D:\RightDir.
+    {
+        let mut app = AppState::test_default();
+        let left_tab = Tab {
+            area: ratatui::layout::Rect::default(),
+            provider: provider.clone(),
+            current_dir: PathBuf::from("C:\\LeftDir"),
+            entries: vec![],
+            cursor: 0,
+            history: TabHistory::new(PathBuf::from("C:\\LeftDir"), 0, provider.clone()),
+            search: IncrementalSearch::default(),
+            sort: SortSettings::default(),
+            scroll_offset: 0,
+            error: None,
+            custom_title: None,
+            status_msg: None,
+            dir_sizes: std::collections::HashMap::new(),
+        };
+        let right_tab = Tab {
+            area: ratatui::layout::Rect::default(),
+            provider: provider.clone(),
+            current_dir: PathBuf::from("D:\\RightDir"),
+            entries: vec![],
+            cursor: 0,
+            history: TabHistory::new(PathBuf::from("D:\\RightDir"), 0, provider.clone()),
+            search: IncrementalSearch::default(),
+            sort: SortSettings::default(),
+            scroll_offset: 0,
+            error: None,
+            custom_title: None,
+            status_msg: None,
+            dir_sizes: std::collections::HashMap::new(),
+        };
+        app.left.tabs = vec![left_tab];
+        app.right.tabs = vec![right_tab];
+        app.active = PanelSide::Left;
+
+        app.popups.drive_select.is_visible = true;
+        app.popups.drive_select.drives = vec!["C:\\".to_string(), "D:\\".to_string()];
+        app.popups.drive_select.side = PanelSide::Left;
+        app.popups.drive_select.selected_index = 1; // "D:\"
+
+        fm::drive_select_ui::handle_drive_select_event(crossterm::event::KeyCode::Enter, &mut app);
+
+        assert_eq!(
+            app.left.active_tab().current_dir,
+            PathBuf::from("D:\\RightDir")
+        );
+    }
+
+    // Test Case 2: Selecting a drive that does not match the opposite pane.
+    // Switching to drive D: on Left (active) while Right is on E:\RightDir.
+    // Left should navigate to D:\.
+    {
+        let mut app = AppState::test_default();
+        let left_tab = Tab {
+            area: ratatui::layout::Rect::default(),
+            provider: provider.clone(),
+            current_dir: PathBuf::from("C:\\LeftDir"),
+            entries: vec![],
+            cursor: 0,
+            history: TabHistory::new(PathBuf::from("C:\\LeftDir"), 0, provider.clone()),
+            search: IncrementalSearch::default(),
+            sort: SortSettings::default(),
+            scroll_offset: 0,
+            error: None,
+            custom_title: None,
+            status_msg: None,
+            dir_sizes: std::collections::HashMap::new(),
+        };
+        let right_tab = Tab {
+            area: ratatui::layout::Rect::default(),
+            provider: provider.clone(),
+            current_dir: PathBuf::from("E:\\RightDir"),
+            entries: vec![],
+            cursor: 0,
+            history: TabHistory::new(PathBuf::from("E:\\RightDir"), 0, provider.clone()),
+            search: IncrementalSearch::default(),
+            sort: SortSettings::default(),
+            scroll_offset: 0,
+            error: None,
+            custom_title: None,
+            status_msg: None,
+            dir_sizes: std::collections::HashMap::new(),
+        };
+        app.left.tabs = vec![left_tab];
+        app.right.tabs = vec![right_tab];
+        app.active = PanelSide::Left;
+
+        app.popups.drive_select.is_visible = true;
+        app.popups.drive_select.drives = vec!["C:\\".to_string(), "D:\\".to_string()];
+        app.popups.drive_select.side = PanelSide::Left;
+        app.popups.drive_select.selected_index = 1; // "D:\"
+
+        fm::drive_select_ui::handle_drive_select_event(crossterm::event::KeyCode::Enter, &mut app);
+
+        assert_eq!(app.left.active_tab().current_dir, PathBuf::from("D:\\"));
+    }
+
+    // Test Case 3: Selecting the same drive as active pane.
+    // Left pane is on C:\LeftDir, Right pane is on C:\RightDir.
+    // Switch Left to drive C:\. It is the same drive, but matches the opposite pane, so it should go to C:\RightDir.
+    {
+        let mut app = AppState::test_default();
+        let left_tab = Tab {
+            area: ratatui::layout::Rect::default(),
+            provider: provider.clone(),
+            current_dir: PathBuf::from("C:\\LeftDir"),
+            entries: vec![],
+            cursor: 0,
+            history: TabHistory::new(PathBuf::from("C:\\LeftDir"), 0, provider.clone()),
+            search: IncrementalSearch::default(),
+            sort: SortSettings::default(),
+            scroll_offset: 0,
+            error: None,
+            custom_title: None,
+            status_msg: None,
+            dir_sizes: std::collections::HashMap::new(),
+        };
+        let right_tab = Tab {
+            area: ratatui::layout::Rect::default(),
+            provider: provider.clone(),
+            current_dir: PathBuf::from("C:\\RightDir"),
+            entries: vec![],
+            cursor: 0,
+            history: TabHistory::new(PathBuf::from("C:\\RightDir"), 0, provider.clone()),
+            search: IncrementalSearch::default(),
+            sort: SortSettings::default(),
+            scroll_offset: 0,
+            error: None,
+            custom_title: None,
+            status_msg: None,
+            dir_sizes: std::collections::HashMap::new(),
+        };
+        app.left.tabs = vec![left_tab];
+        app.right.tabs = vec![right_tab];
+        app.active = PanelSide::Left;
+
+        app.popups.drive_select.is_visible = true;
+        app.popups.drive_select.drives = vec!["C:\\".to_string(), "D:\\".to_string()];
+        app.popups.drive_select.side = PanelSide::Left;
+        app.popups.drive_select.selected_index = 0; // "C:\"
+
+        fm::drive_select_ui::handle_drive_select_event(crossterm::event::KeyCode::Enter, &mut app);
+
+        assert_eq!(
+            app.left.active_tab().current_dir,
+            PathBuf::from("C:\\RightDir")
+        );
+    }
 }

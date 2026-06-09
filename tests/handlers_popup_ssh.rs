@@ -12,6 +12,7 @@ use fm::ssh_manager::SshManager;
 use fm::state::FileViewerState;
 use fm::state::ssh::SshField;
 use fm::tasks::{TaskEvent, TaskManager};
+#[cfg(unix)]
 use secrecy::ExposeSecret;
 use std::path::Path;
 use tokio::sync::mpsc;
