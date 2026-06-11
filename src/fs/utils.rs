@@ -26,7 +26,8 @@ pub async fn empty_trash() -> std::result::Result<usize, String> {
             let flags = SHERB_NOCONFIRMATION | SHERB_NOPROGRESSUI | SHERB_NOSOUND;
             let res = SHEmptyRecycleBinW(hwnd, psz_root, flags);
 
-            if SUCCEEDED(res) {
+            // E_UNEXPECTED (0x8000ffff) is returned when the Recycle Bin is already empty.
+            if SUCCEEDED(res) || res == winapi::shared::winerror::E_UNEXPECTED {
                 Ok(0)
             } else {
                 Err(format!("Failed: SHEmptyRecycleBinW error code {res:#x}"))
