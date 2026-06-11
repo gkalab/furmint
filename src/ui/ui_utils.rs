@@ -335,13 +335,13 @@ pub fn field_border_set() -> ratatui::symbols::border::Set<'static> {
 #[must_use]
 pub fn message_border_set() -> ratatui::symbols::border::Set<'static> {
     ratatui::symbols::border::Set {
-        top_left: "━",
-        top_right: "━",
+        top_left: "\u{2594}",
+        top_right: "\u{2594}",
         bottom_left: " ",
         bottom_right: " ",
         vertical_left: " ",
         vertical_right: " ",
-        horizontal_top: "━",
+        horizontal_top: "\u{2594}",
         horizontal_bottom: " ",
     }
 }
