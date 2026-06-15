@@ -19,7 +19,7 @@ pub fn draw_quit_popup(
         message: message.to_string(),
         truncate: false,
         action: crate::state::ConfirmationAction::None,
-        selected_no: true,
+        selected_no: state.selected_no,
     };
 
     crate::ui::ui_utils::draw_confirmation_popup(f, &confirmation_state, palette, 50, 7, bg_color);

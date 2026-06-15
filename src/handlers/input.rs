@@ -36,7 +36,9 @@ pub async fn handle_main_panel_event(
     if let Some(keys) = &keyboard.empty_trash
         && keys.contains(&shortcut)
     {
-        app.popups.empty_trash.is_visible = true;
+        let trash = &mut app.popups.empty_trash;
+        trash.is_visible = true;
+        trash.selected_no = true;
         return false;
     }
 

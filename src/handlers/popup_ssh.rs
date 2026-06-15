@@ -28,9 +28,10 @@ use crate::state::ssh::SshField;
 use crate::state::{ConfirmationAction, ConfirmationState};
 
 fn handle_ssh_confirmation(app: &mut AppState, code: KeyCode) -> bool {
-    if let Some(confirmation) = &app.popups.ssh_connection.confirmation {
-        match code {
-            KeyCode::Char('y') | KeyCode::Enter => {
+    if let Some(confirmation) = &mut app.popups.ssh_connection.confirmation {
+        use crate::handlers::popup_utils::{ChoiceResult, get_choice_with_selection};
+        match get_choice_with_selection(code, &mut confirmation.selected_no) {
+            ChoiceResult::Confirmed => {
                 let action = confirmation.action;
                 app.popups.ssh_connection.confirmation = None;
                 match action {
@@ -47,14 +48,13 @@ fn handle_ssh_confirmation(app: &mut AppState, code: KeyCode) -> bool {
                     }
                     ConfirmationAction::DeleteBookmark(_) | ConfirmationAction::None => {}
                 }
-                return true;
             }
-            KeyCode::Char('n') | KeyCode::Esc => {
+            ChoiceResult::Cancelled => {
                 app.popups.ssh_connection.confirmation = None;
-                return true;
             }
-            _ => return true,
+            ChoiceResult::None => {}
         }
+        return true;
     }
     false
 }

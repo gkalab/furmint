@@ -2,6 +2,7 @@
 
 use crate::app::Tab;
 use crate::theme::ThemePalette;
+use crate::ui::button_widget::{ButtonVariant, ButtonWidget};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use std::env;
@@ -508,8 +509,7 @@ pub fn draw_confirmation_popup(
         return;
     }
 
-    let popup_area = centered_rect_absolute(width, height, f.area());
-
+    let popup_area = centered_rect_absolute(width, height + 1, f.area());
     f.render_widget(Clear, popup_area);
 
     let border_color = Color::Rgb(palette.red.r, palette.red.g, palette.red.b);
@@ -517,35 +517,29 @@ pub fn draw_confirmation_popup(
 
     f.render_widget(
         Block::default()
-            .borders(Borders::ALL)
+            .borders(Borders::TOP)
             .border_style(Style::default().fg(border_color))
             .border_set(message_border_set())
             .style(Style::default().bg(bg_color)),
         popup_area,
     );
 
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .horizontal_margin(2)
-        .constraints([Constraint::Length(1), Constraint::Min(1)])
-        .split(popup_area);
-
-    let inner_block = Block::default()
-        .borders(Borders::ALL)
-        .border_set(ratatui::symbols::border::EMPTY)
-        .border_style(Style::default().fg(border_color).bg(bg_color))
-        .style(Style::default().bg(bg_color));
-
-    f.render_widget(inner_block.clone(), chunks[1]);
-    let inner_content_area = inner_block.inner(chunks[1]);
+    let content_area = Rect {
+        x: popup_area.x + 2,
+        y: popup_area.y + 1,
+        width: popup_area.width.saturating_sub(4),
+        height: popup_area.height.saturating_sub(1),
+    };
 
     let inner_layout = Layout::default()
         .direction(Direction::Vertical)
+        .horizontal_margin(2)
         .constraints([
-            Constraint::Min(2),    // Message
-            Constraint::Length(1), // Button row
+            Constraint::Length(1),
+            Constraint::Min(2),
+            Constraint::Length(3),
         ])
-        .split(inner_content_area);
+        .split(content_area);
 
     let message = if state.truncate {
         truncate_middle_with_ellipsis(&state.message, (width - 8) as usize)
@@ -557,10 +551,50 @@ pub fn draw_confirmation_popup(
         Paragraph::new(message)
             .style(Style::default().fg(text_color).bg(bg_color))
             .alignment(Alignment::Center),
-        inner_layout[0],
+        inner_layout[1],
     );
 
-    draw_button_row(f, &["(Y)es", "(N)o"], inner_layout[1], text_color);
+    let variant = if palette.is_dark {
+        ButtonVariant::Dark
+    } else {
+        ButtonVariant::Light
+    };
+
+    let btn_area = inner_layout[2];
+    let total_w = btn_area.width;
+    let btn_w = 12u16;
+    let gap = 3u16;
+    let pair_w = btn_w * 2 + gap;
+    let x_off = (total_w.saturating_sub(pair_w)) / 2;
+
+    let no_area = Rect {
+        x: btn_area.x + x_off,
+        width: btn_w,
+        ..btn_area
+    };
+    let yes_area = Rect {
+        x: btn_area.x + x_off + btn_w + gap,
+        width: btn_w,
+        ..btn_area
+    };
+
+    f.render_widget(
+        ButtonWidget::new("No", variant)
+            .with_palette(palette)
+            .outer_bg(bg_color)
+            .shortcut('N', 0)
+            .focused(state.selected_no),
+        no_area,
+    );
+
+    f.render_widget(
+        ButtonWidget::new("Yes", variant)
+            .with_palette(palette)
+            .outer_bg(bg_color)
+            .shortcut('Y', 0)
+            .focused(!state.selected_no),
+        yes_area,
+    );
 }
 
 fn draw_input_text_and_cursor(

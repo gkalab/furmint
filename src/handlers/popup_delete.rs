@@ -4,8 +4,8 @@ use crate::app::AppState;
 use crossterm::event::KeyCode;
 
 pub fn handle_delete_event(code: KeyCode, app: &mut AppState) -> bool {
-    use crate::handlers::popup_utils::{ChoiceResult, get_choice};
-    match get_choice(code) {
+    use crate::handlers::popup_utils::{ChoiceResult, get_choice_with_selection};
+    match get_choice_with_selection(code, &mut app.popups.delete.selected_no) {
         ChoiceResult::Confirmed => {
             handle_confirm_delete(app);
             app.popups.delete.reset();

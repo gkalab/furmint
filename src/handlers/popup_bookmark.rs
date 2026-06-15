@@ -19,8 +19,9 @@ pub fn handle_bookmark_add(app: &mut AppState) {
 pub fn handle_bookmark_event(code: KeyCode, modifiers: KeyModifiers, app: &mut AppState) -> bool {
     // 1. Handle confirmation overlay if active
     if let Some(conf) = &mut app.popups.bookmark.confirmation {
-        match code {
-            KeyCode::Char('y' | 'Y') | KeyCode::Enter => {
+        use crate::handlers::popup_utils::{ChoiceResult, get_choice_with_selection};
+        match get_choice_with_selection(code, &mut conf.selected_no) {
+            ChoiceResult::Confirmed => {
                 if let ConfirmationAction::DeleteBookmark(idx) = conf.action {
                     app.bookmark_store.remove(idx);
                     // Refresh the filtered list
@@ -36,10 +37,10 @@ pub fn handle_bookmark_event(code: KeyCode, modifiers: KeyModifiers, app: &mut A
                 }
                 app.popups.bookmark.confirmation = None;
             }
-            KeyCode::Char('n' | 'N') | KeyCode::Esc => {
+            ChoiceResult::Cancelled => {
                 app.popups.bookmark.confirmation = None;
             }
-            _ => {}
+            ChoiceResult::None => {}
         }
         return false;
     }

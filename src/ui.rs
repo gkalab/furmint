@@ -1,4 +1,5 @@
 pub mod bookmark_ui;
+pub mod button_widget;
 pub mod conflict_ui;
 pub mod copy_move_ui;
 pub mod create_dir_ui;

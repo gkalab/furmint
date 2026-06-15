@@ -7,16 +7,17 @@ use secrecy::SecretString;
 static LAST_REFRESH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 pub(crate) fn handle_quit_popup_event(code: KeyCode, app: &mut AppState) -> bool {
-    match code {
-        KeyCode::Char('y' | 'Y') | KeyCode::Enter => {
+    use crate::handlers::popup_utils::{ChoiceResult, get_choice_with_selection};
+    match get_choice_with_selection(code, &mut app.popups.quit_confirmation.selected_no) {
+        ChoiceResult::Confirmed => {
             app.task_manager.cancel_all_tasks();
             true
         }
-        KeyCode::Char('n' | 'N') | KeyCode::Esc => {
+        ChoiceResult::Cancelled => {
             app.popups.quit_confirmation.reset();
             false
         }
-        _ => false,
+        ChoiceResult::None => false,
     }
 }
 

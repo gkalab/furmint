@@ -4,6 +4,7 @@ pub struct DeleteState {
     pub is_visible: bool,
     pub selected_paths: Vec<PathBuf>,
     pub is_permanent: bool,
+    pub selected_no: bool,
     pub error: Option<String>,
 }
 
@@ -14,6 +15,7 @@ impl DeleteState {
             is_visible: false,
             selected_paths: Vec::new(),
             is_permanent: false,
+            selected_no: true,
             error: None,
         }
     }
@@ -22,6 +24,7 @@ impl DeleteState {
         self.is_visible = false;
         self.selected_paths.clear();
         self.is_permanent = false;
+        self.selected_no = true;
         self.error = None;
     }
 }
