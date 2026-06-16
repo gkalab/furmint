@@ -19,9 +19,7 @@ pub fn get_choice(code: KeyCode) -> ChoiceResult {
     }
 }
 
-/// Confirmation handling with Left/Right selection support for Yes/No buttons
-/// - Left: selects No (the left button)
-/// - Right: selects Yes (the right button)
+/// Confirmation handling with Tab/Left/Right selection support for Yes/No buttons
 /// - Y/Enter (when Yes is selected): Confirmed
 /// - N/Esc/Enter (when No is selected): Cancelled
 #[must_use]
@@ -36,12 +34,8 @@ pub fn get_choice_with_selection(code: KeyCode, selected_no: &mut bool) -> Choic
                 ChoiceResult::Confirmed
             }
         }
-        KeyCode::Left => {
-            *selected_no = true;
-            ChoiceResult::None
-        }
-        KeyCode::Right => {
-            *selected_no = false;
+        KeyCode::Tab | KeyCode::BackTab | KeyCode::Left | KeyCode::Right => {
+            *selected_no = !*selected_no;
             ChoiceResult::None
         }
         _ => ChoiceResult::None,
