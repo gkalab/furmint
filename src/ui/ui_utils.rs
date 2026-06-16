@@ -636,46 +636,14 @@ pub fn draw_confirmation_popup(
         inner_layout[1],
     );
 
-    let variant = if palette.is_dark {
-        ButtonVariant::Dark
-    } else {
-        ButtonVariant::Light
-    };
-
-    let btn_area = inner_layout[2];
-    let total_w = btn_area.width;
-    let btn_w = 12u16;
-    let gap = 3u16;
-    let pair_w = btn_w * 2 + gap;
-    let x_off = (total_w.saturating_sub(pair_w)) / 2;
-
-    let no_area = Rect {
-        x: btn_area.x + x_off,
-        width: btn_w,
-        ..btn_area
-    };
-    let yes_area = Rect {
-        x: btn_area.x + x_off + btn_w + gap,
-        width: btn_w,
-        ..btn_area
-    };
-
-    f.render_widget(
-        ButtonWidget::new("No", variant)
-            .with_palette(palette)
-            .outer_bg(bg_color)
-            .shortcut('N', 0)
-            .focused(state.selected_no),
-        no_area,
-    );
-
-    f.render_widget(
-        ButtonWidget::new("Yes", variant)
-            .with_palette(palette)
-            .outer_bg(bg_color)
-            .shortcut('Y', 0)
-            .focused(!state.selected_no),
-        yes_area,
+    let focused = state.selected_no.then_some(0).or(Some(1));
+    draw_button_row(
+        f,
+        &["(N)o", "(Y)es"],
+        inner_layout[2],
+        palette,
+        bg_color,
+        focused,
     );
 }
 
