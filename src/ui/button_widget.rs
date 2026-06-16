@@ -29,6 +29,7 @@ struct ButtonColors {
     text_fg: Color,
     top_bevel: Color,
     bottom_bevel: Color,
+    shortcut_color: Color,
 }
 
 fn add(c: (u8, u8, u8), amount: u8) -> (u8, u8, u8) {
@@ -124,6 +125,7 @@ impl<'a> ButtonWidget<'a> {
                     text_fg: Color::Rgb(text.0, text.1, text.2),
                     top_bevel: Color::Rgb(bottom.0, bottom.1, bottom.2),
                     bottom_bevel: Color::Rgb(top.0, top.1, top.2),
+                    shortcut_color: Color::Rgb(255, 230, 100),
                 }
             } else {
                 ButtonColors {
@@ -131,19 +133,23 @@ impl<'a> ButtonWidget<'a> {
                     text_fg: Color::Rgb(text.0, text.1, text.2),
                     top_bevel: Color::Rgb(top.0, top.1, top.2),
                     bottom_bevel: Color::Rgb(bottom.0, bottom.1, bottom.2),
+                    shortcut_color: Color::Rgb(255, 230, 100),
                 }
             };
         };
 
-        let s0 = (pal.surface0.r, pal.surface0.g, pal.surface0.b);
+        let s0 = (pal.mantle.r, pal.mantle.g, pal.mantle.b);
+        let s0_hov = (pal.surface0.r, pal.surface0.g, pal.surface0.b);
         let txt = (pal.text.r, pal.text.g, pal.text.b);
         let hovered = self.is_hovered || self.is_focused;
 
         let (body_bg, text_fg, top_bevel, bottom_bevel) = if hovered {
-            (add(s0, 20), txt, add(s0, 50), add(s0, 5))
+            (s0_hov, txt, add(s0_hov, 15), sub(s0_hov, 20))
         } else {
-            (s0, txt, add(s0, 40), sub(s0, 35))
+            (s0, txt, add(s0, 10), sub(s0, 10))
         };
+
+        let shortcut_color = Color::Rgb(pal.yellow.r, pal.yellow.g, pal.yellow.b);
 
         if self.is_pressed {
             let body = sub(body_bg, 35);
@@ -153,6 +159,7 @@ impl<'a> ButtonWidget<'a> {
                 text_fg: Color::Rgb(fg.0, fg.1, fg.2),
                 top_bevel: Color::Rgb(bottom_bevel.0, bottom_bevel.1, bottom_bevel.2),
                 bottom_bevel: Color::Rgb(top_bevel.0, top_bevel.1, top_bevel.2),
+                shortcut_color,
             }
         } else {
             ButtonColors {
@@ -160,6 +167,7 @@ impl<'a> ButtonWidget<'a> {
                 text_fg: Color::Rgb(text_fg.0, text_fg.1, text_fg.2),
                 top_bevel: Color::Rgb(top_bevel.0, top_bevel.1, top_bevel.2),
                 bottom_bevel: Color::Rgb(bottom_bevel.0, bottom_bevel.1, bottom_bevel.2),
+                shortcut_color,
             }
         }
     }
@@ -205,7 +213,7 @@ impl Widget for ButtonWidget<'_> {
             cell.set_bg(colors.body_bg);
 
             if self.shortcut_pos == Some(i) {
-                cell.set_fg(Color::Rgb(255, 230, 100));
+                cell.set_fg(colors.shortcut_color);
                 cell.set_style(Style::default().add_modifier(Modifier::BOLD));
             } else {
                 cell.set_fg(colors.text_fg);
