@@ -74,14 +74,14 @@ pub fn draw_conflict_popup(f: &mut ratatui::Frame, state: &ConflictState, palett
 
     crate::ui::ui_utils::draw_button_row(
         f,
-        &["[O]verwrite", "[S]kip", "[C]ancel"],
+        &["[C]ancel", "[S]kip", "[O]verwrite"],
         inner_layout[1],
         text_color,
     );
 
     crate::ui::ui_utils::draw_button_row(
         f,
-        &["Overwrite [Y]All", "Skip [A]ll"],
+        &["Ski[p] All", "Overwrite [A]ll"],
         inner_layout[2],
         text_color,
     );

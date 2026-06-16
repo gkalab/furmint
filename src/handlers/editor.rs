@@ -397,7 +397,7 @@ pub async fn handle_remote_edit_event(code: crossterm::event::KeyCode, app: &mut
     use crossterm::event::KeyCode;
 
     match code {
-        KeyCode::Char('o' | 'O') | KeyCode::Enter => {
+        KeyCode::Char('u' | 'U') | KeyCode::Enter => {
             let temp_path = app.popups.remote_edit.temp_path.clone();
             let remote_path = app.popups.remote_edit.remote_path.clone();
             let provider = app.popups.remote_edit.provider.clone();
@@ -679,7 +679,7 @@ mod tests {
             original_checksum,
         };
 
-        let result = handle_remote_edit_event(crossterm::event::KeyCode::Char('O'), &mut app).await;
+        let result = handle_remote_edit_event(crossterm::event::KeyCode::Char('U'), &mut app).await;
 
         assert!(!result);
         assert!(!app.popups.remote_edit.is_visible);

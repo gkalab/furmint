@@ -94,7 +94,7 @@ pub fn draw_error_popup(f: &mut ratatui::Frame, state: &ErrorState, palette: &Th
 
     crate::ui::ui_utils::draw_button_row(
         f,
-        &["[R]etry", "[S]kip", "Skip [A]ll", "[C]ancel"],
+        &["[C]ancel", "[S]kip", "Skip [A]ll", "[R]etry"],
         layout[4],
         text_color,
     );

@@ -9,8 +9,8 @@ pub async fn handle_conflict_event(code: KeyCode, app: &mut AppState) -> bool {
         KeyCode::Char('o' | 'O') => Some(crate::tasks::TaskDecision::Overwrite),
         KeyCode::Char('s' | 'S') => Some(crate::tasks::TaskDecision::Skip),
         KeyCode::Char('c' | 'C') | KeyCode::Esc => Some(crate::tasks::TaskDecision::Cancel),
-        KeyCode::Char('y' | 'Y') => Some(crate::tasks::TaskDecision::OverwriteAll),
-        KeyCode::Char('a' | 'A' | 'n' | 'N') => Some(crate::tasks::TaskDecision::SkipAll),
+        KeyCode::Char('a' | 'A') => Some(crate::tasks::TaskDecision::OverwriteAll),
+        KeyCode::Char('p' | 'P' | 'n' | 'N') => Some(crate::tasks::TaskDecision::SkipAll),
         KeyCode::Char('m' | 'M') => Some(crate::tasks::TaskDecision::Merge),
         _ => None,
     };

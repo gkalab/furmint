@@ -94,5 +94,5 @@ pub fn draw_remote_edit_popup(
         layout[2],
     );
 
-    crate::ui::ui_utils::draw_button_row(f, &["[O]K - Upload", "[C]ancel"], layout[3], text_color);
+    crate::ui::ui_utils::draw_button_row(f, &["[C]ancel", "[U]pload"], layout[3], text_color);
 }
