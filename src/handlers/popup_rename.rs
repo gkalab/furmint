@@ -21,6 +21,7 @@ pub fn handle_init_rename(app: &mut AppState) {
         app.popups.rename.show_overwrite_confirm = false;
         app.popups.rename.is_dir = entry.is_dir;
         app.popups.rename.error = None;
+        app.popups.rename.focused_button = 0;
 
         // Position cursor before extension
         let path = std::path::Path::new(&entry.name);
@@ -34,17 +35,26 @@ pub fn handle_init_rename(app: &mut AppState) {
 
 pub fn handle_rename_event(code: KeyCode, modifiers: KeyModifiers, app: &mut AppState) -> bool {
     if app.popups.rename.show_overwrite_confirm {
-        use crate::handlers::popup_utils::{ChoiceResult, get_choice};
-        match get_choice(code) {
-            ChoiceResult::Confirmed => {
+        use crate::handlers::popup_utils::handle_button_nav;
+
+        if handle_button_nav(code, &mut app.popups.rename.focused_button, 2) {
+            return false;
+        }
+
+        match code {
+            KeyCode::Enter if app.popups.rename.focused_button == 1 => {
                 perform_rename(app, true);
                 app.popups.rename.reset();
             }
-            ChoiceResult::Cancelled => {
+            KeyCode::Char('y' | 'Y') => {
+                perform_rename(app, true);
+                app.popups.rename.reset();
+            }
+            KeyCode::Enter | KeyCode::Char('n' | 'N') | KeyCode::Esc => {
                 app.popups.rename.show_overwrite_confirm = false;
                 app.popups.rename.reset();
             }
-            ChoiceResult::None => {}
+            _ => {}
         }
         return false;
     }

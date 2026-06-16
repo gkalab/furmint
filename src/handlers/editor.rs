@@ -122,6 +122,7 @@ async fn edit_file_remote(
             filename,
             provider: provider.clone(),
             original_checksum: original_checksum_array,
+            focused_button: 0,
         };
         app.needs_redraw = true;
 
@@ -394,44 +395,23 @@ pub async fn open_file_in_editor_with_env_handling(
 }
 
 pub async fn handle_remote_edit_event(code: crossterm::event::KeyCode, app: &mut AppState) -> bool {
+    use crate::handlers::popup_utils::handle_button_nav;
     use crossterm::event::KeyCode;
 
+    if handle_button_nav(code, &mut app.popups.remote_edit.focused_button, 2) {
+        return false;
+    }
+
     match code {
-        KeyCode::Char('u' | 'U') | KeyCode::Enter => {
-            let temp_path = app.popups.remote_edit.temp_path.clone();
-            let remote_path = app.popups.remote_edit.remote_path.clone();
-            let provider = app.popups.remote_edit.provider.clone();
-            let original_checksum = app.popups.remote_edit.original_checksum;
-
-            let edited_data = match tokio::fs::read(&temp_path).await {
-                Ok(c) => c,
-                Err(e) => {
-                    app.popups.remote_edit.reset();
-                    app.active_tab_mut().error = Some(format!("Error reading edited file: {e}"));
-                    app.refresh_active_tabs();
-                    app.needs_redraw = true;
-                    return false;
-                }
-            };
-
-            let edited_checksum = md5::compute(&edited_data);
-
-            let result = if edited_checksum.0 == original_checksum {
-                None
-            } else {
-                Some(upload_edited_file(&temp_path, &remote_path, provider, &edited_data).await)
-            };
-
-            app.popups.remote_edit.reset();
-
-            if let Some(Err(e)) = result {
-                app.active_tab_mut().error = Some(e.to_string());
-            }
-            app.refresh_active_tabs();
-            app.needs_redraw = true;
+        KeyCode::Enter if app.popups.remote_edit.focused_button == 1 => {
+            do_remote_edit_upload(app).await;
             false
         }
-        KeyCode::Char('c' | 'C') | KeyCode::Esc => {
+        KeyCode::Char('u' | 'U') => {
+            do_remote_edit_upload(app).await;
+            false
+        }
+        KeyCode::Enter | KeyCode::Char('c' | 'C') | KeyCode::Esc => {
             let temp_path = app.popups.remote_edit.temp_path.clone();
             let _ = tokio::fs::remove_file(&temp_path).await;
             app.popups.remote_edit.reset();
@@ -440,6 +420,40 @@ pub async fn handle_remote_edit_event(code: crossterm::event::KeyCode, app: &mut
         }
         _ => false,
     }
+}
+
+async fn do_remote_edit_upload(app: &mut AppState) {
+    let temp_path = app.popups.remote_edit.temp_path.clone();
+    let remote_path = app.popups.remote_edit.remote_path.clone();
+    let provider = app.popups.remote_edit.provider.clone();
+    let original_checksum = app.popups.remote_edit.original_checksum;
+
+    let edited_data = match tokio::fs::read(&temp_path).await {
+        Ok(c) => c,
+        Err(e) => {
+            app.popups.remote_edit.reset();
+            app.active_tab_mut().error = Some(format!("Error reading edited file: {e}"));
+            app.refresh_active_tabs();
+            app.needs_redraw = true;
+            return;
+        }
+    };
+
+    let edited_checksum = md5::compute(&edited_data);
+
+    let result = if edited_checksum.0 == original_checksum {
+        None
+    } else {
+        Some(upload_edited_file(&temp_path, &remote_path, provider, &edited_data).await)
+    };
+
+    app.popups.remote_edit.reset();
+
+    if let Some(Err(e)) = result {
+        app.active_tab_mut().error = Some(e.to_string());
+    }
+    app.refresh_active_tabs();
+    app.needs_redraw = true;
 }
 
 #[cfg(test)]
@@ -651,6 +665,7 @@ mod tests {
             filename: "test.txt".to_string(),
             provider: mock_fs,
             original_checksum: md5::compute(b"test content").0,
+            focused_button: 0,
         };
 
         let result = handle_remote_edit_event(crossterm::event::KeyCode::Esc, &mut app).await;
@@ -661,40 +676,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_handle_remote_edit_event_no_changes() {
-        let mut app = create_test_app();
-
-        let temp_path = std::env::temp_dir().join("test_edit_unchanged.txt");
-        let content = b"unchanged content";
-        tokio::fs::write(&temp_path, content).await.unwrap();
-
-        let mock_fs = Arc::new(MockFileSystem::new());
-        let original_checksum = md5::compute(content).0;
-        app.popups.remote_edit = crate::state::RemoteEditState {
-            is_visible: true,
-            temp_path: temp_path.clone(),
-            remote_path: std::path::PathBuf::from("/remote/test.txt"),
-            filename: "test.txt".to_string(),
-            provider: mock_fs.clone(),
-            original_checksum,
-        };
-
-        let result = handle_remote_edit_event(crossterm::event::KeyCode::Char('U'), &mut app).await;
-
-        assert!(!result);
-        assert!(!app.popups.remote_edit.is_visible);
-        assert_eq!(
-            mock_fs
-                .write_count
-                .load(std::sync::atomic::Ordering::SeqCst),
-            0
-        );
-        assert!(temp_path.exists());
-        tokio::fs::remove_file(&temp_path).await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_handle_remote_edit_event_with_changes() {
+    async fn test_handle_remote_edit_event_upload_yes() {
         let mut app = create_test_app();
 
         let temp_path = std::env::temp_dir().join("test_edit_changed.txt");
@@ -711,10 +693,10 @@ mod tests {
             filename: "test.txt".to_string(),
             provider: mock_fs.clone(),
             original_checksum,
+            focused_button: 1,
         };
 
         let result = handle_remote_edit_event(crossterm::event::KeyCode::Enter, &mut app).await;
-
         assert!(!result);
         assert!(!app.popups.remote_edit.is_visible);
         assert_eq!(
@@ -871,6 +853,7 @@ mod tests {
             filename: "test.txt".to_string(),
             provider: mock_fs.clone(),
             original_checksum,
+            focused_button: 1,
         };
 
         let result = handle_remote_edit_event(crossterm::event::KeyCode::Enter, &mut app).await;

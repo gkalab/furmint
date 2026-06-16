@@ -7,6 +7,7 @@ pub struct ConflictState {
     pub task_id: usize,
     pub conflict_path: PathBuf,
     pub conflict_type: ConflictType,
+    pub focused_button: usize,
 }
 
 impl ConflictState {
@@ -17,6 +18,7 @@ impl ConflictState {
             task_id: 0,
             conflict_path: PathBuf::new(),
             conflict_type: ConflictType::FileExists,
+            focused_button: 0,
         }
     }
 
@@ -24,6 +26,7 @@ impl ConflictState {
         self.is_visible = false;
         self.task_id = 0;
         self.conflict_path = PathBuf::new();
+        self.focused_button = 0;
     }
 }
 

@@ -3,6 +3,7 @@ pub struct ErrorState {
     pub task_id: usize,
     pub error_path: String,
     pub error_message: String,
+    pub focused_button: usize,
 }
 
 impl ErrorState {
@@ -13,6 +14,7 @@ impl ErrorState {
             task_id: 0,
             error_path: String::new(),
             error_message: String::new(),
+            focused_button: 0,
         }
     }
 
@@ -21,6 +23,7 @@ impl ErrorState {
         self.task_id = 0;
         self.error_path.clear();
         self.error_message.clear();
+        self.focused_button = 0;
     }
 }
 
@@ -56,6 +59,7 @@ mod tests {
             task_id: 123,
             error_path: String::from("some/path"),
             error_message: String::from("error occurred"),
+            focused_button: 0,
         };
         state.reset();
         assert!(!state.is_visible);

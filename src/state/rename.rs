@@ -9,6 +9,7 @@ pub struct RenameState {
     pub show_overwrite_confirm: bool,
     pub is_dir: bool,
     pub error: Option<String>,
+    pub focused_button: usize,
 }
 
 impl RenameState {
@@ -23,6 +24,7 @@ impl RenameState {
             show_overwrite_confirm: false,
             is_dir: false,
             error: None,
+            focused_button: 0,
         }
     }
 
@@ -35,6 +37,7 @@ impl RenameState {
         self.show_overwrite_confirm = false;
         self.is_dir = false;
         self.error = None;
+        self.focused_button = 0;
     }
 }
 

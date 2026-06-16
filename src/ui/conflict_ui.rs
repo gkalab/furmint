@@ -11,7 +11,7 @@ pub fn draw_conflict_popup(f: &mut ratatui::Frame, state: &ConflictState, palett
 
     let area = f.area();
     let popup_width = 60;
-    let popup_height = 9;
+    let popup_height = 12;
     let popup_area = crate::ui::ui_utils::centered_rect_absolute(popup_width, popup_height, area);
 
     f.render_widget(Clear, popup_area);
@@ -24,41 +24,31 @@ pub fn draw_conflict_popup(f: &mut ratatui::Frame, state: &ConflictState, palett
 
     f.render_widget(
         Block::default()
-            .borders(Borders::ALL)
+            .borders(Borders::TOP)
             .border_style(Style::default().fg(border_color))
             .border_set(message_border)
             .style(Style::default().bg(bg_color)),
         popup_area,
     );
 
-    // Inner chunks for margin
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .horizontal_margin(2)
-        .vertical_margin(0)
-        .constraints([Constraint::Length(1), Constraint::Min(1)])
-        .split(popup_area);
-
     let field_bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
 
-    // Draw inner block with field background
-    let inner_block = Block::default()
-        .borders(Borders::ALL)
-        .border_set(ratatui::symbols::border::EMPTY)
-        .border_style(Style::default().fg(border_color).bg(field_bg_color))
-        .style(Style::default().bg(field_bg_color));
-
-    f.render_widget(inner_block.clone(), chunks[1]);
-    let inner_content_area = inner_block.inner(chunks[1]);
+    let content_area = Rect {
+        x: popup_area.x + 3,
+        y: popup_area.y + 2,
+        width: popup_area.width.saturating_sub(6),
+        height: popup_area.height.saturating_sub(2),
+    };
 
     let inner_layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Min(3),    // Message + Path
-            Constraint::Length(1), // Row 1 buttons
-            Constraint::Length(1), // Row 2 buttons
+            Constraint::Length(1), // Spacing
+            Constraint::Length(3), // Row 1 buttons
+            Constraint::Length(3), // Row 2 buttons
         ])
-        .split(inner_content_area);
+        .split(content_area);
 
     let content = format!(
         "File already exists:\n\n{}\n",
@@ -72,18 +62,25 @@ pub fn draw_conflict_popup(f: &mut ratatui::Frame, state: &ConflictState, palett
         .style(Style::default().fg(text_color).bg(field_bg_color));
     f.render_widget(p_text, inner_layout[0]);
 
+    let row1_focus = (state.focused_button < 3).then_some(state.focused_button);
+    let row2_focus = (state.focused_button >= 3).then(|| state.focused_button - 3);
+
     crate::ui::ui_utils::draw_button_row(
         f,
         &["[C]ancel", "[S]kip", "[O]verwrite"],
-        inner_layout[1],
-        text_color,
+        inner_layout[2],
+        palette,
+        field_bg_color,
+        row1_focus,
     );
 
     crate::ui::ui_utils::draw_button_row(
         f,
         &["Ski[p] All", "Overwrite [A]ll"],
-        inner_layout[2],
-        text_color,
+        inner_layout[3],
+        palette,
+        field_bg_color,
+        row2_focus,
     );
 }
 
@@ -105,6 +102,7 @@ mod tests {
                     task_id: 42,
                     conflict_path: PathBuf::from("/tmp/existing.txt"),
                     conflict_type: crate::tasks::ConflictType::FileExists,
+                    focused_button: 0,
                 };
                 let palette = crate::theme::default_theme();
                 // Should not panic

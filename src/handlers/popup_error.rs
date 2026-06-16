@@ -1,11 +1,24 @@
 //! Error popup event handler
 
 use crate::app::AppState;
+use crate::handlers::popup_utils::handle_button_nav;
 use crossterm::event::KeyCode;
 
 pub(crate) async fn handle_error_event(code: KeyCode, app: &mut AppState) -> bool {
     let task_id = app.popups.error.task_id;
+
+    if handle_button_nav(code, &mut app.popups.error.focused_button, 4) {
+        return false;
+    }
+
     let decision = match code {
+        KeyCode::Enter => match app.popups.error.focused_button {
+            0 => Some(crate::tasks::TaskDecision::Cancel),
+            1 => Some(crate::tasks::TaskDecision::Skip),
+            2 => Some(crate::tasks::TaskDecision::SkipAll),
+            3 => Some(crate::tasks::TaskDecision::Retry),
+            _ => None,
+        },
         KeyCode::Char('r' | 'R') => Some(crate::tasks::TaskDecision::Retry),
         KeyCode::Char('s' | 'S') => Some(crate::tasks::TaskDecision::Skip),
         KeyCode::Char('a' | 'A') => Some(crate::tasks::TaskDecision::SkipAll),

@@ -11,7 +11,7 @@ pub fn draw_error_popup(f: &mut ratatui::Frame, state: &ErrorState, palette: &Th
 
     let area = f.area();
     let popup_width = 60;
-    let popup_height = 10;
+    let popup_height = 11;
     let popup_x = (area.width.saturating_sub(popup_width)) / 2;
     let popup_y = (area.height.saturating_sub(popup_height)) / 2;
 
@@ -31,8 +31,7 @@ pub fn draw_error_popup(f: &mut ratatui::Frame, state: &ErrorState, palette: &Th
     let message_border = crate::ui::ui_utils::message_border_set();
 
     let block = Block::default()
-        .borders(Borders::ALL)
-        .border_set(ratatui::symbols::border::EMPTY)
+        .borders(Borders::TOP)
         .border_style(Style::default().fg(border_color))
         .border_set(message_border)
         .style(Style::default().bg(bg_color));
@@ -40,36 +39,36 @@ pub fn draw_error_popup(f: &mut ratatui::Frame, state: &ErrorState, palette: &Th
     // Draw outer block
     f.render_widget(block, popup_area);
 
-    // Inner chunks for margin
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .horizontal_margin(2)
-        .vertical_margin(0)
-        .constraints([Constraint::Length(1), Constraint::Min(1)])
-        .split(popup_area);
-
     let field_bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
 
-    // Draw inner block with field background
-    let inner_block = Block::default()
-        .borders(Borders::ALL)
-        .border_set(ratatui::symbols::border::EMPTY)
-        .title_alignment(Alignment::Center)
-        .title(" Operation Failed ")
-        .border_style(Style::default().fg(border_color).bg(field_bg_color))
-        .style(Style::default().bg(field_bg_color));
-
-    f.render_widget(inner_block.clone(), chunks[1]);
-    let inner_content_area = inner_block.inner(chunks[1]);
+    let content_area = Rect {
+        x: popup_area.x + 3,
+        y: popup_area.y + 1,
+        width: popup_area.width.saturating_sub(6),
+        height: popup_area.height.saturating_sub(1),
+    };
 
     let layout = Layout::vertical([
-        Constraint::Length(1),
+        Constraint::Length(1), // Title
+        Constraint::Length(1), // Spacing below Title
         Constraint::Length(1), // Path label
         Constraint::Length(1), // Path
         Constraint::Min(3),    // Error message
-        Constraint::Length(1), // Button row
+        Constraint::Length(3), // Button row
     ])
-    .split(inner_content_area);
+    .split(content_area);
+
+    f.render_widget(
+        Paragraph::new("Operation Failed")
+            .alignment(Alignment::Center)
+            .style(
+                Style::default()
+                    .fg(border_color)
+                    .add_modifier(Modifier::BOLD)
+                    .bg(field_bg_color),
+            ),
+        layout[0],
+    );
 
     f.render_widget(
         Paragraph::new("Path:").style(
@@ -78,24 +77,26 @@ pub fn draw_error_popup(f: &mut ratatui::Frame, state: &ErrorState, palette: &Th
                 .add_modifier(Modifier::BOLD)
                 .bg(field_bg_color),
         ),
-        layout[1],
+        layout[2],
     );
     f.render_widget(
         Paragraph::new(state.error_path.as_str())
             .style(Style::default().fg(text_color).bg(field_bg_color)),
-        layout[2],
+        layout[3],
     );
     f.render_widget(
         Paragraph::new(state.error_message.as_str())
             .wrap(Wrap { trim: true })
             .style(Style::default().fg(Color::Red).bg(field_bg_color)),
-        layout[3],
+        layout[4],
     );
 
     crate::ui::ui_utils::draw_button_row(
         f,
         &["[C]ancel", "[S]kip", "Skip [A]ll", "[R]etry"],
-        layout[4],
-        text_color,
+        layout[5],
+        palette,
+        field_bg_color,
+        Some(state.focused_button),
     );
 }

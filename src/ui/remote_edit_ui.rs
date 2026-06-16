@@ -39,38 +39,27 @@ pub fn draw_remote_edit_popup(
     // Draw outer block
     f.render_widget(
         Block::default()
-            .borders(Borders::ALL)
+            .borders(Borders::TOP)
             .border_style(Style::default().fg(border_color))
             .border_set(message_border)
             .style(Style::default().bg(bg_color)),
         popup_area,
     );
 
-    // Inner chunks for margin
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .horizontal_margin(2)
-        .vertical_margin(1)
-        .constraints([Constraint::Min(1)])
-        .split(popup_area);
-
-    let inner_block = Block::default()
-        .borders(Borders::ALL)
-        .border_set(ratatui::symbols::border::EMPTY)
-        .border_style(Style::default().fg(border_color).bg(bg_color))
-        .style(Style::default().bg(bg_color));
-
-    f.render_widget(inner_block.clone(), chunks[0]);
-    let inner_content_area = inner_block.inner(chunks[0]);
+    let content_area = Rect {
+        x: popup_area.x + 4,
+        y: popup_area.y + 1,
+        width: popup_area.width.saturating_sub(8),
+        height: popup_area.height.saturating_sub(1),
+    };
 
     let layout = Layout::vertical([
         Constraint::Length(1), // Title
         Constraint::Length(1), // File info
         Constraint::Min(1),    // Instruction
-        Constraint::Length(1), // Buttons
+        Constraint::Length(3), // Buttons
     ])
-    .horizontal_margin(1)
-    .split(inner_content_area);
+    .split(content_area);
 
     f.render_widget(
         Paragraph::new("Editing Remote File").style(
@@ -94,5 +83,12 @@ pub fn draw_remote_edit_popup(
         layout[2],
     );
 
-    crate::ui::ui_utils::draw_button_row(f, &["[C]ancel", "[U]pload"], layout[3], text_color);
+    crate::ui::ui_utils::draw_button_row(
+        f,
+        &["[C]ancel", "[U]pload"],
+        layout[3],
+        palette,
+        bg_color,
+        Some(state.focused_button),
+    );
 }

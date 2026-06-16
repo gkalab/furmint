@@ -1,11 +1,25 @@
 //! Conflict popup event handler
 
 use crate::app::AppState;
+use crate::handlers::popup_utils::handle_button_nav;
 use crossterm::event::KeyCode;
 
 pub async fn handle_conflict_event(code: KeyCode, app: &mut AppState) -> bool {
     let task_id = app.popups.conflict.task_id;
+
+    if handle_button_nav(code, &mut app.popups.conflict.focused_button, 5) {
+        return false;
+    }
+
     let decision = match code {
+        KeyCode::Enter => match app.popups.conflict.focused_button {
+            0 => Some(crate::tasks::TaskDecision::Cancel),
+            1 => Some(crate::tasks::TaskDecision::Skip),
+            2 => Some(crate::tasks::TaskDecision::Overwrite),
+            3 => Some(crate::tasks::TaskDecision::SkipAll),
+            4 => Some(crate::tasks::TaskDecision::OverwriteAll),
+            _ => None,
+        },
         KeyCode::Char('o' | 'O') => Some(crate::tasks::TaskDecision::Overwrite),
         KeyCode::Char('s' | 'S') => Some(crate::tasks::TaskDecision::Skip),
         KeyCode::Char('c' | 'C') | KeyCode::Esc => Some(crate::tasks::TaskDecision::Cancel),
