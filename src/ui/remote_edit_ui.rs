@@ -1,7 +1,6 @@
 use crate::app::RemoteEditState;
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
-use ratatui::symbols::border::Set;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 pub fn draw_remote_edit_popup(
@@ -25,16 +24,7 @@ pub fn draw_remote_edit_popup(
     let border_color = Color::Rgb(palette.border.r, palette.border.g, palette.border.b);
     let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
 
-    let message_border = Set {
-        top_left: "━",
-        top_right: "━",
-        bottom_left: " ",
-        bottom_right: " ",
-        vertical_left: " ",
-        vertical_right: " ",
-        horizontal_top: "━",
-        horizontal_bottom: " ",
-    };
+    let message_border = crate::ui::ui_utils::message_border_set();
 
     // Draw outer block
     f.render_widget(
