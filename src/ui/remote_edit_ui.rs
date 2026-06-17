@@ -44,8 +44,8 @@ pub fn draw_remote_edit_popup(
     };
 
     let layout = Layout::vertical([
-        Constraint::Length(1), // Title
-        Constraint::Length(1), // File info
+        Constraint::Length(2), // Title
+        Constraint::Length(2), // File info
         Constraint::Min(1),    // Instruction
         Constraint::Length(3), // Buttons
     ])
@@ -68,7 +68,7 @@ pub fn draw_remote_edit_popup(
     );
 
     f.render_widget(
-        Paragraph::new("Select OK after you have finished editing.")
+        Paragraph::new("Select 'Upload' after you have finished editing.")
             .style(Style::default().fg(text_color).bg(bg_color)),
         layout[2],
     );
