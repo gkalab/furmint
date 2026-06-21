@@ -30,7 +30,7 @@ pub async fn handle_edit(app: &mut AppState) {
     }
 }
 
-async fn edit_file_remote(
+pub(crate) async fn edit_file_remote(
     app: &mut AppState,
     remote_path: &Path,
     provider: Arc<dyn FileSystemProvider>,

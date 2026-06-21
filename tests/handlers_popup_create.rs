@@ -227,6 +227,143 @@ async fn test_handle_create_file_tilde_expansion() {
     );
 }
 
+#[tokio::test]
+async fn test_handle_create_file_remote_uses_remote_edit_workflow() {
+    struct MockRemoteCreateFs;
+
+    #[async_trait::async_trait]
+    impl fm::fs::fs_provider::FileSystemProvider for MockRemoteCreateFs {
+        fn is_local(&self) -> bool {
+            false
+        }
+        fn display_prefix(&self) -> &'static str {
+            "mock://"
+        }
+        fn list_dir(
+            &self,
+            _path: &std::path::Path,
+        ) -> anyhow::Result<Vec<fm::fs::utils::FileEntry>> {
+            Ok(vec![])
+        }
+        fn read_file(&self, _path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
+            Ok(b"".to_vec())
+        }
+        fn read_file_at(
+            &self,
+            _path: &std::path::Path,
+            _offset: u64,
+            _len: usize,
+        ) -> anyhow::Result<Vec<u8>> {
+            Ok(b"".to_vec())
+        }
+        fn write_file(&self, _path: &std::path::Path, _data: &[u8]) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn write_file_at(
+            &self,
+            _path: &std::path::Path,
+            _offset: u64,
+            _data: &[u8],
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn create_dir(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn create_file(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn delete(&self, _path: &std::path::Path, _recursive: bool) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn rename(&self, _from: &std::path::Path, _to: &std::path::Path) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn exists(&self, _path: &std::path::Path) -> bool {
+            false
+        }
+        fn is_dir(&self, _path: &std::path::Path) -> bool {
+            false
+        }
+        fn canonicalize(&self, path: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
+            Ok(path.to_path_buf())
+        }
+        fn get_modified_time(&self, _path: &std::path::Path) -> Option<std::time::SystemTime> {
+            None
+        }
+        fn set_modified_time(
+            &self,
+            _path: &std::path::Path,
+            _mtime: std::time::SystemTime,
+        ) -> bool {
+            true
+        }
+        fn get_permissions(&self, _path: &std::path::Path) -> Option<u32> {
+            None
+        }
+        fn set_permissions(&self, _path: &std::path::Path, _mode: u32) -> bool {
+            true
+        }
+        fn context_key(&self) -> String {
+            "mock".to_string()
+        }
+        fn display_path(&self, path: &std::path::Path) -> String {
+            path.to_string_lossy().to_string()
+        }
+        async fn calc_dir_size(&self, _path: &std::path::Path) -> anyhow::Result<u64> {
+            Ok(0)
+        }
+    }
+
+    let mut app = basic_app_state();
+    let (_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
+
+    // Replace the active tab's provider with a mock remote provider
+    app.active_tab_mut().provider = std::sync::Arc::new(MockRemoteCreateFs);
+
+    // Use non-terminal mode so edit_file_remote sets up the remote_edit popup.
+    // Use a platform-appropriate no-op command: "true" on Unix, cmd on Windows.
+    app.editor_cfg.in_terminal = Some(false);
+    #[cfg(not(target_os = "windows"))]
+    let editor_cmd = "true";
+    #[cfg(target_os = "windows")]
+    let editor_cmd = "cmd /d /c exit 0";
+    app.editor_cfg.command = Some(editor_cmd.to_string());
+
+    handle_init_create_file(&mut app);
+    app.popups.create_file.input_value = "remote_new_file.txt".to_string();
+    app.popups.create_file.cursor_position = 18;
+
+    handle_create_file_event(KeyCode::Enter, KeyModifiers::NONE, &mut app).await;
+
+    // The create file popup should be closed
+    assert!(!app.popups.create_file.is_visible);
+
+    // The remote edit popup should be visible (the fix: remote provider
+    // triggers edit_file_remote instead of open_file_in_editor_with_env_handling)
+    assert!(app.popups.remote_edit.is_visible);
+    assert_eq!(app.popups.remote_edit.filename, "remote_new_file.txt");
+    let expected_remote_path = std::path::Path::new("/tmp").join("remote_new_file.txt");
+    assert_eq!(app.popups.remote_edit.remote_path, expected_remote_path);
+
+    // A temp file should exist on the local filesystem (not the remote path)
+    let temp_path = app.popups.remote_edit.temp_path.clone();
+    assert!(
+        temp_path.exists(),
+        "Temp file should exist on local filesystem"
+    );
+    assert!(
+        temp_path.starts_with(std::env::temp_dir()),
+        "Temp file should be in system temp directory"
+    );
+
+    // Clean up: simulate user pressing Esc
+    fm::handlers::editor::handle_remote_edit_event(crossterm::event::KeyCode::Esc, &mut app).await;
+
+    assert!(!app.popups.remote_edit.is_visible);
+    assert!(!temp_path.exists(), "Temp file should be cleaned up");
+}
+
 #[test]
 fn test_handle_create_file_navigation() {
     let mut app = basic_app_state();

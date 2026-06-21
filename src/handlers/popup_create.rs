@@ -182,21 +182,26 @@ async fn handle_post_create_actions(app: &mut AppState, path_buf: std::path::Pat
         app.refresh_active_tabs();
     }
 
-    // Open in editor using environment helper
-    let file_name_opt = path_buf
-        .file_name()
-        .and_then(|n| n.to_str())
-        .map(std::string::ToString::to_string);
-
+    let provider = app.active_tab().provider.clone();
     app.popups.create_file.reset();
-    let editor_result = crate::handlers::editor::open_file_in_editor_with_env_handling(
-        app,
-        &path_buf,
-        file_name_opt,
-    )
-    .await;
-    if let Err(e) = editor_result {
-        app.active_tab_mut().error = Some(format!("Failed to open in editor: {e}"));
+    if provider.is_local() {
+        let file_name_opt = path_buf
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(std::string::ToString::to_string);
+        let editor_result = crate::handlers::editor::open_file_in_editor_with_env_handling(
+            app,
+            &path_buf,
+            file_name_opt,
+        )
+        .await;
+        if let Err(e) = editor_result {
+            app.active_tab_mut().error = Some(format!("Failed to open in editor: {e}"));
+            return false;
+        }
+    } else if let Err(e) = crate::handlers::editor::edit_file_remote(app, &path_buf, provider).await
+    {
+        app.active_tab_mut().error = Some(format!("Failed to open remote file in editor: {e}"));
         return false;
     }
     true
