@@ -1,7 +1,7 @@
 use crate::app::AppState;
 use crate::state::{ConfirmationAction, ConfirmationState};
-use crossterm::event::{KeyCode, KeyModifiers};
 use std::time::Instant;
+use termina::event::{KeyCode, Modifiers};
 
 pub fn handle_bookmark_add(app: &mut AppState) {
     let current_dir = app.active_tab().current_dir.clone();
@@ -16,7 +16,7 @@ pub fn handle_bookmark_add(app: &mut AppState) {
     }
 }
 
-pub fn handle_bookmark_event(code: KeyCode, modifiers: KeyModifiers, app: &mut AppState) -> bool {
+pub fn handle_bookmark_event(code: KeyCode, modifiers: Modifiers, app: &mut AppState) -> bool {
     // 1. Handle confirmation overlay if active
     if let Some(conf) = &mut app.popups.bookmark.confirmation {
         use crate::handlers::popup_utils::{ChoiceResult, get_choice_with_selection};
@@ -47,7 +47,7 @@ pub fn handle_bookmark_event(code: KeyCode, modifiers: KeyModifiers, app: &mut A
 
     // 2. Main bookmark list events
     match code {
-        KeyCode::Esc => {
+        KeyCode::Escape => {
             app.popups.bookmark.list.is_visible = false;
             app.popups.bookmark.reset();
         }

@@ -1,4 +1,3 @@
-use crossterm::event::{KeyCode, KeyModifiers};
 use fm::app::{AppState, PanelSide, Tab, TabManager};
 use fm::clipboard::InMemoryFileClipboard;
 use fm::clipboard::{FileClipboardAction, FileClipboardData};
@@ -14,6 +13,7 @@ use fm::tasks::TaskManager;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use termina::event::{KeyCode, Modifiers};
 
 fn make_fileentry(name: &str, selected: bool, is_dir: bool) -> FileEntry {
     FileEntry {
@@ -157,22 +157,22 @@ fn test_handle_copy_move_event_char_and_edit() {
     app.popups.copy_move.destination_input.clear();
     app.popups.copy_move.cursor_position = 0;
     // Insert 'x'
-    handle_copy_move_event(KeyCode::Char('x'), KeyModifiers::NONE, &mut app);
+    handle_copy_move_event(KeyCode::Char('x'), Modifiers::NONE, &mut app);
     assert_eq!(app.popups.copy_move.destination_input, "x");
     assert_eq!(app.popups.copy_move.cursor_position, 1);
     // Insert 'y' at position 1
-    handle_copy_move_event(KeyCode::Char('y'), KeyModifiers::NONE, &mut app);
+    handle_copy_move_event(KeyCode::Char('y'), Modifiers::NONE, &mut app);
     assert_eq!(app.popups.copy_move.destination_input, "xy");
     assert_eq!(app.popups.copy_move.cursor_position, 2);
     // Backspace
-    handle_copy_move_event(KeyCode::Backspace, KeyModifiers::NONE, &mut app);
+    handle_copy_move_event(KeyCode::Backspace, Modifiers::NONE, &mut app);
     assert_eq!(app.popups.copy_move.destination_input, "x");
     assert_eq!(app.popups.copy_move.cursor_position, 1);
     // Left
-    handle_copy_move_event(KeyCode::Left, KeyModifiers::NONE, &mut app);
+    handle_copy_move_event(KeyCode::Left, Modifiers::NONE, &mut app);
     assert_eq!(app.popups.copy_move.cursor_position, 0);
     // Delete (removes 'x')
-    handle_copy_move_event(KeyCode::Delete, KeyModifiers::NONE, &mut app);
+    handle_copy_move_event(KeyCode::Delete, Modifiers::NONE, &mut app);
     assert_eq!(app.popups.copy_move.destination_input, "");
     assert_eq!(app.popups.copy_move.cursor_position, 0);
 }
@@ -185,13 +185,13 @@ fn test_handle_copy_move_event_navigation_keys() {
     app.popups.copy_move.destination_input = "abcdef".to_string();
     app.popups.copy_move.cursor_position = 3;
     // Home
-    handle_copy_move_event(KeyCode::Home, KeyModifiers::NONE, &mut app);
+    handle_copy_move_event(KeyCode::Home, Modifiers::NONE, &mut app);
     assert_eq!(app.popups.copy_move.cursor_position, 0);
     // End
-    handle_copy_move_event(KeyCode::End, KeyModifiers::NONE, &mut app);
+    handle_copy_move_event(KeyCode::End, Modifiers::NONE, &mut app);
     assert_eq!(app.popups.copy_move.cursor_position, 6);
     // Right at end (should stay)
-    handle_copy_move_event(KeyCode::Right, KeyModifiers::NONE, &mut app);
+    handle_copy_move_event(KeyCode::Right, Modifiers::NONE, &mut app);
     assert_eq!(app.popups.copy_move.cursor_position, 6);
 }
 
@@ -202,7 +202,7 @@ fn test_handle_copy_move_event_escape_resets_popup() {
     handle_init_copy(&mut app);
     app.popups.copy_move.error = Some("some error".to_string());
     assert!(app.popups.copy_move.is_visible);
-    handle_copy_move_event(KeyCode::Esc, KeyModifiers::NONE, &mut app);
+    handle_copy_move_event(KeyCode::Escape, Modifiers::NONE, &mut app);
     assert!(!app.popups.copy_move.is_visible);
     assert!(app.popups.copy_move.error.is_none());
 }
@@ -213,7 +213,7 @@ async fn test_handle_copy_move_event_home_dir_expansion() {
     app.popups.copy_move.is_visible = true;
     app.popups.copy_move.destination_input = "~".to_string();
 
-    handle_copy_move_event(KeyCode::Enter, KeyModifiers::NONE, &mut app);
+    handle_copy_move_event(KeyCode::Enter, Modifiers::NONE, &mut app);
 
     if let Some(base_dirs) = directories::BaseDirs::new() {
         let home = base_dirs
@@ -237,7 +237,7 @@ async fn test_handle_copy_move_validation_same_path() {
     app.popups.copy_move.source_paths = vec![file_path.clone()];
     app.popups.copy_move.destination_input = temp_dir.to_string_lossy().to_string();
 
-    handle_copy_move_event(KeyCode::Enter, KeyModifiers::NONE, &mut app);
+    handle_copy_move_event(KeyCode::Enter, Modifiers::NONE, &mut app);
 
     assert!(app.popups.copy_move.error.is_some());
     assert!(
@@ -264,7 +264,7 @@ async fn test_handle_copy_move_validation_into_itself() {
     app.popups.copy_move.source_paths = vec![src_dir.clone()];
     app.popups.copy_move.destination_input = dest_dir.to_string_lossy().to_string();
 
-    handle_copy_move_event(KeyCode::Enter, KeyModifiers::NONE, &mut app);
+    handle_copy_move_event(KeyCode::Enter, Modifiers::NONE, &mut app);
 
     assert!(app.popups.copy_move.error.is_some());
     assert!(

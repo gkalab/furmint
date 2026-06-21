@@ -2,7 +2,7 @@
 
 use crate::app::AppState;
 use crate::handlers::popup_utils::handle_button_nav;
-use crossterm::event::KeyCode;
+use termina::event::KeyCode;
 
 pub(crate) async fn handle_error_event(code: KeyCode, app: &mut AppState) -> bool {
     let task_id = app.popups.error.task_id;
@@ -22,7 +22,7 @@ pub(crate) async fn handle_error_event(code: KeyCode, app: &mut AppState) -> boo
         KeyCode::Char('r' | 'R') => Some(crate::tasks::TaskDecision::Retry),
         KeyCode::Char('s' | 'S') => Some(crate::tasks::TaskDecision::Skip),
         KeyCode::Char('a' | 'A') => Some(crate::tasks::TaskDecision::SkipAll),
-        KeyCode::Char('c' | 'C') | KeyCode::Esc => Some(crate::tasks::TaskDecision::Cancel),
+        KeyCode::Char('c' | 'C') | KeyCode::Escape => Some(crate::tasks::TaskDecision::Cancel),
         _ => None,
     };
     if let Some(d) = decision {

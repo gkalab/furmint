@@ -1,12 +1,12 @@
 use crate::app::{AppState, PanelSide};
 use crate::theme::ThemePalette;
-use crossterm::event::KeyCode;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     widgets::{Block, Borders, Clear, List, ListItem},
 };
+use termina::event::KeyCode;
 
 #[cfg(windows)]
 unsafe extern "system" {
@@ -37,7 +37,7 @@ pub fn get_available_drives() -> Vec<String> {
 
 pub fn handle_drive_select_event(code: KeyCode, app: &mut AppState) -> bool {
     match code {
-        KeyCode::Esc => {
+        KeyCode::Escape => {
             app.popups.drive_select.reset();
         }
         KeyCode::Down if !app.popups.drive_select.drives.is_empty() => {

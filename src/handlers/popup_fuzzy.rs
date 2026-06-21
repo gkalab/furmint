@@ -2,7 +2,7 @@
 
 use crate::app::AppState;
 use crate::ui::fuzzy_search_ui::FuzzySearchState;
-use crossterm::event::KeyCode;
+use termina::event::{KeyCode, Modifiers};
 
 fn update_fuzzy_search_results(
     state: &mut FuzzySearchState,
@@ -17,13 +17,13 @@ fn update_fuzzy_search_results(
 
 pub(crate) fn handle_fuzzy_search_event(
     code: KeyCode,
-    modifiers: crossterm::event::KeyModifiers,
+    modifiers: Modifiers,
     app: &mut AppState,
 ) -> bool {
     let context_key = app.active_tab().provider.context_key();
 
     match code {
-        KeyCode::Esc => {
+        KeyCode::Escape => {
             app.fuzzy_search.list.is_visible = false;
             app.fuzzy_search.reset();
         }

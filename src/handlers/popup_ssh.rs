@@ -1,9 +1,9 @@
 use crate::app::AppState;
 use crate::tasks::{SshContext, TaskEvent, TaskStatus};
-use crossterm::event::{KeyCode, KeyModifiers};
 use secrecy::{ExposeSecret, SecretString};
 use std::sync::Arc;
 use std::time::Instant;
+use termina::event::{KeyCode, Modifiers};
 
 pub fn handle_ssh_connection_init(app: &mut AppState) {
     app.popups.ssh_connection.is_visible = true;
@@ -177,7 +177,7 @@ fn handle_ssh_history_navigation(app: &mut AppState, code: KeyCode) {
     }
 }
 
-fn handle_ssh_text_input(app: &mut AppState, code: KeyCode, modifiers: KeyModifiers) {
+fn handle_ssh_text_input(app: &mut AppState, code: KeyCode, modifiers: Modifiers) {
     let is_numeric = app.popups.ssh_connection.active_field == SshField::Port;
     let (text, cursor) = match app.popups.ssh_connection.active_field {
         SshField::ConnectionString => (
@@ -228,13 +228,13 @@ fn handle_ssh_enter(app: &mut AppState) {
     }
 }
 
-pub fn handle_ssh_connection_event(app: &mut AppState, code: KeyCode, modifiers: KeyModifiers) {
+pub fn handle_ssh_connection_event(app: &mut AppState, code: KeyCode, modifiers: Modifiers) {
     if handle_ssh_confirmation(app, code) {
         return;
     }
 
     match code {
-        KeyCode::Esc => {
+        KeyCode::Escape => {
             app.popups.ssh_connection.is_visible = false;
         }
         KeyCode::Tab | KeyCode::BackTab => {
@@ -449,13 +449,9 @@ fn start_ssh_auth(app: &mut AppState) {
     }
 }
 
-pub fn handle_ssh_password_event(
-    app: &mut AppState,
-    code: KeyCode,
-    modifiers: KeyModifiers,
-) -> bool {
+pub fn handle_ssh_password_event(app: &mut AppState, code: KeyCode, modifiers: Modifiers) -> bool {
     match code {
-        KeyCode::Esc => {
+        KeyCode::Escape => {
             app.popups.ssh_password.is_visible = false;
             if !app.popups.ssh_connection.connection_string.is_empty() {
                 app.popups.ssh_connection.is_visible = true;

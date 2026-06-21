@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use crossterm::event::{KeyCode, KeyModifiers};
     use fm::handlers::popup_rename_tab::{handle_init_rename_tab, handle_rename_tab_event};
     use fm::test_utils::create_test_app;
+    use termina::event::{KeyCode, Modifiers};
 
     #[test]
     fn test_init_rename_tab_opens_popup() {
@@ -20,7 +20,7 @@ mod tests {
     fn test_rename_tab_esc_resets() {
         let mut app = create_test_app();
         handle_init_rename_tab(&mut app);
-        handle_rename_tab_event(KeyCode::Esc, KeyModifiers::NONE, &mut app);
+        handle_rename_tab_event(KeyCode::Escape, Modifiers::NONE, &mut app);
         assert!(!app.popups.rename_tab.is_visible);
     }
 
@@ -29,7 +29,7 @@ mod tests {
         let mut app = create_test_app();
         handle_init_rename_tab(&mut app);
         app.popups.rename_tab.new_name = "New Title".to_string();
-        handle_rename_tab_event(KeyCode::Enter, KeyModifiers::NONE, &mut app);
+        handle_rename_tab_event(KeyCode::Enter, Modifiers::NONE, &mut app);
         assert!(!app.popups.rename_tab.is_visible);
         assert_eq!(app.active_tab().custom_title, Some("New Title".to_string()));
         assert_eq!(app.active_tab().title(), "New Title");
@@ -41,7 +41,7 @@ mod tests {
         app.active_tab_mut().custom_title = Some("Old Title".to_string());
         handle_init_rename_tab(&mut app);
         app.popups.rename_tab.new_name = "   ".to_string();
-        handle_rename_tab_event(KeyCode::Enter, KeyModifiers::NONE, &mut app);
+        handle_rename_tab_event(KeyCode::Enter, Modifiers::NONE, &mut app);
         assert!(!app.popups.rename_tab.is_visible);
         assert_eq!(app.active_tab().custom_title, None);
     }

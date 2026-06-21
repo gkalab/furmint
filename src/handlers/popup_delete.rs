@@ -1,7 +1,7 @@
 //! Delete popup event handler and deletion logic
 
 use crate::app::AppState;
-use crossterm::event::KeyCode;
+use termina::event::KeyCode;
 
 pub fn handle_delete_event(code: KeyCode, app: &mut AppState) -> bool {
     use crate::handlers::popup_utils::{ChoiceResult, get_choice_with_selection};

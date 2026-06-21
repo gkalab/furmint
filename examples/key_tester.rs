@@ -1,29 +1,37 @@
-use crossterm::event::{self, Event, KeyCode};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-use std::io::{self};
+use std::io::{self, Write as _};
+use termina::event::{Event, KeyCode};
+use termina::{PlatformTerminal, Terminal};
 
 fn main() -> io::Result<()> {
-    println!("--- Key Event Diagnostic Tool ---");
-    println!("Press any key to see its event. Press 'q' or 'Esc' to exit.");
+    let mut terminal = PlatformTerminal::new()?;
+    terminal.enter_raw_mode()?;
 
-    enable_raw_mode()?;
+    writeln!(terminal, "--- Key Event Diagnostic Tool ---")?;
+    writeln!(
+        terminal,
+        "Press any key to see its event. Press 'q' or 'Esc' to exit."
+    )?;
+    terminal.flush()?;
 
     loop {
-        if event::poll(std::time::Duration::from_millis(100))?
-            && let Event::Key(key) = event::read()?
-        {
-            disable_raw_mode()?;
-            println!("\r\nEvent: {key:?}");
-            println!("Code: {:?}, Modifiers: {:?}", key.code, key.modifiers);
+        if terminal.poll(|_| true, Some(std::time::Duration::from_millis(100)))? {
+            if let Event::Key(key) = terminal.read(|_| true)? {
+                writeln!(terminal, "\r\nEvent: {key:?}")?;
+                writeln!(
+                    terminal,
+                    "Code: {:?}, Modifiers: {:?}",
+                    key.code, key.modifiers
+                )?;
+                terminal.flush()?;
 
-            if key.code == KeyCode::Char('q') || key.code == KeyCode::Esc {
-                break;
+                if key.code == KeyCode::Char('q') || key.code == KeyCode::Escape {
+                    break;
+                }
             }
-            enable_raw_mode()?;
         }
     }
 
-    disable_raw_mode()?;
+    terminal.enter_cooked_mode()?;
     println!("\r\nExited.");
     Ok(())
 }

@@ -2,7 +2,7 @@
 
 use crate::app::AppState;
 use crate::handlers::popup_utils::handle_button_nav;
-use crossterm::event::KeyCode;
+use termina::event::KeyCode;
 
 pub async fn handle_conflict_event(code: KeyCode, app: &mut AppState) -> bool {
     let task_id = app.popups.conflict.task_id;
@@ -22,7 +22,7 @@ pub async fn handle_conflict_event(code: KeyCode, app: &mut AppState) -> bool {
         },
         KeyCode::Char('o' | 'O') => Some(crate::tasks::TaskDecision::Overwrite),
         KeyCode::Char('s' | 'S') => Some(crate::tasks::TaskDecision::Skip),
-        KeyCode::Char('c' | 'C') | KeyCode::Esc => Some(crate::tasks::TaskDecision::Cancel),
+        KeyCode::Char('c' | 'C') | KeyCode::Escape => Some(crate::tasks::TaskDecision::Cancel),
         KeyCode::Char('a' | 'A') => Some(crate::tasks::TaskDecision::OverwriteAll),
         KeyCode::Char('p' | 'P' | 'n' | 'N') => Some(crate::tasks::TaskDecision::SkipAll),
         KeyCode::Char('m' | 'M') => Some(crate::tasks::TaskDecision::Merge),

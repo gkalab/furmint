@@ -22,26 +22,35 @@ pub mod test_utils;
 pub mod theme;
 pub mod ui;
 
+use crate::app::AppState;
 use crate::app::PendingAction;
+use crate::config::KeyboardConfig;
 use crate::config::load_config;
 use crate::event_loop::run_event_loop;
 use crate::handlers::editor::{execute_open_editor_remote, open_file_in_editor_with_env_handling};
-use crate::handlers::terminal::execute_toggle_console;
+use crate::handlers::terminal::{
+    disable_mouse_capture, enable_mouse_capture, execute_toggle_console,
+};
+use crate::theme::ThemePalette;
 use anyhow::Result;
-use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
-use crossterm::execute;
 use ratatui::Terminal;
 use ratatui::backend::TerminaBackend;
 use ratatui::termina::{PlatformTerminal, Terminal as _};
 use std::env;
-use std::io::stdout;
 
-/// Runs the main application.
-///
-/// # Errors
-///
-/// Returns an error if the application fails to initialize or run.
-pub async fn run() -> Result<()> {
+struct InitializedApp {
+    app: AppState,
+    palette: ThemePalette,
+    keyboard: KeyboardConfig,
+    #[allow(clippy::struct_field_names)]
+    watcher_rx: tokio::sync::mpsc::UnboundedReceiver<crate::fs::watcher::WatcherEvent>,
+    #[allow(clippy::struct_field_names)]
+    task_rx: tokio::sync::mpsc::UnboundedReceiver<crate::tasks::TaskEvent>,
+    #[allow(clippy::struct_field_names)]
+    image_load_rx: tokio::sync::mpsc::UnboundedReceiver<crate::state::ImageLoadResult>,
+}
+
+fn initialize_app() -> Result<InitializedApp> {
     let (keyboard, global_config, editor_cfg, viewer_cfg, ssh_cfg) =
         load_config().map_err(anyhow::Error::msg)?;
 
@@ -55,7 +64,7 @@ pub async fn run() -> Result<()> {
 
     let dir_history = crate::dir_history::DirectoryHistory::new().map_err(anyhow::Error::msg)?;
 
-    let (watcher_tx, mut watcher_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (watcher_tx, watcher_rx) = tokio::sync::mpsc::unbounded_channel();
     let watcher = fs::watcher::AppWatcher::new(&watcher_tx).ok();
     let watcher = if let Some(mut w) = watcher {
         let _ = w.watch(&cwd);
@@ -64,12 +73,12 @@ pub async fn run() -> Result<()> {
         None
     };
 
-    let (task_tx, mut task_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (task_tx, task_rx) = tokio::sync::mpsc::unbounded_channel();
     let task_manager = crate::tasks::TaskManager::new(task_tx.clone());
 
     let persistent_state = crate::app::AppState::load_state().ok().flatten();
 
-    let (image_load_tx, mut image_load_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (image_load_tx, image_load_rx) = tokio::sync::mpsc::unbounded_channel();
     let bookmark_store = crate::bookmarks::BookmarkStore::new()?;
 
     let ctx = crate::app::AppConfigContext {
@@ -109,15 +118,41 @@ pub async fn run() -> Result<()> {
 
     app.sync_watcher();
 
+    Ok(InitializedApp {
+        app,
+        palette,
+        keyboard,
+        watcher_rx,
+        task_rx,
+        image_load_rx,
+    })
+}
+
+/// Runs the main application.
+///
+/// # Errors
+///
+/// Returns an error if the application fails to initialize or run.
+pub async fn run() -> Result<()> {
+    let InitializedApp {
+        mut app,
+        palette,
+        keyboard,
+        mut watcher_rx,
+        mut task_rx,
+        mut image_load_rx,
+    } = initialize_app()?;
+
     loop {
         // 1. Create Terminal
         let mut output = PlatformTerminal::new()?;
         output.enter_raw_mode()?;
+        let reader = output.event_reader();
         let mut terminal = Terminal::new(TerminaBackend::new(output))?;
         terminal.clear()?;
 
         if app.global.mouse.unwrap_or(true) {
-            execute!(stdout(), EnableMouseCapture)?;
+            enable_mouse_capture()?;
         }
 
         // 2. Run Event Loop
@@ -126,14 +161,17 @@ pub async fn run() -> Result<()> {
             &mut app,
             &palette,
             keyboard.clone(),
-            &mut watcher_rx,
-            &mut task_rx,
-            &mut image_load_rx,
+            event_loop::EventSources {
+                reader,
+                watcher_rx: &mut watcher_rx,
+                task_rx: &mut task_rx,
+                image_load_rx: &mut image_load_rx,
+            },
         )
         .await;
 
         if app.global.mouse.unwrap_or(true) {
-            execute!(stdout(), DisableMouseCapture)?;
+            disable_mouse_capture()?;
         }
 
         // 3. Drop Terminal to restore cooked mode

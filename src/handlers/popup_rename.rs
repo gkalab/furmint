@@ -2,7 +2,7 @@
 
 use crate::app::AppState;
 
-use crossterm::event::{KeyCode, KeyModifiers};
+use termina::event::{KeyCode, Modifiers};
 
 pub fn handle_init_rename(app: &mut AppState) {
     let (current_dir, entry) = {
@@ -33,7 +33,7 @@ pub fn handle_init_rename(app: &mut AppState) {
     }
 }
 
-pub fn handle_rename_event(code: KeyCode, modifiers: KeyModifiers, app: &mut AppState) -> bool {
+pub fn handle_rename_event(code: KeyCode, modifiers: Modifiers, app: &mut AppState) -> bool {
     if app.popups.rename.show_overwrite_confirm {
         use crate::handlers::popup_utils::handle_button_nav;
 
@@ -50,7 +50,7 @@ pub fn handle_rename_event(code: KeyCode, modifiers: KeyModifiers, app: &mut App
                 perform_rename(app, true);
                 app.popups.rename.reset();
             }
-            KeyCode::Enter | KeyCode::Char('n' | 'N') | KeyCode::Esc => {
+            KeyCode::Enter | KeyCode::Char('n' | 'N') | KeyCode::Escape => {
                 app.popups.rename.show_overwrite_confirm = false;
                 app.popups.rename.reset();
             }
@@ -60,7 +60,7 @@ pub fn handle_rename_event(code: KeyCode, modifiers: KeyModifiers, app: &mut App
     }
 
     match code {
-        KeyCode::Esc => {
+        KeyCode::Escape => {
             app.popups.rename.reset();
         }
         KeyCode::Enter => {

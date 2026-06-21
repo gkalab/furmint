@@ -1,4 +1,3 @@
-use crossterm::event::KeyCode;
 use fm::app::AppState;
 use fm::clipboard::InMemoryFileClipboard;
 use fm::handlers::popup_conflict::handle_conflict_event;
@@ -7,6 +6,7 @@ use fm::ssh_manager::SshManager;
 use fm::tasks::TaskDecision;
 use std::collections::HashMap;
 use std::path::Path;
+use termina::event::KeyCode;
 use tokio::sync::mpsc;
 
 fn app_with_conflict(task_id: usize) -> (AppState, mpsc::Receiver<TaskDecision>) {

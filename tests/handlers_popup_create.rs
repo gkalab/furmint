@@ -1,5 +1,3 @@
-use crossterm::event::KeyCode;
-use crossterm::event::KeyModifiers;
 use fm::app::{AppState, PanelSide};
 use fm::clipboard::InMemoryFileClipboard;
 use fm::handlers::popup_create::{
@@ -11,6 +9,8 @@ use fm::ssh_manager::SshManager;
 use fm::state::FileViewerState;
 use fm::tasks::TaskEvent;
 use std::path::Path;
+use termina::event::KeyCode;
+use termina::event::Modifiers;
 use tokio::sync::mpsc;
 
 fn basic_app_state() -> AppState {
@@ -78,12 +78,12 @@ fn test_handle_create_directory_event_typing_backspace() {
     handle_init_create_directory(&mut app);
     // A typical typing workflow
     for c in "abc".chars() {
-        handle_create_directory_event(KeyCode::Char(c), KeyModifiers::NONE, &mut app);
+        handle_create_directory_event(KeyCode::Char(c), Modifiers::NONE, &mut app);
     }
     assert_eq!(app.popups.create_directory.new_name, "abc");
     assert_eq!(app.popups.create_directory.cursor_position, 3);
     // Backspace -- removes one char
-    handle_create_directory_event(KeyCode::Backspace, KeyModifiers::NONE, &mut app);
+    handle_create_directory_event(KeyCode::Backspace, Modifiers::NONE, &mut app);
     assert_eq!(app.popups.create_directory.new_name, "ab");
     assert_eq!(app.popups.create_directory.cursor_position, 2);
 }
@@ -92,7 +92,7 @@ fn test_handle_create_directory_event_typing_backspace() {
 fn test_handle_create_directory_enter_empty_fails() {
     let mut app = basic_app_state();
     handle_init_create_directory(&mut app);
-    let ret = handle_create_directory_event(KeyCode::Enter, KeyModifiers::NONE, &mut app);
+    let ret = handle_create_directory_event(KeyCode::Enter, Modifiers::NONE, &mut app);
     // Should not accept empty name
     assert!(!ret);
     assert!(
@@ -106,25 +106,25 @@ fn test_handle_create_directory_navigation() {
     let mut app = basic_app_state();
     handle_init_create_directory(&mut app);
     for c in "abcd".chars() {
-        handle_create_directory_event(KeyCode::Char(c), KeyModifiers::NONE, &mut app);
+        handle_create_directory_event(KeyCode::Char(c), Modifiers::NONE, &mut app);
     }
     assert_eq!(app.popups.create_directory.cursor_position, 4);
 
-    handle_create_directory_event(KeyCode::Left, KeyModifiers::NONE, &mut app);
+    handle_create_directory_event(KeyCode::Left, Modifiers::NONE, &mut app);
     assert_eq!(app.popups.create_directory.cursor_position, 3);
 
-    handle_create_directory_event(KeyCode::Right, KeyModifiers::NONE, &mut app);
+    handle_create_directory_event(KeyCode::Right, Modifiers::NONE, &mut app);
     assert_eq!(app.popups.create_directory.cursor_position, 4);
 
-    handle_create_directory_event(KeyCode::Home, KeyModifiers::NONE, &mut app);
+    handle_create_directory_event(KeyCode::Home, Modifiers::NONE, &mut app);
     assert_eq!(app.popups.create_directory.cursor_position, 0);
 
-    handle_create_directory_event(KeyCode::End, KeyModifiers::NONE, &mut app);
+    handle_create_directory_event(KeyCode::End, Modifiers::NONE, &mut app);
     assert_eq!(app.popups.create_directory.cursor_position, 4);
 
-    handle_create_directory_event(KeyCode::Left, KeyModifiers::NONE, &mut app); // at pos 3
-    handle_create_directory_event(KeyCode::Left, KeyModifiers::NONE, &mut app); // at pos 2
-    handle_create_directory_event(KeyCode::Delete, KeyModifiers::NONE, &mut app); // delete 'c'
+    handle_create_directory_event(KeyCode::Left, Modifiers::NONE, &mut app); // at pos 3
+    handle_create_directory_event(KeyCode::Left, Modifiers::NONE, &mut app); // at pos 2
+    handle_create_directory_event(KeyCode::Delete, Modifiers::NONE, &mut app); // delete 'c'
     assert_eq!(app.popups.create_directory.new_name, "abd");
 }
 
@@ -134,13 +134,13 @@ async fn test_handle_create_file_event() {
     let (_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
     handle_init_create_file(&mut app);
 
-    handle_create_file_event(KeyCode::Char('f'), KeyModifiers::NONE, &mut app).await;
+    handle_create_file_event(KeyCode::Char('f'), Modifiers::NONE, &mut app).await;
     assert_eq!(app.popups.create_file.input_value, "f");
 
-    handle_create_file_event(KeyCode::Backspace, KeyModifiers::NONE, &mut app).await;
+    handle_create_file_event(KeyCode::Backspace, Modifiers::NONE, &mut app).await;
     assert_eq!(app.popups.create_file.input_value, "");
 
-    handle_create_file_event(KeyCode::Esc, KeyModifiers::NONE, &mut app).await;
+    handle_create_file_event(KeyCode::Escape, Modifiers::NONE, &mut app).await;
     assert!(!app.popups.create_file.is_visible);
 }
 
@@ -151,7 +151,7 @@ async fn test_handle_create_file_errors() {
     handle_init_create_file(&mut app);
 
     // Empty name
-    handle_create_file_event(KeyCode::Enter, KeyModifiers::NONE, &mut app).await;
+    handle_create_file_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
     assert!(app.popups.create_file.error.is_some());
     assert!(
         app.popups
@@ -170,7 +170,7 @@ async fn test_handle_create_file_errors() {
     app.popups.create_file.input_value = "fm_existing.txt".to_string();
     app.popups.create_file.cursor_position = 15;
 
-    handle_create_file_event(KeyCode::Enter, KeyModifiers::NONE, &mut app).await;
+    handle_create_file_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
     assert!(app.popups.create_file.error.is_some());
     assert!(
         app.popups
@@ -187,7 +187,7 @@ async fn test_handle_create_file_errors() {
     let input = format!("some_dir{}", std::path::MAIN_SEPARATOR);
     app.popups.create_file.input_value = input.clone();
     app.popups.create_file.cursor_position = input.len();
-    handle_create_file_event(KeyCode::Enter, KeyModifiers::NONE, &mut app).await;
+    handle_create_file_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
     assert!(app.popups.create_file.error.is_some());
     assert!(
         app.popups
@@ -208,7 +208,7 @@ async fn test_handle_create_file_tilde_expansion() {
     // Test ~ expansion (just check if it doesn't immediately fail with "Unsupported")
     app.popups.create_file.input_value = "~".to_string();
     app.popups.create_file.cursor_position = 1;
-    handle_create_file_event(KeyCode::Enter, KeyModifiers::NONE, &mut app).await;
+    handle_create_file_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
     // It might fail because it's a directory, but shouldn't be "Unsupported ~username"
     if let Some(err) = &app.popups.create_file.error {
         assert!(!err.contains("Unsupported ~username"));
@@ -216,7 +216,7 @@ async fn test_handle_create_file_tilde_expansion() {
 
     app.popups.create_file.input_value = "~user".to_string();
     app.popups.create_file.cursor_position = 5;
-    handle_create_file_event(KeyCode::Enter, KeyModifiers::NONE, &mut app).await;
+    handle_create_file_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
     assert!(
         app.popups
             .create_file
@@ -334,7 +334,7 @@ async fn test_handle_create_file_remote_uses_remote_edit_workflow() {
     app.popups.create_file.input_value = "remote_new_file.txt".to_string();
     app.popups.create_file.cursor_position = 18;
 
-    handle_create_file_event(KeyCode::Enter, KeyModifiers::NONE, &mut app).await;
+    handle_create_file_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
 
     // The create file popup should be closed
     assert!(!app.popups.create_file.is_visible);
@@ -358,7 +358,7 @@ async fn test_handle_create_file_remote_uses_remote_edit_workflow() {
     );
 
     // Clean up: simulate user pressing Esc
-    fm::handlers::editor::handle_remote_edit_event(crossterm::event::KeyCode::Esc, &mut app).await;
+    fm::handlers::editor::handle_remote_edit_event(termina::event::KeyCode::Escape, &mut app).await;
 
     assert!(!app.popups.remote_edit.is_visible);
     assert!(!temp_path.exists(), "Temp file should be cleaned up");
@@ -377,23 +377,23 @@ fn test_handle_create_file_navigation() {
         .unwrap();
 
     rt.block_on(async {
-        handle_create_file_event(KeyCode::Left, KeyModifiers::NONE, &mut app).await;
+        handle_create_file_event(KeyCode::Left, Modifiers::NONE, &mut app).await;
         assert_eq!(app.popups.create_file.cursor_position, 7);
 
-        handle_create_file_event(KeyCode::Right, KeyModifiers::NONE, &mut app).await;
+        handle_create_file_event(KeyCode::Right, Modifiers::NONE, &mut app).await;
         assert_eq!(app.popups.create_file.cursor_position, 8);
 
-        handle_create_file_event(KeyCode::Home, KeyModifiers::NONE, &mut app).await;
+        handle_create_file_event(KeyCode::Home, Modifiers::NONE, &mut app).await;
         assert_eq!(app.popups.create_file.cursor_position, 0);
 
-        handle_create_file_event(KeyCode::End, KeyModifiers::NONE, &mut app).await;
+        handle_create_file_event(KeyCode::End, Modifiers::NONE, &mut app).await;
         assert_eq!(app.popups.create_file.cursor_position, 8);
 
-        handle_create_file_event(KeyCode::Delete, KeyModifiers::NONE, &mut app).await; // nothing to delete at end
+        handle_create_file_event(KeyCode::Delete, Modifiers::NONE, &mut app).await; // nothing to delete at end
         assert_eq!(app.popups.create_file.input_value, "test.txt");
 
         app.popups.create_file.cursor_position = 0;
-        handle_create_file_event(KeyCode::Delete, KeyModifiers::NONE, &mut app).await;
+        handle_create_file_event(KeyCode::Delete, Modifiers::NONE, &mut app).await;
         assert_eq!(app.popups.create_file.input_value, "est.txt");
     });
 }

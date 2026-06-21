@@ -1,8 +1,8 @@
 use crate::app::EmptyTrashState;
 use crate::state::{ConfirmationAction, ConfirmationState};
 use crate::theme::ThemePalette;
-use crossterm::event::KeyCode;
 use ratatui::prelude::*;
+use termina::event::KeyCode;
 
 pub fn draw_empty_trash_popup(
     f: &mut ratatui::Frame,

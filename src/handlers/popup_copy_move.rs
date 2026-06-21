@@ -6,9 +6,9 @@ use crate::fs::fs_provider::FileSystemProvider;
 use crate::fs::traits::FileSystem;
 use crate::state::CopyMoveAction;
 use anyhow::{Result, anyhow};
-use crossterm::event::{KeyCode, KeyModifiers};
 use std::path::PathBuf;
 use std::sync::Arc;
+use termina::event::{KeyCode, Modifiers};
 
 fn get_paths_to_act_on(app: &AppState) -> Vec<PathBuf> {
     let tab = app.active_tab();
@@ -411,9 +411,9 @@ async fn try_rsync_directory<F: crate::fs::traits::FileSystem>(
     }
 }
 
-pub fn handle_copy_move_event(code: KeyCode, modifiers: KeyModifiers, app: &mut AppState) -> bool {
+pub fn handle_copy_move_event(code: KeyCode, modifiers: Modifiers, app: &mut AppState) -> bool {
     match code {
-        KeyCode::Esc => {
+        KeyCode::Escape => {
             app.popups.copy_move.reset();
         }
         KeyCode::Enter => {

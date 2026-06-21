@@ -2,7 +2,7 @@
 
 use crate::app::AppState;
 
-use crossterm::event::{KeyCode, KeyModifiers};
+use termina::event::{KeyCode, Modifiers};
 
 pub fn handle_init_create_file(app: &mut AppState) {
     let parent_dir = app.active_tab().current_dir.clone();
@@ -22,11 +22,11 @@ pub fn handle_init_create_directory(app: &mut AppState) {
 
 pub fn handle_create_directory_event(
     code: KeyCode,
-    modifiers: KeyModifiers,
+    modifiers: Modifiers,
     app: &mut AppState,
 ) -> bool {
     match code {
-        KeyCode::Esc => {
+        KeyCode::Escape => {
             app.popups.create_directory.reset();
         }
         KeyCode::Enter => {
@@ -72,12 +72,12 @@ pub fn handle_create_directory_event(
 
 pub async fn handle_create_file_event(
     code: KeyCode,
-    modifiers: KeyModifiers,
+    modifiers: Modifiers,
     app: &mut AppState,
 ) -> bool {
     use std::path::Path;
     match code {
-        KeyCode::Esc => {
+        KeyCode::Escape => {
             app.popups.create_file.reset();
         }
         KeyCode::Enter => {

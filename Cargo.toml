@@ -17,7 +17,7 @@ async-trait = "0.1"
 anyhow = "1.0"
 bytesize = "2.3"
 chrono = "0.4"
-crossterm = "0.29"
+termina = "0.3"
 directories = "6.0"
 filetime = "0.2"
 fuzzy-matcher = "0.3"
@@ -59,7 +59,7 @@ shell-escape = "0.1"
 shell-words = "1.1"
 clipboard = "0.4"
 image = { version = "0.25", features = ["default"] }
-ratatui-image = { version = "10.0", default-features = false, features = ["tokio", "image-defaults", "crossterm"] }
+ratatui-image = { version = "10.0", default-features = false, features = ["tokio", "image-defaults"] }
 zip = "8.6"
 walkdir = "2.5"
 tar = "0.4"

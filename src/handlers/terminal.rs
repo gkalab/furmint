@@ -1,15 +1,34 @@
 //! Terminal event handlers for opening/spawning terminals and toggling console
 
 use crate::app::AppState;
-use crossterm::ExecutableCommand;
-use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
-use crossterm::terminal::{Clear, ClearType};
 use directories::UserDirs;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::process::Command;
 #[cfg(target_os = "windows")]
 use std::process::Stdio;
+
+use std::io::Write;
+
+/// Enables SGR mouse capture mode.
+///
+/// # Errors
+///
+/// Returns an error if writing to stdout fails.
+pub fn enable_mouse_capture() -> std::io::Result<()> {
+    write!(std::io::stdout(), "\x1b[?1000h\x1b[?1002h\x1b[?1006h")?;
+    std::io::stdout().flush()
+}
+
+/// Disables SGR mouse capture mode.
+///
+/// # Errors
+///
+/// Returns an error if writing to stdout fails.
+pub fn disable_mouse_capture() -> std::io::Result<()> {
+    write!(std::io::stdout(), "\x1b[?1006l\x1b[?1002l\x1b[?1000l")?;
+    std::io::stdout().flush()
+}
 
 #[cfg(target_os = "linux")]
 fn spawn_terminal_linux(
@@ -294,6 +313,11 @@ pub async fn handle_toggle_console(app: &mut AppState) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Executes the console toggle: drops to a shell and restores the TUI on exit.
+///
+/// # Errors
+///
+/// Returns an error if the shell command or terminal restoration fails.
 pub async fn execute_toggle_console(app: &mut AppState) -> anyhow::Result<()> {
     // 1. Abort input polling
     if let Some(handle) = app.input_polling_handle.take() {
@@ -301,17 +325,12 @@ pub async fn execute_toggle_console(app: &mut AppState) -> anyhow::Result<()> {
     }
 
     // 2. Clear terminal and reset cursor position
-    std::io::stdout()
-        .execute(crossterm::cursor::Show)?
-        .execute(Clear(ClearType::All))?;
+    write!(std::io::stdout(), "\x1b[?25h\x1b[2J\x1b[H")?;
+    std::io::stdout().flush()?;
 
     if app.global.mouse.unwrap_or(true) {
-        std::io::stdout().execute(DisableMouseCapture)?;
+        disable_mouse_capture()?;
     }
-
-    std::io::stdout()
-        .execute(crossterm::cursor::MoveTo(0, 0))
-        .map_err(|e| anyhow::anyhow!("Failed to reset terminal: {e}"))?;
 
     // 3. Pause watcher
     let panel_current_dir = get_terminal_working_dir(app);
@@ -351,7 +370,7 @@ pub async fn execute_toggle_console(app: &mut AppState) -> anyhow::Result<()> {
 
     // 6. Restore mouse capture if enabled
     if app.global.mouse.unwrap_or(true) {
-        std::io::stdout().execute(EnableMouseCapture)?;
+        enable_mouse_capture()?;
     }
 
     // 7. Refresh all tabs in both panels

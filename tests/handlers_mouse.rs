@@ -1,9 +1,9 @@
-use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use fm::app::AppState;
 use fm::fs::utils::FileEntry;
 use fm::handlers::mouse::handle_mouse_event;
 use ratatui::layout::Rect;
 use std::path::PathBuf;
+use termina::event::{Modifiers, MouseButton, MouseEvent, MouseEventKind};
 
 fn setup_test_app() -> AppState {
     let mut app = AppState::test_default();
@@ -60,7 +60,7 @@ fn test_mouse_click_on_panel_updates_viewer() {
         kind: MouseEventKind::Down(MouseButton::Left),
         column: 5,
         row: 2,
-        modifiers: KeyModifiers::empty(),
+        modifiers: Modifiers::empty(),
     };
 
     handle_mouse_event(&mut app, event);
@@ -94,7 +94,7 @@ fn test_mouse_scroll_updates_viewer() {
         kind: MouseEventKind::ScrollDown,
         column: 5,
         row: 5, // Anywhere outside file viewer
-        modifiers: KeyModifiers::empty(),
+        modifiers: Modifiers::empty(),
     };
 
     handle_mouse_event(&mut app, event);
@@ -132,7 +132,7 @@ fn test_mouse_tab_switch_updates_viewer() {
         kind: MouseEventKind::Down(MouseButton::Left),
         column: 15,
         row: 0,
-        modifiers: KeyModifiers::empty(),
+        modifiers: Modifiers::empty(),
     };
 
     handle_mouse_event(&mut app, event);

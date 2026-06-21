@@ -1,4 +1,3 @@
-use crossterm::event::KeyCode;
 use fm::app::Tab;
 use fm::app::{AppState, PanelSide};
 use fm::clipboard::InMemoryFileClipboard;
@@ -8,6 +7,7 @@ use fm::ssh_manager::SshManager;
 use fm::state::FileViewerState;
 use fm::tasks::TaskEvent;
 use std::path::Path;
+use termina::event::KeyCode;
 use tokio::sync::mpsc;
 
 fn basic_app_with_entry(name: &str) -> AppState {
@@ -90,7 +90,7 @@ fn test_handle_delete_event_esc_resets() {
     let mut app = basic_app_with_entry("will_reset.txt");
     handle_init_delete(&mut app, false);
     assert!(app.popups.delete.is_visible);
-    handle_delete_event(KeyCode::Esc, &mut app);
+    handle_delete_event(KeyCode::Escape, &mut app);
     assert!(!app.popups.delete.is_visible);
 }
 

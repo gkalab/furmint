@@ -1,8 +1,8 @@
 use crate::config::KeyboardConfig;
 use crate::theme::ThemePalette;
-use crossterm::event::KeyCode as CrosstermKeyCode;
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table};
+use termina::event::KeyCode as CrosstermKeyCode;
 
 pub fn draw_help_popup(
     f: &mut ratatui::Frame,
@@ -160,7 +160,7 @@ pub fn handle_help_popup_event(code: CrosstermKeyCode, app: &mut crate::app::App
     // So for "End", we can set it to usize::MAX.
 
     match code {
-        CrosstermKeyCode::Esc => {
+        CrosstermKeyCode::Escape => {
             app.popups.help.reset();
         }
         CrosstermKeyCode::Up => {

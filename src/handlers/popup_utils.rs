@@ -1,6 +1,6 @@
 //! Common utilities for popup handlers
 
-use crossterm::event::KeyCode;
+use termina::event::KeyCode;
 
 /// Result of a popup choice
 pub enum ChoiceResult {
@@ -14,7 +14,7 @@ pub enum ChoiceResult {
 pub fn get_choice(code: KeyCode) -> ChoiceResult {
     match code {
         KeyCode::Enter | KeyCode::Char('y' | 'Y') => ChoiceResult::Confirmed,
-        KeyCode::Esc | KeyCode::Char('n' | 'N') => ChoiceResult::Cancelled,
+        KeyCode::Escape | KeyCode::Char('n' | 'N') => ChoiceResult::Cancelled,
         _ => ChoiceResult::None,
     }
 }
@@ -42,7 +42,7 @@ pub fn handle_button_nav(code: KeyCode, focused: &mut usize, len: usize) -> bool
 pub fn get_choice_with_selection(code: KeyCode, selected_no: &mut bool) -> ChoiceResult {
     match code {
         KeyCode::Char('y' | 'Y') => ChoiceResult::Confirmed,
-        KeyCode::Char('n' | 'N') | KeyCode::Esc => ChoiceResult::Cancelled,
+        KeyCode::Char('n' | 'N') | KeyCode::Escape => ChoiceResult::Cancelled,
         KeyCode::Enter => {
             if *selected_no {
                 ChoiceResult::Cancelled

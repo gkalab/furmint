@@ -1,18 +1,18 @@
 // Shared input handling utilities
 
 use crate::handlers::clipboard_utils::{get_clipboard_content, insert_text_at_cursor_unicode};
-use crossterm::event::{KeyCode, KeyModifiers};
+use termina::event::{KeyCode, Modifiers};
 
 #[must_use]
-pub fn keyevent_to_string(code: KeyCode, modifiers: KeyModifiers) -> String {
+pub fn keyevent_to_string(code: KeyCode, modifiers: Modifiers) -> String {
     let mut parts: Vec<String> = Vec::new();
-    if modifiers.contains(KeyModifiers::CONTROL) {
+    if modifiers.contains(Modifiers::CONTROL) {
         parts.push("Ctrl".to_string());
     }
-    if modifiers.contains(KeyModifiers::ALT) {
+    if modifiers.contains(Modifiers::ALT) {
         parts.push("Alt".to_string());
     }
-    if modifiers.contains(KeyModifiers::SHIFT) {
+    if modifiers.contains(Modifiers::SHIFT) {
         parts.push("Shift".to_string());
     }
     let key = match code {
@@ -29,11 +29,11 @@ pub fn keyevent_to_string(code: KeyCode, modifiers: KeyModifiers) -> String {
         KeyCode::Tab => "Tab".to_string(),
         KeyCode::BackTab => "BackTab".to_string(),
         KeyCode::Delete => "Delete".to_string(),
-        KeyCode::Esc => "Esc".to_string(),
+        KeyCode::Escape => "Esc".to_string(),
         KeyCode::Insert => "Insert".to_string(),
         KeyCode::Char(' ') => "Space".to_string(),
         KeyCode::Char(c) => c.to_string(),
-        KeyCode::F(n) => format!("F{n}"),
+        KeyCode::Function(n) => format!("F{n}"),
         _ => String::new(),
     };
     parts.push(key);
@@ -42,7 +42,7 @@ pub fn keyevent_to_string(code: KeyCode, modifiers: KeyModifiers) -> String {
 
 pub fn handle_text_input(
     code: KeyCode,
-    modifiers: KeyModifiers,
+    modifiers: Modifiers,
     text: &mut String,
     cursor_position: &mut usize,
     is_numeric: bool,
@@ -81,7 +81,7 @@ pub fn handle_text_input(
         KeyCode::End => {
             *cursor_position = text.chars().count();
         }
-        KeyCode::Char('v') if modifiers.contains(KeyModifiers::CONTROL) => {
+        KeyCode::Char('v') if modifiers.contains(Modifiers::CONTROL) => {
             if let Some(content) = get_clipboard_content() {
                 let sanitized = if is_numeric {
                     content.chars().filter(char::is_ascii_digit).collect()

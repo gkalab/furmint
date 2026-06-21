@@ -1,4 +1,3 @@
-use crossterm::event::{KeyCode, KeyModifiers};
 use fm::app::{AppState, PanelSide, Tab};
 use fm::clipboard::InMemoryFileClipboard;
 use fm::fs::utils::FileEntry;
@@ -7,6 +6,7 @@ use fm::ssh_history::SshConnectionHistory;
 use fm::ssh_manager::SshManager;
 use fm::state::FileViewerState;
 use fm::tasks::TaskEvent;
+use termina::event::{KeyCode, Modifiers};
 use tokio::sync::mpsc;
 
 fn test_app_with_entry(name: &str, is_dir: bool, path: &std::path::Path) -> AppState {
@@ -89,9 +89,9 @@ fn test_rename_typing_and_backspace() {
     let mut app = test_app_with_entry("file.txt", false, &std::path::PathBuf::from("/tmp"));
     handle_init_rename(&mut app);
     let orig = app.popups.rename.new_name.clone();
-    handle_rename_event(KeyCode::Char('a'), KeyModifiers::NONE, &mut app);
+    handle_rename_event(KeyCode::Char('a'), Modifiers::NONE, &mut app);
     assert_ne!(app.popups.rename.new_name, orig);
-    handle_rename_event(KeyCode::Backspace, KeyModifiers::NONE, &mut app);
+    handle_rename_event(KeyCode::Backspace, Modifiers::NONE, &mut app);
     assert_eq!(app.popups.rename.new_name, orig);
 }
 
@@ -100,7 +100,7 @@ fn test_rename_esc_resets() {
     let mut app = test_app_with_entry("other.txt", false, &std::path::PathBuf::from("/tmp"));
     handle_init_rename(&mut app);
     assert!(app.popups.rename.is_visible);
-    handle_rename_event(KeyCode::Esc, KeyModifiers::NONE, &mut app);
+    handle_rename_event(KeyCode::Escape, Modifiers::NONE, &mut app);
     assert!(!app.popups.rename.is_visible);
 }
 
@@ -109,7 +109,7 @@ fn test_rename_enter_same_name_resets() {
     let mut app = test_app_with_entry("foo.txt", false, &std::path::PathBuf::from("/tmp"));
     handle_init_rename(&mut app);
     assert!(app.popups.rename.is_visible);
-    handle_rename_event(KeyCode::Enter, KeyModifiers::NONE, &mut app);
+    handle_rename_event(KeyCode::Enter, Modifiers::NONE, &mut app);
     assert!(!app.popups.rename.is_visible);
 }
 
@@ -120,16 +120,16 @@ fn test_rename_navigation() {
     // Original name is test.txt, stem is test (len 4), cursor should be at 4
     assert_eq!(app.popups.rename.cursor_position, 4);
 
-    handle_rename_event(KeyCode::Home, KeyModifiers::NONE, &mut app);
+    handle_rename_event(KeyCode::Home, Modifiers::NONE, &mut app);
     assert_eq!(app.popups.rename.cursor_position, 0);
 
-    handle_rename_event(KeyCode::End, KeyModifiers::NONE, &mut app);
+    handle_rename_event(KeyCode::End, Modifiers::NONE, &mut app);
     assert_eq!(app.popups.rename.cursor_position, 8); // test.txt len
 
-    handle_rename_event(KeyCode::Left, KeyModifiers::NONE, &mut app);
+    handle_rename_event(KeyCode::Left, Modifiers::NONE, &mut app);
     assert_eq!(app.popups.rename.cursor_position, 7);
 
-    handle_rename_event(KeyCode::Delete, KeyModifiers::NONE, &mut app); // delete last 't'
+    handle_rename_event(KeyCode::Delete, Modifiers::NONE, &mut app); // delete last 't'
     assert_eq!(app.popups.rename.new_name, "test.tx");
 }
 
@@ -152,10 +152,10 @@ fn test_rename_overwrite_flow() {
     app.popups.rename.new_name = "file2.txt".to_string();
     app.popups.rename.cursor_position = 9;
 
-    handle_rename_event(KeyCode::Enter, KeyModifiers::NONE, &mut app);
+    handle_rename_event(KeyCode::Enter, Modifiers::NONE, &mut app);
     assert!(app.popups.rename.show_overwrite_confirm);
 
-    handle_rename_event(KeyCode::Char('y'), KeyModifiers::NONE, &mut app);
+    handle_rename_event(KeyCode::Char('y'), Modifiers::NONE, &mut app);
     // On Unix, rename is usually successful.
     // We check if the popup was reset, which happens on success.
     assert!(!app.popups.rename.is_visible);

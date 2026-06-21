@@ -1,4 +1,3 @@
-use crossterm::event::{KeyCode, KeyModifiers};
 use fm::app::{AppState, PanelSide};
 use fm::clipboard::InMemoryFileClipboard;
 use fm::config::GlobalConfig;
@@ -15,6 +14,7 @@ use fm::tasks::{TaskEvent, TaskManager};
 #[cfg(unix)]
 use secrecy::ExposeSecret;
 use std::path::Path;
+use termina::event::{KeyCode, Modifiers};
 use tokio::sync::mpsc;
 
 fn basic_app_state() -> AppState {
@@ -105,22 +105,22 @@ fn test_ssh_field_cycling() {
         SshField::ConnectionString
     );
 
-    handle_ssh_connection_event(&mut app, KeyCode::Tab, KeyModifiers::NONE);
+    handle_ssh_connection_event(&mut app, KeyCode::Tab, Modifiers::NONE);
     assert_eq!(app.popups.ssh_connection.active_field, SshField::Name);
 
-    handle_ssh_connection_event(&mut app, KeyCode::Tab, KeyModifiers::NONE);
+    handle_ssh_connection_event(&mut app, KeyCode::Tab, Modifiers::NONE);
     assert_eq!(app.popups.ssh_connection.active_field, SshField::Port);
 
-    handle_ssh_connection_event(&mut app, KeyCode::Tab, KeyModifiers::NONE);
+    handle_ssh_connection_event(&mut app, KeyCode::Tab, Modifiers::NONE);
     assert_eq!(app.popups.ssh_connection.active_field, SshField::History);
 
-    handle_ssh_connection_event(&mut app, KeyCode::Tab, KeyModifiers::NONE);
+    handle_ssh_connection_event(&mut app, KeyCode::Tab, Modifiers::NONE);
     assert_eq!(
         app.popups.ssh_connection.active_field,
         SshField::ConnectionString
     );
 
-    handle_ssh_connection_event(&mut app, KeyCode::BackTab, KeyModifiers::NONE);
+    handle_ssh_connection_event(&mut app, KeyCode::BackTab, Modifiers::NONE);
     assert_eq!(app.popups.ssh_connection.active_field, SshField::History);
 }
 
@@ -131,13 +131,13 @@ fn test_ssh_editing_cursor_movement() {
     app.popups.ssh_connection.connection_string = "root@host".to_string();
     app.popups.ssh_connection.cursor_position = 9;
 
-    handle_ssh_connection_event(&mut app, KeyCode::Left, KeyModifiers::NONE);
+    handle_ssh_connection_event(&mut app, KeyCode::Left, Modifiers::NONE);
     assert_eq!(app.popups.ssh_connection.cursor_position, 8);
 
-    handle_ssh_connection_event(&mut app, KeyCode::Home, KeyModifiers::NONE);
+    handle_ssh_connection_event(&mut app, KeyCode::Home, Modifiers::NONE);
     assert_eq!(app.popups.ssh_connection.cursor_position, 0);
 
-    handle_ssh_connection_event(&mut app, KeyCode::End, KeyModifiers::NONE);
+    handle_ssh_connection_event(&mut app, KeyCode::End, Modifiers::NONE);
     assert_eq!(app.popups.ssh_connection.cursor_position, 9);
 }
 
@@ -149,17 +149,17 @@ fn test_ssh_insert_delete() {
     app.popups.ssh_connection.cursor_position = 0;
 
     // Insert at start
-    handle_ssh_connection_event(&mut app, KeyCode::Char('a'), KeyModifiers::NONE);
+    handle_ssh_connection_event(&mut app, KeyCode::Char('a'), Modifiers::NONE);
     assert_eq!(app.popups.ssh_connection.connection_string, "ahost");
     assert_eq!(app.popups.ssh_connection.cursor_position, 1);
 
     // Delete at position 1 (deletes 'h')
-    handle_ssh_connection_event(&mut app, KeyCode::Delete, KeyModifiers::NONE);
+    handle_ssh_connection_event(&mut app, KeyCode::Delete, Modifiers::NONE);
     assert_eq!(app.popups.ssh_connection.connection_string, "aost");
     assert_eq!(app.popups.ssh_connection.cursor_position, 1);
 
     // Backspace (deletes 'a')
-    handle_ssh_connection_event(&mut app, KeyCode::Backspace, KeyModifiers::NONE);
+    handle_ssh_connection_event(&mut app, KeyCode::Backspace, Modifiers::NONE);
     assert_eq!(app.popups.ssh_connection.connection_string, "ost");
     assert_eq!(app.popups.ssh_connection.cursor_position, 0);
 }
@@ -185,7 +185,7 @@ fn test_history_search_reset() {
     app.popups.ssh_connection.active_field = SshField::History;
 
     // Type 't'
-    handle_ssh_connection_event(&mut app, KeyCode::Char('t'), KeyModifiers::NONE);
+    handle_ssh_connection_event(&mut app, KeyCode::Char('t'), Modifiers::NONE);
     assert_eq!(app.popups.ssh_connection.search_query, "t");
     assert_eq!(app.popups.ssh_connection.selected_history_idx, Some(0));
 

@@ -2,8 +2,6 @@
 
 use crate::app::AppState;
 use crate::fs::fs_provider::FileSystemProvider;
-use crossterm::ExecutableCommand;
-use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -110,6 +108,11 @@ pub(crate) async fn edit_file_remote(
     Ok(())
 }
 
+/// Opens a remote file in a local editor and uploads the result.
+///
+/// # Errors
+///
+/// Returns an error if the editor launch or file upload fails.
 pub async fn execute_open_editor_remote(
     app: &mut AppState,
     temp_path: std::path::PathBuf,
@@ -138,11 +141,11 @@ pub async fn execute_open_editor_remote(
     }
 
     if app.global.mouse.unwrap_or(true) {
-        let _ = std::io::stdout().execute(DisableMouseCapture);
+        let _ = crate::handlers::terminal::disable_mouse_capture();
     }
     let edit_result = launch_and_wait_for_editor(&temp_path, cmd, in_terminal).await;
     if app.global.mouse.unwrap_or(true) {
-        let _ = std::io::stdout().execute(EnableMouseCapture);
+        let _ = crate::handlers::terminal::enable_mouse_capture();
     }
 
     if let Some(watcher) = &mut app.watcher {
@@ -375,7 +378,7 @@ pub async fn open_file_in_editor_with_env_handling(
         let in_terminal = app.editor_cfg.in_terminal.unwrap_or(true);
         move || {
             if use_mouse {
-                let _ = std::io::stdout().execute(DisableMouseCapture);
+                let _ = crate::handlers::terminal::disable_mouse_capture();
             }
             let res = if let Some(cmd_str) = cmd {
                 launch_and_wait_for_editor_sync(&path, Some(&cmd_str), in_terminal)
@@ -383,7 +386,7 @@ pub async fn open_file_in_editor_with_env_handling(
                 open_in_default_editor(&path)
             };
             if use_mouse {
-                let _ = std::io::stdout().execute(EnableMouseCapture);
+                let _ = crate::handlers::terminal::enable_mouse_capture();
             }
             res
         }
@@ -418,9 +421,9 @@ pub async fn open_file_in_editor_with_env_handling(
     }
 }
 
-pub async fn handle_remote_edit_event(code: crossterm::event::KeyCode, app: &mut AppState) -> bool {
+pub async fn handle_remote_edit_event(code: termina::event::KeyCode, app: &mut AppState) -> bool {
     use crate::handlers::popup_utils::handle_button_nav;
-    use crossterm::event::KeyCode;
+    use termina::event::KeyCode;
 
     if handle_button_nav(code, &mut app.popups.remote_edit.focused_button, 2) {
         return false;
@@ -435,7 +438,7 @@ pub async fn handle_remote_edit_event(code: crossterm::event::KeyCode, app: &mut
             do_remote_edit_upload(app).await;
             false
         }
-        KeyCode::Enter | KeyCode::Char('c' | 'C') | KeyCode::Esc => {
+        KeyCode::Enter | KeyCode::Char('c' | 'C') | KeyCode::Escape => {
             let temp_path = app.popups.remote_edit.temp_path.clone();
             let _ = tokio::fs::remove_file(&temp_path).await;
             app.popups.remote_edit.reset();
@@ -692,7 +695,7 @@ mod tests {
             focused_button: 0,
         };
 
-        let result = handle_remote_edit_event(crossterm::event::KeyCode::Esc, &mut app).await;
+        let result = handle_remote_edit_event(termina::event::KeyCode::Escape, &mut app).await;
 
         assert!(!result);
         assert!(!app.popups.remote_edit.is_visible);
@@ -720,7 +723,7 @@ mod tests {
             focused_button: 1,
         };
 
-        let result = handle_remote_edit_event(crossterm::event::KeyCode::Enter, &mut app).await;
+        let result = handle_remote_edit_event(termina::event::KeyCode::Enter, &mut app).await;
         assert!(!result);
         assert!(!app.popups.remote_edit.is_visible);
         assert_eq!(
@@ -880,7 +883,7 @@ mod tests {
             focused_button: 1,
         };
 
-        let result = handle_remote_edit_event(crossterm::event::KeyCode::Enter, &mut app).await;
+        let result = handle_remote_edit_event(termina::event::KeyCode::Enter, &mut app).await;
 
         assert!(!result);
         assert!(!app.popups.remote_edit.is_visible);

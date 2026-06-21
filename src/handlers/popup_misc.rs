@@ -1,8 +1,8 @@
 //! Miscellaneous popup event handlers: quit, help, `empty_trash`, `drive_select`
 
 use crate::app::AppState;
-use crossterm::event::KeyCode;
 use secrecy::SecretString;
+use termina::event::KeyCode;
 
 static LAST_REFRESH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -204,7 +204,7 @@ fn handle_archive_loaded(
 
 pub(crate) fn handle_task_manager_event(code: KeyCode, app: &mut AppState) -> bool {
     match code {
-        KeyCode::Esc => {
+        KeyCode::Escape => {
             app.show_task_manager = false;
         }
         KeyCode::Char('c') => {

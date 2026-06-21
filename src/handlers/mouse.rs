@@ -1,7 +1,7 @@
 use crate::app::{AppState, PanelSide};
-use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 use std::time::{Duration, Instant};
+use termina::event::{MouseButton, MouseEvent, MouseEventKind};
 
 pub fn handle_mouse_event(app: &mut AppState, event: MouseEvent) {
     match event.kind {

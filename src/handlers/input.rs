@@ -21,12 +21,12 @@ use crate::handlers::{
     tabs::{handle_close_tab, handle_new_tab, handle_next_tab, handle_prev_tab},
     terminal::handle_open_terminal,
 };
-use crossterm::event::{KeyCode, KeyModifiers};
 use std::sync::Arc;
+use termina::event::{KeyCode, Modifiers};
 
 pub async fn handle_main_panel_event(
     code: KeyCode,
-    modifiers: KeyModifiers,
+    modifiers: Modifiers,
     app: &mut AppState,
     keyboard: &KeyboardConfig,
 ) -> bool {
@@ -193,16 +193,16 @@ fn handle_tab_shortcuts(app: &mut AppState, keyboard: &KeyboardConfig, shortcut:
     false
 }
 
-fn handle_clipboard_shortcuts(app: &mut AppState, code: KeyCode, modifiers: KeyModifiers) -> bool {
-    if code == KeyCode::Char('c') && modifiers.contains(KeyModifiers::CONTROL) {
+fn handle_clipboard_shortcuts(app: &mut AppState, code: KeyCode, modifiers: Modifiers) -> bool {
+    if code == KeyCode::Char('c') && modifiers.contains(Modifiers::CONTROL) {
         handle_clipboard_copy(app);
         return true;
     }
-    if code == KeyCode::Char('x') && modifiers.contains(KeyModifiers::CONTROL) {
+    if code == KeyCode::Char('x') && modifiers.contains(Modifiers::CONTROL) {
         handle_clipboard_cut(app);
         return true;
     }
-    if code == KeyCode::Char('v') && modifiers.contains(KeyModifiers::CONTROL) {
+    if code == KeyCode::Char('v') && modifiers.contains(Modifiers::CONTROL) {
         handle_paste(app);
         return true;
     }
@@ -438,8 +438,8 @@ fn handle_sorting_shortcuts(app: &mut AppState, keyboard: &KeyboardConfig, short
     false
 }
 
-fn handle_basic_nav(app: &mut AppState, code: KeyCode, modifiers: KeyModifiers) {
-    if let (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) = (code, modifiers) {
+fn handle_basic_nav(app: &mut AppState, code: KeyCode, modifiers: Modifiers) {
+    if let (KeyCode::Char(c), Modifiers::NONE | Modifiers::SHIFT) = (code, modifiers) {
         handle_type_char(app, c);
     } else {
         // Extract values needed from panel, then drop the borrow
@@ -449,7 +449,7 @@ fn handle_basic_nav(app: &mut AppState, code: KeyCode, modifiers: KeyModifiers) 
         };
 
         match (code, modifiers) {
-            (KeyCode::Tab, KeyModifiers::NONE) => handle_tab(app),
+            (KeyCode::Tab, Modifiers::NONE) => handle_tab(app),
             (KeyCode::Up, _) => {
                 if search_active {
                     handle_up_search(app);
@@ -487,10 +487,10 @@ fn handle_basic_nav(app: &mut AppState, code: KeyCode, modifiers: KeyModifiers) 
                 handle_end(app);
             }
             (KeyCode::Enter, _) => handle_open_item(app),
-            (KeyCode::Esc, _) => {
+            (KeyCode::Escape, _) => {
                 reset_search(app);
             }
-            (KeyCode::Char(' '), KeyModifiers::NONE) => handle_toggle_selection(app),
+            (KeyCode::Char(' '), Modifiers::NONE) => handle_toggle_selection(app),
             (KeyCode::Insert, _) => {
                 handle_toggle_selection(app);
                 handle_down(app);

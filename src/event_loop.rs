@@ -2,32 +2,40 @@ use crate::app::AppState;
 use crate::config::KeyboardConfig;
 use crate::handlers::navigation::reset_expired_search;
 use crate::handlers::popup_misc::handle_task_event;
+use crate::handlers::terminal::{disable_mouse_capture, enable_mouse_capture};
 use crate::theme::ThemePalette;
+use ratatui::Terminal;
+use termina::EventReader;
+use termina::event::Event;
 use tokio::sync::mpsc::UnboundedReceiver;
-
-use crossterm::event::{self, Event};
-use ratatui::prelude::*;
 
 #[must_use]
 pub fn spawn_input_polling(
-    input_tx: tokio::sync::mpsc::UnboundedSender<crossterm::event::Event>,
+    input_tx: tokio::sync::mpsc::UnboundedSender<Event>,
+    reader: EventReader,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
             if input_tx.is_closed() {
                 break;
             }
-            match tokio::task::spawn_blocking(|| event::poll(std::time::Duration::from_millis(100)))
-                .await
+            match tokio::task::spawn_blocking({
+                let reader = reader.clone();
+                move || reader.poll(Some(std::time::Duration::from_millis(100)), |_| true)
+            })
+            .await
             {
-                Ok(Ok(true)) => match event::read() {
-                    Ok(ev) => {
-                        if input_tx.send(ev).is_err() {
-                            break;
+                Ok(Ok(true)) => {
+                    let reader = reader.clone();
+                    match tokio::task::spawn_blocking(move || reader.read(|_| true)).await {
+                        Ok(Ok(ev)) => {
+                            if input_tx.send(ev).is_err() {
+                                break;
+                            }
                         }
+                        _ => break,
                     }
-                    Err(_) => break,
-                },
+                }
                 Ok(Ok(false)) => {}
                 Ok(Err(_)) | Err(_) => break,
             }
@@ -35,19 +43,25 @@ pub fn spawn_input_polling(
     })
 }
 
+/// Input event sources for the event loop.
+pub(crate) struct EventSources<'a> {
+    pub reader: EventReader,
+    pub watcher_rx: &'a mut UnboundedReceiver<crate::fs::watcher::WatcherEvent>,
+    pub task_rx: &'a mut UnboundedReceiver<crate::tasks::TaskEvent>,
+    pub image_load_rx: &'a mut UnboundedReceiver<crate::state::ImageLoadResult>,
+}
+
 /// Runs the main event loop for the application.
 ///
 /// # Errors
 ///
 /// Returns an error if the event loop encounters an unrecoverable error.
-pub async fn run_event_loop<B>(
+pub(crate) async fn run_event_loop<B>(
     terminal: &mut Terminal<B>,
     app: &mut AppState,
     palette: &ThemePalette,
     keyboard: KeyboardConfig,
-    watcher_rx: &mut UnboundedReceiver<crate::fs::watcher::WatcherEvent>,
-    task_rx: &mut UnboundedReceiver<crate::tasks::TaskEvent>,
-    image_load_rx: &mut UnboundedReceiver<crate::state::ImageLoadResult>,
+    sources: EventSources<'_>,
 ) -> anyhow::Result<Option<crate::app::PendingAction>>
 where
     B: ratatui::backend::Backend,
@@ -57,7 +71,10 @@ where
     let (input_tx, mut input_rx) = tokio::sync::mpsc::unbounded_channel();
 
     // Start input polling and store handle
-    app.input_polling_handle = Some(spawn_input_polling(input_tx.clone()));
+    app.input_polling_handle = Some(spawn_input_polling(
+        input_tx.clone(),
+        sources.reader.clone(),
+    ));
 
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
 
@@ -70,7 +87,10 @@ where
     while !should_exit {
         // Automatically resume input polling if it was taken by a handler
         if app.input_polling_handle.is_none() {
-            app.input_polling_handle = Some(spawn_input_polling(input_tx.clone()));
+            app.input_polling_handle = Some(spawn_input_polling(
+                input_tx.clone(),
+                sources.reader.clone(),
+            ));
         }
 
         // Explicit redraw if requested (e.g. after editor or console toggle)
@@ -81,7 +101,7 @@ where
         }
         tokio::select! {
                             // Handle watcher events
-                            Some(event) = watcher_rx.recv() => {
+                            Some(event) = sources.watcher_rx.recv() => {
                                 handle_watcher_event(event, app);
                                 app.sync_watcher();
                                 draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
@@ -116,7 +136,7 @@ where
                                 app.sync_watcher();
                             }
                             // Handle task events
-                            Some(event) = task_rx.recv() => {
+                            Some(event) = sources.task_rx.recv() => {
                                 handle_task_event(event, app);
                                 draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
                             }
@@ -152,7 +172,7 @@ where
                                 }
                             }
                             // Handle image load results
-                            Some(load_result) = image_load_rx.recv() => {
+                            Some(load_result) = sources.image_load_rx.recv() => {
                                 app.file_viewer.handle_load_result(load_result);
                                 draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
                             }
@@ -221,9 +241,9 @@ where
     let should_mouse_be_active = app.global.mouse.unwrap_or(true) && !app.popups.any_visible();
     if should_mouse_be_active != *mouse_capture_active {
         if should_mouse_be_active {
-            let _ = crossterm::execute!(std::io::stdout(), crossterm::event::EnableMouseCapture);
+            let _ = enable_mouse_capture();
         } else {
-            let _ = crossterm::execute!(std::io::stdout(), crossterm::event::DisableMouseCapture);
+            let _ = disable_mouse_capture();
         }
         *mouse_capture_active = should_mouse_be_active;
     }
@@ -244,20 +264,20 @@ pub async fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConf
 mod tests {
     use super::*;
     use crate::handlers::input_utils::keyevent_to_string;
-    use crossterm::event::{KeyCode, KeyModifiers};
+    use termina::event::{KeyCode, Modifiers};
 
     #[test]
     fn test_keyevent_to_string() {
         assert_eq!(
-            keyevent_to_string(KeyCode::F(3), KeyModifiers::CONTROL),
+            keyevent_to_string(KeyCode::Function(3), Modifiers::CONTROL),
             "Ctrl-F3"
         );
         assert_eq!(
-            keyevent_to_string(KeyCode::Char('p'), KeyModifiers::CONTROL),
+            keyevent_to_string(KeyCode::Char('p'), Modifiers::CONTROL),
             "Ctrl-p"
         );
         assert_eq!(
-            keyevent_to_string(KeyCode::Left, KeyModifiers::ALT),
+            keyevent_to_string(KeyCode::Left, Modifiers::ALT),
             "Alt-Left"
         );
     }
@@ -341,7 +361,7 @@ mod tests {
     #[tokio::test]
     async fn test_handle_insert_moves_cursor_down() {
         use crate::fs::utils::FileEntry;
-        use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+        use termina::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, Modifiers};
         let mut app = crate::app::AppState::test_default();
         app.left.active_tab_mut().current_dir = std::path::PathBuf::from("/mock");
         app.left.active_tab_mut().entries = vec![
@@ -367,7 +387,7 @@ mod tests {
         app.right.active_tab_mut().current_dir = std::path::PathBuf::from("/mock");
 
         let keyboard = KeyboardConfig::default();
-        let (_input_tx, _) = tokio::sync::mpsc::unbounded_channel::<crossterm::event::Event>();
+        let (_input_tx, _) = tokio::sync::mpsc::unbounded_channel::<Event>();
 
         // Initial state: cursor at 0, file1 not selected
         assert_eq!(app.left.active_tab().cursor, 0);
@@ -376,9 +396,9 @@ mod tests {
         handle_event(
             Event::Key(KeyEvent {
                 code: KeyCode::Insert,
-                modifiers: KeyModifiers::NONE,
-                kind: event::KeyEventKind::Press,
-                state: event::KeyEventState::NONE,
+                modifiers: Modifiers::NONE,
+                kind: KeyEventKind::Press,
+                state: KeyEventState::NONE,
             }),
             &mut app,
             &keyboard,

@@ -1,6 +1,6 @@
 use crate::app::AppState;
 use crate::handlers::input_utils::handle_text_input;
-use crossterm::event::{KeyCode, KeyModifiers};
+use termina::event::{KeyCode, Modifiers};
 
 pub fn handle_init_rename_tab(app: &mut AppState) {
     let tab = app.active_tab();
@@ -15,9 +15,9 @@ pub fn handle_init_rename_tab(app: &mut AppState) {
     state.cursor_position = current_title.len();
 }
 
-pub fn handle_rename_tab_event(code: KeyCode, modifiers: KeyModifiers, app: &mut AppState) -> bool {
+pub fn handle_rename_tab_event(code: KeyCode, modifiers: Modifiers, app: &mut AppState) -> bool {
     match code {
-        KeyCode::Esc => {
+        KeyCode::Escape => {
             app.popups.rename_tab.reset();
         }
         KeyCode::Enter => {

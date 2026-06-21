@@ -2,9 +2,9 @@
 
 use crate::app::AppState;
 use clipboard::ClipboardProvider;
-use crossterm::event::{KeyCode, KeyModifiers};
+use termina::event::{KeyCode, Modifiers};
 
-pub fn handle_file_viewer_event(code: KeyCode, modifiers: KeyModifiers, app: &mut AppState) {
+pub fn handle_file_viewer_event(code: KeyCode, modifiers: Modifiers, app: &mut AppState) {
     if handle_viewer_copy(code, modifiers, app) {
         return;
     }
@@ -25,8 +25,8 @@ pub fn handle_file_viewer_event(code: KeyCode, modifiers: KeyModifiers, app: &mu
     }
 }
 
-fn handle_viewer_copy(code: KeyCode, modifiers: KeyModifiers, app: &mut AppState) -> bool {
-    if code == KeyCode::Char('c') && modifiers == KeyModifiers::CONTROL {
+fn handle_viewer_copy(code: KeyCode, modifiers: Modifiers, app: &mut AppState) -> bool {
+    if code == KeyCode::Char('c') && modifiers == Modifiers::CONTROL {
         if let Some(text) = app.file_viewer.get_selected_text() {
             if let Ok(mut ctx) = clipboard::ClipboardContext::new() {
                 if let Err(e) = ctx.set_contents(text) {
@@ -76,7 +76,7 @@ fn handle_viewer_navigation(code: KeyCode, app: &mut AppState) {
     }
 }
 
-fn handle_viewer_shortcuts(code: KeyCode, modifiers: KeyModifiers, app: &mut AppState) {
+fn handle_viewer_shortcuts(code: KeyCode, modifiers: Modifiers, app: &mut AppState) {
     let shortcut = crate::handlers::input_utils::keyevent_to_string(code, modifiers);
 
     if app
@@ -138,11 +138,11 @@ fn handle_viewer_shortcuts(code: KeyCode, modifiers: KeyModifiers, app: &mut App
 
 pub fn handle_viewer_search_event(
     code: KeyCode,
-    _modifiers: KeyModifiers,
+    _modifiers: Modifiers,
     app: &mut AppState,
 ) -> bool {
     match code {
-        KeyCode::Esc => {
+        KeyCode::Escape => {
             app.popups.viewer_search.is_visible = false;
         }
         KeyCode::Enter => {

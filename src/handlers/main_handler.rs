@@ -15,12 +15,12 @@ use crate::handlers::popup_rename::handle_rename_event;
 use crate::handlers::popup_rename_tab::handle_rename_tab_event;
 use crate::handlers::popup_ssh::{handle_ssh_connection_event, handle_ssh_password_event};
 use crate::handlers::terminal::handle_toggle_console;
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+use termina::event::{Event, KeyCode, KeyEvent, Modifiers};
 
 pub async fn route_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfig) -> bool {
     match ev {
         Event::Key(KeyEvent {
-            kind: crossterm::event::KeyEventKind::Press,
+            kind: termina::event::KeyEventKind::Press,
             code,
             modifiers,
             ..
@@ -67,7 +67,7 @@ fn handle_quit_and_interceptors(
     app: &mut AppState,
     keyboard: &KeyboardConfig,
     code: KeyCode,
-    _modifiers: KeyModifiers,
+    _modifiers: Modifiers,
     shortcut: &str,
 ) -> Option<bool> {
     let quit_match = keyboard
@@ -75,7 +75,7 @@ fn handle_quit_and_interceptors(
         .as_ref()
         .is_some_and(|keys| keys.iter().any(|s| s == shortcut));
 
-    if (quit_match && code != KeyCode::Esc)
+    if (quit_match && code != KeyCode::Escape)
         || (quit_match
             && !app.file_viewer.is_visible
             && !app.fuzzy_search.list.is_visible
@@ -104,7 +104,7 @@ fn handle_quit_and_interceptors(
 async fn handle_popup_events(
     app: &mut AppState,
     code: KeyCode,
-    modifiers: KeyModifiers,
+    modifiers: Modifiers,
 ) -> Option<bool> {
     if app.popups.error.is_visible {
         return Some(handle_error_event(code, app).await);
@@ -176,11 +176,11 @@ async fn handle_global_interceptors(
     app: &mut AppState,
     keyboard: &KeyboardConfig,
     code: KeyCode,
-    modifiers: KeyModifiers,
+    modifiers: Modifiers,
     shortcut: &str,
 ) -> Option<bool> {
     // F3 / Viewer toggle
-    if code == KeyCode::F(3) && modifiers == KeyModifiers::NONE && !app.file_viewer.focused {
+    if code == KeyCode::Function(3) && modifiers == Modifiers::NONE && !app.file_viewer.focused {
         if crate::handlers::file_viewer::handle_external_viewer(app) {
             return Some(false);
         }
@@ -194,7 +194,7 @@ async fn handle_global_interceptors(
     }
 
     // Esc closes viewer
-    if app.file_viewer.is_visible && code == KeyCode::Esc {
+    if app.file_viewer.is_visible && code == KeyCode::Escape {
         app.file_viewer.is_visible = false;
         app.file_viewer.focused = false;
         return Some(false);
