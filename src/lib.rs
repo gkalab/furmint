@@ -22,14 +22,17 @@ pub mod test_utils;
 pub mod theme;
 pub mod ui;
 
+use crate::app::PendingAction;
 use crate::config::load_config;
 use crate::event_loop::run_event_loop;
+use crate::handlers::editor::{execute_open_editor_remote, open_file_in_editor_with_env_handling};
+use crate::handlers::terminal::execute_toggle_console;
 use anyhow::Result;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::execute;
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use ratatui::Terminal;
-use ratatui::backend::CrosstermBackend;
+use ratatui::backend::TerminaBackend;
+use ratatui::termina::{PlatformTerminal, Terminal as _};
 use std::env;
 use std::io::stdout;
 
@@ -39,9 +42,6 @@ use std::io::stdout;
 ///
 /// Returns an error if the application fails to initialize or run.
 pub async fn run() -> Result<()> {
-    enable_raw_mode()?;
-    let mut terminal = Terminal::new(CrosstermBackend::new(std::io::stdout()))?;
-
     let (keyboard, global_config, editor_cfg, viewer_cfg, ssh_cfg) =
         load_config().map_err(anyhow::Error::msg)?;
 
@@ -50,7 +50,6 @@ pub async fn run() -> Result<()> {
         .as_deref()
         .unwrap_or("catppuccin macchiato");
     let palette = crate::theme::get_theme(theme_name).unwrap_or_else(crate::theme::default_theme);
-    terminal.clear()?;
 
     let cwd = env::current_dir()?;
 
@@ -110,33 +109,94 @@ pub async fn run() -> Result<()> {
 
     app.sync_watcher();
 
-    if app.global.mouse.unwrap_or(true) {
-        execute!(stdout(), EnableMouseCapture)?;
-    }
+    loop {
+        // 1. Create Terminal
+        let mut output = PlatformTerminal::new()?;
+        output.enter_raw_mode()?;
+        let mut terminal = Terminal::new(TerminaBackend::new(output))?;
+        terminal.clear()?;
 
-    let result = run_event_loop(
-        &mut terminal,
-        &mut app,
-        &palette,
-        keyboard,
-        &mut watcher_rx,
-        &mut task_rx,
-        &mut image_load_rx,
-    )
-    .await;
+        if app.global.mouse.unwrap_or(true) {
+            execute!(stdout(), EnableMouseCapture)?;
+        }
 
-    if app.global.mouse.unwrap_or(true) {
-        execute!(stdout(), DisableMouseCapture)?;
+        // 2. Run Event Loop
+        let result = run_event_loop(
+            &mut terminal,
+            &mut app,
+            &palette,
+            keyboard.clone(),
+            &mut watcher_rx,
+            &mut task_rx,
+            &mut image_load_rx,
+        )
+        .await;
+
+        if app.global.mouse.unwrap_or(true) {
+            execute!(stdout(), DisableMouseCapture)?;
+        }
+
+        // 3. Drop Terminal to restore cooked mode
+        drop(terminal);
+
+        // Check if event loop encountered an error
+        let action = match result {
+            Ok(act) => act,
+            Err(e) => {
+                let _ = app.dir_history.save();
+                let _ = app.save_state();
+                app.cleanup_sensitive_data();
+                return Err(e);
+            }
+        };
+
+        // 4. Handle Pending Action
+        match action {
+            Some(PendingAction::OpenEditorLocal(path, name)) => {
+                if let Err(e) = open_file_in_editor_with_env_handling(&mut app, &path, name).await {
+                    app.active_tab_mut().error = Some(e.to_string());
+                }
+            }
+            Some(PendingAction::OpenEditorRemote {
+                temp_path,
+                remote_path,
+                provider,
+                original_checksum,
+            }) => {
+                if let Err(e) = execute_open_editor_remote(
+                    &mut app,
+                    temp_path,
+                    remote_path,
+                    provider,
+                    original_checksum,
+                )
+                .await
+                {
+                    app.active_tab_mut().error = Some(e.to_string());
+                }
+            }
+            Some(PendingAction::ToggleConsole) => {
+                if let Err(e) = execute_toggle_console(&mut app).await {
+                    app.active_tab_mut().error = Some(e.to_string());
+                }
+            }
+            Some(PendingAction::WindowsContextMenu(path)) => {
+                #[cfg(windows)]
+                if let Err(e) = crate::context_menu::show_context_menu(&path) {
+                    app.active_tab_mut().error = Some(e.to_string());
+                }
+                #[cfg(not(windows))]
+                let _ = path;
+            }
+            None => {
+                break;
+            }
+        }
     }
-    disable_raw_mode().ok();
 
     let _ = app.dir_history.save();
-
     let _ = app.save_state();
-
     app.cleanup_sensitive_data();
-
-    result?;
 
     Ok(())
 }

@@ -14,6 +14,15 @@ pub async fn handle_edit(app: &mut AppState) {
         let file_path = app.active_tab().current_dir.join(&entry.name);
         let provider = app.active_tab().provider.clone();
 
+        if let Some(cmd) = app.editor_cfg.command.as_deref() {
+            let (program, _) = crate::config::parse_command(cmd);
+            if program.is_empty() {
+                app.active_tab_mut().error =
+                    Some("Error launching editor: Invalid editor command".to_string());
+                return;
+            }
+        }
+
         if !provider.is_local() {
             if let Err(e) = edit_file_remote(app, &file_path, provider).await {
                 app.active_tab_mut().error = Some(e.to_string());
@@ -22,11 +31,10 @@ pub async fn handle_edit(app: &mut AppState) {
         }
 
         let entry_name = entry.name.clone();
-        if let Err(e) =
-            open_file_in_editor_with_env_handling(app, &file_path, Some(entry_name)).await
-        {
-            app.active_tab_mut().error = Some(format!("Error launching editor: {e}"));
-        }
+        app.pending_action = Some(crate::app::PendingAction::OpenEditorLocal(
+            file_path,
+            Some(entry_name),
+        ));
     }
 }
 
@@ -48,7 +56,6 @@ pub(crate) async fn edit_file_remote(
             editor_cfg.in_terminal.unwrap_or(true),
         )
     };
-    let active_panel_dir = app.active_tab().current_dir.clone();
     let remote_path_buf = remote_path.to_path_buf();
     let remote_path_for_read = remote_path_buf.clone();
     let provider_for_read = provider.clone();
@@ -70,46 +77,12 @@ pub(crate) async fn edit_file_remote(
     tokio::fs::write(&temp_path, &data).await?;
 
     if in_terminal {
-        if let Some(handle) = app.input_polling_handle.take() {
-            handle.abort();
-        }
-        let panel_current_dir = active_panel_dir.clone();
-        if let Some(watcher) = &mut app.watcher {
-            let paths = watcher.watched_paths();
-            for path in &paths {
-                let _ = watcher.unwatch(path);
-            }
-        }
-
-        if app.global.mouse.unwrap_or(true) {
-            let _ = std::io::stdout().execute(DisableMouseCapture);
-        }
-        let edit_result = launch_and_wait_for_editor(&temp_path, cmd, in_terminal).await;
-        if app.global.mouse.unwrap_or(true) {
-            let _ = std::io::stdout().execute(EnableMouseCapture);
-        }
-
-        if let Some(watcher) = &mut app.watcher {
-            let _ = watcher.watch(&panel_current_dir);
-        }
-        app.sync_watcher();
-
-        if let Err(e) = edit_result {
-            let _ = tokio::fs::remove_file(&temp_path).await;
-            return Err(e);
-        }
-
-        // Check if file was modified before uploading
-        let edited_data = tokio::fs::read(&temp_path).await?;
-        let edited_checksum = md5::compute(&edited_data);
-
-        if edited_checksum.0 == original_checksum_array {
-            // No changes - skip upload
-            let _ = std::fs::remove_file(&temp_path);
-        } else {
-            upload_edited_file(&temp_path, &remote_path_buf, provider.clone(), &edited_data)
-                .await?;
-        }
+        app.pending_action = Some(crate::app::PendingAction::OpenEditorRemote {
+            temp_path,
+            remote_path: remote_path_buf,
+            provider,
+            original_checksum: original_checksum_array,
+        });
     } else {
         // Spawn the editor first, then show popup so it renders immediately
         let mut child = spawn_editor_no_wait(cmd, &temp_path)?;
@@ -134,6 +107,66 @@ pub(crate) async fn edit_file_remote(
         });
     }
 
+    Ok(())
+}
+
+pub async fn execute_open_editor_remote(
+    app: &mut AppState,
+    temp_path: std::path::PathBuf,
+    remote_path: std::path::PathBuf,
+    provider: std::sync::Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
+    original_checksum: [u8; 16],
+) -> anyhow::Result<()> {
+    let (cmd, in_terminal) = {
+        let editor_cfg = &app.editor_cfg;
+        (
+            editor_cfg.command.as_deref(),
+            editor_cfg.in_terminal.unwrap_or(true),
+        )
+    };
+    let active_panel_dir = app.active_tab().current_dir.clone();
+
+    if let Some(handle) = app.input_polling_handle.take() {
+        handle.abort();
+    }
+    let panel_current_dir = active_panel_dir.clone();
+    if let Some(watcher) = &mut app.watcher {
+        let paths = watcher.watched_paths();
+        for path in &paths {
+            let _ = watcher.unwatch(path);
+        }
+    }
+
+    if app.global.mouse.unwrap_or(true) {
+        let _ = std::io::stdout().execute(DisableMouseCapture);
+    }
+    let edit_result = launch_and_wait_for_editor(&temp_path, cmd, in_terminal).await;
+    if app.global.mouse.unwrap_or(true) {
+        let _ = std::io::stdout().execute(EnableMouseCapture);
+    }
+
+    if let Some(watcher) = &mut app.watcher {
+        let _ = watcher.watch(&panel_current_dir);
+    }
+    app.sync_watcher();
+
+    if let Err(e) = edit_result {
+        let _ = tokio::fs::remove_file(&temp_path).await;
+        return Err(e);
+    }
+
+    // Check if file was modified before uploading
+    let edited_data = tokio::fs::read(&temp_path).await?;
+    let edited_checksum = md5::compute(&edited_data);
+
+    if edited_checksum.0 == original_checksum {
+        // No changes - skip upload
+        let _ = std::fs::remove_file(&temp_path);
+    } else {
+        upload_edited_file(&temp_path, &remote_path, provider, &edited_data).await?;
+    }
+
+    app.needs_redraw = true;
     Ok(())
 }
 
@@ -218,13 +251,10 @@ fn launch_and_wait_for_editor_sync(
         args.push(file_path.to_string_lossy().to_string());
 
         if in_terminal {
-            use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-            disable_raw_mode()?;
             let status = std::process::Command::new(&program)
                 .args(&args)
                 .status()
                 .map_err(|e| anyhow::anyhow!("Failed to run editor: {e}"));
-            enable_raw_mode()?;
             status?;
             Ok(())
         } else {
@@ -282,15 +312,9 @@ async fn upload_edited_file(
 ///
 /// Returns an error if the editor cannot be launched.
 pub fn open_in_default_editor(file_path: &std::path::Path) -> anyhow::Result<()> {
-    use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
     use std::process::Command;
     let editor = get_default_editor();
-    disable_raw_mode()?;
-    let _ = std::io::stdout().execute(DisableMouseCapture);
-    std::thread::sleep(std::time::Duration::from_millis(100));
     let status = Command::new(editor).arg(file_path).status();
-    enable_raw_mode()?;
-    let _ = std::io::stdout().execute(EnableMouseCapture);
     match status {
         Ok(s) if s.success() => Ok(()),
         Ok(s) => Err(anyhow::anyhow!("Editor exited with status: {s}")),

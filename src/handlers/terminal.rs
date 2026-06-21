@@ -3,7 +3,7 @@
 use crate::app::AppState;
 use crossterm::ExecutableCommand;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
-use crossterm::terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode};
+use crossterm::terminal::{Clear, ClearType};
 use directories::UserDirs;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -290,13 +290,17 @@ pub fn handle_open_terminal(app: &mut AppState) {
 ///
 /// Returns an error if the console cannot be toggled.
 pub async fn handle_toggle_console(app: &mut AppState) -> anyhow::Result<()> {
+    app.pending_action = Some(crate::app::PendingAction::ToggleConsole);
+    Ok(())
+}
+
+pub async fn execute_toggle_console(app: &mut AppState) -> anyhow::Result<()> {
     // 1. Abort input polling
     if let Some(handle) = app.input_polling_handle.take() {
         handle.abort();
     }
 
-    // 2. Disable raw mode and show cursor
-    disable_raw_mode()?;
+    // 2. Clear terminal and reset cursor position
     std::io::stdout()
         .execute(crossterm::cursor::Show)?
         .execute(Clear(ClearType::All))?;
@@ -345,8 +349,7 @@ pub async fn handle_toggle_console(app: &mut AppState) -> anyhow::Result<()> {
     }
     app.sync_watcher();
 
-    // 6. Restore raw mode
-    enable_raw_mode()?;
+    // 6. Restore mouse capture if enabled
     if app.global.mouse.unwrap_or(true) {
         std::io::stdout().execute(EnableMouseCapture)?;
     }

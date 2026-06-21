@@ -1,5 +1,4 @@
 use anyhow::Result;
-use crossterm::terminal::disable_raw_mode;
 use fm::config::create_default_config;
 use fm::run;
 use std::env;
@@ -46,8 +45,6 @@ async fn main() -> Result<()> {
     }
 
     let result = run().await;
-
-    disable_raw_mode().ok();
 
     if let Err(e) = result {
         eprintln!("Error: {e}");

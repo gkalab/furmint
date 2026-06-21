@@ -40,15 +40,19 @@ pub fn spawn_input_polling(
 /// # Errors
 ///
 /// Returns an error if the event loop encounters an unrecoverable error.
-pub async fn run_event_loop(
-    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
+pub async fn run_event_loop<B>(
+    terminal: &mut Terminal<B>,
     app: &mut AppState,
     palette: &ThemePalette,
     keyboard: KeyboardConfig,
     watcher_rx: &mut UnboundedReceiver<crate::fs::watcher::WatcherEvent>,
     task_rx: &mut UnboundedReceiver<crate::tasks::TaskEvent>,
     image_load_rx: &mut UnboundedReceiver<crate::state::ImageLoadResult>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<crate::app::PendingAction>>
+where
+    B: ratatui::backend::Backend,
+    B::Error: Send + Sync + 'static,
+{
     // Create channel for terminal events
     let (input_tx, mut input_rx) = tokio::sync::mpsc::unbounded_channel();
 
@@ -110,16 +114,6 @@ pub async fn run_event_loop(
 
                                 // Sync watcher if navigation happened
                                 app.sync_watcher();
-
-                                #[cfg(windows)]
-                                if let Some(path) = app.pending_context_menu.take() {
-                                    let _ = crossterm::terminal::disable_raw_mode();
-                                    if let Err(e) = crate::context_menu::show_context_menu(&path) {
-                                        app.active_tab_mut().error = Some(e.to_string());
-                                    }
-                                    let _ = crossterm::terminal::enable_raw_mode();
-                                    draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
-                                }
                             }
                             // Handle task events
                             Some(event) = task_rx.recv() => {
@@ -164,9 +158,12 @@ pub async fn run_event_loop(
                             }
                             else => break,
                         }
+        if let Some(action) = app.pending_action.take() {
+            return Ok(Some(action));
+        }
     }
     terminal.clear()?;
-    Ok(())
+    Ok(None)
 }
 
 fn handle_watcher_event(event: crate::fs::watcher::WatcherEvent, app: &mut AppState) {
@@ -210,13 +207,17 @@ fn handle_watcher_event(event: crate::fs::watcher::WatcherEvent, app: &mut AppSt
     }
 }
 
-fn draw_ui(
-    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
+fn draw_ui<B>(
+    terminal: &mut Terminal<B>,
     app: &mut AppState,
     palette: &ThemePalette,
     keyboard: &KeyboardConfig,
     mouse_capture_active: &mut bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<()>
+where
+    B: ratatui::backend::Backend,
+    B::Error: Send + Sync + 'static,
+{
     let should_mouse_be_active = app.global.mouse.unwrap_or(true) && !app.popups.any_visible();
     if should_mouse_be_active != *mouse_capture_active {
         if should_mouse_be_active {

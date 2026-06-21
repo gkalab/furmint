@@ -137,7 +137,7 @@ fn handle_right_click(app: &mut AppState, x: u16, y: u16) {
     crate::handlers::navigation::update_viewer_content(app);
 
     // Store the path to be processed on the next event loop iteration.
-    app.pending_context_menu = Some(full_path);
+    app.pending_action = Some(crate::app::PendingAction::WindowsContextMenu(full_path));
 }
 
 #[cfg(not(windows))]

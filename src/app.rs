@@ -98,6 +98,19 @@ impl Default for Popups {
     }
 }
 
+#[derive(Clone)]
+pub enum PendingAction {
+    OpenEditorLocal(PathBuf, Option<String>),
+    OpenEditorRemote {
+        temp_path: PathBuf,
+        remote_path: PathBuf,
+        provider: std::sync::Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
+        original_checksum: [u8; 16],
+    },
+    ToggleConsole,
+    WindowsContextMenu(PathBuf),
+}
+
 pub struct AppState {
     pub left: TabManager,
     pub right: TabManager,
@@ -137,7 +150,7 @@ pub struct AppState {
     pub left_panel_area: ratatui::layout::Rect,
     pub right_panel_area: ratatui::layout::Rect,
     pub last_click: Option<(Instant, u16, u16)>,
-    pub pending_context_menu: Option<std::path::PathBuf>,
+    pub pending_action: Option<PendingAction>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -217,7 +230,7 @@ impl AppState {
             left_panel_area: ratatui::layout::Rect::default(),
             right_panel_area: ratatui::layout::Rect::default(),
             last_click: None,
-            pending_context_menu: None,
+            pending_action: None,
         }
     }
 

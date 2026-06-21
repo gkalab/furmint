@@ -63,7 +63,7 @@ fn basic_app_with_entry(name: &str) -> AppState {
         left_tab_areas: Vec::new(),
         right_tab_areas: Vec::new(),
         last_click: None,
-        pending_context_menu: None,
+        pending_action: None,
         bookmark_store: fm::bookmarks::BookmarkStore::test_default(),
     }
 }

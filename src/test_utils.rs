@@ -141,6 +141,6 @@ pub fn create_test_app() -> AppState {
         left_panel_area: ratatui::layout::Rect::default(),
         right_panel_area: ratatui::layout::Rect::default(),
         last_click: None,
-        pending_context_menu: None,
+        pending_action: None,
     }
 }
