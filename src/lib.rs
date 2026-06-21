@@ -111,7 +111,6 @@ fn initialize_app() -> Result<InitializedApp> {
     };
 
     app.file_viewer.image_load_tx = Some(image_load_tx);
-    app.file_viewer.init_picker();
 
     let context_key = app.active_tab().provider.context_key();
     app.dir_history.record_visit(&context_key, &cwd);
@@ -143,18 +142,18 @@ pub async fn run() -> Result<()> {
         mut image_load_rx,
     } = initialize_app()?;
 
+    let mut output = PlatformTerminal::new()?;
+    output.enter_raw_mode()?;
+    app.file_viewer.init_picker();
+    let reader = output.event_reader();
+    let mut terminal = Terminal::new(TerminaBackend::new(output))?;
+    terminal.clear()?;
+
+    if app.global.mouse.unwrap_or(true) {
+        enable_mouse_capture()?;
+    }
+
     loop {
-        // 1. Create Terminal
-        let mut output = PlatformTerminal::new()?;
-        output.enter_raw_mode()?;
-        let reader = output.event_reader();
-        let mut terminal = Terminal::new(TerminaBackend::new(output))?;
-        terminal.clear()?;
-
-        if app.global.mouse.unwrap_or(true) {
-            enable_mouse_capture()?;
-        }
-
         // 2. Run Event Loop
         let result = run_event_loop(
             &mut terminal,
@@ -162,20 +161,13 @@ pub async fn run() -> Result<()> {
             &palette,
             keyboard.clone(),
             event_loop::EventSources {
-                reader,
+                reader: reader.clone(),
                 watcher_rx: &mut watcher_rx,
                 task_rx: &mut task_rx,
                 image_load_rx: &mut image_load_rx,
             },
         )
         .await;
-
-        if app.global.mouse.unwrap_or(true) {
-            disable_mouse_capture()?;
-        }
-
-        // 3. Drop Terminal to restore cooked mode
-        drop(terminal);
 
         // Check if event loop encountered an error
         let action = match result {
@@ -188,7 +180,7 @@ pub async fn run() -> Result<()> {
             }
         };
 
-        // 4. Handle Pending Action
+        // 3. Handle Pending Action
         match action {
             Some(PendingAction::OpenEditorLocal(path, name)) => {
                 if let Err(e) = open_file_in_editor_with_env_handling(&mut app, &path, name).await {
@@ -231,6 +223,12 @@ pub async fn run() -> Result<()> {
             }
         }
     }
+
+    if app.global.mouse.unwrap_or(true) {
+        disable_mouse_capture()?;
+    }
+
+    drop(terminal);
 
     let _ = app.dir_history.save();
     let _ = app.save_state();
