@@ -122,26 +122,16 @@ impl FileViewerState {
         self.current_search_match = None;
     }
 
-    pub fn init_picker(&mut self) {
+    pub fn init_picker_detached(&mut self) {
         if self.picker.is_some() {
             return;
         }
-        // Initialize channels once
         if self.resize_tx.is_none() {
-            let (tx, rx) = unbounded_channel();
-            self.resize_tx = Some(tx);
-            self.resize_rx = Some(rx);
+            self.init_channels();
         }
-
         let tx = self.image_load_tx.clone();
         tokio::spawn(async move {
-            let picker = tokio::task::spawn_blocking(|| {
-                ratatui_image::picker::Picker::from_query_stdio()
-                    .unwrap_or_else(|_| ratatui_image::picker::Picker::halfblocks())
-            })
-            .await
-            .unwrap_or_else(|_| ratatui_image::picker::Picker::halfblocks());
-
+            let picker = Self::create_picker().await;
             if let Some(tx) = tx {
                 let _ = tx.send(ImageLoadResult {
                     load_id: 0,
@@ -151,6 +141,31 @@ impl FileViewerState {
                 });
             }
         });
+    }
+
+    pub async fn init_picker(&mut self) {
+        if self.picker.is_some() {
+            return;
+        }
+        if self.resize_tx.is_none() {
+            self.init_channels();
+        }
+        self.picker = Some(Self::create_picker().await);
+    }
+
+    fn init_channels(&mut self) {
+        let (tx, rx) = unbounded_channel();
+        self.resize_tx = Some(tx);
+        self.resize_rx = Some(rx);
+    }
+
+    async fn create_picker() -> ratatui_image::picker::Picker {
+        tokio::task::spawn_blocking(|| {
+            ratatui_image::picker::Picker::from_query_stdio()
+                .unwrap_or_else(|_| ratatui_image::picker::Picker::halfblocks())
+        })
+        .await
+        .unwrap_or_else(|_| ratatui_image::picker::Picker::halfblocks())
     }
 
     #[must_use]
@@ -191,7 +206,7 @@ impl FileViewerState {
     ) {
         // Ensure channels and picker initialization are kicked off
         if self.resize_tx.is_none() {
-            self.init_picker();
+            self.init_picker_detached();
         }
 
         if let (Some(image_tx), Some(_resize_tx)) = (&self.image_load_tx, &self.resize_tx) {

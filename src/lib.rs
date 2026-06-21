@@ -144,7 +144,7 @@ pub async fn run() -> Result<()> {
 
     let mut output = PlatformTerminal::new()?;
     output.enter_raw_mode()?;
-    app.file_viewer.init_picker();
+    app.file_viewer.init_picker().await;
     let reader = output.event_reader();
     let mut terminal = Terminal::new(TerminaBackend::new(output))?;
     terminal.clear()?;
