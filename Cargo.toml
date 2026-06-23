@@ -15,7 +15,7 @@ test-utils = []
 [dependencies]
 async-trait = "0.1"
 anyhow = "1.0"
-bytesize = "2.3"
+bytesize = "2.4"
 chrono = "0.4"
 termina = "0.3"
 directories = "6.0"
@@ -25,11 +25,11 @@ libc = "0.2"
 md5 = "0.8"
 notify = "8.2"
 notify-debouncer-full = "0.7"
-rand = "0.9"
+rand = "0.10"
 ratatui = { version = "0.30.2", features = ["termina"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-lumis = { version = "0.9", default-features = false, features = [
+lumis = { version = "0.10", default-features = false, features = [
     "lang-bash",
     "lang-c",
     "lang-cmake",
@@ -59,7 +59,7 @@ shell-escape = "0.1"
 shell-words = "1.1"
 clipboard = "0.4"
 image = { version = "0.25", features = ["default"] }
-ratatui-image = { version = "10.0", default-features = false, features = ["tokio", "image-defaults"] }
+ratatui-image = { version = "11.0", default-features = false, features = ["tokio", "image-defaults"] }
 zip = "8.6"
 walkdir = "2.5"
 tar = "0.4"
@@ -71,14 +71,14 @@ zstd = "0.13"
 memmap2 = "0.9"
 encoding_rs = "0.8"
 secrecy = "0.10"
-zeroize = "1.8"
+zeroize = "1.9"
 regex = "1.12.3"
 
 [target.'cfg(windows)'.dependencies]
-russh = { version = "0.60", default-features = false, features = ["ring"] }
-russh-sftp = "2.1"
+russh = { version = "0.61", default-features = false, features = ["ring"] }
+russh-sftp = "2.3"
 
-winreg = "0.55"
+winreg = "0.56"
 winapi = { version = "0.3.9", features = ["shellapi", "fileapi", "winnt"] }
 windows = { version = "0.62", features = [
     "Win32_Foundation",
