@@ -1,6 +1,8 @@
 pub struct EmptyTrashState {
     pub is_visible: bool,
     pub selected_no: bool,
+    pub popup_area: ratatui::layout::Rect,
+    pub button_areas: Vec<ratatui::layout::Rect>,
 }
 
 impl EmptyTrashState {
@@ -9,6 +11,8 @@ impl EmptyTrashState {
         Self {
             is_visible: false,
             selected_no: true,
+            popup_area: ratatui::layout::Rect::default(),
+            button_areas: Vec::new(),
         }
     }
 }

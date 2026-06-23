@@ -151,6 +151,7 @@ pub struct AppState {
     pub right_panel_area: ratatui::layout::Rect,
     pub last_click: Option<(Instant, u16, u16)>,
     pub pending_action: Option<PendingAction>,
+    pub mouse_button_down_index: Option<usize>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -231,6 +232,7 @@ impl AppState {
             right_panel_area: ratatui::layout::Rect::default(),
             last_click: None,
             pending_action: None,
+            mouse_button_down_index: None,
         }
     }
 

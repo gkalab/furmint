@@ -177,18 +177,18 @@ pub fn draw_all_popups(
 ) {
     // Draw popups in order of layering
     crate::ui::fuzzy_search_ui::draw_fuzzy_search_popup(f, &mut app.fuzzy_search, palette);
-    crate::ui::rename_ui::draw_rename_popup(f, &app.popups.rename, palette);
+    crate::ui::rename_ui::draw_rename_popup(f, &mut app.popups.rename, palette);
     crate::ui::viewer::draw_viewer_search_popup(f, &app.popups.viewer_search, palette);
     crate::ui::rename_tab_ui::draw_rename_tab_popup(f, &app.popups.rename_tab, palette);
     crate::ui::create_dir_ui::draw_create_dir_popup(f, &app.popups.create_directory, palette);
     crate::ui::create_file_ui::draw_create_file_popup(f, &app.popups.create_file, palette);
     crate::ui::delete_ui::draw_delete_popup(f, &app.popups.delete, palette);
     crate::ui::copy_move_ui::draw_copy_move_popup(f, &app.popups.copy_move, palette);
-    crate::ui::conflict_ui::draw_conflict_popup(f, &app.popups.conflict, palette);
+    crate::ui::conflict_ui::draw_conflict_popup(f, &mut app.popups.conflict, palette);
     crate::ui::task_ui::draw_task_manager(f, &app.task_manager, app.show_task_manager, palette);
-    crate::ui::empty_trash_ui::draw_empty_trash_popup(f, &app.popups.empty_trash, palette);
-    crate::ui::quit_ui::draw_quit_popup(f, &app.popups.quit_confirmation, palette);
-    crate::ui::error_ui::draw_error_popup(f, &app.popups.error, palette);
+    crate::ui::empty_trash_ui::draw_empty_trash_popup(f, &mut app.popups.empty_trash, palette);
+    crate::ui::quit_ui::draw_quit_popup(f, &mut app.popups.quit_confirmation, palette);
+    crate::ui::error_ui::draw_error_popup(f, &mut app.popups.error, palette);
     crate::ui::help_ui::draw_help_popup(f, app, keyboard, palette);
 
     if app.popups.drive_select.is_visible {
@@ -200,6 +200,6 @@ pub fn draw_all_popups(
     if app.popups.ssh_password.is_visible {
         crate::ui::ssh_ui::draw_ssh_password_popup(f, app, palette);
     }
-    crate::ui::remote_edit_ui::draw_remote_edit_popup(f, &app.popups.remote_edit, palette);
+    crate::ui::remote_edit_ui::draw_remote_edit_popup(f, &mut app.popups.remote_edit, palette);
     crate::ui::bookmark_ui::draw_bookmark_popup(f, &mut app.popups.bookmark, palette);
 }

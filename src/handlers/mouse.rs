@@ -1,9 +1,23 @@
 use crate::app::{AppState, PanelSide};
 use ratatui::layout::Rect;
 use std::time::{Duration, Instant};
-use termina::event::{MouseButton, MouseEvent, MouseEventKind};
+use termina::event::{KeyCode, MouseButton, MouseEvent, MouseEventKind};
 
-pub fn handle_mouse_event(app: &mut AppState, event: MouseEvent) {
+pub async fn handle_mouse_event(app: &mut AppState, event: MouseEvent) {
+    // If any popup is visible, only handle button clicks (modal behavior)
+    if app.popups.any_visible() {
+        match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                handle_popup_down(app, event.column, event.row);
+            }
+            MouseEventKind::Up(MouseButton::Left) => {
+                handle_popup_up(app, event.column, event.row).await;
+            }
+            _ => {} // Ignore wheel, drag, right-click when popup is visible
+        }
+        return;
+    }
+
     match event.kind {
         MouseEventKind::Down(MouseButton::Left) => {
             handle_left_click(app, event.column, event.row);
@@ -21,6 +35,117 @@ pub fn handle_mouse_event(app: &mut AppState, event: MouseEvent) {
             handle_scroll_event(app, (event.column, event.row), false);
         }
         _ => {}
+    }
+}
+
+fn find_button_index(app: &AppState, x: u16, y: u16) -> Option<usize> {
+    let pos = (x, y);
+
+    if app.popups.error.is_visible {
+        for (i, rect) in app.popups.error.button_areas.iter().enumerate() {
+            if is_in_rect(pos, *rect) {
+                return Some(i);
+            }
+        }
+        return None;
+    }
+    if app.popups.conflict.is_visible {
+        for (i, rect) in app.popups.conflict.button_areas.iter().enumerate() {
+            if is_in_rect(pos, *rect) {
+                return Some(i);
+            }
+        }
+        return None;
+    }
+    if app.popups.rename.is_visible && app.popups.rename.show_overwrite_confirm {
+        for (i, rect) in app.popups.rename.button_areas.iter().enumerate() {
+            if is_in_rect(pos, *rect) {
+                return Some(i);
+            }
+        }
+        return None;
+    }
+    if app.popups.remote_edit.is_visible {
+        for (i, rect) in app.popups.remote_edit.button_areas.iter().enumerate() {
+            if is_in_rect(pos, *rect) {
+                return Some(i);
+            }
+        }
+        return None;
+    }
+    if app.popups.quit_confirmation.is_visible {
+        for (i, rect) in app.popups.quit_confirmation.button_areas.iter().enumerate() {
+            if is_in_rect(pos, *rect) {
+                return Some(i);
+            }
+        }
+        return None;
+    }
+    if app.popups.empty_trash.is_visible {
+        for (i, rect) in app.popups.empty_trash.button_areas.iter().enumerate() {
+            if is_in_rect(pos, *rect) {
+                return Some(i);
+            }
+        }
+        return None;
+    }
+
+    None
+}
+
+fn handle_popup_down(app: &mut AppState, x: u16, y: u16) {
+    if let Some(i) = find_button_index(app, x, y) {
+        app.mouse_button_down_index = Some(i);
+
+        // Set the focused button for visual feedback
+        if app.popups.error.is_visible {
+            app.popups.error.focused_button = i;
+        } else if app.popups.conflict.is_visible {
+            app.popups.conflict.focused_button = i;
+        } else if app.popups.rename.is_visible && app.popups.rename.show_overwrite_confirm {
+            app.popups.rename.focused_button = i;
+        } else if app.popups.remote_edit.is_visible {
+            app.popups.remote_edit.focused_button = i;
+        } else if app.popups.quit_confirmation.is_visible {
+            app.popups.quit_confirmation.selected_no = i == 0;
+        } else if app.popups.empty_trash.is_visible {
+            app.popups.empty_trash.selected_no = i == 0;
+        }
+    }
+}
+
+async fn handle_popup_up(app: &mut AppState, x: u16, y: u16) {
+    let down_index = app.mouse_button_down_index.take();
+    let Some(down_index) = down_index else { return };
+
+    let current_index = find_button_index(app, x, y);
+    if current_index != Some(down_index) {
+        return;
+    }
+
+    // Button click confirmed — trigger the action for the pressed button
+    if app.popups.error.is_visible {
+        app.popups.error.focused_button = down_index;
+        crate::handlers::popup_error::handle_error_event(KeyCode::Enter, app).await;
+    } else if app.popups.conflict.is_visible {
+        app.popups.conflict.focused_button = down_index;
+        crate::handlers::popup_conflict::handle_conflict_event(KeyCode::Enter, app).await;
+    } else if app.popups.rename.is_visible && app.popups.rename.show_overwrite_confirm {
+        app.popups.rename.focused_button = down_index;
+        crate::handlers::popup_rename::handle_rename_event(
+            KeyCode::Enter,
+            termina::event::Modifiers::NONE,
+            app,
+        );
+    } else if app.popups.remote_edit.is_visible {
+        app.popups.remote_edit.focused_button = down_index;
+        crate::handlers::editor::handle_remote_edit_event(KeyCode::Enter, app).await;
+    } else if app.popups.quit_confirmation.is_visible {
+        app.popups.quit_confirmation.selected_no = down_index == 0;
+        crate::handlers::popup_misc::handle_quit_popup_event(KeyCode::Enter, app);
+    } else if app.popups.empty_trash.is_visible {
+        app.popups.empty_trash.selected_no = down_index == 0;
+        crate::ui::empty_trash_ui::handle_empty_trash_popup_event(KeyCode::Enter, app);
     }
 }
 

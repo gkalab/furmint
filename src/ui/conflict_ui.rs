@@ -4,7 +4,11 @@ use ratatui::prelude::*;
 
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
-pub fn draw_conflict_popup(f: &mut ratatui::Frame, state: &ConflictState, palette: &ThemePalette) {
+pub fn draw_conflict_popup(
+    f: &mut ratatui::Frame,
+    state: &mut ConflictState,
+    palette: &ThemePalette,
+) {
     if !state.is_visible {
         return;
     }
@@ -13,6 +17,7 @@ pub fn draw_conflict_popup(f: &mut ratatui::Frame, state: &ConflictState, palett
     let popup_width = 60;
     let popup_height = 12;
     let popup_area = crate::ui::ui_utils::centered_rect_absolute(popup_width, popup_height, area);
+    state.popup_area = popup_area;
 
     f.render_widget(Clear, popup_area);
 
@@ -82,6 +87,16 @@ pub fn draw_conflict_popup(f: &mut ratatui::Frame, state: &ConflictState, palett
         field_bg_color,
         row2_focus,
     );
+
+    let mut areas = crate::ui::ui_utils::compute_button_rects(
+        &["[C]ancel", "[S]kip", "[O]verwrite"],
+        inner_layout[2],
+    );
+    areas.extend(crate::ui::ui_utils::compute_button_rects(
+        &["Ski[p] All", "Overwrite [A]ll"],
+        inner_layout[3],
+    ));
+    state.button_areas = areas;
 }
 
 #[cfg(test)]
@@ -97,16 +112,18 @@ mod tests {
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal
             .draw(|f| {
-                let state = crate::state::ConflictState {
+                let mut state = crate::state::ConflictState {
                     is_visible: true,
                     task_id: 42,
                     conflict_path: PathBuf::from("/tmp/existing.txt"),
                     conflict_type: crate::tasks::ConflictType::FileExists,
                     focused_button: 0,
+                    popup_area: ratatui::layout::Rect::default(),
+                    button_areas: Vec::new(),
                 };
                 let palette = crate::theme::default_theme();
                 // Should not panic
-                draw_conflict_popup(f, &state, &palette);
+                draw_conflict_popup(f, &mut state, &palette);
             })
             .unwrap();
     }
@@ -118,10 +135,10 @@ mod tests {
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal
             .draw(|f| {
-                let state = crate::state::ConflictState::default(); // is_visible = false
+                let mut state = crate::state::ConflictState::default(); // is_visible = false
                 let palette = crate::theme::default_theme();
                 // Should just return, nothing rendered
-                draw_conflict_popup(f, &state, &palette);
+                draw_conflict_popup(f, &mut state, &palette);
             })
             .unwrap();
     }

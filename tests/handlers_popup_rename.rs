@@ -63,6 +63,7 @@ fn test_app_with_entry(name: &str, is_dir: bool, path: &std::path::Path) -> AppS
         right_tab_areas: Vec::new(),
         last_click: None,
         pending_action: None,
+        mouse_button_down_index: None,
         bookmark_store: fm::bookmarks::BookmarkStore::test_default(),
     }
 }

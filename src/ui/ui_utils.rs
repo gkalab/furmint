@@ -17,25 +17,19 @@ use std::env;
 ///
 /// # Panics
 /// Panics if button width or count exceeds `u16::MAX`.
-pub fn draw_button_row(
-    f: &mut ratatui::Frame<'_>,
-    labels: &[&str],
-    area: Rect,
-    palette: &crate::theme::ThemePalette,
-    bg_color: Color,
-    focused_index: Option<usize>,
-) {
-    let mut parsed_labels = Vec::new();
+/// Compute button rectangles for a row of buttons.
+/// Uses the same layout logic as `draw_button_row`.
+#[must_use]
+pub fn compute_button_rects(labels: &[&str], area: Rect) -> Vec<Rect> {
     let mut max_len = 0;
     for label in labels {
-        let (parsed, shortcut, shortcut_pos) = parse_button_label(label);
+        let (parsed, _, _) = parse_button_label(label);
         max_len = max_len.max(parsed.chars().count());
-        parsed_labels.push((parsed, shortcut, shortcut_pos));
     }
 
     let btn_w = u16::try_from((max_len + 4).max(12)).expect("button width fits in u16");
     let gap = 2u16;
-    let num_buttons = u16::try_from(parsed_labels.len()).expect("button count fits in u16");
+    let num_buttons = u16::try_from(labels.len()).expect("button count fits in u16");
     let total_w = area.width;
     let total_buttons_w = num_buttons * btn_w + (num_buttons.saturating_sub(1)) * gap;
 
@@ -51,6 +45,33 @@ pub fn draw_button_row(
     let actual_total_w = num_buttons * final_btn_w + (num_buttons.saturating_sub(1)) * final_gap;
     let x_off = (total_w.saturating_sub(actual_total_w)) / 2;
 
+    (0..labels.len())
+        .map(|i| Rect {
+            x: area.x
+                + x_off
+                + u16::try_from(i).expect("loop index fits in u16") * (final_btn_w + final_gap),
+            y: area.y,
+            width: final_btn_w,
+            height: area.height,
+        })
+        .collect()
+}
+
+pub fn draw_button_row(
+    f: &mut ratatui::Frame<'_>,
+    labels: &[&str],
+    area: Rect,
+    palette: &crate::theme::ThemePalette,
+    bg_color: Color,
+    focused_index: Option<usize>,
+) {
+    let button_areas = compute_button_rects(labels, area);
+
+    let parsed_labels: Vec<(String, Option<char>, Option<usize>)> = labels
+        .iter()
+        .map(|label| parse_button_label(label))
+        .collect();
+
     let variant = if palette.is_dark {
         ButtonVariant::Dark
     } else {
@@ -58,14 +79,7 @@ pub fn draw_button_row(
     };
 
     for (i, (label, shortcut, shortcut_pos)) in parsed_labels.into_iter().enumerate() {
-        let btn_area = Rect {
-            x: area.x
-                + x_off
-                + u16::try_from(i).expect("loop index fits in u16") * (final_btn_w + final_gap),
-            y: area.y,
-            width: final_btn_w,
-            height: area.height,
-        };
+        let btn_area = button_areas[i];
 
         let mut btn = ButtonWidget::new(&label, variant)
             .with_palette(palette)

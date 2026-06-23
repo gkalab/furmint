@@ -5,7 +5,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 pub fn draw_remote_edit_popup(
     f: &mut ratatui::Frame,
-    state: &RemoteEditState,
+    state: &mut RemoteEditState,
     palette: &ThemePalette,
 ) {
     if !state.is_visible {
@@ -17,6 +17,7 @@ pub fn draw_remote_edit_popup(
     let popup_height = 10;
     let popup_area =
         crate::ui::ui_utils::centered_rect_absolute(popup_width, popup_height, f.area());
+    state.popup_area = popup_area;
 
     f.render_widget(Clear, popup_area);
 
@@ -81,4 +82,7 @@ pub fn draw_remote_edit_popup(
         bg_color,
         Some(state.focused_button),
     );
+
+    state.button_areas =
+        crate::ui::ui_utils::compute_button_rects(&["[C]ancel", "[U]pload"], layout[3]);
 }

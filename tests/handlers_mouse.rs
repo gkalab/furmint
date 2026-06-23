@@ -42,8 +42,8 @@ fn setup_test_app() -> AppState {
     app
 }
 
-#[test]
-fn test_mouse_click_on_panel_updates_viewer() {
+#[tokio::test]
+async fn test_mouse_click_on_panel_updates_viewer() {
     let mut app = setup_test_app();
 
     // Initially path is empty or something default
@@ -63,14 +63,14 @@ fn test_mouse_click_on_panel_updates_viewer() {
         modifiers: Modifiers::empty(),
     };
 
-    handle_mouse_event(&mut app, event);
+    handle_mouse_event(&mut app, event).await;
 
     assert_eq!(app.left.active_tab().cursor, 1);
     assert_eq!(app.file_viewer.path, PathBuf::from("/test/file2.txt"));
 }
 
-#[test]
-fn test_mouse_scroll_updates_viewer() {
+#[tokio::test]
+async fn test_mouse_scroll_updates_viewer() {
     let mut app = setup_test_app();
 
     // Add more entries to allow scrolling/cursor movement
@@ -97,14 +97,14 @@ fn test_mouse_scroll_updates_viewer() {
         modifiers: Modifiers::empty(),
     };
 
-    handle_mouse_event(&mut app, event);
+    handle_mouse_event(&mut app, event).await;
 
     assert_eq!(app.left.active_tab().cursor, 3);
     assert_eq!(app.file_viewer.path, PathBuf::from("/test/file4.txt"));
 }
 
-#[test]
-fn test_mouse_tab_switch_updates_viewer() {
+#[tokio::test]
+async fn test_mouse_tab_switch_updates_viewer() {
     let mut app = setup_test_app();
 
     // Add a second tab to the left panel
@@ -135,7 +135,7 @@ fn test_mouse_tab_switch_updates_viewer() {
         modifiers: Modifiers::empty(),
     };
 
-    handle_mouse_event(&mut app, event);
+    handle_mouse_event(&mut app, event).await;
 
     assert_eq!(app.left.active_tab_index, 1);
     assert_eq!(app.file_viewer.path, PathBuf::from("/other/other.txt"));

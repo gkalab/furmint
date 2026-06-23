@@ -56,7 +56,7 @@ pub async fn route_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfi
             crate::handlers::input::handle_main_panel_event(code, modifiers, app, keyboard).await
         }
         Event::Mouse(mouse_event) => {
-            crate::handlers::mouse::handle_mouse_event(app, mouse_event);
+            crate::handlers::mouse::handle_mouse_event(app, mouse_event).await;
             false
         }
         _ => false,

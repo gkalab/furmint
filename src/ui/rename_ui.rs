@@ -4,7 +4,7 @@ use ratatui::prelude::*;
 
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
-pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &RenameState, palette: &ThemePalette) {
+pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &mut RenameState, palette: &ThemePalette) {
     if !state.is_visible {
         return;
     }
@@ -24,6 +24,7 @@ pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &RenameState, palette: &
         width: popup_width,
         height: popup_height,
     };
+    state.popup_area = popup_area;
 
     f.render_widget(Clear, popup_area);
 
@@ -79,6 +80,9 @@ pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &RenameState, palette: &
             bg_color,
             Some(state.focused_button),
         );
+
+        state.button_areas =
+            crate::ui::ui_utils::compute_button_rects(&["(N)o", "(Y)es"], layout[2]);
     } else {
         f.render_widget(
             Block::default()
@@ -129,6 +133,8 @@ mod tests {
             is_dir: false,
             error: err.map(std::string::ToString::to_string),
             focused_button: 0,
+            popup_area: ratatui::layout::Rect::default(),
+            button_areas: Vec::new(),
         }
     }
 
@@ -136,11 +142,11 @@ mod tests {
     fn renders_overwrite_confirm_popup() {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
-        let state = make_state(true, true, "foo.txt", 0, None);
+        let mut state = make_state(true, true, "foo.txt", 0, None);
         let palette = catppuccin_macchiato();
         terminal
             .draw(|f| {
-                draw_rename_popup(f, &state, &palette);
+                draw_rename_popup(f, &mut state, &palette);
             })
             .unwrap();
         let buf = terminal.backend().buffer();
@@ -151,11 +157,11 @@ mod tests {
     fn renders_rename_normal_popup() {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
-        let state = make_state(true, false, "file.txt", 7, None);
+        let mut state = make_state(true, false, "file.txt", 7, None);
         let palette = catppuccin_macchiato();
         terminal
             .draw(|f| {
-                draw_rename_popup(f, &state, &palette);
+                draw_rename_popup(f, &mut state, &palette);
             })
             .unwrap();
         let buf = terminal.backend().buffer();
@@ -166,11 +172,11 @@ mod tests {
     fn renders_rename_error_title() {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
-        let state = make_state(true, false, "file.txt", 2, Some("Bad name"));
+        let mut state = make_state(true, false, "file.txt", 2, Some("Bad name"));
         let palette = catppuccin_macchiato();
         terminal
             .draw(|f| {
-                draw_rename_popup(f, &state, &palette);
+                draw_rename_popup(f, &mut state, &palette);
             })
             .unwrap();
         let buf = terminal.backend().buffer();
@@ -181,12 +187,12 @@ mod tests {
     fn does_nothing_when_invisible() {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
-        let state = make_state(false, false, "hidden.txt", 0, None);
+        let mut state = make_state(false, false, "hidden.txt", 0, None);
         let palette = catppuccin_macchiato();
         let mut ran = false;
         terminal
             .draw(|f| {
-                draw_rename_popup(f, &state, &palette);
+                draw_rename_popup(f, &mut state, &palette);
                 ran = true;
             })
             .unwrap();
@@ -200,11 +206,11 @@ mod tests {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
         // long name, cursor past popup width
-        let state = make_state(true, false, &"a".repeat(90), 88, None);
+        let mut state = make_state(true, false, &"a".repeat(90), 88, None);
         let palette = catppuccin_macchiato();
         terminal
             .draw(|f| {
-                draw_rename_popup(f, &state, &palette);
+                draw_rename_popup(f, &mut state, &palette);
             })
             .unwrap();
         let buf = terminal.backend().buffer();

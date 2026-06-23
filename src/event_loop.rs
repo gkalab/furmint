@@ -238,7 +238,7 @@ where
     B: ratatui::backend::Backend,
     B::Error: Send + Sync + 'static,
 {
-    let should_mouse_be_active = app.global.mouse.unwrap_or(true) && !app.popups.any_visible();
+    let should_mouse_be_active = app.global.mouse.unwrap_or(true);
     if should_mouse_be_active != *mouse_capture_active {
         if should_mouse_be_active {
             let _ = enable_mouse_capture();

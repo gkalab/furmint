@@ -4,6 +4,8 @@ pub struct ErrorState {
     pub error_path: String,
     pub error_message: String,
     pub focused_button: usize,
+    pub popup_area: ratatui::layout::Rect,
+    pub button_areas: Vec<ratatui::layout::Rect>,
 }
 
 impl ErrorState {
@@ -15,6 +17,8 @@ impl ErrorState {
             error_path: String::new(),
             error_message: String::new(),
             focused_button: 0,
+            popup_area: ratatui::layout::Rect::default(),
+            button_areas: Vec::new(),
         }
     }
 
@@ -24,6 +28,8 @@ impl ErrorState {
         self.error_path.clear();
         self.error_message.clear();
         self.focused_button = 0;
+        self.popup_area = ratatui::layout::Rect::default();
+        self.button_areas.clear();
     }
 }
 
@@ -60,6 +66,8 @@ mod tests {
             error_path: String::from("some/path"),
             error_message: String::from("error occurred"),
             focused_button: 0,
+            popup_area: ratatui::layout::Rect::default(),
+            button_areas: Vec::new(),
         };
         state.reset();
         assert!(!state.is_visible);

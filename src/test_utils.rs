@@ -142,5 +142,6 @@ pub fn create_test_app() -> AppState {
         right_panel_area: ratatui::layout::Rect::default(),
         last_click: None,
         pending_action: None,
+        mouse_button_down_index: None,
     }
 }

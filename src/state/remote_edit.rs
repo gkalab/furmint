@@ -9,6 +9,8 @@ pub struct RemoteEditState {
     pub provider: Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
     pub original_checksum: [u8; 16],
     pub focused_button: usize,
+    pub popup_area: ratatui::layout::Rect,
+    pub button_areas: Vec<ratatui::layout::Rect>,
 }
 
 impl RemoteEditState {
@@ -22,6 +24,8 @@ impl RemoteEditState {
             provider: Arc::new(crate::fs::fs_local::LocalFs::new()),
             original_checksum: [0; 16],
             focused_button: 0,
+            popup_area: ratatui::layout::Rect::default(),
+            button_areas: Vec::new(),
         }
     }
 
@@ -33,6 +37,8 @@ impl RemoteEditState {
         self.provider = Arc::new(crate::fs::fs_local::LocalFs::new());
         self.original_checksum = [0; 16];
         self.focused_button = 0;
+        self.popup_area = ratatui::layout::Rect::default();
+        self.button_areas.clear();
     }
 }
 
