@@ -182,7 +182,7 @@ pub fn draw_all_popups(
     crate::ui::rename_tab_ui::draw_rename_tab_popup(f, &app.popups.rename_tab, palette);
     crate::ui::create_dir_ui::draw_create_dir_popup(f, &app.popups.create_directory, palette);
     crate::ui::create_file_ui::draw_create_file_popup(f, &app.popups.create_file, palette);
-    crate::ui::delete_ui::draw_delete_popup(f, &app.popups.delete, palette);
+    crate::ui::delete_ui::draw_delete_popup(f, &mut app.popups.delete, palette);
     crate::ui::copy_move_ui::draw_copy_move_popup(f, &app.popups.copy_move, palette);
     crate::ui::conflict_ui::draw_conflict_popup(f, &mut app.popups.conflict, palette);
     crate::ui::task_ui::draw_task_manager(f, &app.task_manager, app.show_task_manager, palette);

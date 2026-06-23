@@ -81,6 +81,14 @@ fn find_button_index(app: &AppState, x: u16, y: u16) -> Option<usize> {
         }
         return None;
     }
+    if app.popups.delete.is_visible {
+        for (i, rect) in app.popups.delete.button_areas.iter().enumerate() {
+            if is_in_rect(pos, *rect) {
+                return Some(i);
+            }
+        }
+        return None;
+    }
     if app.popups.empty_trash.is_visible {
         for (i, rect) in app.popups.empty_trash.button_areas.iter().enumerate() {
             if is_in_rect(pos, *rect) {
@@ -108,6 +116,8 @@ fn handle_popup_down(app: &mut AppState, x: u16, y: u16) {
             app.popups.remote_edit.focused_button = i;
         } else if app.popups.quit_confirmation.is_visible {
             app.popups.quit_confirmation.selected_no = i == 0;
+        } else if app.popups.delete.is_visible {
+            app.popups.delete.selected_no = i == 0;
         } else if app.popups.empty_trash.is_visible {
             app.popups.empty_trash.selected_no = i == 0;
         }
@@ -143,6 +153,9 @@ async fn handle_popup_up(app: &mut AppState, x: u16, y: u16) {
     } else if app.popups.quit_confirmation.is_visible {
         app.popups.quit_confirmation.selected_no = down_index == 0;
         crate::handlers::popup_misc::handle_quit_popup_event(KeyCode::Enter, app);
+    } else if app.popups.delete.is_visible {
+        app.popups.delete.selected_no = down_index == 0;
+        crate::handlers::popup_delete::handle_delete_event(KeyCode::Enter, app);
     } else if app.popups.empty_trash.is_visible {
         app.popups.empty_trash.selected_no = down_index == 0;
         crate::ui::empty_trash_ui::handle_empty_trash_popup_event(KeyCode::Enter, app);
@@ -380,4 +393,178 @@ fn is_in_rect(pos: (u16, u16), rect: Rect) -> bool {
         && pos.0 < rect.x + rect.width
         && pos.1 >= rect.y
         && pos.1 < rect.y + rect.height
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::AppState;
+    use crate::state::EmptyTrashState;
+    use ratatui::layout::Rect;
+    use termina::event::{MouseButton, MouseEvent, MouseEventKind};
+
+    /// Simulates the button layout used by the empty-trash confirmation popup
+    /// at terminal size 80×24. Popup is 60×7, centered; buttons "(N)o" and "(Y)es"
+    /// are drawn in the bottom row. These values must match what the real draw code produces.
+    fn empty_trash_button_areas() -> Vec<Rect> {
+        // centered_rect_absolute(60, 7, Rect { width: 80, height: 24 }) → (10, 8, 60, 7)
+        let _popup_area = Rect::new(10, 8, 60, 7);
+        let content_area = Rect {
+            x: 12,
+            y: 9,
+            width: 56,
+            height: 6,
+        };
+        let inner_layout = ratatui::prelude::Layout::default()
+            .direction(ratatui::prelude::Direction::Vertical)
+            .horizontal_margin(2)
+            .constraints([
+                ratatui::prelude::Constraint::Length(1),
+                ratatui::prelude::Constraint::Min(2),
+                ratatui::prelude::Constraint::Length(3),
+            ])
+            .split(content_area);
+        crate::ui::ui_utils::compute_button_rects(&["(N)o", "(Y)es"], inner_layout[2])
+    }
+
+    #[tokio::test]
+    async fn test_empty_trash_mouse_click() {
+        let mut app = AppState::test_default();
+        let button_areas = empty_trash_button_areas();
+
+        // Open the empty-trash popup and simulate a draw having completed
+        app.popups.empty_trash = EmptyTrashState {
+            is_visible: true,
+            selected_no: true, // "No" is initially focused
+            popup_area: Rect::default(),
+            button_areas: button_areas.clone(),
+        };
+
+        // The "(Y)es" button is the second one (index 1)
+        let yes_btn = button_areas[1];
+        // Pick a point inside the Yes button
+        let click_x = yes_btn.x + 2;
+        let click_y = yes_btn.y + 1;
+
+        // --- Mouse Down on Yes ---
+        handle_mouse_event(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: click_x,
+                row: click_y,
+                modifiers: termina::event::Modifiers::NONE,
+            },
+        )
+        .await;
+
+        assert_eq!(
+            app.mouse_button_down_index,
+            Some(1),
+            "mouse_button_down_index should be Some(1) after clicking Yes"
+        );
+        assert!(
+            !app.popups.empty_trash.selected_no,
+            "selected_no should be false after clicking Yes (Yes should be selected)"
+        );
+
+        // --- Mouse Up on Yes ---
+        handle_mouse_event(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::Up(MouseButton::Left),
+                column: click_x,
+                row: click_y,
+                modifiers: termina::event::Modifiers::NONE,
+            },
+        )
+        .await;
+
+        assert!(
+            !app.popups.empty_trash.is_visible,
+            "popup should be closed after clicking Yes"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_empty_trash_mouse_click_released_outside() {
+        let mut app = AppState::test_default();
+        let button_areas = empty_trash_button_areas();
+
+        app.popups.empty_trash = EmptyTrashState {
+            is_visible: true,
+            selected_no: true,
+            popup_area: Rect::default(),
+            button_areas: button_areas.clone(),
+        };
+
+        let yes_btn = button_areas[1];
+        let click_x = yes_btn.x + 2;
+        let click_y = yes_btn.y + 1;
+
+        // Down on Yes
+        handle_mouse_event(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: click_x,
+                row: click_y,
+                modifiers: termina::event::Modifiers::NONE,
+            },
+        )
+        .await;
+
+        assert_eq!(app.mouse_button_down_index, Some(1));
+
+        // Up outside the popup
+        let outside_x = 0;
+        let outside_y = 0;
+        handle_mouse_event(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::Up(MouseButton::Left),
+                column: outside_x,
+                row: outside_y,
+                modifiers: termina::event::Modifiers::NONE,
+            },
+        )
+        .await;
+
+        assert!(
+            app.popups.empty_trash.is_visible,
+            "popup should stay visible when Up is outside the button"
+        );
+        // mouse_button_down_index should have been consumed
+        assert_eq!(app.mouse_button_down_index, None);
+    }
+
+    #[tokio::test]
+    async fn test_empty_trash_mouse_wheel_ignored() {
+        let mut app = AppState::test_default();
+        app.popups.empty_trash = EmptyTrashState {
+            is_visible: true,
+            selected_no: true,
+            popup_area: Rect::default(),
+            button_areas: vec![Rect::new(10, 10, 12, 3)],
+        };
+
+        let scroll_x = 5u16;
+        let scroll_y = 5u16;
+
+        // Scroll events should be silently ignored when popup is visible
+        handle_mouse_event(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::ScrollDown,
+                column: scroll_x,
+                row: scroll_y,
+                modifiers: termina::event::Modifiers::NONE,
+            },
+        )
+        .await;
+
+        // The popup state should be unchanged
+        assert!(app.popups.empty_trash.is_visible);
+        assert!(app.popups.empty_trash.selected_no);
+    }
 }
