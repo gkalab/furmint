@@ -22,7 +22,13 @@ pub async fn handle_mouse_event(app: &mut AppState, event: MouseEvent) {
             MouseEventKind::Up(MouseButton::Left) => {
                 handle_popup_up(app, event.column, event.row).await;
             }
-            _ => {} // Ignore wheel, drag, right-click when popup is visible
+            MouseEventKind::ScrollUp if app.popups.help.is_visible => {
+                crate::ui::help_ui::handle_help_popup_event(KeyCode::Up, app);
+            }
+            MouseEventKind::ScrollDown if app.popups.help.is_visible => {
+                crate::ui::help_ui::handle_help_popup_event(KeyCode::Down, app);
+            }
+            _ => {} // Ignore drag, right-click when popup is visible
         }
         return;
     }
