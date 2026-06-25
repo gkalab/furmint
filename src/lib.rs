@@ -37,6 +37,7 @@ use ratatui::Terminal;
 use ratatui::backend::TerminaBackend;
 use ratatui::termina::{PlatformTerminal, Terminal as _};
 use std::env;
+use termina::EventReader;
 
 struct InitializedApp {
     app: AppState,
@@ -127,6 +128,15 @@ fn initialize_app() -> Result<InitializedApp> {
     })
 }
 
+fn setup_terminal() -> Result<(Terminal<TerminaBackend<PlatformTerminal>>, EventReader)> {
+    let mut output = PlatformTerminal::new()?;
+    output.enter_raw_mode()?;
+    let reader = output.event_reader();
+    let mut terminal = Terminal::new(TerminaBackend::new(output))?;
+    terminal.clear()?;
+    Ok((terminal, reader))
+}
+
 /// Runs the main application.
 ///
 /// # Errors
@@ -142,12 +152,8 @@ pub async fn run() -> Result<()> {
         mut image_load_rx,
     } = initialize_app()?;
 
-    let mut output = PlatformTerminal::new()?;
-    output.enter_raw_mode()?;
     app.file_viewer.init_picker().await;
-    let reader = output.event_reader();
-    let mut terminal = Terminal::new(TerminaBackend::new(output))?;
-    terminal.clear()?;
+    let (mut terminal, mut reader) = setup_terminal()?;
 
     if app.global.mouse.unwrap_or(true) {
         enable_mouse_capture()?;
@@ -206,8 +212,18 @@ pub async fn run() -> Result<()> {
                 }
             }
             Some(PendingAction::ToggleConsole) => {
+                drop(terminal);
+
                 if let Err(e) = execute_toggle_console(&mut app).await {
                     app.active_tab_mut().error = Some(e.to_string());
+                }
+
+                let (t, r) = setup_terminal()?;
+                terminal = t;
+                reader = r;
+
+                if app.global.mouse.unwrap_or(true) {
+                    enable_mouse_capture()?;
                 }
             }
             Some(PendingAction::WindowsContextMenu(path)) => {
