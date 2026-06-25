@@ -8,7 +8,16 @@ pub async fn handle_mouse_event(app: &mut AppState, event: MouseEvent) {
     if app.popups.any_visible() {
         match event.kind {
             MouseEventKind::Down(MouseButton::Left) => {
-                handle_popup_down(app, event.column, event.row);
+                // SSH connection popup has clickable fields that need special handling
+                if app.popups.ssh_connection.is_visible {
+                    crate::handlers::popup_ssh::handle_ssh_connection_mouse_click(
+                        app,
+                        event.column,
+                        event.row,
+                    );
+                } else {
+                    handle_popup_down(app, event.column, event.row);
+                }
             }
             MouseEventKind::Up(MouseButton::Left) => {
                 handle_popup_up(app, event.column, event.row).await;
@@ -388,7 +397,7 @@ fn handle_scroll(app: &mut AppState, up: bool) {
     crate::handlers::navigation::update_viewer_content(app);
 }
 
-fn is_in_rect(pos: (u16, u16), rect: Rect) -> bool {
+pub(crate) fn is_in_rect(pos: (u16, u16), rect: Rect) -> bool {
     pos.0 >= rect.x
         && pos.0 < rect.x + rect.width
         && pos.1 >= rect.y

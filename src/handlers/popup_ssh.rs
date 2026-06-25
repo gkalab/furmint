@@ -1,8 +1,9 @@
 use crate::app::AppState;
+use crate::state::ssh::SshField;
 use crate::tasks::{SshContext, TaskEvent, TaskStatus};
 use secrecy::{ExposeSecret, SecretString};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use termina::event::{KeyCode, Modifiers};
 
 pub fn handle_ssh_connection_init(app: &mut AppState) {
@@ -24,7 +25,6 @@ pub fn handle_ssh_connection_init(app: &mut AppState) {
     app.popups.ssh_connection.last_key_time = None;
 }
 
-use crate::state::ssh::SshField;
 use crate::state::{ConfirmationAction, ConfirmationState};
 
 fn handle_ssh_confirmation(app: &mut AppState, code: KeyCode) -> bool {
@@ -273,7 +273,6 @@ pub fn handle_ssh_connection_event(app: &mut AppState, code: KeyCode, modifiers:
 }
 
 fn reset_cursor(app: &mut AppState) {
-    use crate::state::ssh::SshField;
     app.popups.ssh_connection.cursor_position = match app.popups.ssh_connection.active_field {
         SshField::ConnectionString => app.popups.ssh_connection.connection_string.chars().count(),
         SshField::Name => app.popups.ssh_connection.name.chars().count(),
@@ -644,6 +643,117 @@ fn show_password_popup_for_reconnect(
     app.popups.ssh_password.error = error;
     app.popups.ssh_password.password = SecretString::new(String::new().into());
     app.popups.ssh_password.cursor_position = 0;
+}
+
+pub fn handle_ssh_connection_mouse_click(app: &mut AppState, x: u16, y: u16) {
+    if app.popups.ssh_connection.confirmation.is_some() {
+        return;
+    }
+
+    let now = Instant::now();
+    let is_double_click = if let Some((last_time, last_x, last_y)) = app.last_click {
+        now.duration_since(last_time) < Duration::from_millis(500) && x == last_x && y == last_y
+    } else {
+        false
+    };
+    app.last_click = Some((now, x, y));
+
+    let pos = (x, y);
+    let fields = &app.popups.ssh_connection.field_areas;
+    if fields.len() < 4 {
+        return;
+    }
+
+    // Connection String
+    if crate::handlers::mouse::is_in_rect(pos, fields[0]) {
+        app.popups.ssh_connection.active_field = SshField::ConnectionString;
+        set_ssh_cursor_from_click(app, SshField::ConnectionString, x);
+        app.popups.ssh_connection.search_query.clear();
+        return;
+    }
+
+    // Name
+    if crate::handlers::mouse::is_in_rect(pos, fields[1]) {
+        app.popups.ssh_connection.active_field = SshField::Name;
+        set_ssh_cursor_from_click(app, SshField::Name, x);
+        app.popups.ssh_connection.search_query.clear();
+        return;
+    }
+
+    // Port
+    if crate::handlers::mouse::is_in_rect(pos, fields[2]) {
+        app.popups.ssh_connection.active_field = SshField::Port;
+        set_ssh_cursor_from_click(app, SshField::Port, x);
+        app.popups.ssh_connection.search_query.clear();
+        return;
+    }
+
+    // History list
+    if crate::handlers::mouse::is_in_rect(pos, fields[3]) {
+        app.popups.ssh_connection.active_field = SshField::History;
+        app.popups.ssh_connection.search_query.clear();
+
+        let visible_row = y.saturating_sub(fields[3].y + 1);
+        if visible_row < fields[3].height.saturating_sub(2) {
+            let abs_idx = app.popups.ssh_connection.history_list_offset + visible_row as usize;
+            if abs_idx < app.ssh_history.connections.len() {
+                app.popups.ssh_connection.selected_history_idx = Some(abs_idx);
+                update_fields_from_history(app);
+
+                if is_double_click {
+                    handle_ssh_connection_event(app, KeyCode::Enter, Modifiers::NONE);
+                }
+            }
+        }
+    }
+}
+
+fn set_ssh_cursor_from_click(app: &mut AppState, field: SshField, click_x: u16) {
+    let text_len;
+    let field_idx;
+
+    match field {
+        SshField::ConnectionString => {
+            text_len = app.popups.ssh_connection.connection_string.chars().count();
+            field_idx = 0;
+        }
+        SshField::Name => {
+            text_len = app.popups.ssh_connection.name.chars().count();
+            field_idx = 1;
+        }
+        SshField::Port => {
+            text_len = app.popups.ssh_connection.port.chars().count();
+            field_idx = 2;
+        }
+        SshField::History => return,
+    }
+
+    let Some(area) = app
+        .popups
+        .ssh_connection
+        .field_areas
+        .get(field_idx)
+        .copied()
+    else {
+        return;
+    };
+
+    let current_cursor = app.popups.ssh_connection.cursor_position;
+    let input_width = (area.width as usize).saturating_sub(4);
+    let current_scroll = if current_cursor < input_width {
+        0
+    } else {
+        current_cursor - input_width + 1
+    };
+
+    let new_pos = if click_x >= area.x + 2 {
+        let visual_col = (click_x - (area.x + 2)) as usize;
+        visual_col.saturating_add(current_scroll).min(text_len)
+    } else {
+        0
+    };
+
+    app.popups.ssh_connection.cursor_position = new_pos;
 }
 
 pub fn handle_reconnect_ssh(app: &mut AppState) {

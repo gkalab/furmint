@@ -6,7 +6,7 @@ use secrecy::ExposeSecret;
 
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
 
-pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemePalette) {
+pub fn draw_ssh_connection_popup(f: &mut Frame, app: &mut AppState, palette: &ThemePalette) {
     let area = f.area();
     let popup_area = crate::ui::ui_utils::centered_rect_percent(70, 80, area);
 
@@ -42,6 +42,8 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &AppState, palette: &ThemeP
             Constraint::Min(6),
         ])
         .split(popup_area);
+
+    app.popups.ssh_connection.field_areas = vec![chunks[0], chunks[2], chunks[4], chunks[6]];
 
     render_input_field(
         f,
@@ -148,7 +150,7 @@ fn render_input_field(
 fn draw_history_list(
     f: &mut Frame,
     chunk: Rect,
-    app: &AppState,
+    app: &mut AppState,
     palette: &ThemePalette,
     active_field: SshField,
 ) {
@@ -199,6 +201,7 @@ fn draw_history_list(
     let mut list_state =
         ListState::default().with_selected(app.popups.ssh_connection.selected_history_idx);
     f.render_stateful_widget(list, chunk, &mut list_state);
+    app.popups.ssh_connection.history_list_offset = list_state.offset();
 
     let scroll_area = chunk.inner(Margin {
         vertical: 1,
