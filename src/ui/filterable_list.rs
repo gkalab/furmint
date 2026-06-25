@@ -11,6 +11,7 @@ pub struct FilterableListState {
     pub items: Vec<PathBuf>,
     pub selected_index: usize,
     pub scroll_offset: usize,
+    pub list_area: Option<Rect>,
 }
 
 impl FilterableListState {
@@ -23,6 +24,7 @@ impl FilterableListState {
             items: Vec::new(),
             selected_index: 0,
             scroll_offset: 0,
+            list_area: None,
         }
     }
 
@@ -32,6 +34,7 @@ impl FilterableListState {
         self.items.clear();
         self.selected_index = 0;
         self.scroll_offset = 0;
+        self.list_area = None;
     }
 
     pub fn move_selection_up(&mut self) {
@@ -148,6 +151,7 @@ pub fn draw_filterable_list_popup(
 
     f.render_widget(list_block.clone(), chunks[2]);
     let list_inner_area = list_block.inner(chunks[2]);
+    state.list_area = Some(list_inner_area);
 
     let visible_rows = list_inner_area.height as usize;
     state.update_scroll(visible_rows);

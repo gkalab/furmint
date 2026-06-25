@@ -4,6 +4,32 @@ use crate::app::AppState;
 use crate::ui::fuzzy_search_ui::FuzzySearchState;
 use termina::event::{KeyCode, Modifiers};
 
+pub(crate) fn handle_fuzzy_search_mouse_click(
+    app: &mut AppState,
+    x: u16,
+    y: u16,
+    is_double_click: bool,
+) {
+    let state = &mut app.fuzzy_search.list;
+    let Some(list_area) = state.list_area else {
+        return;
+    };
+    if !crate::handlers::mouse::is_in_rect((x, y), list_area) {
+        return;
+    }
+
+    let row = (y - list_area.y) as usize + state.scroll_offset;
+    if row >= state.items.len() {
+        return;
+    }
+
+    state.selected_index = row;
+
+    if is_double_click {
+        handle_fuzzy_search_event(KeyCode::Enter, Modifiers::NONE, app);
+    }
+}
+
 fn update_fuzzy_search_results(
     state: &mut FuzzySearchState,
     dir_history: &crate::dir_history::DirectoryHistory,

@@ -4,16 +4,59 @@ use std::time::{Duration, Instant};
 use termina::event::{KeyCode, MouseButton, MouseEvent, MouseEventKind};
 
 pub async fn handle_mouse_event(app: &mut AppState, event: MouseEvent) {
-    // If any popup is visible, only handle button clicks (modal behavior)
+    // Compute double-click before dispatching so all popups get consistent detection
+    let is_double_click = if matches!(event.kind, MouseEventKind::Down(MouseButton::Left)) {
+        let now = Instant::now();
+        let double = if let Some((last_time, last_x, last_y)) = app.last_click {
+            now.duration_since(last_time) < Duration::from_millis(500)
+                && event.column == last_x
+                && event.row == last_y
+        } else {
+            false
+        };
+        app.last_click = Some((now, event.column, event.row));
+        double
+    } else {
+        false
+    };
+
+    // Fuzzy search is not in app.popups.any_visible(), so check it first
+    if app.fuzzy_search.list.is_visible {
+        match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                crate::handlers::popup_fuzzy::handle_fuzzy_search_mouse_click(
+                    app,
+                    event.column,
+                    event.row,
+                    is_double_click,
+                );
+            }
+            MouseEventKind::ScrollUp => {
+                app.fuzzy_search.move_selection_up();
+            }
+            MouseEventKind::ScrollDown => {
+                app.fuzzy_search.move_selection_down();
+            }
+            _ => {}
+        }
+        return;
+    }
+
     if app.popups.any_visible() {
         match event.kind {
             MouseEventKind::Down(MouseButton::Left) => {
-                // SSH connection popup has clickable fields that need special handling
                 if app.popups.ssh_connection.is_visible {
                     crate::handlers::popup_ssh::handle_ssh_connection_mouse_click(
                         app,
                         event.column,
                         event.row,
+                    );
+                } else if app.popups.bookmark.list.is_visible {
+                    crate::handlers::popup_bookmark::handle_bookmark_mouse_click(
+                        app,
+                        event.column,
+                        event.row,
+                        is_double_click,
                     );
                 } else {
                     handle_popup_down(app, event.column, event.row);
@@ -28,14 +71,20 @@ pub async fn handle_mouse_event(app: &mut AppState, event: MouseEvent) {
             MouseEventKind::ScrollDown if app.popups.help.is_visible => {
                 crate::ui::help_ui::handle_help_popup_event(KeyCode::Down, app);
             }
-            _ => {} // Ignore drag, right-click when popup is visible
+            MouseEventKind::ScrollUp if app.popups.bookmark.list.is_visible => {
+                app.popups.bookmark.list.move_selection_up();
+            }
+            MouseEventKind::ScrollDown if app.popups.bookmark.list.is_visible => {
+                app.popups.bookmark.list.move_selection_down();
+            }
+            _ => {}
         }
         return;
     }
 
     match event.kind {
         MouseEventKind::Down(MouseButton::Left) => {
-            handle_left_click(app, event.column, event.row);
+            handle_left_click(app, event.column, event.row, is_double_click);
         }
         MouseEventKind::Down(MouseButton::Right) => {
             handle_right_click(app, event.column, event.row);
@@ -177,16 +226,7 @@ async fn handle_popup_up(app: &mut AppState, x: u16, y: u16) {
     }
 }
 
-fn handle_left_click(app: &mut AppState, x: u16, y: u16) {
-    let now = Instant::now();
-    let is_double_click = if let Some((last_time, last_x, last_y)) = app.last_click {
-        now.duration_since(last_time) < Duration::from_millis(500) && x == last_x && y == last_y
-    } else {
-        false
-    };
-
-    app.last_click = Some((now, x, y));
-
+fn handle_left_click(app: &mut AppState, x: u16, y: u16, is_double_click: bool) {
     let click_pos = (x, y);
 
     // Check file viewer

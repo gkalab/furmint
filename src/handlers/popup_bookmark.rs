@@ -3,6 +3,30 @@ use crate::state::{ConfirmationAction, ConfirmationState};
 use std::time::Instant;
 use termina::event::{KeyCode, Modifiers};
 
+pub fn handle_bookmark_mouse_click(app: &mut AppState, x: u16, y: u16, is_double_click: bool) {
+    if app.popups.bookmark.confirmation.is_some() {
+        return;
+    }
+    let state = &mut app.popups.bookmark.list;
+    let Some(list_area) = state.list_area else {
+        return;
+    };
+    if !crate::handlers::mouse::is_in_rect((x, y), list_area) {
+        return;
+    }
+
+    let row = (y - list_area.y) as usize + state.scroll_offset;
+    if row >= state.items.len() {
+        return;
+    }
+
+    state.selected_index = row;
+
+    if is_double_click {
+        handle_bookmark_event(KeyCode::Enter, Modifiers::NONE, app);
+    }
+}
+
 pub fn handle_bookmark_add(app: &mut AppState) {
     let current_dir = app.active_tab().current_dir.clone();
     let path_str = current_dir.to_string_lossy().to_string();
