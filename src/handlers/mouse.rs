@@ -228,12 +228,12 @@ fn handle_left_click(app: &mut AppState, x: u16, y: u16) {
     // Check panels
     if is_in_rect(click_pos, app.left_panel_area) {
         app.active = PanelSide::Left;
-        handle_panel_click(app, PanelSide::Left, y, is_double_click);
+        handle_panel_click(app, PanelSide::Left, x, y, is_double_click);
         return;
     }
     if is_in_rect(click_pos, app.right_panel_area) {
         app.active = PanelSide::Right;
-        handle_panel_click(app, PanelSide::Right, y, is_double_click);
+        handle_panel_click(app, PanelSide::Right, x, y, is_double_click);
     }
 }
 
@@ -311,7 +311,7 @@ fn handle_tab_bar_click(app: &mut AppState, side: PanelSide, x: u16, y: u16) {
     }
 }
 
-fn handle_panel_click(app: &mut AppState, side: PanelSide, y: u16, is_double_click: bool) {
+fn handle_panel_click(app: &mut AppState, side: PanelSide, x: u16, y: u16, is_double_click: bool) {
     let (tab, area) = match side {
         PanelSide::Left => (app.left.active_tab_mut(), app.left_panel_area),
         PanelSide::Right => (app.right.active_tab_mut(), app.right_panel_area),
@@ -319,8 +319,9 @@ fn handle_panel_click(app: &mut AppState, side: PanelSide, y: u16, is_double_cli
 
     let borders = app.global.borders.unwrap_or(false);
     let border_offset = u16::from(borders);
+    let header_row_y = area.y + border_offset;
     let header_height = 1;
-    let content_start_y = area.y + border_offset + header_height;
+    let content_start_y = header_row_y + header_height;
 
     // Check if clicked within content area (accounting for borders)
     if borders && (y <= area.y || y >= area.y + area.height.saturating_sub(1)) {
@@ -328,6 +329,9 @@ fn handle_panel_click(app: &mut AppState, side: PanelSide, y: u16, is_double_cli
     }
 
     if y < content_start_y {
+        if y == header_row_y {
+            crate::handlers::navigation::handle_header_click(app, x, area, borders);
+        }
         return; // Clicked on header
     }
 

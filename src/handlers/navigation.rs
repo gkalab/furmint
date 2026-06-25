@@ -1,7 +1,8 @@
 //! Navigation-related event handlers for directory and panel navigation.
 
-use crate::app::AppState;
+use crate::app::{AppState, SortColumn};
 use crate::fs::fs_archive::ArchiveFs;
+use ratatui::layout::Rect;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -415,6 +416,34 @@ pub fn handle_history_next(app: &mut AppState) {
         }
         update_viewer_content(app);
     }
+}
+
+/// Map a mouse click on a panel's column header to a sort action.
+/// `area` is the panel's outer area (including borders) and `borders`
+/// indicates whether the panel has visible borders.
+pub fn handle_header_click(app: &mut AppState, x: u16, area: Rect, borders: bool) {
+    let border_offset = u16::from(borders);
+    let inner_x = area.x + border_offset;
+    let inner_width = area.width.saturating_sub(border_offset * 2);
+
+    // Column widths matching table constraints at panel.rs:
+    // [Min(10), Length(7), Length(19), Length(10)]
+    let name_width = inner_width.saturating_sub(7 + 19 + 10);
+    let size_x = inner_x + name_width;
+    let modified_x = size_x + 7;
+    let attributes_x = modified_x + 19;
+
+    let column = if x < size_x {
+        SortColumn::Name
+    } else if x < modified_x {
+        SortColumn::Size
+    } else if x < attributes_x {
+        SortColumn::Date
+    } else {
+        return;
+    };
+
+    handle_sort(app, column);
 }
 
 pub fn handle_sort(app: &mut AppState, column: crate::app::SortColumn) {
