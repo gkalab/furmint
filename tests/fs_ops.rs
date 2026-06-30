@@ -626,6 +626,211 @@ async fn test_recursive_op_retry() {
 }
 
 #[tokio::test]
+async fn test_recursive_op_error_skip_all() {
+    let fs = MockFileSystem::default();
+    let src_root = PathBuf::from("/src");
+    let dest_root = PathBuf::from("/dest");
+
+    {
+        let mut files = fs.files.lock().await;
+        files.insert(src_root.clone(), FakeEntry { is_dir: true });
+        files.insert(src_root.join("f1.txt"), FakeEntry { is_dir: false });
+        files.insert(src_root.join("f2.txt"), FakeEntry { is_dir: false });
+    }
+
+    // Both copies will fail
+    {
+        let mut fails = fs.fail_next_copy.lock().await;
+        *fails = 2;
+    }
+
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (dtx, drx_real) = mpsc::channel(1);
+    let processed = Arc::new(AtomicUsize::new(0));
+    let decision_rx = Arc::new(Mutex::new(drx_real));
+    let total_bytes = 0;
+    let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let cancel = Arc::new(AtomicBool::new(false));
+    let ctx = RecursiveOpContext {
+        src_fs: &fs,
+        dest_fs: &fs,
+        src: &src_root,
+        dest: &dest_root,
+        action: CopyMoveAction::Copy,
+        cancel: &cancel,
+        tx: &tx,
+        id: 1,
+        total: 2,
+        total_bytes,
+        processed: &processed,
+        processed_bytes: &processed_bytes,
+        decision_rx: &decision_rx,
+    };
+    let mut decision_state = DecisionState {
+        overwrite_all: false,
+        skip_all: false,
+        last_update: std::time::Instant::now(),
+    };
+
+    // Send SkipAll on the first error
+    tokio::spawn(async move {
+        while let Some(event) = rx.recv().await {
+            if let TaskEvent::Error(_, _, _) = event {
+                let _ = dtx.send(TaskDecision::SkipAll).await;
+            }
+        }
+    });
+
+    let res = recursive_op(ctx, &mut decision_state).await;
+
+    assert!(res.is_ok());
+    assert!(decision_state.skip_all, "skip_all should be set");
+
+    // No copies should have succeeded (both failed)
+    let copies = fs.copies.lock().await;
+    assert_eq!(copies.len(), 0, "No files should have been copied");
+}
+
+#[tokio::test]
+async fn test_recursive_op_error_cancel() {
+    let fs = MockFileSystem::default();
+    let src_root = PathBuf::from("/src");
+    let dest_root = PathBuf::from("/dest");
+
+    {
+        let mut files = fs.files.lock().await;
+        files.insert(src_root.clone(), FakeEntry { is_dir: true });
+        files.insert(src_root.join("f1.txt"), FakeEntry { is_dir: false });
+        files.insert(src_root.join("f2.txt"), FakeEntry { is_dir: false });
+    }
+
+    // Both copies will fail
+    {
+        let mut fails = fs.fail_next_copy.lock().await;
+        *fails = 2;
+    }
+
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (dtx, drx_real) = mpsc::channel(1);
+    let processed = Arc::new(AtomicUsize::new(0));
+    let decision_rx = Arc::new(Mutex::new(drx_real));
+    let total_bytes = 0;
+    let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let cancel = Arc::new(AtomicBool::new(false));
+    let ctx = RecursiveOpContext {
+        src_fs: &fs,
+        dest_fs: &fs,
+        src: &src_root,
+        dest: &dest_root,
+        action: CopyMoveAction::Copy,
+        cancel: &cancel,
+        tx: &tx,
+        id: 1,
+        total: 2,
+        total_bytes,
+        processed: &processed,
+        processed_bytes: &processed_bytes,
+        decision_rx: &decision_rx,
+    };
+    let mut decision_state = DecisionState {
+        overwrite_all: false,
+        skip_all: false,
+        last_update: std::time::Instant::now(),
+    };
+
+    // Send Cancel on the first error
+    tokio::spawn(async move {
+        while let Some(event) = rx.recv().await {
+            if let TaskEvent::Error(_, _, _) = event {
+                let _ = dtx.send(TaskDecision::Cancel).await;
+            }
+        }
+    });
+
+    let res = recursive_op(ctx, &mut decision_state).await;
+
+    assert!(res.is_ok());
+    assert!(
+        cancel.load(std::sync::atomic::Ordering::Relaxed),
+        "cancel flag should be set"
+    );
+
+    // No copies should have succeeded (first errored, second cancelled)
+    let copies = fs.copies.lock().await;
+    assert_eq!(copies.len(), 0, "No files should have been copied");
+}
+
+#[tokio::test]
+async fn test_recursive_op_error_skip() {
+    let fs = MockFileSystem::default();
+    let src_root = PathBuf::from("/src");
+    let dest_root = PathBuf::from("/dest");
+
+    {
+        let mut files = fs.files.lock().await;
+        files.insert(src_root.clone(), FakeEntry { is_dir: true });
+        files.insert(src_root.join("f1.txt"), FakeEntry { is_dir: false });
+        files.insert(src_root.join("f2.txt"), FakeEntry { is_dir: false });
+    }
+
+    // Both copies will fail
+    {
+        let mut fails = fs.fail_next_copy.lock().await;
+        *fails = 2;
+    }
+
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (dtx, drx_real) = mpsc::channel(1);
+    let processed = Arc::new(AtomicUsize::new(0));
+    let decision_rx = Arc::new(Mutex::new(drx_real));
+    let total_bytes = 0;
+    let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let cancel = Arc::new(AtomicBool::new(false));
+    let ctx = RecursiveOpContext {
+        src_fs: &fs,
+        dest_fs: &fs,
+        src: &src_root,
+        dest: &dest_root,
+        action: CopyMoveAction::Copy,
+        cancel: &cancel,
+        tx: &tx,
+        id: 1,
+        total: 2,
+        total_bytes,
+        processed: &processed,
+        processed_bytes: &processed_bytes,
+        decision_rx: &decision_rx,
+    };
+    let mut decision_state = DecisionState {
+        overwrite_all: false,
+        skip_all: false,
+        last_update: std::time::Instant::now(),
+    };
+
+    // Send Skip on each error
+    tokio::spawn(async move {
+        while let Some(event) = rx.recv().await {
+            if let TaskEvent::Error(_, _, _) = event {
+                let _ = dtx.send(TaskDecision::Skip).await;
+            }
+        }
+    });
+
+    let res = recursive_op(ctx, &mut decision_state).await;
+
+    assert!(res.is_ok());
+    assert!(!decision_state.skip_all, "skip_all should NOT be set");
+    assert!(
+        !cancel.load(std::sync::atomic::Ordering::Relaxed),
+        "cancel flag should NOT be set"
+    );
+
+    // No copies should have succeeded (both failed and were skipped individually)
+    let copies = fs.copies.lock().await;
+    assert_eq!(copies.len(), 0, "No files should have been copied");
+}
+
+#[tokio::test]
 async fn test_move_rename_optimization_no_conflict() {
     let fs = MockFileSystem::default();
     let src = PathBuf::from("/src.txt");

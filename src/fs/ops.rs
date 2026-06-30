@@ -566,10 +566,26 @@ async fn perform_file_copy(
                     format!("Failed to copy to {}: {e}", dest.display()),
                 ));
                 let decision = ctx.decision_rx.lock().await.recv().await;
-                if let Some(crate::tasks::TaskDecision::Retry) = decision {
-                } else {
-                    perform = false;
-                    break;
+                match decision {
+                    Some(crate::tasks::TaskDecision::Retry) => {}
+                    Some(crate::tasks::TaskDecision::SkipAll) => {
+                        decision_state.skip_all = true;
+                        perform = false;
+                        break;
+                    }
+                    Some(crate::tasks::TaskDecision::Cancel) => {
+                        ctx.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                        let _ = ctx.tx.send(crate::tasks::TaskEvent::UpdateStatus(
+                            ctx.id,
+                            crate::tasks::TaskStatus::Cancelled,
+                        ));
+                        perform = false;
+                        break;
+                    }
+                    _ => {
+                        perform = false;
+                        break;
+                    }
                 }
             }
         }
