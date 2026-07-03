@@ -14,19 +14,19 @@ fn main() -> io::Result<()> {
     terminal.flush()?;
 
     loop {
-        if terminal.poll(|_| true, Some(std::time::Duration::from_millis(100)))? {
-            if let Event::Key(key) = terminal.read(|_| true)? {
-                writeln!(terminal, "\r\nEvent: {key:?}")?;
-                writeln!(
-                    terminal,
-                    "Code: {:?}, Modifiers: {:?}",
-                    key.code, key.modifiers
-                )?;
-                terminal.flush()?;
+        if terminal.poll(|_| true, Some(std::time::Duration::from_millis(100)))?
+            && let Event::Key(key) = terminal.read(|_| true)?
+        {
+            writeln!(terminal, "\r\nEvent: {key:?}")?;
+            writeln!(
+                terminal,
+                "Code: {:?}, Modifiers: {:?}",
+                key.code, key.modifiers
+            )?;
+            terminal.flush()?;
 
-                if key.code == KeyCode::Char('q') || key.code == KeyCode::Escape {
-                    break;
-                }
+            if key.code == KeyCode::Char('q') || key.code == KeyCode::Escape {
+                break;
             }
         }
     }

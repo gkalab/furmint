@@ -277,6 +277,7 @@ impl Tab {
     /// Returns an error if the directory cannot be listed.
     pub fn navigate_to(&mut self, path: &Path) -> anyhow::Result<()> {
         let entries = self.provider.list_dir(path)?;
+        self.error = None;
         self.save_cursor_to_history();
 
         self.current_dir = path.to_path_buf();
@@ -367,6 +368,7 @@ impl Tab {
     /// Returns an error if the directory cannot be listed.
     pub fn reload(&mut self) -> anyhow::Result<bool> {
         let entries = self.provider.list_dir(&self.current_dir)?;
+        self.error = None;
         Ok(self.reload_preserving_state(entries))
     }
 

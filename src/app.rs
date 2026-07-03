@@ -364,8 +364,11 @@ impl AppState {
 
     pub fn reload_remote(&mut self) {
         let handle_remote = |tab: &mut Tab| {
-            if !tab.provider.is_local() {
-                let _ = tab.reload();
+            if !tab.provider.is_local()
+                && tab.error.is_none()
+                && let Err(e) = tab.reload()
+            {
+                tab.error = Some(format!("Remote reload failed: {e}"));
             }
         };
 

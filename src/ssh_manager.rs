@@ -177,11 +177,13 @@ impl SshManager {
         let grace = Duration::from_secs(self.read_timeout_secs);
         let hard = Duration::from_secs(self.watchdog_secs);
         let keepalive = self.keepalive_interval;
+        let timeout_ms = u32::try_from(self.read_timeout_secs * 1000).unwrap();
 
         self.spawn_blocking_with_watchdog(
             move || -> Result<crate::fs::fs_sftp::SftpFs, SshError> {
                 let mut sess =
                     ssh2::Session::new().map_err(|e| SshError::Internal(e.to_string()))?;
+                sess.set_timeout(timeout_ms);
                 sess.set_tcp_stream(tcp);
                 sess.handshake().map_err(|e| {
                     let mut msg = e.to_string();
@@ -340,11 +342,13 @@ impl SshManager {
         let grace = Duration::from_secs(self.read_timeout_secs);
         let hard = Duration::from_secs(self.watchdog_secs);
         let keepalive = self.keepalive_interval;
+        let timeout_ms = u32::try_from(self.read_timeout_secs * 1000).unwrap();
 
         self.spawn_blocking_with_watchdog(
             move || -> Result<crate::fs::fs_sftp::SftpFs, SshError> {
                 let mut sess =
                     ssh2::Session::new().map_err(|e| SshError::Internal(e.to_string()))?;
+                sess.set_timeout(timeout_ms);
                 sess.set_tcp_stream(tcp);
                 sess.handshake().map_err(|e| {
                     let mut msg = e.to_string();

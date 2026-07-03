@@ -229,6 +229,7 @@ async fn test_handle_create_file_tilde_expansion() {
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
 async fn test_handle_create_file_remote_uses_remote_edit_workflow() {
     struct MockRemoteCreateFs;
 
