@@ -50,6 +50,12 @@ pub enum TaskEvent {
     /// Directory size calculation completed: (`task_id`, path, `size_in_bytes`)
     DirSizeCalculated(usize, std::path::PathBuf, u64),
     ArchiveLoaded(usize, ProviderWrapper, String, std::path::PathBuf), // side_index, provider, filename, path
+    RemoteReloadCompleted {
+        side: crate::app_state::tabs::PanelSide,
+        tab_index: usize,
+        current_dir: std::path::PathBuf,
+        result: Result<Vec<crate::fs::utils::FileEntry>, String>,
+    },
 }
 
 #[derive(Clone)]
@@ -112,6 +118,11 @@ impl TaskManager {
             event_tx,
             selected_index: Arc::new(AtomicUsize::new(0)),
         }
+    }
+
+    #[must_use]
+    pub fn get_tx(&self) -> mpsc::UnboundedSender<TaskEvent> {
+        self.event_tx.clone()
     }
 
     /// Spawns a new task.

@@ -84,20 +84,7 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
             app.handle_ssh_reconnected(ctx);
         }
         crate::tasks::TaskEvent::SshReconnectFailed(session_id, error) => {
-            // Find the session and show password popup with error message
-            let sessions = app.ssh_manager.get_all_sessions();
-            if let Some(session) = sessions.iter().find(|s| s.session_id == session_id) {
-                app.popups.ssh_password.is_visible = true;
-                app.popups
-                    .ssh_password
-                    .session_id
-                    .clone_from(&session.session_id);
-                app.popups.ssh_password.host.clone_from(&session.host);
-                app.popups.ssh_password.user.clone_from(&session.user);
-                app.popups.ssh_password.error = Some(error);
-                app.popups.ssh_password.password = SecretString::new(String::new().into());
-                app.popups.ssh_password.cursor_position = 0;
-            }
+            handle_ssh_reconnect_failed(app, &session_id, error);
         }
         crate::tasks::TaskEvent::SshError(host, user, error) => {
             handle_ssh_error(app, host, user, error);
@@ -115,6 +102,14 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
         }
         crate::tasks::TaskEvent::ArchiveLoaded(side_index, wrapper, filename, path) => {
             handle_archive_loaded(app, side_index, wrapper, filename, path);
+        }
+        crate::tasks::TaskEvent::RemoteReloadCompleted {
+            side,
+            tab_index,
+            ref current_dir,
+            result,
+        } => {
+            handle_remote_reload_completed(app, side, tab_index, current_dir, result);
         }
     }
 }
@@ -145,6 +140,49 @@ fn handle_ssh_error(
             app.popups.ssh_connection.is_visible = true;
             app.popups.ssh_connection.error = Some(msg);
             app.popups.ssh_connection.active_field = crate::state::ssh::SshField::ConnectionString;
+        }
+    }
+}
+
+fn handle_ssh_reconnect_failed(app: &mut crate::app::AppState, session_id: &str, error: String) {
+    let sessions = app.ssh_manager.get_all_sessions();
+    if let Some(session) = sessions.iter().find(|s| s.session_id == session_id) {
+        app.popups.ssh_password.is_visible = true;
+        app.popups
+            .ssh_password
+            .session_id
+            .clone_from(&session.session_id);
+        app.popups.ssh_password.host.clone_from(&session.host);
+        app.popups.ssh_password.user.clone_from(&session.user);
+        app.popups.ssh_password.error = Some(error);
+        app.popups.ssh_password.password = SecretString::new(String::new().into());
+        app.popups.ssh_password.cursor_position = 0;
+    }
+}
+
+fn handle_remote_reload_completed(
+    app: &mut crate::app::AppState,
+    side: crate::app_state::tabs::PanelSide,
+    tab_index: usize,
+    current_dir: &std::path::Path,
+    result: Result<Vec<crate::fs::utils::FileEntry>, String>,
+) {
+    let panel = match side {
+        crate::app_state::tabs::PanelSide::Left => &mut app.left,
+        crate::app_state::tabs::PanelSide::Right => &mut app.right,
+    };
+    if let Some(tab) = panel.tabs.get_mut(tab_index) {
+        tab.is_reloading = false;
+        if tab.current_dir == current_dir {
+            match result {
+                Ok(entries) => {
+                    tab.error = None;
+                    tab.reload_preserving_state(entries);
+                }
+                Err(e) => {
+                    tab.error = Some(format!("Remote reload failed: {e}"));
+                }
+            }
         }
     }
 }

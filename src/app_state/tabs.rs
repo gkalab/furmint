@@ -127,6 +127,7 @@ pub struct Tab {
     pub status_msg: Option<(String, std::time::Instant)>,
     /// Cache of calculated directory sizes: path -> size in bytes
     pub dir_sizes: std::collections::HashMap<PathBuf, u64>,
+    pub is_reloading: bool,
 }
 
 impl Tab {
@@ -163,6 +164,7 @@ impl Tab {
             custom_title: None,
             status_msg: None,
             dir_sizes: std::collections::HashMap::new(),
+            is_reloading: false,
         };
         tab.sort_entries();
         Ok(tab)

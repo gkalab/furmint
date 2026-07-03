@@ -320,6 +320,7 @@ fn test_can_swap_active_tabs() {
         custom_title: None,
         status_msg: None,
         dir_sizes: std::collections::HashMap::new(),
+        is_reloading: false,
     };
 
     let mut app = AppState::test_default();
@@ -430,6 +431,7 @@ fn test_drive_navigation_matches_opposite_pane() {
             custom_title: None,
             status_msg: None,
             dir_sizes: std::collections::HashMap::new(),
+            is_reloading: false,
         };
         let right_tab = Tab {
             area: ratatui::layout::Rect::default(),
@@ -445,6 +447,7 @@ fn test_drive_navigation_matches_opposite_pane() {
             custom_title: None,
             status_msg: None,
             dir_sizes: std::collections::HashMap::new(),
+            is_reloading: false,
         };
         app.left.tabs = vec![left_tab];
         app.right.tabs = vec![right_tab];
@@ -482,6 +485,7 @@ fn test_drive_navigation_matches_opposite_pane() {
             custom_title: None,
             status_msg: None,
             dir_sizes: std::collections::HashMap::new(),
+            is_reloading: false,
         };
         let right_tab = Tab {
             area: ratatui::layout::Rect::default(),
@@ -497,6 +501,7 @@ fn test_drive_navigation_matches_opposite_pane() {
             custom_title: None,
             status_msg: None,
             dir_sizes: std::collections::HashMap::new(),
+            is_reloading: false,
         };
         app.left.tabs = vec![left_tab];
         app.right.tabs = vec![right_tab];
@@ -531,6 +536,7 @@ fn test_drive_navigation_matches_opposite_pane() {
             custom_title: None,
             status_msg: None,
             dir_sizes: std::collections::HashMap::new(),
+            is_reloading: false,
         };
         let right_tab = Tab {
             area: ratatui::layout::Rect::default(),
@@ -546,6 +552,7 @@ fn test_drive_navigation_matches_opposite_pane() {
             custom_title: None,
             status_msg: None,
             dir_sizes: std::collections::HashMap::new(),
+            is_reloading: false,
         };
         app.left.tabs = vec![left_tab];
         app.right.tabs = vec![right_tab];

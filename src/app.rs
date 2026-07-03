@@ -363,17 +363,37 @@ impl AppState {
     }
 
     pub fn reload_remote(&mut self) {
-        let handle_remote = |tab: &mut Tab| {
-            if !tab.provider.is_local()
-                && tab.error.is_none()
-                && let Err(e) = tab.reload()
-            {
-                tab.error = Some(format!("Remote reload failed: {e}"));
-            }
-        };
+        let tx = self.task_manager.get_tx();
 
-        handle_remote(self.left.active_tab_mut());
-        handle_remote(self.right.active_tab_mut());
+        let trigger_reload =
+            |tab: &mut Tab, side: crate::app_state::tabs::PanelSide, tab_index: usize| {
+                if !tab.provider.is_local() && tab.error.is_none() && !tab.is_reloading {
+                    tab.is_reloading = true;
+                    let provider = tab.provider.clone();
+                    let current_dir = tab.current_dir.clone();
+                    let tx = tx.clone();
+
+                    tokio::task::spawn_blocking(move || {
+                        let result = provider.list_dir(&current_dir).map_err(|e| e.to_string());
+                        let _ = tx.send(crate::tasks::TaskEvent::RemoteReloadCompleted {
+                            side,
+                            tab_index,
+                            current_dir,
+                            result,
+                        });
+                    });
+                }
+            };
+
+        let left_active = self.left.active_tab_index;
+        if let Some(tab) = self.left.tabs.get_mut(left_active) {
+            trigger_reload(tab, crate::app_state::tabs::PanelSide::Left, left_active);
+        }
+
+        let right_active = self.right.active_tab_index;
+        if let Some(tab) = self.right.tabs.get_mut(right_active) {
+            trigger_reload(tab, crate::app_state::tabs::PanelSide::Right, right_active);
+        }
     }
 
     pub fn spawn_empty_trash_task(&mut self) {

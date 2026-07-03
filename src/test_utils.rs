@@ -28,6 +28,7 @@ pub fn create_test_tab() -> Tab {
         custom_title: None,
         status_msg: None,
         dir_sizes: std::collections::HashMap::new(),
+        is_reloading: false,
     }
 }
 
@@ -87,6 +88,7 @@ pub fn create_test_tab_with_entries() -> Tab {
         custom_title: None,
         status_msg: None,
         dir_sizes: std::collections::HashMap::new(),
+        is_reloading: false,
     }
 }
 
