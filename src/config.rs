@@ -529,8 +529,8 @@ pub fn load_config() -> Result<(
         in_terminal: Some(true),
     };
     let default_ssh = SshConfig {
-        keepalive_interval: Some(10),
-        read_timeout_secs: Some(15),
+        keepalive_interval: Some(3),
+        read_timeout_secs: Some(5),
         watchdog_secs: Some(30),
     };
     let (keyboard, global, editor, viewer, ssh) = if path.exists() {
