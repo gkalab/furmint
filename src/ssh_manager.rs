@@ -261,9 +261,15 @@ impl SshManager {
         port: u16,
         user: String,
     ) -> Result<crate::fs::fs_sftp::SftpFs, SshError> {
-        crate::fs::fs_sftp_russh::SftpFs::connect_pubkey(&host, port, &user)
-            .await
-            .map_err(|_e| SshError::Auth(AuthError::KeyAuthFailed))
+        crate::fs::fs_sftp_russh::SftpFs::connect_pubkey(
+            &host,
+            port,
+            &user,
+            self.read_timeout_secs,
+            self.keepalive_interval,
+        )
+        .await
+        .map_err(|_e| SshError::Auth(AuthError::KeyAuthFailed))
     }
 
     #[must_use]
@@ -392,6 +398,8 @@ impl SshManager {
             port,
             &user,
             password.expose_secret(),
+            self.read_timeout_secs,
+            self.keepalive_interval,
         )
         .await
         .map_err(|_e| SshError::Auth(AuthError::PasswordAuthFailed))

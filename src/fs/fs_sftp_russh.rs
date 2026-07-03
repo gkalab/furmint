@@ -15,6 +15,7 @@ use russh_sftp::protocol::{FileAttributes, OpenFlags};
 use secrecy::{ExposeSecret, SecretString};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 use super::utils::{
@@ -55,8 +56,14 @@ impl SftpFs {
         port: u16,
         user: &str,
         password: &str,
+        read_timeout_secs: u64,
+        keepalive_interval: u32,
     ) -> Result<Self> {
-        let config = Arc::new(client::Config::default());
+        let config = Arc::new(client::Config {
+            inactivity_timeout: Some(Duration::from_secs(read_timeout_secs)),
+            keepalive_interval: Some(Duration::from_secs(u64::from(keepalive_interval))),
+            ..Default::default()
+        });
         let mut handle = client::connect(config, (host, port), SshClientHandler)
             .await
             .map_err(|e| anyhow!("SSH connect failed: {e}"))?;
@@ -84,8 +91,18 @@ impl SftpFs {
     /// # Errors
     ///
     /// Returns an error if the SSH connection fails or all found keys are rejected.
-    pub async fn connect_pubkey(host: &str, port: u16, user: &str) -> Result<Self> {
-        let config = Arc::new(client::Config::default());
+    pub async fn connect_pubkey(
+        host: &str,
+        port: u16,
+        user: &str,
+        read_timeout_secs: u64,
+        keepalive_interval: u32,
+    ) -> Result<Self> {
+        let config = Arc::new(client::Config {
+            inactivity_timeout: Some(Duration::from_secs(read_timeout_secs)),
+            keepalive_interval: Some(Duration::from_secs(u64::from(keepalive_interval))),
+            ..Default::default()
+        });
         let mut handle = client::connect(config, (host, port), SshClientHandler)
             .await
             .map_err(|e| anyhow!("SSH connect failed: {e}"))?;
