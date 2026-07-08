@@ -99,7 +99,12 @@ ssh2 = "0.9.6"
 [profile.release]
 codegen-units = 1
 lto = true
-strip = true
+strip = "symbols"
+opt-level = "s"
+panic = "abort"
+debug = "full" 
+split-debuginfo = "packed"  # generates a separate *.dwp/*.dSYM
+incremental = true
 
 [lints.clippy]
 pedantic = "warn"
