@@ -29,7 +29,7 @@ rand = "0.10"
 ratatui = { version = "0.30.2", features = ["termina"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-lumis = { version = "0.10", default-features = false, features = [
+lumis = { version = "0.11", default-features = false, features = [
     "lang-bash",
     "lang-c",
     "lang-cmake",
@@ -75,7 +75,7 @@ zeroize = "1.9"
 regex = "1.12.3"
 
 [target.'cfg(windows)'.dependencies]
-russh = { version = "0.61", default-features = false, features = ["ring"] }
+russh = { version = "0.62", default-features = false, features = ["ring"] }
 russh-sftp = "2.3"
 
 winreg = "0.56"
@@ -94,7 +94,7 @@ windows = { version = "0.62", features = [
 
 [target.'cfg(unix)'.dependencies]
 openssh = "0.11"
-ssh2 = "0.9.5"
+ssh2 = "0.9.6"
 
 [profile.release]
 codegen-units = 1
