@@ -505,6 +505,60 @@ impl AppState {
         }
     }
 
+    /// Returns a mutable reference to the inactive tab manager
+    pub fn inactive_tab_manager_mut(&mut self) -> &mut TabManager {
+        match self.active {
+            PanelSide::Left => &mut self.right,
+            PanelSide::Right => &mut self.left,
+        }
+    }
+
+    /// Moves the active tab of the current active panel to the target panel side.
+    /// On success, the tab is removed from the active panel, appended to the target panel,
+    /// becomes the active tab there, and the target panel becomes the active panel.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the tab is local and it's the last local tab on its side,
+    /// or if it's the last tab on its side.
+    pub fn move_active_tab_to_other_side(
+        &mut self,
+        target_side: PanelSide,
+    ) -> Result<(), &'static str> {
+        let source_side = self.active;
+        if source_side == target_side {
+            return Ok(());
+        }
+
+        let is_local = self.active_tab().provider.context_key() == "local";
+        if is_local && self.active_tab_manager().local_tab_count() <= 1 {
+            return Err("Cannot move the last local tab to the other side");
+        }
+
+        if self.active_tab_manager().tabs.len() <= 1 {
+            return Err("Cannot move the last tab");
+        }
+
+        let active_tab_idx = self.active_tab_manager().active_tab_index;
+        let tab = self.active_tab_manager_mut().tabs.remove(active_tab_idx);
+
+        // Adjust active tab index of the source manager if it's out of bounds
+        let source_manager = self.active_tab_manager_mut();
+        if source_manager.active_tab_index >= source_manager.tabs.len() {
+            source_manager.active_tab_index = source_manager.tabs.len() - 1;
+        }
+
+        // Add to the target manager and make it active
+        let target_manager = self.inactive_tab_manager_mut();
+        target_manager.tabs.push(tab);
+        target_manager.active_tab_index = target_manager.tabs.len() - 1;
+
+        // Switch active side
+        self.active = target_side;
+
+        Ok(())
+    }
+
     /// Returns a reference to the currently inactive tab
     pub fn inactive_tab(&self) -> &Tab {
         self.inactive_tab_manager().active_tab()

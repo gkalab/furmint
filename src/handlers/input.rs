@@ -18,7 +18,7 @@ use crate::handlers::{
     popup_rename::handle_init_rename,
     popup_rename_tab::handle_init_rename_tab,
     popup_ssh::{handle_reconnect_ssh, handle_ssh_connection_init},
-    tabs::{handle_close_tab, handle_new_tab, handle_next_tab, handle_prev_tab},
+    tabs::{handle_close_tab, handle_move_tab, handle_new_tab, handle_next_tab, handle_prev_tab},
     terminal::handle_open_terminal,
 };
 use std::sync::Arc;
@@ -188,6 +188,18 @@ fn handle_tab_shortcuts(app: &mut AppState, keyboard: &KeyboardConfig, shortcut:
         && keys.iter().any(|s| s == shortcut)
     {
         handle_init_rename_tab(app);
+        return true;
+    }
+    if let Some(keys) = &keyboard.tab_move_left
+        && keys.iter().any(|s| s == shortcut)
+    {
+        handle_move_tab(app, crate::app_state::tabs::PanelSide::Left);
+        return true;
+    }
+    if let Some(keys) = &keyboard.tab_move_right
+        && keys.iter().any(|s| s == shortcut)
+    {
+        handle_move_tab(app, crate::app_state::tabs::PanelSide::Right);
         return true;
     }
     false

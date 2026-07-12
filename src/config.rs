@@ -45,6 +45,8 @@ pub struct KeyboardConfig {
     pub viewer_search: Option<Vec<String>>,
     pub viewer_search_next: Option<Vec<String>>,
     pub viewer_search_prev: Option<Vec<String>>,
+    pub tab_move_left: Option<Vec<String>>,
+    pub tab_move_right: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -128,6 +130,8 @@ pub fn default_keyboard_config() -> KeyboardConfig {
         viewer_search: Some(vec!["Ctrl-f".to_string(), "/".to_string()]),
         viewer_search_next: Some(vec!["n".to_string(), "F3".to_string()]),
         viewer_search_prev: Some(vec!["N".to_string(), "Shift-F3".to_string()]),
+        tab_move_left: Some(vec!["Ctrl-Shift-Left".to_string()]),
+        tab_move_right: Some(vec!["Ctrl-Shift-Right".to_string()]),
     }
 }
 
@@ -195,6 +199,8 @@ pub fn merge_keyboard_config(
         viewer_search: merge_opt!(viewer_search),
         viewer_search_next: merge_opt!(viewer_search_next),
         viewer_search_prev: merge_opt!(viewer_search_prev),
+        tab_move_left: merge_opt!(tab_move_left),
+        tab_move_right: merge_opt!(tab_move_right),
     }
 }
 
@@ -287,6 +293,8 @@ pub fn validate_keyboard_config(config: &KeyboardConfig) -> Result<()> {
         ("viewer_search", &config.viewer_search),
         ("viewer_search_next", &config.viewer_search_next),
         ("viewer_search_prev", &config.viewer_search_prev),
+        ("tab_move_left", &config.tab_move_left),
+        ("tab_move_right", &config.tab_move_right),
     ];
 
     for (name, keys) in fields {

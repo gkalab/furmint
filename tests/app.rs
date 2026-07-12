@@ -1,10 +1,8 @@
-#[cfg(windows)]
-use fm::app::PanelSide;
 use fm::app::{
     AppState, CreateFileState, HelpState, IncrementalSearch, SortColumn, SortSettings, Tab,
     TabHistory, TabManager,
 };
-use fm::app_state::tabs::SortDirection;
+use fm::app_state::tabs::{PanelSide, SortDirection};
 use fm::fs::fs_provider::FileSystemProvider;
 use fm::fs::utils::FileEntry;
 use std::path::{Path, PathBuf};
@@ -570,4 +568,63 @@ fn test_drive_navigation_matches_opposite_pane() {
             PathBuf::from("C:\\RightDir")
         );
     }
+}
+
+#[test]
+fn test_move_active_tab_to_other_side() {
+    let mut app = AppState::test_default();
+
+    assert_eq!(app.left.tabs.len(), 1);
+    assert_eq!(app.right.tabs.len(), 1);
+
+    // 1. Moving the only tab should fail.
+    app.active = PanelSide::Left;
+    let res = app.move_active_tab_to_other_side(PanelSide::Right);
+    assert!(res.is_err());
+    assert_eq!(
+        res.unwrap_err(),
+        "Cannot move the last local tab to the other side"
+    );
+
+    // Add another local tab to Left.
+    let tab_clone = app.left.tabs[0].clone();
+    app.left.tabs.push(tab_clone);
+    assert_eq!(app.left.tabs.len(), 2);
+    assert_eq!(app.left.local_tab_count(), 2);
+
+    // Set a title on the tab we want to move.
+    app.left.tabs[0].custom_title = Some("MovedTab".to_string());
+    app.left.active_tab_index = 0;
+
+    // 2. Now move it to Right.
+    let res = app.move_active_tab_to_other_side(PanelSide::Right);
+    assert!(res.is_ok());
+
+    // Active panel should now be Right.
+    assert_eq!(app.active, PanelSide::Right);
+
+    // Left should now have 1 tab.
+    assert_eq!(app.left.tabs.len(), 1);
+
+    // Right should now have 2 tabs.
+    assert_eq!(app.right.tabs.len(), 2);
+
+    // The active tab on Right should be the one we moved (custom_title: "MovedTab").
+    assert_eq!(
+        app.right.active_tab().custom_title.as_deref(),
+        Some("MovedTab")
+    );
+    assert_eq!(app.right.active_tab_index, 1);
+
+    // 3. Move it back to Left.
+    let res = app.move_active_tab_to_other_side(PanelSide::Left);
+    assert!(res.is_ok());
+    assert_eq!(app.active, PanelSide::Left);
+    assert_eq!(app.left.tabs.len(), 2);
+    assert_eq!(app.right.tabs.len(), 1);
+    assert_eq!(
+        app.left.active_tab().custom_title.as_deref(),
+        Some("MovedTab")
+    );
+    assert_eq!(app.left.active_tab_index, 1);
 }

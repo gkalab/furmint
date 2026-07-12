@@ -68,3 +68,11 @@ pub(crate) fn handle_close_tab(app: &mut AppState) {
     }
     update_viewer_content(app);
 }
+
+pub(crate) fn handle_move_tab(app: &mut AppState, target_side: crate::app_state::tabs::PanelSide) {
+    if let Err(e) = app.move_active_tab_to_other_side(target_side) {
+        app.active_tab_mut().error = Some(e.to_string());
+    } else {
+        update_viewer_content(app);
+    }
+}
