@@ -1,6 +1,5 @@
 pub use crate::app_state::tabs::{
-    IncrementalSearch, PanelSide, PersistentTab, SortColumn, SortSettings, Tab, TabHistory,
-    TabManager,
+    IncrementalSearch, PanelSide, PersistentTab, SortColumn, SortSettings, Tab, TabManager,
 };
 use crate::clipboard::FileClipboard;
 use crate::state::BookmarkState;

@@ -6,9 +6,9 @@ use fm::fs::fs_local::LocalFs;
 use fm::fs::utils::FileEntry;
 use fm::handlers::navigation::{
     handle_directory_up, handle_down, handle_down_search, handle_end, handle_enter_directory,
-    handle_history_next, handle_history_previous, handle_home, handle_open_item, handle_page_down,
-    handle_page_up, handle_sort, handle_tab, handle_toggle_selection, handle_type_char, handle_up,
-    handle_up_search, reset_expired_search, reset_search, update_viewer_content,
+    handle_home, handle_open_item, handle_page_down, handle_page_up, handle_sort, handle_tab,
+    handle_toggle_selection, handle_type_char, handle_up, handle_up_search, reset_expired_search,
+    reset_search, update_viewer_content,
 };
 use fm::ssh_history::SshConnectionHistory;
 use fm::ssh_manager::SshManager;
@@ -23,11 +23,6 @@ fn test_app(entries: Vec<FileEntry>) -> AppState {
         current_dir: std::path::PathBuf::from("/tmp"),
         entries,
         cursor: 0,
-        history: fm::app_state::tabs::TabHistory::new(
-            std::path::PathBuf::from("/tmp"),
-            0,
-            Arc::new(LocalFs::new()),
-        ),
         search: fm::app_state::tabs::IncrementalSearch::default(),
         sort: fm::app_state::tabs::SortSettings::default(),
         scroll_offset: 0,
@@ -365,13 +360,11 @@ fn test_handle_sort_and_toggle() {
 }
 
 #[test]
-fn test_handle_history_and_directory_up() {
-    // This test is limited because go_up/go_back require actual filesystem or complex mocking
-    // But we can at least call them to see they don't panic and cover the handler lines.
+fn test_handle_directory_up() {
+    // This test is limited because go_up requires actual filesystem or complex mocking
+    // But we can at least call it to see it doesn't panic and cover the handler lines.
     let mut app = test_app(vec![]);
     handle_directory_up(&mut app);
-    handle_history_previous(&mut app);
-    handle_history_next(&mut app);
 }
 
 #[test]

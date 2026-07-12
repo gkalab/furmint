@@ -7,8 +7,6 @@ use std::path::PathBuf;
 pub struct KeyboardConfig {
     pub new_file: Option<Vec<String>>,
     pub quit: Option<Vec<String>>,
-    pub back: Option<Vec<String>>,
-    pub forward: Option<Vec<String>>,
     pub enter_dir: Option<Vec<String>>,
     pub up_dir: Option<Vec<String>>,
     pub edit_file: Option<Vec<String>>,
@@ -92,8 +90,6 @@ pub fn default_keyboard_config() -> KeyboardConfig {
     KeyboardConfig {
         new_file: Some(vec!["Shift-F4".to_string()]),
         quit: Some(vec!["Ctrl-q".to_string()]),
-        forward: Some(vec!["Shift-Right".to_string()]),
-        back: Some(vec!["Shift-Left".to_string()]),
         enter_dir: Some(vec!["Right".to_string()]),
         up_dir: Some(vec!["Backspace".to_string(), "Left".to_string()]),
         edit_file: Some(vec!["F4".to_string()]),
@@ -161,8 +157,6 @@ pub fn merge_keyboard_config(
     KeyboardConfig {
         new_file: merge_opt!(new_file),
         quit: merge_opt!(quit),
-        forward: merge_opt!(forward),
-        back: merge_opt!(back),
         enter_dir: merge_opt!(enter_dir),
         up_dir: merge_opt!(up_dir),
         edit_file: merge_opt!(edit_file),
@@ -255,8 +249,6 @@ pub fn validate_keyboard_config(config: &KeyboardConfig) -> Result<()> {
     let fields = [
         ("new_file", &config.new_file),
         ("quit", &config.quit),
-        ("forward", &config.forward),
-        ("back", &config.back),
         ("enter_dir", &config.enter_dir),
         ("up_dir", &config.up_dir),
         ("edit_file", &config.edit_file),

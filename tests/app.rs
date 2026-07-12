@@ -1,6 +1,6 @@
 use fm::app::{
     AppState, CreateFileState, HelpState, IncrementalSearch, SortColumn, SortSettings, Tab,
-    TabHistory, TabManager,
+    TabManager,
 };
 use fm::app_state::tabs::{PanelSide, SortDirection};
 use fm::fs::fs_provider::FileSystemProvider;
@@ -306,11 +306,6 @@ fn test_can_swap_active_tabs() {
         current_dir: PathBuf::from("/remote"),
         entries: vec![],
         cursor: 0,
-        history: TabHistory::new(
-            PathBuf::from("/remote"),
-            0,
-            Arc::new(RemoteProvider) as Arc<dyn FileSystemProvider>,
-        ),
         search: IncrementalSearch::default(),
         sort: SortSettings::default(),
         scroll_offset: 0,
@@ -421,7 +416,6 @@ fn test_drive_navigation_matches_opposite_pane() {
             current_dir: PathBuf::from("C:\\LeftDir"),
             entries: vec![],
             cursor: 0,
-            history: TabHistory::new(PathBuf::from("C:\\LeftDir"), 0, provider.clone()),
             search: IncrementalSearch::default(),
             sort: SortSettings::default(),
             scroll_offset: 0,
@@ -437,7 +431,6 @@ fn test_drive_navigation_matches_opposite_pane() {
             current_dir: PathBuf::from("D:\\RightDir"),
             entries: vec![],
             cursor: 0,
-            history: TabHistory::new(PathBuf::from("D:\\RightDir"), 0, provider.clone()),
             search: IncrementalSearch::default(),
             sort: SortSettings::default(),
             scroll_offset: 0,
@@ -475,7 +468,6 @@ fn test_drive_navigation_matches_opposite_pane() {
             current_dir: PathBuf::from("C:\\LeftDir"),
             entries: vec![],
             cursor: 0,
-            history: TabHistory::new(PathBuf::from("C:\\LeftDir"), 0, provider.clone()),
             search: IncrementalSearch::default(),
             sort: SortSettings::default(),
             scroll_offset: 0,
@@ -491,7 +483,6 @@ fn test_drive_navigation_matches_opposite_pane() {
             current_dir: PathBuf::from("E:\\RightDir"),
             entries: vec![],
             cursor: 0,
-            history: TabHistory::new(PathBuf::from("E:\\RightDir"), 0, provider.clone()),
             search: IncrementalSearch::default(),
             sort: SortSettings::default(),
             scroll_offset: 0,
@@ -526,7 +517,6 @@ fn test_drive_navigation_matches_opposite_pane() {
             current_dir: PathBuf::from("C:\\LeftDir"),
             entries: vec![],
             cursor: 0,
-            history: TabHistory::new(PathBuf::from("C:\\LeftDir"), 0, provider.clone()),
             search: IncrementalSearch::default(),
             sort: SortSettings::default(),
             scroll_offset: 0,
@@ -542,7 +532,6 @@ fn test_drive_navigation_matches_opposite_pane() {
             current_dir: PathBuf::from("C:\\RightDir"),
             entries: vec![],
             cursor: 0,
-            history: TabHistory::new(PathBuf::from("C:\\RightDir"), 0, provider.clone()),
             search: IncrementalSearch::default(),
             sort: SortSettings::default(),
             scroll_offset: 0,

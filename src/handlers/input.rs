@@ -5,9 +5,8 @@ use crate::handlers::{
     input_utils::keyevent_to_string,
     navigation::{
         handle_directory_up, handle_down, handle_down_search, handle_end, handle_enter_directory,
-        handle_history_next, handle_history_previous, handle_home, handle_open_item,
-        handle_page_down, handle_page_up, handle_sort, handle_tab, handle_toggle_selection,
-        handle_type_char, handle_up, handle_up_search, reset_search,
+        handle_home, handle_open_item, handle_page_down, handle_page_up, handle_sort, handle_tab,
+        handle_toggle_selection, handle_type_char, handle_up, handle_up_search, reset_search,
     },
     popup_copy_move::{
         handle_clipboard_copy, handle_clipboard_cut, handle_init_copy, handle_init_move,
@@ -226,18 +225,6 @@ fn handle_navigation_shortcuts(
     keyboard: &KeyboardConfig,
     shortcut: &str,
 ) -> bool {
-    if let Some(keys) = &keyboard.back
-        && keys.iter().any(|s| s == shortcut)
-    {
-        handle_history_previous(app);
-        return true;
-    }
-    if let Some(keys) = &keyboard.forward
-        && keys.iter().any(|s| s == shortcut)
-    {
-        handle_history_next(app);
-        return true;
-    }
     if let Some(keys) = &keyboard.enter_dir
         && keys.iter().any(|s| s == shortcut)
     {

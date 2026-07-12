@@ -202,8 +202,6 @@ fn build_help_categories(
         ("Rename Tab", &keyboard.rename_tab),
         ("Move Tab Left", &keyboard.tab_move_left),
         ("Move Tab Right", &keyboard.tab_move_right),
-        ("History Back", &keyboard.back),
-        ("History Forward", &keyboard.forward),
     ];
 
     #[cfg(target_os = "windows")]

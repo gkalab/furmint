@@ -389,35 +389,6 @@ pub fn handle_directory_up(app: &mut AppState) {
     }
 }
 
-pub fn handle_history_previous(app: &mut AppState) {
-    // Get context key before mutating mostly to be safe/consistent
-    let context_key = app.active_tab().provider.context_key();
-
-    if let Err(e) = app.active_tab_mut().go_back() {
-        app.active_tab_mut().error = Some(format!("Error: {e}"));
-    } else {
-        let current_dir = app.active_tab().current_dir.clone();
-        if !context_key.starts_with("archive:") {
-            app.dir_history.record_visit(&context_key, &current_dir);
-        }
-        update_viewer_content(app);
-    }
-}
-
-pub fn handle_history_next(app: &mut AppState) {
-    let context_key = app.active_tab().provider.context_key();
-
-    if let Err(e) = app.active_tab_mut().go_forward() {
-        app.active_tab_mut().error = Some(format!("Error: {e}"));
-    } else {
-        let current_dir = app.active_tab().current_dir.clone();
-        if !context_key.starts_with("archive:") {
-            app.dir_history.record_visit(&context_key, &current_dir);
-        }
-        update_viewer_content(app);
-    }
-}
-
 /// Map a mouse click on a panel's column header to a sort action.
 /// `area` is the panel's outer area (including borders) and `borders`
 /// indicates whether the panel has visible borders.

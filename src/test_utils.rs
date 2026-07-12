@@ -1,7 +1,5 @@
 #[cfg(any(test, feature = "test-utils"))]
-use crate::app::{
-    AppState, IncrementalSearch, PanelSide, Popups, SortSettings, Tab, TabHistory, TabManager,
-};
+use crate::app::{AppState, IncrementalSearch, PanelSide, Popups, SortSettings, Tab, TabManager};
 #[cfg(any(test, feature = "test-utils"))]
 use crate::fs::fs_local::LocalFs;
 #[cfg(any(test, feature = "test-utils"))]
@@ -20,7 +18,6 @@ pub fn create_test_tab() -> Tab {
         current_dir: PathBuf::from("/test"),
         entries: vec![],
         cursor: 0,
-        history: TabHistory::new(PathBuf::from("/test"), 0, Arc::new(LocalFs::new())),
         search: IncrementalSearch::default(),
         sort: SortSettings::default(),
         scroll_offset: 0,
@@ -80,7 +77,6 @@ pub fn create_test_tab_with_entries() -> Tab {
         current_dir: PathBuf::from("/tmp"),
         entries,
         cursor: 0,
-        history: TabHistory::new(PathBuf::from("/tmp"), 0, Arc::new(LocalFs::new())),
         search: IncrementalSearch::default(),
         sort: SortSettings::default(),
         scroll_offset: 0,

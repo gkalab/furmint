@@ -8,13 +8,6 @@ use std::time::Duration;
 
 pub const SEARCH_TIMEOUT: Duration = Duration::from_secs(1);
 
-#[derive(Clone)]
-pub struct HistoryEntry {
-    pub path: PathBuf,
-    pub cursor: usize,
-    pub provider: Arc<dyn FileSystemProvider>,
-}
-
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PersistentTab {
     pub path: PathBuf,
@@ -22,51 +15,6 @@ pub struct PersistentTab {
     pub sort_column: SortColumn,
     pub sort_direction: SortDirection,
     pub custom_title: Option<String>,
-}
-
-#[derive(Clone)]
-pub struct TabHistory {
-    pub entries: Vec<HistoryEntry>,
-    pub index: usize,
-}
-
-impl TabHistory {
-    #[must_use]
-    pub fn new(path: PathBuf, cursor: usize, provider: Arc<dyn FileSystemProvider>) -> Self {
-        Self {
-            entries: vec![HistoryEntry {
-                path,
-                cursor,
-                provider,
-            }],
-            index: 0,
-        }
-    }
-
-    #[must_use]
-    pub fn current(&self) -> &HistoryEntry {
-        &self.entries[self.index]
-    }
-
-    pub fn push(&mut self, path: PathBuf, cursor: usize, provider: Arc<dyn FileSystemProvider>) {
-        self.entries.truncate(self.index + 1);
-        self.entries.push(HistoryEntry {
-            path,
-            cursor,
-            provider,
-        });
-        self.index = self.entries.len() - 1;
-    }
-
-    #[must_use]
-    pub fn can_go_back(&self) -> bool {
-        self.index > 0
-    }
-
-    #[must_use]
-    pub fn can_go_forward(&self) -> bool {
-        self.index + 1 < self.entries.len()
-    }
 }
 
 #[derive(Clone, Default)]
@@ -118,7 +66,6 @@ pub struct Tab {
     pub current_dir: PathBuf,
     pub entries: Vec<FileEntry>,
     pub cursor: usize,
-    pub history: TabHistory,
     pub search: IncrementalSearch,
     pub sort: SortSettings,
     pub scroll_offset: usize,
@@ -152,11 +99,10 @@ impl Tab {
         let entries = provider.list_dir(path)?;
         let mut tab = Self {
             area: ratatui::layout::Rect::default(),
-            provider: provider.clone(),
+            provider,
             current_dir: path.to_path_buf(),
             entries,
             cursor: 0,
-            history: TabHistory::new(path.to_path_buf(), 0, provider),
             search: IncrementalSearch::default(),
             sort: SortSettings::default(),
             scroll_offset: 0,
@@ -266,12 +212,6 @@ impl Tab {
         }
     }
 
-    pub fn save_cursor_to_history(&mut self) {
-        if let Some(entry) = self.history.entries.get_mut(self.history.index) {
-            entry.cursor = self.cursor;
-        }
-    }
-
     /// Navigates to the specified path.
     ///
     /// # Errors
@@ -280,7 +220,6 @@ impl Tab {
     pub fn navigate_to(&mut self, path: &Path) -> anyhow::Result<()> {
         let entries = self.provider.list_dir(path)?;
         self.error = None;
-        self.save_cursor_to_history();
 
         self.current_dir = path.to_path_buf();
         self.entries = entries;
@@ -288,9 +227,6 @@ impl Tab {
         self.scroll_offset = 0;
         self.search.reset();
         self.dir_sizes.clear(); // Clear cached sizes when navigating
-
-        self.history
-            .push(path.to_path_buf(), 0, self.provider.clone());
 
         self.sort_entries();
         Ok(())
@@ -412,50 +348,6 @@ impl Tab {
             }) {
                 self.cursor = pos;
             }
-        }
-        Ok(())
-    }
-
-    /// Navigates back in the directory history.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the previous directory cannot be listed.
-    pub fn go_back(&mut self) -> anyhow::Result<()> {
-        if self.history.can_go_back() {
-            self.save_cursor_to_history();
-            self.history.index -= 1;
-            let entry = self.history.current().clone();
-            self.provider = entry.provider.clone();
-            self.current_dir.clone_from(&entry.path);
-            self.entries = self.provider.list_dir(&entry.path)?;
-            self.cursor = entry.cursor;
-            self.scroll_offset = 0; // Will be adjusted by scroll_to_cursor if needed
-            self.search.reset();
-            self.dir_sizes.clear(); // Clear cached sizes when navigating
-            self.sort_entries();
-        }
-        Ok(())
-    }
-
-    /// Navigates forward in the directory history.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the next directory cannot be listed.
-    pub fn go_forward(&mut self) -> anyhow::Result<()> {
-        if self.history.can_go_forward() {
-            self.save_cursor_to_history();
-            self.history.index += 1;
-            let entry = self.history.current().clone();
-            self.provider = entry.provider.clone();
-            self.current_dir.clone_from(&entry.path);
-            self.entries = self.provider.list_dir(&entry.path)?;
-            self.cursor = entry.cursor;
-            self.scroll_offset = 0;
-            self.search.reset();
-            self.dir_sizes.clear(); // Clear cached sizes when navigating
-            self.sort_entries();
         }
         Ok(())
     }

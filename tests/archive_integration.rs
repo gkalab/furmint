@@ -59,11 +59,6 @@ fn test_app(
         current_dir: std::path::PathBuf::from("/tmp"),
         entries,
         cursor: 0,
-        history: fm::app_state::tabs::TabHistory::new(
-            std::path::PathBuf::from("/tmp"),
-            0,
-            Arc::new(LocalFs::new()),
-        ),
         search: fm::app_state::tabs::IncrementalSearch::default(),
         sort: fm::app_state::tabs::SortSettings::default(),
         scroll_offset: 0,
