@@ -57,11 +57,7 @@ fn draw_side(
     palette: &ThemePalette,
     show_tabs: bool,
 ) {
-    let opposite_side = if side == PanelSide::Left {
-        PanelSide::Right
-    } else {
-        PanelSide::Left
-    };
+    let opposite_side = side.opposite();
     let is_viewer_visible = app.file_viewer.is_visible && app.active == opposite_side;
 
     if is_viewer_visible {

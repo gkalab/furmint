@@ -430,6 +430,8 @@ impl AppState {
             self.left.tabs.insert(left_idx, right_tab);
             self.right.tabs.insert(right_idx, left_tab);
 
+            self.active = self.active.opposite();
+
             // Re-sync watcher as paths might have changed
             self.sync_watcher();
         }
@@ -566,10 +568,7 @@ impl AppState {
 
     /// Toggle the active panel between Left and Right
     pub fn toggle_active_panel(&mut self) {
-        self.active = match self.active {
-            PanelSide::Left => PanelSide::Right,
-            PanelSide::Right => PanelSide::Left,
-        };
+        self.active = self.active.opposite();
     }
 
     pub fn handle_ssh_connected(&mut self, ctx: crate::tasks::SshContext) {

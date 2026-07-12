@@ -916,6 +916,16 @@ pub enum PanelSide {
     Left,
     Right,
 }
+
+impl PanelSide {
+    #[must_use]
+    pub const fn opposite(self) -> Self {
+        match self {
+            Self::Left => Self::Right,
+            Self::Right => Self::Left,
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
