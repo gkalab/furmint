@@ -1,9 +1,10 @@
 //! Navigation-related event handlers for directory and panel navigation.
 
 use crate::app::{AppState, SortColumn};
+use crate::app_state::tabs::Tab;
 use crate::fs::fs_archive::ArchiveFs;
 use ratatui::layout::Rect;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 // Moves the cursor up in the active panel.
@@ -448,4 +449,33 @@ pub fn handle_sort(app: &mut AppState, column: crate::app::SortColumn) {
 pub fn handle_toggle_selection(app: &mut AppState) {
     app.active_tab_mut().toggle_selection();
     update_viewer_content(app);
+}
+
+/// Navigate to `target`, walking up ancestors if it no longer exists.
+///
+/// Returns the path that was successfully navigated to.
+///
+/// # Errors
+///
+/// Returns the original error if neither the target nor any ancestor can be listed.
+pub fn navigate_with_fallback(tab: &mut Tab, target: &Path) -> Result<PathBuf, anyhow::Error> {
+    // Try the target path first
+    let original_error = match tab.navigate_to(target) {
+        Ok(()) => return Ok(target.to_path_buf()),
+        Err(e) => e,
+    };
+
+    // Walk up ancestors looking for an existing directory
+    let mut current = target.to_path_buf();
+    while let Some(parent) = current.parent() {
+        if parent == current {
+            break;
+        }
+        current = parent.to_path_buf();
+        if tab.navigate_to(current.as_path()).is_ok() {
+            return Ok(current);
+        }
+    }
+
+    Err(original_error)
 }

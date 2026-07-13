@@ -124,6 +124,17 @@ impl DirectoryHistory {
         (f64::from(entry.visit_count) * 2.0) + (recency_score * 10.0)
     }
 
+    /// Remove a specific directory entry from a context.
+    ///
+    /// Returns `true` if the entry existed and was removed.
+    pub fn remove_entry(&mut self, context: &str, path: &Path) -> bool {
+        if let Some(context_entries) = self.entries.get_mut(context) {
+            context_entries.remove(path).is_some()
+        } else {
+            false
+        }
+    }
+
     /// Perform fuzzy search on directory paths within a context
     #[must_use]
     pub fn fuzzy_search(&self, context: &str, query: &str) -> Vec<(PathBuf, i64)> {

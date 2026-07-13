@@ -55,10 +55,28 @@ pub(crate) fn handle_fuzzy_search_event(
         }
         KeyCode::Enter => {
             if let Some(selected_dir) = app.fuzzy_search.get_selected_dir() {
-                if let Err(e) = app.active_tab_mut().navigate_to(&selected_dir) {
-                    app.active_tab_mut().error = Some(format!("Error: {e}"));
-                } else {
-                    app.dir_history.record_visit(&context_key, &selected_dir);
+                match crate::handlers::navigation::navigate_with_fallback(
+                    app.active_tab_mut(),
+                    &selected_dir,
+                ) {
+                    Ok(navigated_path) => {
+                        app.dir_history.record_visit(&context_key, &navigated_path);
+                        if navigated_path != selected_dir {
+                            app.dir_history.remove_entry(&context_key, &selected_dir);
+                            app.active_tab_mut().status_msg = Some((
+                                format!(
+                                    "'{}' not found, navigated to '{}'",
+                                    selected_dir.display(),
+                                    navigated_path.display()
+                                ),
+                                std::time::Instant::now(),
+                            ));
+                        }
+                    }
+                    Err(e) => {
+                        app.active_tab_mut().error = Some(format!("Error: {e}"));
+                        app.dir_history.remove_entry(&context_key, &selected_dir);
+                    }
                 }
             }
             app.fuzzy_search.list.is_visible = false;

@@ -165,3 +165,23 @@ fn test_history_limit() {
         );
     }
 }
+
+#[test]
+fn test_remove_entry() {
+    let mut history = DirectoryHistory {
+        entries: HashMap::new(),
+        cache_file: PathBuf::from("/tmp/test.json"),
+    };
+
+    let path = PathBuf::from("/home/user");
+    history.record_visit("local", &path);
+    assert!(history.entries.get("local").unwrap().contains_key(&path));
+
+    assert!(history.remove_entry("local", &path));
+    assert!(!history.entries.get("local").unwrap().contains_key(&path));
+
+    // Removing non-existent entry returns false
+    assert!(!history.remove_entry("local", &path));
+    // Removing from non-existent context returns false
+    assert!(!history.remove_entry("nonexistent", &path));
+}

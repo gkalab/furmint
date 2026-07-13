@@ -68,6 +68,17 @@ impl BookmarkStore {
         }
     }
 
+    /// Remove a bookmark by path. Returns `true` if found and removed.
+    pub fn remove_by_path(&mut self, path: &Path) -> bool {
+        if let Some(idx) = self.entries.iter().position(|e| e.path == path) {
+            self.entries.remove(idx);
+            let _ = self.save();
+            true
+        } else {
+            false
+        }
+    }
+
     #[must_use]
     pub fn contains(&self, path: &Path) -> bool {
         self.entries.iter().any(|e| e.path == path)
@@ -158,6 +169,32 @@ mod tests {
         assert!(store.remove(0));
         assert_eq!(store.entries.len(), 1);
         assert!(!store.contains(&p1));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_remove_by_path() -> Result<()> {
+        let dir = tempdir()?;
+        let file_path = dir.path().join("bookmarks.json");
+        let mut store = BookmarkStore {
+            entries: Vec::new(),
+            path: file_path,
+        };
+
+        let p1 = PathBuf::from("/home/user/docs");
+        let p2 = PathBuf::from("/var/log");
+        store.add(p1.clone());
+        store.add(p2.clone());
+
+        assert!(store.remove_by_path(&p1));
+        assert_eq!(store.entries.len(), 1);
+        assert!(!store.contains(&p1));
+        assert!(store.contains(&p2));
+
+        // Removing non-existent path returns false
+        assert!(!store.remove_by_path(&p1));
+        assert!(!store.remove_by_path(&PathBuf::from("/does/not/exist")));
 
         Ok(())
     }

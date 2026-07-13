@@ -76,13 +76,7 @@ pub fn handle_bookmark_event(code: KeyCode, modifiers: Modifiers, app: &mut AppS
             app.popups.bookmark.reset();
         }
         KeyCode::Enter => {
-            if let Some(selected_path) = app.popups.bookmark.list.get_selected_item()
-                && let Err(e) = app.active_tab_mut().navigate_to(&selected_path)
-            {
-                app.active_tab_mut().error = Some(format!("Error: {e}"));
-            }
-            app.popups.bookmark.list.is_visible = false;
-            app.popups.bookmark.reset();
+            handle_bookmark_enter(app);
         }
         KeyCode::Up => {
             app.popups.bookmark.list.move_selection_up();
@@ -132,4 +126,33 @@ pub fn handle_bookmark_event(code: KeyCode, modifiers: Modifiers, app: &mut AppS
         }
     }
     false
+}
+
+fn handle_bookmark_enter(app: &mut AppState) {
+    if let Some(selected_path) = app.popups.bookmark.list.get_selected_item() {
+        match crate::handlers::navigation::navigate_with_fallback(
+            app.active_tab_mut(),
+            &selected_path,
+        ) {
+            Ok(navigated_path) => {
+                if navigated_path != selected_path {
+                    app.bookmark_store.remove_by_path(&selected_path);
+                    app.active_tab_mut().status_msg = Some((
+                        format!(
+                            "'{}' not found, navigated to '{}'",
+                            selected_path.display(),
+                            navigated_path.display()
+                        ),
+                        Instant::now(),
+                    ));
+                }
+            }
+            Err(e) => {
+                app.active_tab_mut().error = Some(format!("Error: {e}"));
+                app.bookmark_store.remove_by_path(&selected_path);
+            }
+        }
+    }
+    app.popups.bookmark.list.is_visible = false;
+    app.popups.bookmark.reset();
 }
