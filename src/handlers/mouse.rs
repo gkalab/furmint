@@ -316,10 +316,11 @@ fn handle_right_click(app: &mut AppState, x: u16, y: u16) {
         return; // header row
     }
 
-    let row_idx = (y - content_start_y) as usize + tab.scroll_offset;
-    if row_idx >= tab.entries.len() {
-        return;
-    }
+    let row = (y - content_start_y) as usize;
+    let row_idx = match tab.visible_row_to_entry_index(row) {
+        Some(idx) => idx,
+        None => return,
+    };
 
     // Move cursor to the right-clicked row.
     tab.cursor = row_idx;
@@ -375,8 +376,8 @@ fn handle_panel_click(app: &mut AppState, side: PanelSide, x: u16, y: u16, is_do
         return; // Clicked on header
     }
 
-    let row_idx = (y - content_start_y) as usize + tab.scroll_offset;
-    if row_idx < tab.entries.len() {
+    let row = (y - content_start_y) as usize;
+    if let Some(row_idx) = tab.visible_row_to_entry_index(row) {
         tab.cursor = row_idx;
         if is_double_click {
             crate::handlers::navigation::handle_enter(app);

@@ -267,14 +267,20 @@ fn draw_selection_markers(
 ) {
     let yellow_color = Color::Rgb(palette.yellow.r, palette.yellow.g, palette.yellow.b);
 
-    for (idx, entry) in panel
-        .entries
-        .iter()
-        .enumerate()
+    // Determine which indices to render (respecting file filter)
+    let render_indices: Box<dyn Iterator<Item = usize>> = if panel.has_file_filter() {
+        Box::new(panel.visible_indices.iter().copied())
+    } else {
+        Box::new(0..panel.entries.len())
+    };
+
+    for (row, idx) in render_indices
         .skip(panel.scroll_offset)
         .take(visible_rows)
+        .enumerate()
     {
-        let row_offset = u16::try_from(idx - panel.scroll_offset).unwrap_or(u16::MAX);
+        let entry = &panel.entries[idx];
+        let row_offset = u16::try_from(row).unwrap_or(u16::MAX);
         let row_y = area.y + 2 + row_offset; // +2 for border and header
 
         if row_y >= area.y + area.height - 1 {
@@ -304,7 +310,11 @@ fn draw_scrollbar(
     visible_rows: usize,
     ctx: &TabScrollbarContext,
 ) {
-    let total_entries = panel.entries.len();
+    let total_entries = if panel.has_file_filter() {
+        panel.visible_count()
+    } else {
+        panel.entries.len()
+    };
 
     let scroll_area = Rect {
         x: area.x + area.width - 1,
@@ -318,9 +328,33 @@ fn draw_scrollbar(
         scroll_area,
         total_entries,
         visible_rows,
-        panel.cursor,
+        panel.cursor_visible_pos().unwrap_or(panel.cursor),
         ctx,
     );
+}
+
+fn build_header_row(panel: &Tab, size_header: &str) -> [String; 4] {
+    let name_indicator = sort_indicator(SortColumn::Name, panel.sort.column, panel.sort.direction);
+    let ext_indicator = sort_indicator(
+        SortColumn::Extension,
+        panel.sort.column,
+        panel.sort.direction,
+    );
+    let name_header = if ext_indicator.is_empty() {
+        format!("Name{name_indicator}")
+    } else {
+        format!("Name{ext_indicator}")
+    };
+    let modified_header = format!(
+        "Modified{}",
+        sort_indicator(SortColumn::Date, panel.sort.column, panel.sort.direction)
+    );
+    [
+        name_header,
+        size_header.to_string(),
+        modified_header,
+        "Attributes".to_string(),
+    ]
 }
 
 /// Draws the main file panel with entries and sorting headers.
@@ -339,30 +373,7 @@ pub fn draw_panel(
     panel.scroll_to_cursor(visible_rows);
 
     let col_widths = calculate_column_widths(panel, area, icons_enabled);
-
-    // Build header row
-    let name_indicator = sort_indicator(SortColumn::Name, panel.sort.column, panel.sort.direction);
-    let name_header = format!("Name{name_indicator}");
-    let ext_indicator = sort_indicator(
-        SortColumn::Extension,
-        panel.sort.column,
-        panel.sort.direction,
-    );
-    let name_header = if ext_indicator.is_empty() {
-        name_header
-    } else {
-        format!("Name{ext_indicator}")
-    };
-    let modified_header = format!(
-        "Modified{}",
-        sort_indicator(SortColumn::Date, panel.sort.column, panel.sort.direction)
-    );
-    let header = [
-        name_header,
-        col_widths.size_header,
-        modified_header,
-        "Attributes".to_string(),
-    ];
+    let header = build_header_row(panel, &col_widths.size_header);
 
     // Build entry rows
     let ctx = EntryRowContext {
@@ -373,13 +384,26 @@ pub fn draw_panel(
         dir_sizes: &panel.dir_sizes,
     };
 
-    let rows: Vec<Row> = panel
-        .entries
+    // Determine which entries to render (respecting file filter)
+    let render_indices: Vec<usize> = if panel.has_file_filter() {
+        panel.visible_indices[panel.scroll_offset..]
+            .iter()
+            .take(visible_rows)
+            .copied()
+            .collect()
+    } else {
+        (panel.scroll_offset..)
+            .take(visible_rows)
+            .take(panel.entries.len())
+            .collect()
+    };
+
+    let rows: Vec<Row> = render_indices
         .iter()
-        .enumerate()
-        .skip(panel.scroll_offset)
-        .take(visible_rows)
-        .map(|(idx, entry)| render_entry_row(entry, idx, &ctx, &panel.search.highlights))
+        .map(|&idx| {
+            let entry = &panel.entries[idx];
+            render_entry_row(entry, idx, &ctx, &panel.search.highlights)
+        })
         .collect();
 
     // Build and render the table
@@ -413,11 +437,19 @@ pub fn draw_panel(
         table
     };
 
+    // Map cursor to the visible row position
+    let highlighted_row = if panel.has_file_filter() {
+        panel
+            .cursor_visible_pos()
+            .map(|pos| pos.saturating_sub(panel.scroll_offset))
+    } else {
+        Some(panel.cursor.saturating_sub(panel.scroll_offset))
+    };
+
     f.render_stateful_widget(
         table,
         area,
-        &mut TableState::default()
-            .with_selected(Some(panel.cursor.saturating_sub(panel.scroll_offset))),
+        &mut TableState::default().with_selected(highlighted_row),
     );
 
     draw_selection_markers(f, area, panel, visible_rows, palette);
@@ -461,6 +493,16 @@ pub fn draw_panel_status(
         .count();
     let selected_count = panel.entries.iter().filter(|e| e.selected).count();
 
+    // Build the active-filter label (rendered in yellow, separated from the rest)
+    let filter_label = panel.file_filter.as_deref().map(|pattern| {
+        format!(
+            "Filter: {} {}/{} files, ",
+            pattern,
+            panel.visible_file_count(),
+            file_count
+        )
+    });
+
     let status = if !error.is_empty() {
         error.to_string()
     } else if !panel.search.buffer.is_empty() {
@@ -474,6 +516,9 @@ pub fn draw_panel_status(
             && instant.elapsed() < std::time::Duration::from_secs(3)
         {
             msg.clone()
+        } else if panel.file_filter.is_some() {
+            // File count is already shown in the filter label; only show dirs here.
+            format!("{dir_count} dirs")
         } else {
             format!("{file_count} files, {dir_count} dirs")
         };
@@ -523,12 +568,43 @@ pub fn draw_panel_status(
 
     match ctx.side {
         crate::app::PanelSide::Left => {
-            draw_left_panel_status(f, ctx, status_area, status.as_ref(), fg);
+            draw_left_panel_status(
+                f,
+                ctx,
+                status_area,
+                status.as_ref(),
+                fg,
+                filter_label.as_deref(),
+            );
         }
         crate::app::PanelSide::Right => {
-            draw_right_panel_status(f, ctx, status_area, status.as_ref(), fg);
+            draw_right_panel_status(
+                f,
+                ctx,
+                status_area,
+                status.as_ref(),
+                fg,
+                filter_label.as_deref(),
+            );
         }
     }
+}
+
+fn build_status_line(
+    filter: Option<&str>,
+    status: &str,
+    fg: Color,
+    yellow: Color,
+) -> ratatui::text::Line<'static> {
+    let filter_span = filter.map(|f| Span::styled(f.to_string(), Style::default().fg(yellow)));
+    let status_span = Span::styled(status.to_string(), Style::default().fg(fg));
+
+    let mut spans = Vec::new();
+    if let Some(fs) = filter_span {
+        spans.push(fs);
+    }
+    spans.push(status_span);
+    ratatui::text::Line::from(spans)
 }
 
 fn draw_left_panel_status(
@@ -537,12 +613,19 @@ fn draw_left_panel_status(
     status_area: Rect,
     status: &str,
     fg: Color,
+    filter: Option<&str>,
 ) {
     let tasks = ctx.task_manager.get_tasks();
     let running_count = tasks
         .iter()
         .filter(|t| matches!(t.status, crate::tasks::TaskStatus::Running))
         .count();
+
+    let yellow = Color::Rgb(
+        ctx.palette.yellow.r,
+        ctx.palette.yellow.g,
+        ctx.palette.yellow.b,
+    );
 
     if running_count > 0 {
         let text = if running_count == 1 {
@@ -558,7 +641,8 @@ fn draw_left_panel_status(
             .split(status_area);
 
         // File Info (Left)
-        let paragraph = ratatui::widgets::Paragraph::new(status).style(Style::default().fg(fg));
+        let paragraph =
+            ratatui::widgets::Paragraph::new(build_status_line(filter, status, fg, yellow));
         f.render_widget(paragraph, chunks[0]);
 
         // Task Info (Right)
@@ -598,7 +682,8 @@ fn draw_left_panel_status(
                 .split(status_area);
 
             // File Info (Left)
-            let paragraph = ratatui::widgets::Paragraph::new(status).style(Style::default().fg(fg));
+            let paragraph =
+                ratatui::widgets::Paragraph::new(build_status_line(filter, status, fg, yellow));
             f.render_widget(paragraph, chunks[0]);
 
             // Task Info (Right)
@@ -608,7 +693,8 @@ fn draw_left_panel_status(
             f.render_widget(p, chunks[1]);
         } else {
             // No tasks, just file info
-            let paragraph = ratatui::widgets::Paragraph::new(status).style(Style::default().fg(fg));
+            let paragraph =
+                ratatui::widgets::Paragraph::new(build_status_line(filter, status, fg, yellow));
             f.render_widget(paragraph, status_area);
         }
     }
@@ -620,9 +706,16 @@ fn draw_right_panel_status(
     status_area: Rect,
     status: &str,
     fg: Color,
+    filter: Option<&str>,
 ) {
     // Right Panel: Progress on Left, Files/Dirs on Right
     // (Task results are only shown on the left panel status bar)
+
+    let yellow = Color::Rgb(
+        ctx.palette.yellow.r,
+        ctx.palette.yellow.g,
+        ctx.palette.yellow.b,
+    );
 
     // Check for active task progress
     let tasks = ctx.task_manager.get_tasks();
@@ -667,15 +760,15 @@ fn draw_right_panel_status(
         f.render_widget(progress_paragraph, chunks[0]);
 
         // File Info (Right)
-        let paragraph = ratatui::widgets::Paragraph::new(status)
-            .alignment(Alignment::Right)
-            .style(Style::default().fg(fg));
+        let paragraph =
+            ratatui::widgets::Paragraph::new(build_status_line(filter, status, fg, yellow))
+                .alignment(Alignment::Right);
         f.render_widget(paragraph, chunks[1]);
     } else {
         // Default: just file info (Right aligned)
-        let paragraph = ratatui::widgets::Paragraph::new(status)
-            .alignment(Alignment::Right)
-            .style(Style::default().fg(fg));
+        let paragraph =
+            ratatui::widgets::Paragraph::new(build_status_line(filter, status, fg, yellow))
+                .alignment(Alignment::Right);
         f.render_widget(paragraph, status_area);
     }
 }

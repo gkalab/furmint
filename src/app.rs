@@ -11,9 +11,9 @@ use std::time::Instant;
 // Re-export state types from state module for backward compatibility
 pub use crate::state::{
     ConflictState, CopyMoveAction, CopyMoveState, CreateDirectoryState, CreateFileState,
-    DeleteState, DriveSelectState, EmptyTrashState, ErrorState, FileViewerSearchState,
-    FileViewerState, HelpState, QuitConfirmationState, RemoteEditState, RenameState,
-    RenameTabState, SshConnectionState, SshPasswordState,
+    DeleteState, DriveSelectState, EmptyTrashState, ErrorState, FileFilterState,
+    FileViewerSearchState, FileViewerState, HelpState, QuitConfirmationState, RemoteEditState,
+    RenameState, RenameTabState, SshConnectionState, SshPasswordState,
 };
 
 /// Cache entry for an opened archive.
@@ -43,6 +43,7 @@ pub struct Popups {
     pub remote_edit: RemoteEditState,
     pub bookmark: BookmarkState,
     pub viewer_search: FileViewerSearchState,
+    pub file_filter: FileFilterState,
 }
 
 impl Popups {
@@ -66,6 +67,7 @@ impl Popups {
             remote_edit: RemoteEditState::new(),
             bookmark: BookmarkState::new(),
             viewer_search: FileViewerSearchState::new(),
+            file_filter: FileFilterState::new(),
         }
     }
 
@@ -88,6 +90,7 @@ impl Popups {
             || self.remote_edit.is_visible
             || self.bookmark.list.is_visible
             || self.viewer_search.is_visible
+            || self.file_filter.is_visible
     }
 }
 

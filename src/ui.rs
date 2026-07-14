@@ -7,6 +7,7 @@ pub mod create_file_ui;
 pub mod delete_ui;
 pub mod empty_trash_ui;
 pub mod error_ui;
+pub mod file_filter_ui;
 pub mod filterable_list;
 pub mod fuzzy_search_ui;
 pub mod help_ui;

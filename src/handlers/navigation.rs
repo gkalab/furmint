@@ -9,25 +9,37 @@ use std::sync::Arc;
 
 // Moves the cursor up in the active panel.
 pub fn handle_up(app: &mut AppState) {
-    app.active_tab_mut().move_cursor_up();
+    app.active_tab_mut().move_cursor_up_filtered();
     update_viewer_content(app);
 }
 
 // Moves the cursor down in the active panel.
 pub fn handle_down(app: &mut AppState) {
-    app.active_tab_mut().move_cursor_down();
+    app.active_tab_mut().move_cursor_down_filtered();
     update_viewer_content(app);
 }
 
 // Moves the cursor a page up.
 pub fn handle_page_up(app: &mut AppState) {
-    app.active_tab_mut().move_cursor_page_up(20);
+    let tab = app.active_tab_mut();
+    if tab.has_file_filter() {
+        let page = 20.min(tab.visible_count().saturating_sub(1));
+        tab.move_cursor_page_up_filtered(page);
+    } else {
+        tab.move_cursor_page_up(20);
+    }
     update_viewer_content(app);
 }
 
 // Moves the cursor a page down.
 pub fn handle_page_down(app: &mut AppState) {
-    app.active_tab_mut().move_cursor_page_down(20);
+    let tab = app.active_tab_mut();
+    if tab.has_file_filter() {
+        let page = 20.min(tab.visible_count().saturating_sub(1));
+        tab.move_cursor_page_down_filtered(page);
+    } else {
+        tab.move_cursor_page_down(20);
+    }
     update_viewer_content(app);
 }
 
@@ -90,13 +102,13 @@ pub fn handle_right(app: &mut AppState) {
 
 // Moves the cursor to the home position.
 pub fn handle_home(app: &mut AppState) {
-    app.active_tab_mut().move_cursor_home();
+    app.active_tab_mut().move_cursor_home_filtered();
     update_viewer_content(app);
 }
 
 // Moves the cursor to the end.
 pub fn handle_end(app: &mut AppState) {
-    app.active_tab_mut().move_cursor_end();
+    app.active_tab_mut().move_cursor_end_filtered();
     update_viewer_content(app);
 }
 

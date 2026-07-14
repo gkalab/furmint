@@ -75,6 +75,12 @@ pub struct Tab {
     /// Cache of calculated directory sizes: path -> size in bytes
     pub dir_sizes: std::collections::HashMap<PathBuf, u64>,
     pub is_reloading: bool,
+    pub file_filter: Option<String>,
+    pub file_filter_regex: Option<regex::Regex>,
+    /// Indices into self.entries that pass the file filter (or all if no filter)
+    pub visible_indices: Vec<usize>,
+    /// O(1) membership set derived from `visible_indices`
+    pub visible_set: std::collections::HashSet<usize>,
 }
 
 impl Tab {
@@ -111,8 +117,13 @@ impl Tab {
             status_msg: None,
             dir_sizes: std::collections::HashMap::new(),
             is_reloading: false,
+            file_filter: None,
+            file_filter_regex: None,
+            visible_indices: Vec::new(),
+            visible_set: std::collections::HashSet::new(),
         };
         tab.sort_entries();
+        tab.recompute_visible_indices();
         Ok(tab)
     }
 
@@ -212,6 +223,62 @@ impl Tab {
         }
     }
 
+    /// Move cursor to the first visible entry.
+    pub fn move_cursor_home_filtered(&mut self) {
+        if self.has_file_filter() {
+            if let Some(&first) = self.visible_indices.first() {
+                self.cursor = first;
+            }
+        } else {
+            self.move_cursor_home();
+        }
+    }
+
+    /// Move cursor to the last visible entry.
+    pub fn move_cursor_end_filtered(&mut self) {
+        if self.has_file_filter() {
+            if let Some(&last) = self.visible_indices.last() {
+                self.cursor = last;
+            }
+        } else {
+            self.move_cursor_end();
+        }
+    }
+
+    /// Move cursor up by `page_size`, skipping hidden entries.
+    pub fn move_cursor_page_up_filtered(&mut self, page_size: usize) {
+        if let Some(pos) = self.cursor_visible_pos() {
+            let new_pos = pos.saturating_sub(page_size);
+            self.cursor = self.visible_indices[new_pos];
+        }
+    }
+
+    /// Move cursor down by `page_size`, skipping hidden entries.
+    pub fn move_cursor_page_down_filtered(&mut self, page_size: usize) {
+        if let Some(pos) = self.cursor_visible_pos() {
+            let new_pos = (pos + page_size).min(self.visible_indices.len().saturating_sub(1));
+            self.cursor = self.visible_indices[new_pos];
+        }
+    }
+
+    /// Map a visible row position (as rendered on screen) to the actual entry index.
+    /// When no filter is active this is just `scroll_offset + row`; with a filter it
+    /// resolves through `visible_indices`.
+    #[must_use]
+    pub fn visible_row_to_entry_index(&self, row: usize) -> Option<usize> {
+        if self.has_file_filter() {
+            let pos = self.scroll_offset + row;
+            self.visible_indices.get(pos).copied()
+        } else {
+            let idx = self.scroll_offset + row;
+            if idx < self.entries.len() {
+                Some(idx)
+            } else {
+                None
+            }
+        }
+    }
+
     /// Navigates to the specified path.
     ///
     /// # Errors
@@ -229,6 +296,7 @@ impl Tab {
         self.dir_sizes.clear(); // Clear cached sizes when navigating
 
         self.sort_entries();
+        self.recompute_visible_indices();
         Ok(())
     }
 
@@ -296,7 +364,140 @@ impl Tab {
             self.search.highlights.clear();
         }
 
+        self.recompute_visible_indices();
+
         true
+    }
+
+    /// Set a file name filter. The pattern is a regex applied to file names.
+    /// Directories and ".." are always visible.
+    /// Returns an error if the regex is invalid.
+    ///
+    /// # Errors
+    ///
+    /// Returns `regex::Error` if the pattern is not a valid regex.
+    pub fn set_file_filter(&mut self, pattern: Option<&str>) -> Result<(), regex::Error> {
+        match pattern {
+            None | Some("") => {
+                self.file_filter = None;
+                self.file_filter_regex = None;
+            }
+            Some(p) => {
+                let re = regex::Regex::new(p)?;
+                self.file_filter = Some(p.to_string());
+                self.file_filter_regex = Some(re);
+            }
+        }
+        self.recompute_visible_indices();
+        Ok(())
+    }
+
+    pub fn clear_file_filter(&mut self) {
+        self.file_filter = None;
+        self.file_filter_regex = None;
+        self.recompute_visible_indices();
+    }
+
+    #[must_use]
+    pub fn has_file_filter(&self) -> bool {
+        self.file_filter.is_some()
+    }
+
+    /// Recompute `visible_indices` from entries based on the current file filter.
+    /// Directories and ".." are always included. Files are included only if they
+    /// match the regex (or if no filter is active).
+    /// Also adjusts `cursor` to ensure it points to a visible entry.
+    pub fn recompute_visible_indices(&mut self) {
+        let indices: Vec<usize> = self
+            .entries
+            .iter()
+            .enumerate()
+            .filter_map(|(i, e)| {
+                if e.name == ".." || e.is_dir {
+                    Some(i)
+                } else if let Some(ref re) = self.file_filter_regex {
+                    if re.is_match(&e.name) { Some(i) } else { None }
+                } else {
+                    Some(i)
+                }
+            })
+            .collect();
+        self.visible_set = indices.iter().copied().collect();
+        self.visible_indices = indices;
+
+        // Ensure cursor is on a visible entry
+        if !self.visible_indices.is_empty() && !self.visible_set.contains(&self.cursor) {
+            // Move cursor to nearest visible entry above
+            let mut new_cursor = self.cursor;
+            while new_cursor > 0 && !self.visible_set.contains(&new_cursor) {
+                new_cursor -= 1;
+            }
+            if !self.visible_set.contains(&new_cursor) {
+                new_cursor = self.visible_indices[0];
+            }
+            self.cursor = new_cursor;
+        }
+    }
+
+    /// Get the cursor position within the visible entries list.
+    /// Returns None if there are no visible entries.
+    #[must_use]
+    pub fn cursor_visible_pos(&self) -> Option<usize> {
+        self.visible_indices.iter().position(|&i| i == self.cursor)
+    }
+
+    /// Move cursor up, skipping hidden entries.
+    pub fn move_cursor_up_filtered(&mut self) {
+        if self.has_file_filter() {
+            if let Some(pos) = self.cursor_visible_pos()
+                && pos > 0
+            {
+                self.cursor = self.visible_indices[pos - 1];
+            }
+        } else {
+            self.move_cursor_up();
+        }
+    }
+
+    /// Move cursor down, skipping hidden entries.
+    pub fn move_cursor_down_filtered(&mut self) {
+        if self.has_file_filter() {
+            if let Some(pos) = self.cursor_visible_pos()
+                && pos + 1 < self.visible_indices.len()
+            {
+                self.cursor = self.visible_indices[pos + 1];
+            }
+        } else {
+            self.move_cursor_down();
+        }
+    }
+
+    /// Get the count of visible entries.
+    #[must_use]
+    pub fn visible_count(&self) -> usize {
+        self.visible_indices.len()
+    }
+
+    /// Select all visible files (non-directories that pass the filter) plus all directories.
+    /// ".." is never selected.
+    pub fn select_all_visible(&mut self) {
+        for (i, entry) in self.entries.iter_mut().enumerate() {
+            if entry.name == ".." {
+                continue;
+            }
+            if entry.is_dir || self.visible_set.contains(&i) {
+                entry.selected = true;
+            }
+        }
+    }
+
+    /// Get the count of visible files (excludes directories and "..")
+    #[must_use]
+    pub fn visible_file_count(&self) -> usize {
+        self.visible_indices
+            .iter()
+            .filter(|&&i| !self.entries[i].is_dir)
+            .count()
     }
 
     /// Reloads the current directory contents.
@@ -364,9 +565,13 @@ impl Tab {
     }
 
     pub fn select_all(&mut self) {
-        for entry in &mut self.entries {
-            if entry.name != ".." {
-                entry.selected = true;
+        if self.has_file_filter() {
+            self.select_all_visible();
+        } else {
+            for entry in &mut self.entries {
+                if entry.name != ".." {
+                    entry.selected = true;
+                }
             }
         }
     }
@@ -536,15 +741,28 @@ impl Tab {
     }
 
     pub fn scroll_to_cursor(&mut self, visible_rows: usize) {
-        if self.cursor < self.scroll_offset {
-            self.scroll_offset = self.cursor;
-        } else if self.cursor >= self.scroll_offset + visible_rows {
-            self.scroll_offset = self.cursor - visible_rows + 1;
-        }
-        // Ensure scroll_offset doesn't go beyond available entries
-        let max_scroll = self.entries.len().saturating_sub(visible_rows);
-        if self.scroll_offset > max_scroll {
-            self.scroll_offset = max_scroll;
+        if self.has_file_filter() {
+            if let Some(pos) = self.cursor_visible_pos() {
+                if pos < self.scroll_offset {
+                    self.scroll_offset = pos;
+                } else if pos >= self.scroll_offset + visible_rows {
+                    self.scroll_offset = pos - visible_rows + 1;
+                }
+                let max_scroll = self.visible_count().saturating_sub(visible_rows);
+                if self.scroll_offset > max_scroll {
+                    self.scroll_offset = max_scroll;
+                }
+            }
+        } else {
+            if self.cursor < self.scroll_offset {
+                self.scroll_offset = self.cursor;
+            } else if self.cursor >= self.scroll_offset + visible_rows {
+                self.scroll_offset = self.cursor - visible_rows + 1;
+            }
+            let max_scroll = self.entries.len().saturating_sub(visible_rows);
+            if self.scroll_offset > max_scroll {
+                self.scroll_offset = max_scroll;
+            }
         }
     }
 
@@ -565,11 +783,15 @@ impl Tab {
         }
 
         let query = self.search.buffer.to_lowercase();
+        let filtering = self.has_file_filter();
         self.search.matching_indices.clear();
         self.search.highlights.clear();
 
         // 1. Prefix matches
         for (i, entry) in self.entries.iter().enumerate() {
+            if filtering && !self.visible_set.contains(&i) {
+                continue;
+            }
             if entry.name.to_lowercase().starts_with(&query) {
                 self.search.matching_indices.push(i);
                 // For prefix matches, highlight the prefix
@@ -588,6 +810,9 @@ impl Tab {
             let matcher = SkimMatcherV2::default();
 
             for (i, entry) in self.entries.iter().enumerate() {
+                if filtering && !self.visible_set.contains(&i) {
+                    continue;
+                }
                 if let Some((_, indices)) =
                     matcher.fuzzy_indices(&entry.name.to_lowercase(), &query)
                 {

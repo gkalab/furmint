@@ -14,6 +14,7 @@ use crate::handlers::{
     },
     popup_create::{handle_init_create_directory, handle_init_create_file},
     popup_delete::handle_init_delete,
+    popup_file_filter::handle_init_file_filter,
     popup_rename::handle_init_rename,
     popup_rename_tab::handle_init_rename_tab,
     popup_ssh::{handle_reconnect_ssh, handle_ssh_connection_init},
@@ -38,6 +39,11 @@ pub async fn handle_main_panel_event(
         let trash = &mut app.popups.empty_trash;
         trash.is_visible = true;
         trash.selected_no = true;
+        return false;
+    }
+
+    // File Filter
+    if handle_filter_shortcuts(app, keyboard, &shortcut) {
         return false;
     }
 
@@ -154,6 +160,26 @@ pub async fn handle_main_panel_event(
 
     // Fallback to basic type/nav handling
     handle_basic_nav(app, code, modifiers);
+
+    false
+}
+
+fn handle_filter_shortcuts(app: &mut AppState, keyboard: &KeyboardConfig, shortcut: &str) -> bool {
+    // File filter (regex)
+    if let Some(keys) = &keyboard.file_filter
+        && keys.iter().any(|s| s == shortcut)
+    {
+        handle_init_file_filter(app);
+        return true;
+    }
+
+    // Remove file filter (Alt-*)
+    if let Some(keys) = &keyboard.file_filter_remove
+        && keys.iter().any(|s| s == shortcut)
+    {
+        app.active_tab_mut().clear_file_filter();
+        return true;
+    }
 
     false
 }

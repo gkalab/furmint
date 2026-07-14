@@ -314,6 +314,10 @@ fn test_can_swap_active_tabs() {
         status_msg: None,
         dir_sizes: std::collections::HashMap::new(),
         is_reloading: false,
+        file_filter: None,
+        file_filter_regex: None,
+        visible_indices: Vec::new(),
+        visible_set: std::collections::HashSet::new(),
     };
 
     let mut app = AppState::test_default();

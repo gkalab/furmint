@@ -26,6 +26,10 @@ pub fn create_test_tab() -> Tab {
         status_msg: None,
         dir_sizes: std::collections::HashMap::new(),
         is_reloading: false,
+        file_filter: None,
+        file_filter_regex: None,
+        visible_indices: Vec::new(),
+        visible_set: std::collections::HashSet::new(),
     }
 }
 
@@ -85,6 +89,10 @@ pub fn create_test_tab_with_entries() -> Tab {
         status_msg: None,
         dir_sizes: std::collections::HashMap::new(),
         is_reloading: false,
+        file_filter: None,
+        file_filter_regex: None,
+        visible_indices: Vec::new(),
+        visible_set: std::collections::HashSet::new(),
     }
 }
 

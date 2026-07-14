@@ -9,6 +9,7 @@ use crate::handlers::popup_copy_move::handle_copy_move_event;
 use crate::handlers::popup_create::{handle_create_directory_event, handle_create_file_event};
 use crate::handlers::popup_delete::handle_delete_event;
 use crate::handlers::popup_error::handle_error_event;
+use crate::handlers::popup_file_filter::handle_file_filter_event;
 use crate::handlers::popup_fuzzy::handle_fuzzy_search_event;
 use crate::handlers::popup_misc::{handle_quit_popup_event, handle_task_manager_event};
 use crate::handlers::popup_rename::handle_rename_event;
@@ -165,6 +166,9 @@ async fn handle_popup_events(
     }
     if app.popups.remote_edit.is_visible {
         return Some(crate::handlers::editor::handle_remote_edit_event(code, app).await);
+    }
+    if app.popups.file_filter.is_visible {
+        return Some(handle_file_filter_event(code, modifiers, app));
     }
     if app.show_task_manager {
         return Some(handle_task_manager_event(code, app));
