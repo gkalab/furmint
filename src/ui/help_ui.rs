@@ -269,6 +269,7 @@ fn build_help_categories(
         (
             "File Viewer",
             vec![
+                ("Toggle Viewer", &keyboard.toggle_viewer),
                 ("Search", &keyboard.viewer_search),
                 ("Search Next", &keyboard.viewer_search_next),
                 ("Search Previous", &keyboard.viewer_search_prev),

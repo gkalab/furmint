@@ -179,8 +179,13 @@ async fn handle_global_interceptors(
     modifiers: Modifiers,
     shortcut: &str,
 ) -> Option<bool> {
-    // F3 / Viewer toggle
-    if code == KeyCode::Function(3) && modifiers == Modifiers::NONE && !app.file_viewer.focused {
+    // Viewer toggle
+    if keyboard
+        .toggle_viewer
+        .as_ref()
+        .is_some_and(|keys| keys.iter().any(|s| s == shortcut))
+        && !app.file_viewer.focused
+    {
         if crate::handlers::file_viewer::handle_external_viewer(app) {
             return Some(false);
         }
