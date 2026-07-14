@@ -92,7 +92,6 @@ fn test_app(
         dir_history: DirectoryHistory::new().unwrap(),
         watcher: None,
         input_polling_handle: None,
-        needs_redraw: false,
         keyboard: fm::config::KeyboardConfig::default(),
         global: GlobalConfig::default(),
         editor_cfg: fm::config::EditorConfig::default(),

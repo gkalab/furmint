@@ -127,7 +127,6 @@ pub fn create_test_app() -> AppState {
         watcher: None,
         remote_watcher: None,
         input_polling_handle: None,
-        needs_redraw: false,
         keyboard: crate::config::KeyboardConfig::default(),
         global: crate::config::GlobalConfig {
             mouse: Some(false),

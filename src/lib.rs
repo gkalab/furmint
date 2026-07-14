@@ -132,8 +132,7 @@ fn setup_terminal() -> Result<(Terminal<TerminaBackend<PlatformTerminal>>, Event
     let mut output = PlatformTerminal::new()?;
     output.enter_raw_mode()?;
     let reader = output.event_reader();
-    let mut terminal = Terminal::new(TerminaBackend::new(output))?;
-    terminal.clear()?;
+    let terminal = Terminal::new(TerminaBackend::new(output))?;
     Ok((terminal, reader))
 }
 

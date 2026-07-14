@@ -31,7 +31,6 @@ fn app_with_conflict(task_id: usize) -> (AppState, mpsc::Receiver<TaskDecision>)
         dir_history: fm::dir_history::DirectoryHistory::new().unwrap(),
         watcher: None,
         input_polling_handle: None,
-        needs_redraw: false,
         keyboard: fm::config::KeyboardConfig::default(),
         global: fm::config::GlobalConfig {
             mouse: Some(false),

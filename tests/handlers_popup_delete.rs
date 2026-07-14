@@ -43,7 +43,6 @@ fn basic_app_with_entry(name: &str) -> AppState {
         dir_history: fm::dir_history::DirectoryHistory::new().unwrap(),
         watcher: None,
         input_polling_handle: None,
-        needs_redraw: false,
         keyboard: fm::config::KeyboardConfig::default(),
         global: fm::config::GlobalConfig {
             mouse: Some(false),

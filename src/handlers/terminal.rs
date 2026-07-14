@@ -388,8 +388,6 @@ pub async fn execute_toggle_console(app: &mut AppState) -> anyhow::Result<()> {
         refresh_tab(tab);
     }
 
-    app.needs_redraw = true;
-
     // 8. Return error if any
     if let Some(e) = err {
         Err(anyhow::anyhow!(e))

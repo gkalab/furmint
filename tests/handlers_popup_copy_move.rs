@@ -79,7 +79,6 @@ fn minimal_state_with_entries(
         dir_history: fm::dir_history::DirectoryHistory::default(),
         watcher: None,
         input_polling_handle: None,
-        needs_redraw: false,
         keyboard: fm::config::KeyboardConfig::default(),
         global: fm::config::GlobalConfig {
             mouse: Some(false),

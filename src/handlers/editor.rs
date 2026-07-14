@@ -97,7 +97,6 @@ pub(crate) async fn edit_file_remote(
             popup_area: ratatui::layout::Rect::default(),
             button_areas: Vec::new(),
         };
-        app.needs_redraw = true;
 
         // Spawn the wait in a blocking task so the TUI can redraw
         // We don't actually need to wait here - the popup will handle the upload
@@ -171,7 +170,6 @@ pub async fn execute_open_editor_remote(
         upload_edited_file(&temp_path, &remote_path, provider, &edited_data).await?;
     }
 
-    app.needs_redraw = true;
     Ok(())
 }
 
@@ -415,7 +413,6 @@ pub async fn open_file_in_editor_with_env_handling(
             }
         }
     }
-    app.needs_redraw = true;
     if let Some(e) = err {
         Err(anyhow::anyhow!(e))
     } else {
@@ -444,7 +441,6 @@ pub async fn handle_remote_edit_event(code: termina::event::KeyCode, app: &mut A
             let temp_path = app.popups.remote_edit.temp_path.clone();
             let _ = tokio::fs::remove_file(&temp_path).await;
             app.popups.remote_edit.reset();
-            app.needs_redraw = true;
             false
         }
         _ => false,
@@ -463,7 +459,6 @@ async fn do_remote_edit_upload(app: &mut AppState) {
             app.popups.remote_edit.reset();
             app.active_tab_mut().error = Some(format!("Error reading edited file: {e}"));
             app.refresh_active_tabs();
-            app.needs_redraw = true;
             return;
         }
     };
@@ -482,7 +477,6 @@ async fn do_remote_edit_upload(app: &mut AppState) {
         app.active_tab_mut().error = Some(e.to_string());
     }
     app.refresh_active_tabs();
-    app.needs_redraw = true;
 }
 
 #[cfg(test)]

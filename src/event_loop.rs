@@ -5,6 +5,7 @@ use crate::handlers::popup_misc::handle_task_event;
 use crate::handlers::terminal::{disable_mouse_capture, enable_mouse_capture};
 use crate::theme::ThemePalette;
 use ratatui::Terminal;
+use std::io::Write;
 use termina::EventReader;
 use termina::event::Event;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -93,12 +94,6 @@ where
             ));
         }
 
-        // Explicit redraw if requested (e.g. after editor or console toggle)
-        if app.needs_redraw {
-            terminal.clear()?;
-            draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
-            app.needs_redraw = false;
-        }
         tokio::select! {
                             // Handle watcher events
                             Some(event) = sources.watcher_rx.recv() => {
@@ -125,10 +120,6 @@ where
                                 if exit {
                                     should_exit = true;
                                 } else {
-                                    if app.needs_redraw {
-                                        terminal.clear()?;
-                                        app.needs_redraw = false;
-                                    }
                                     draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
                                 }
 
@@ -182,7 +173,9 @@ where
             return Ok(Some(action));
         }
     }
-    terminal.clear()?;
+    // Clear terminal
+    write!(std::io::stdout(), "\x1b[?25h\x1b[2J\x1b[H")?;
+    std::io::stdout().flush()?;
     Ok(None)
 }
 

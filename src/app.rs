@@ -135,7 +135,6 @@ pub struct AppState {
     pub remote_watcher: Option<Box<dyn crate::fs::watcher::FileSystemWatcher>>,
     // Input polling task handle
     pub input_polling_handle: Option<tokio::task::JoinHandle<()>>,
-    pub needs_redraw: bool, // <--- Added for explicit redraw after editor
     pub keyboard: crate::config::KeyboardConfig,
     pub global: crate::config::GlobalConfig,
     pub editor_cfg: crate::config::EditorConfig,
@@ -217,7 +216,6 @@ impl AppState {
             watcher: ctx.watcher,
             remote_watcher: ctx.remote_watcher,
             input_polling_handle: None,
-            needs_redraw: false,
             keyboard: ctx.keyboard,
             global: ctx.global,
             editor_cfg: ctx.editor_cfg,
@@ -606,8 +604,6 @@ impl AppState {
                 self.active_tab_mut().error = Some(format!("Failed to browse SFTP: {e}"));
             }
         }
-        self.needs_redraw = true;
-
         // Sync watcher if needed (though SFTP won't be watched by local watcher)
         self.sync_watcher();
     }
@@ -643,8 +639,6 @@ impl AppState {
         if let Err(e) = tab.navigate_to(&path) {
             tab.error = Some(format!("Failed to navigate to {}: {e}", path.display()));
         }
-
-        self.needs_redraw = true;
 
         // Sync watcher if needed (though SFTP won't be watched by local watcher)
         self.sync_watcher();

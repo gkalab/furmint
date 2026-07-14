@@ -86,7 +86,6 @@ fn test_multi_tab_search_timeout() {
         watcher: None,
         remote_watcher: None,
         input_polling_handle: None,
-        needs_redraw: false,
         keyboard: fm::config::KeyboardConfig::default(),
         global: fm::config::GlobalConfig {
             mouse: Some(false),
