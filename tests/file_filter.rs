@@ -8,13 +8,11 @@ use fm::handlers::navigation::{
     handle_down, handle_down_search, handle_end, handle_home, handle_page_down, handle_page_up,
     handle_type_char, handle_up, handle_up_search,
 };
-use fm::handlers::popup_file_filter::{handle_file_filter_event, handle_init_file_filter};
 use fm::ssh_history::SshConnectionHistory;
 use fm::ssh_manager::SshManager;
 use fm::state::FileViewerState;
 use fm::tasks::TaskManager;
 use std::sync::Arc;
-use termina::event::{KeyCode, Modifiers};
 
 fn entry(name: &str, is_dir: bool) -> FileEntry {
     FileEntry {
@@ -47,10 +45,9 @@ fn test_app(entries: Vec<FileEntry>) -> AppState {
         status_msg: None,
         dir_sizes: std::collections::HashMap::new(),
         is_reloading: false,
-        file_filter: None,
-        file_filter_regex: None,
         visible_indices: Vec::new(),
         visible_set: std::collections::HashSet::new(),
+        filter: fm::state::FileFilterState::new(),
     };
     tab.recompute_visible_indices();
     AppState {
@@ -441,123 +438,6 @@ fn test_visible_row_to_entry_index_without_filter() {
     assert_eq!(tab.visible_row_to_entry_index(0), Some(0));
     assert_eq!(tab.visible_row_to_entry_index(3), Some(3));
     assert_eq!(tab.visible_row_to_entry_index(7), None); // out of bounds
-}
-
-// ---------------------------------------------------------------------------
-// Popup handler
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_filter_popup_init_empty() {
-    let mut app = test_app(mixed_entries());
-    handle_init_file_filter(&mut app);
-
-    assert!(app.popups.file_filter.is_visible);
-    assert!(app.popups.file_filter.pattern.is_empty());
-    assert_eq!(app.popups.file_filter.cursor_position, 0);
-    assert!(app.popups.file_filter.error.is_none());
-}
-
-#[test]
-fn test_filter_popup_init_with_existing_filter() {
-    let mut app = test_app(mixed_entries());
-    app.active_tab_mut()
-        .set_file_filter(Some("\\.rs$"))
-        .unwrap();
-    handle_init_file_filter(&mut app);
-
-    assert!(app.popups.file_filter.is_visible);
-    assert_eq!(app.popups.file_filter.pattern, "\\.rs$");
-    assert_eq!(app.popups.file_filter.cursor_position, 5);
-}
-
-#[test]
-fn test_filter_popup_enter_applies_filter() {
-    let mut app = test_app(mixed_entries());
-    handle_init_file_filter(&mut app);
-
-    // Type a regex pattern
-    for c in "\\.rs".chars() {
-        handle_file_filter_event(KeyCode::Char(c), Modifiers::NONE, &mut app);
-    }
-
-    // Press Enter
-    handle_file_filter_event(KeyCode::Enter, Modifiers::NONE, &mut app);
-
-    assert!(!app.popups.file_filter.is_visible);
-    assert!(app.active_tab().has_file_filter());
-    assert_eq!(app.active_tab().visible_count(), 5); // dirs + .rs files
-}
-
-#[test]
-fn test_filter_popup_escape_cancels() {
-    let mut app = test_app(mixed_entries());
-    handle_init_file_filter(&mut app);
-
-    // Type something
-    handle_file_filter_event(KeyCode::Char('a'), Modifiers::NONE, &mut app);
-    assert_eq!(app.popups.file_filter.pattern, "a");
-
-    // Press Escape
-    handle_file_filter_event(KeyCode::Escape, Modifiers::NONE, &mut app);
-
-    assert!(!app.popups.file_filter.is_visible);
-    assert!(!app.active_tab().has_file_filter());
-}
-
-#[test]
-fn test_filter_popup_invalid_regex_shows_error() {
-    let mut app = test_app(mixed_entries());
-    handle_init_file_filter(&mut app);
-
-    // Type an invalid regex
-    for c in "[invalid".chars() {
-        handle_file_filter_event(KeyCode::Char(c), Modifiers::NONE, &mut app);
-    }
-
-    // Press Enter
-    handle_file_filter_event(KeyCode::Enter, Modifiers::NONE, &mut app);
-
-    assert!(app.popups.file_filter.is_visible); // popup stays open
-    assert!(app.popups.file_filter.error.is_some());
-    assert!(!app.active_tab().has_file_filter()); // filter not applied
-}
-
-#[test]
-fn test_filter_popup_empty_enter_clears_filter() {
-    let mut app = test_app(mixed_entries());
-    app.active_tab_mut()
-        .set_file_filter(Some("\\.rs$"))
-        .unwrap();
-    assert!(app.active_tab().has_file_filter());
-
-    handle_init_file_filter(&mut app);
-    // Pattern is pre-filled, clear it
-    app.popups.file_filter.pattern.clear();
-    app.popups.file_filter.cursor_position = 0;
-
-    // Press Enter with empty pattern
-    handle_file_filter_event(KeyCode::Enter, Modifiers::NONE, &mut app);
-
-    assert!(!app.active_tab().has_file_filter());
-    assert_eq!(app.active_tab().visible_count(), 7);
-}
-
-#[test]
-fn test_filter_popup_typing_clears_error() {
-    let mut app = test_app(mixed_entries());
-    handle_init_file_filter(&mut app);
-
-    // Type invalid regex and press enter to get error
-    for c in "[invalid".chars() {
-        handle_file_filter_event(KeyCode::Char(c), Modifiers::NONE, &mut app);
-    }
-    handle_file_filter_event(KeyCode::Enter, Modifiers::NONE, &mut app);
-    assert!(app.popups.file_filter.error.is_some());
-
-    // Type another character — error should clear
-    handle_file_filter_event(KeyCode::Char('x'), Modifiers::NONE, &mut app);
-    assert!(app.popups.file_filter.error.is_none());
 }
 
 // ---------------------------------------------------------------------------

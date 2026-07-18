@@ -198,5 +198,4 @@ pub fn draw_all_popups(
     }
     crate::ui::remote_edit_ui::draw_remote_edit_popup(f, &mut app.popups.remote_edit, palette);
     crate::ui::bookmark_ui::draw_bookmark_popup(f, &mut app.popups.bookmark, palette);
-    crate::ui::file_filter_ui::draw_file_filter_popup(f, &app.popups.file_filter, palette);
 }

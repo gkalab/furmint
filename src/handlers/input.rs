@@ -2,6 +2,7 @@ use crate::app::{AppState, SortColumn};
 use crate::config::KeyboardConfig;
 use crate::handlers::{
     editor::handle_edit,
+    file_filter::handle_init_file_filter,
     input_utils::keyevent_to_string,
     navigation::{
         handle_directory_up, handle_down, handle_down_search, handle_end, handle_enter_directory,
@@ -14,7 +15,6 @@ use crate::handlers::{
     },
     popup_create::{handle_init_create_directory, handle_init_create_file},
     popup_delete::handle_init_delete,
-    popup_file_filter::handle_init_file_filter,
     popup_rename::handle_init_rename,
     popup_rename_tab::handle_init_rename_tab,
     popup_ssh::{handle_reconnect_ssh, handle_ssh_connection_init},
@@ -43,7 +43,7 @@ pub async fn handle_main_panel_event(
     }
 
     // File Filter
-    if handle_filter_shortcuts(app, keyboard, &shortcut) {
+    if handle_filter_shortcut(app, keyboard, &shortcut) {
         return false;
     }
 
@@ -164,23 +164,13 @@ pub async fn handle_main_panel_event(
     false
 }
 
-fn handle_filter_shortcuts(app: &mut AppState, keyboard: &KeyboardConfig, shortcut: &str) -> bool {
-    // File filter (regex)
+fn handle_filter_shortcut(app: &mut AppState, keyboard: &KeyboardConfig, shortcut: &str) -> bool {
     if let Some(keys) = &keyboard.file_filter
         && keys.iter().any(|s| s == shortcut)
     {
         handle_init_file_filter(app);
         return true;
     }
-
-    // Remove file filter (Alt-*)
-    if let Some(keys) = &keyboard.file_filter_remove
-        && keys.iter().any(|s| s == shortcut)
-    {
-        app.active_tab_mut().clear_file_filter();
-        return true;
-    }
-
     false
 }
 

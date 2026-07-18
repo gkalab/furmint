@@ -484,6 +484,12 @@ pub fn draw_panel_status(
     area: Rect,
     ctx: &PanelStatusContext,
 ) {
+    // File filter mode: render the filter input in the status line
+    if panel.filter.active {
+        draw_file_filter_status(f, panel, area, ctx);
+        return;
+    }
+
     let error = panel.error.as_deref().unwrap_or("");
     let file_count = panel.entries.iter().filter(|e| !e.is_dir).count();
     let dir_count = panel
@@ -494,7 +500,7 @@ pub fn draw_panel_status(
     let selected_count = panel.entries.iter().filter(|e| e.selected).count();
 
     // Build the active-filter label (rendered in yellow, separated from the rest)
-    let filter_label = panel.file_filter.as_deref().map(|pattern| {
+    let filter_label = panel.filter.applied.as_deref().map(|pattern| {
         format!(
             "Filter: {} {}/{} files, ",
             pattern,
@@ -516,7 +522,7 @@ pub fn draw_panel_status(
             && instant.elapsed() < std::time::Duration::from_secs(3)
         {
             msg.clone()
-        } else if panel.file_filter.is_some() {
+        } else if panel.filter.is_active() {
             // File count is already shown in the filter label; only show dirs here.
             format!("{dir_count} dirs")
         } else {
@@ -588,6 +594,56 @@ pub fn draw_panel_status(
             );
         }
     }
+}
+
+fn draw_file_filter_status(
+    f: &mut ratatui::Frame,
+    panel: &Tab,
+    area: Rect,
+    ctx: &PanelStatusContext,
+) {
+    let is_root = is_root_user(panel);
+    let panel_bg = panel_bg_color(ctx.palette, ctx.active, is_root, ctx.borders);
+
+    // Clear the status area
+    f.render_widget(Block::default().style(Style::default().bg(panel_bg)), area);
+
+    let status_area = Rect {
+        x: area.x + 1,
+        y: area.y,
+        width: area.width.saturating_sub(2),
+        height: area.height,
+    };
+
+    let yellow = Color::Rgb(
+        ctx.palette.yellow.r,
+        ctx.palette.yellow.g,
+        ctx.palette.yellow.b,
+    );
+
+    let pattern = &panel.filter.pattern;
+    let cursor_pos = panel.filter.cursor_position;
+
+    // Build the input line: /pattern with a block cursor at cursor_position
+    let prefix = Span::styled("/".to_string(), Style::default().fg(yellow));
+
+    let before_cursor: String = pattern.chars().take(cursor_pos).collect();
+    let cursor_char = pattern.chars().nth(cursor_pos);
+    let after_cursor: String = pattern.chars().skip(cursor_pos + 1).collect();
+
+    let before_span = Span::styled(before_cursor, Style::default().fg(yellow));
+    let cursor_span = Span::styled(
+        cursor_char.map_or("▎".to_string(), |c| c.to_string()),
+        Style::default()
+            .fg(yellow)
+            .add_modifier(ratatui::style::Modifier::REVERSED),
+    );
+    let after_span = Span::styled(after_cursor, Style::default().fg(yellow));
+
+    let line = ratatui::text::Line::from(vec![prefix, before_span, cursor_span, after_span]);
+
+    let paragraph = ratatui::widgets::Paragraph::new(line);
+    f.render_widget(paragraph, status_area);
 }
 
 fn build_status_line(

@@ -239,7 +239,6 @@ fn build_help_categories(
                 ("Empty Trash", &keyboard.empty_trash),
                 ("Calculate Directory Size", &keyboard.calc_dir_size),
                 ("File Filter", &keyboard.file_filter),
-                ("Remove Filter", &keyboard.file_filter_remove),
             ],
         ),
         (

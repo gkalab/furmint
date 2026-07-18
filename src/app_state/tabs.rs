@@ -75,12 +75,11 @@ pub struct Tab {
     /// Cache of calculated directory sizes: path -> size in bytes
     pub dir_sizes: std::collections::HashMap<PathBuf, u64>,
     pub is_reloading: bool,
-    pub file_filter: Option<String>,
-    pub file_filter_regex: Option<regex::Regex>,
     /// Indices into self.entries that pass the file filter (or all if no filter)
     pub visible_indices: Vec<usize>,
     /// O(1) membership set derived from `visible_indices`
     pub visible_set: std::collections::HashSet<usize>,
+    pub filter: crate::state::FileFilterState,
 }
 
 impl Tab {
@@ -117,10 +116,9 @@ impl Tab {
             status_msg: None,
             dir_sizes: std::collections::HashMap::new(),
             is_reloading: false,
-            file_filter: None,
-            file_filter_regex: None,
             visible_indices: Vec::new(),
             visible_set: std::collections::HashSet::new(),
+            filter: crate::state::FileFilterState::new(),
         };
         tab.sort_entries();
         tab.recompute_visible_indices();
@@ -377,30 +375,55 @@ impl Tab {
     ///
     /// Returns `regex::Error` if the pattern is not a valid regex.
     pub fn set_file_filter(&mut self, pattern: Option<&str>) -> Result<(), regex::Error> {
-        match pattern {
-            None | Some("") => {
-                self.file_filter = None;
-                self.file_filter_regex = None;
-            }
-            Some(p) => {
-                let re = regex::Regex::new(p)?;
-                self.file_filter = Some(p.to_string());
-                self.file_filter_regex = Some(re);
-            }
-        }
+        self.filter.set(pattern)?;
         self.recompute_visible_indices();
         Ok(())
     }
 
     pub fn clear_file_filter(&mut self) {
-        self.file_filter = None;
-        self.file_filter_regex = None;
+        self.filter.clear();
         self.recompute_visible_indices();
     }
 
     #[must_use]
     pub fn has_file_filter(&self) -> bool {
-        self.file_filter.is_some()
+        self.filter.is_active()
+    }
+
+    pub fn init_file_filter(&mut self) {
+        self.filter.previous_filter = self.filter.applied.clone();
+        self.filter.pattern.clear();
+        self.filter.cursor_position = 0;
+        self.filter.active = true;
+    }
+
+    pub fn apply_file_filter(&mut self) {
+        let pattern = self.filter.pattern.trim().to_string();
+        let _ = self.set_file_filter(Some(&pattern));
+    }
+
+    pub fn confirm_file_filter(&mut self) {
+        let pattern = self.filter.pattern.trim().to_string();
+        self.filter.active = false;
+        self.filter.pattern.clear();
+        self.filter.cursor_position = 0;
+        self.filter.previous_filter = None;
+        if pattern.is_empty() {
+            self.clear_file_filter();
+        }
+    }
+
+    pub fn cancel_file_filter(&mut self) {
+        let previous = self.filter.previous_filter.take();
+        self.filter.reset();
+        match previous {
+            Some(ref p) if !p.is_empty() => {
+                let _ = self.set_file_filter(Some(p));
+            }
+            _ => {
+                self.clear_file_filter();
+            }
+        }
     }
 
     /// Recompute `visible_indices` from entries based on the current file filter.
@@ -415,7 +438,7 @@ impl Tab {
             .filter_map(|(i, e)| {
                 if e.name == ".." || e.is_dir {
                     Some(i)
-                } else if let Some(ref re) = self.file_filter_regex {
+                } else if let Some(ref re) = self.filter.regex {
                     if re.is_match(&e.name) { Some(i) } else { None }
                 } else {
                     Some(i)

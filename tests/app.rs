@@ -314,10 +314,9 @@ fn test_can_swap_active_tabs() {
         status_msg: None,
         dir_sizes: std::collections::HashMap::new(),
         is_reloading: false,
-        file_filter: None,
-        file_filter_regex: None,
         visible_indices: Vec::new(),
         visible_set: std::collections::HashSet::new(),
+        filter: fm::state::FileFilterState::new(),
     };
 
     let mut app = AppState::test_default();
@@ -428,6 +427,7 @@ fn test_drive_navigation_matches_opposite_pane() {
             status_msg: None,
             dir_sizes: std::collections::HashMap::new(),
             is_reloading: false,
+            filter: fm::state::FileFilterState::new(),
         };
         let right_tab = Tab {
             area: ratatui::layout::Rect::default(),
@@ -443,6 +443,7 @@ fn test_drive_navigation_matches_opposite_pane() {
             status_msg: None,
             dir_sizes: std::collections::HashMap::new(),
             is_reloading: false,
+            filter: fm::state::FileFilterState::new(),
         };
         app.left.tabs = vec![left_tab];
         app.right.tabs = vec![right_tab];
@@ -480,6 +481,7 @@ fn test_drive_navigation_matches_opposite_pane() {
             status_msg: None,
             dir_sizes: std::collections::HashMap::new(),
             is_reloading: false,
+            filter: fm::state::FileFilterState::new(),
         };
         let right_tab = Tab {
             area: ratatui::layout::Rect::default(),
@@ -495,6 +497,7 @@ fn test_drive_navigation_matches_opposite_pane() {
             status_msg: None,
             dir_sizes: std::collections::HashMap::new(),
             is_reloading: false,
+            filter: fm::state::FileFilterState::new(),
         };
         app.left.tabs = vec![left_tab];
         app.right.tabs = vec![right_tab];
@@ -529,6 +532,7 @@ fn test_drive_navigation_matches_opposite_pane() {
             status_msg: None,
             dir_sizes: std::collections::HashMap::new(),
             is_reloading: false,
+            filter: fm::state::FileFilterState::new(),
         };
         let right_tab = Tab {
             area: ratatui::layout::Rect::default(),
@@ -544,6 +548,7 @@ fn test_drive_navigation_matches_opposite_pane() {
             status_msg: None,
             dir_sizes: std::collections::HashMap::new(),
             is_reloading: false,
+            filter: fm::state::FileFilterState::new(),
         };
         app.left.tabs = vec![left_tab];
         app.right.tabs = vec![right_tab];

@@ -47,7 +47,6 @@ pub struct KeyboardConfig {
     pub tab_move_left: Option<Vec<String>>,
     pub tab_move_right: Option<Vec<String>>,
     pub file_filter: Option<Vec<String>>,
-    pub file_filter_remove: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -127,13 +126,12 @@ pub fn default_keyboard_config() -> KeyboardConfig {
         rename_tab: Some(vec!["Ctrl-r".to_string()]),
         add_bookmark: Some(vec!["Ctrl-d".to_string()]),
         open_bookmarks: Some(vec!["Ctrl-b".to_string()]),
-        viewer_search: Some(vec!["Ctrl-f".to_string(), "/".to_string()]),
+        viewer_search: Some(vec!["Ctrl-f".to_string()]),
         viewer_search_next: Some(vec!["n".to_string()]),
         viewer_search_prev: Some(vec!["N".to_string()]),
         tab_move_left: Some(vec!["Ctrl-Shift-Left".to_string()]),
         tab_move_right: Some(vec!["Ctrl-Shift-Right".to_string()]),
-        file_filter: Some(vec!["*".to_string()]),
-        file_filter_remove: Some(vec!["Alt-*".to_string()]),
+        file_filter: Some(vec!["/".to_string()]),
     }
 }
 
@@ -203,7 +201,6 @@ pub fn merge_keyboard_config(
         tab_move_left: merge_opt!(tab_move_left),
         tab_move_right: merge_opt!(tab_move_right),
         file_filter: merge_opt!(file_filter),
-        file_filter_remove: merge_opt!(file_filter_remove),
     }
 }
 
@@ -298,7 +295,6 @@ pub fn validate_keyboard_config(config: &KeyboardConfig) -> Result<()> {
         ("tab_move_left", &config.tab_move_left),
         ("tab_move_right", &config.tab_move_right),
         ("file_filter", &config.file_filter),
-        ("file_filter_remove", &config.file_filter_remove),
     ];
 
     for (name, keys) in fields {

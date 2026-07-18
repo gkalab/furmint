@@ -31,10 +31,9 @@ fn test_app(entries: Vec<FileEntry>) -> AppState {
         status_msg: None,
         dir_sizes: std::collections::HashMap::new(),
         is_reloading: false,
-        file_filter: None,
-        file_filter_regex: None,
         visible_indices: Vec::new(),
         visible_set: std::collections::HashSet::new(),
+        filter: fm::state::FileFilterState::new(),
     };
     AppState {
         left: TabManager {
