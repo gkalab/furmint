@@ -427,6 +427,8 @@ fn test_drive_navigation_matches_opposite_pane() {
             status_msg: None,
             dir_sizes: std::collections::HashMap::new(),
             is_reloading: false,
+            visible_indices: Vec::new(),
+            visible_set: std::collections::HashSet::new(),
             filter: fm::state::FileFilterState::new(),
         };
         let right_tab = Tab {
@@ -443,6 +445,8 @@ fn test_drive_navigation_matches_opposite_pane() {
             status_msg: None,
             dir_sizes: std::collections::HashMap::new(),
             is_reloading: false,
+            visible_indices: Vec::new(),
+            visible_set: std::collections::HashSet::new(),
             filter: fm::state::FileFilterState::new(),
         };
         app.left.tabs = vec![left_tab];
@@ -481,6 +485,8 @@ fn test_drive_navigation_matches_opposite_pane() {
             status_msg: None,
             dir_sizes: std::collections::HashMap::new(),
             is_reloading: false,
+            visible_indices: Vec::new(),
+            visible_set: std::collections::HashSet::new(),
             filter: fm::state::FileFilterState::new(),
         };
         let right_tab = Tab {
@@ -497,6 +503,8 @@ fn test_drive_navigation_matches_opposite_pane() {
             status_msg: None,
             dir_sizes: std::collections::HashMap::new(),
             is_reloading: false,
+            visible_indices: Vec::new(),
+            visible_set: std::collections::HashSet::new(),
             filter: fm::state::FileFilterState::new(),
         };
         app.left.tabs = vec![left_tab];
@@ -532,6 +540,8 @@ fn test_drive_navigation_matches_opposite_pane() {
             status_msg: None,
             dir_sizes: std::collections::HashMap::new(),
             is_reloading: false,
+            visible_indices: Vec::new(),
+            visible_set: std::collections::HashSet::new(),
             filter: fm::state::FileFilterState::new(),
         };
         let right_tab = Tab {
@@ -548,6 +558,8 @@ fn test_drive_navigation_matches_opposite_pane() {
             status_msg: None,
             dir_sizes: std::collections::HashMap::new(),
             is_reloading: false,
+            visible_indices: Vec::new(),
+            visible_set: std::collections::HashSet::new(),
             filter: fm::state::FileFilterState::new(),
         };
         app.left.tabs = vec![left_tab];

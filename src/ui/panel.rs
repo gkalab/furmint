@@ -624,6 +624,17 @@ fn draw_file_filter_status(
     let pattern = &panel.filter.pattern;
     let cursor_pos = panel.filter.cursor_position;
 
+    // Check if pattern is a valid regex (non-empty pattern only)
+    let error_msg = if pattern.trim().is_empty() {
+        None
+    } else {
+        regex::Regex::new(pattern.trim())
+            .err()
+            .map(|e| format!("{e}"))
+    };
+
+    let red = Color::Rgb(ctx.palette.red.r, ctx.palette.red.g, ctx.palette.red.b);
+
     // Build the input line: /pattern with a block cursor at cursor_position
     let prefix = Span::styled("/".to_string(), Style::default().fg(yellow));
 
@@ -631,17 +642,24 @@ fn draw_file_filter_status(
     let cursor_char = pattern.chars().nth(cursor_pos);
     let after_cursor: String = pattern.chars().skip(cursor_pos + 1).collect();
 
-    let before_span = Span::styled(before_cursor, Style::default().fg(yellow));
+    let fg = if error_msg.is_some() { red } else { yellow };
+
+    let before_span = Span::styled(before_cursor, Style::default().fg(fg));
     let cursor_span = Span::styled(
         cursor_char.map_or("▎".to_string(), |c| c.to_string()),
         Style::default()
-            .fg(yellow)
+            .fg(fg)
             .add_modifier(ratatui::style::Modifier::REVERSED),
     );
-    let after_span = Span::styled(after_cursor, Style::default().fg(yellow));
+    let after_span = Span::styled(after_cursor, Style::default().fg(fg));
 
-    let line = ratatui::text::Line::from(vec![prefix, before_span, cursor_span, after_span]);
+    let mut spans = vec![prefix, before_span, cursor_span, after_span];
 
+    if let Some(ref err) = error_msg {
+        spans.push(Span::styled(format!("  {err}"), Style::default().fg(red)));
+    }
+
+    let line = ratatui::text::Line::from(spans);
     let paragraph = ratatui::widgets::Paragraph::new(line);
     f.render_widget(paragraph, status_area);
 }

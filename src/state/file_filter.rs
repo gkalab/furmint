@@ -66,3 +66,94 @@ impl Default for FileFilterState {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_and_default() {
+        let state = FileFilterState::new();
+        assert!(!state.active);
+        assert!(state.pattern.is_empty());
+        assert_eq!(state.cursor_position, 0);
+        assert!(state.previous_filter.is_none());
+        assert!(state.applied.is_none());
+        assert!(state.regex.is_none());
+
+        let default_state = FileFilterState::default();
+        assert_eq!(state.active, default_state.active);
+        assert_eq!(state.pattern, default_state.pattern);
+    }
+
+    #[test]
+    fn test_set_valid_regex() {
+        let mut state = FileFilterState::new();
+        assert!(state.set(Some("foo")).is_ok());
+        assert!(state.is_active());
+        assert_eq!(state.applied, Some("foo".to_string()));
+        assert!(state.regex.is_some());
+    }
+
+    #[test]
+    fn test_set_invalid_regex() {
+        let mut state = FileFilterState::new();
+        let result = state.set(Some("[invalid"));
+        assert!(result.is_err());
+        assert!(state.applied.is_none());
+        assert!(state.regex.is_none());
+    }
+
+    #[test]
+    fn test_set_empty_clears_filter() {
+        let mut state = FileFilterState::new();
+        let _ = state.set(Some("foo"));
+        assert!(state.is_active());
+        state.set(Some("")).unwrap();
+        assert!(!state.is_active());
+        assert!(state.applied.is_none());
+    }
+
+    #[test]
+    fn test_set_none_clears_filter() {
+        let mut state = FileFilterState::new();
+        let _ = state.set(Some("foo"));
+        assert!(state.is_active());
+        state.set(None).unwrap();
+        assert!(!state.is_active());
+    }
+
+    #[test]
+    fn test_clear() {
+        let mut state = FileFilterState::new();
+        let _ = state.set(Some("foo"));
+        state.clear();
+        assert!(state.applied.is_none());
+        assert!(state.regex.is_none());
+    }
+
+    #[test]
+    fn test_reset() {
+        let mut state = FileFilterState {
+            active: true,
+            pattern: "foo".to_string(),
+            cursor_position: 2,
+            previous_filter: Some("bar".to_string()),
+            applied: Some("baz".to_string()),
+            regex: Some(regex::Regex::new("baz").unwrap()),
+        };
+        state.reset();
+        assert!(!state.active);
+        assert!(state.pattern.is_empty());
+        assert_eq!(state.cursor_position, 0);
+        assert!(state.previous_filter.is_none());
+    }
+
+    #[test]
+    fn test_is_active() {
+        let mut state = FileFilterState::new();
+        assert!(!state.is_active());
+        let _ = state.set(Some("foo"));
+        assert!(state.is_active());
+    }
+}
