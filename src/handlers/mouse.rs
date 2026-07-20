@@ -317,9 +317,8 @@ fn handle_right_click(app: &mut AppState, x: u16, y: u16) {
     }
 
     let row = (y - content_start_y) as usize;
-    let row_idx = match tab.visible_row_to_entry_index(row) {
-        Some(idx) => idx,
-        None => return,
+    let Some(row_idx) = tab.visible_row_to_entry_index(row) else {
+        return;
     };
 
     // Move cursor to the right-clicked row.
