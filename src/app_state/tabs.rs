@@ -405,18 +405,19 @@ impl Tab {
     pub fn confirm_file_filter(&mut self) {
         let pattern = self.filter.pattern.trim().to_string();
         if pattern.is_empty() {
-            self.filter.active = false;
-            self.filter.pattern.clear();
-            self.filter.cursor_position = 0;
-            self.filter.previous_filter = None;
+            self.reset_file_filter_state();
             self.clear_file_filter();
         } else if regex::Regex::new(&pattern).is_ok() {
             let _ = self.set_file_filter(Some(&pattern));
-            self.filter.active = false;
-            self.filter.pattern.clear();
-            self.filter.cursor_position = 0;
-            self.filter.previous_filter = None;
+            self.reset_file_filter_state();
         }
+    }
+
+    fn reset_file_filter_state(&mut self) {
+        self.filter.active = false;
+        self.filter.pattern.clear();
+        self.filter.cursor_position = 0;
+        self.filter.previous_filter = None;
     }
 
     pub fn cancel_file_filter(&mut self) {
