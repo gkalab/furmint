@@ -1,9 +1,6 @@
 use flate2::Compression;
 use flate2::write::GzEncoder;
-use fm::app::{AppState, PanelSide, Tab, TabManager};
-use fm::clipboard::InMemoryFileClipboard;
-use fm::config::GlobalConfig;
-use fm::dir_history::DirectoryHistory;
+use fm::app::{AppState, TabManager};
 use fm::fs::fs_archive::ArchiveFs;
 use fm::fs::fs_local::LocalFs;
 use fm::fs::fs_provider::FileSystemProvider;
@@ -12,10 +9,7 @@ use fm::fs::traits::TaskProgressContext;
 use fm::fs::utils::FileEntry;
 use fm::handlers::navigation::handle_enter;
 use fm::opener::FileOpener;
-use fm::ssh_history::SshConnectionHistory;
-use fm::ssh_manager::SshManager;
-use fm::state::FileViewerState;
-use fm::tasks::{TaskEvent, TaskManager};
+use fm::tasks::TaskEvent;
 use std::fs::File;
 use std::io::{Seek, Write};
 use std::path::Path;
@@ -53,65 +47,23 @@ fn test_app(
     task_tx: mpsc::UnboundedSender<TaskEvent>,
     opener: Arc<dyn FileOpener + Send + Sync>,
 ) -> AppState {
-    let tab = Tab {
-        area: ratatui::layout::Rect::default(),
-        provider: Arc::new(LocalFs::new()),
-        current_dir: std::path::PathBuf::from("/tmp"),
-        entries,
-        cursor: 0,
-        search: fm::app_state::tabs::IncrementalSearch::default(),
-        sort: fm::app_state::tabs::SortSettings::default(),
-        scroll_offset: 0,
-        error: None,
-        custom_title: None,
-        status_msg: None,
-        dir_sizes: std::collections::HashMap::new(),
-        is_reloading: false,
-        visible_indices: Vec::new(),
-        visible_set: std::collections::HashSet::new(),
-        filter: fm::state::FileFilterState::new(),
+    let mut tab = fm::test_utils::create_test_tab();
+    tab.entries = entries;
+    tab.current_dir = std::path::PathBuf::from("/tmp");
+    let left_tm = TabManager {
+        tabs: vec![tab.clone()],
+        active_tab_index: 0,
     };
-    AppState {
-        left: TabManager {
-            tabs: vec![tab.clone()],
-            active_tab_index: 0,
-        },
-        right: TabManager {
-            tabs: vec![tab],
-            active_tab_index: 0,
-        },
-        active: PanelSide::Left,
-        file_viewer: FileViewerState::new(false, "test-theme"),
-        fuzzy_search: fm::ui::fuzzy_search_ui::FuzzySearchState::new(),
-        popups: fm::app::Popups::new(),
-        task_manager: TaskManager::new(task_tx),
-        ssh_manager: Arc::new(SshManager::default()),
-        task_decision_txs: std::collections::HashMap::new(),
-        show_task_manager: false,
-        dir_history: DirectoryHistory::new().unwrap(),
-        watcher: None,
-        input_polling_handle: None,
-        keyboard: fm::config::KeyboardConfig::default(),
-        global: GlobalConfig::default(),
-        editor_cfg: fm::config::EditorConfig::default(),
-        viewer_cfg: fm::config::ViewerConfig::default(),
-        ssh_history: SshConnectionHistory::new().unwrap(),
-        clipboard: Box::new(InMemoryFileClipboard::new()),
-        remote_watcher: None,
-        archive_cache: std::collections::HashMap::new(),
-        opener,
-        left_tab_bar_area: ratatui::layout::Rect::default(),
-        right_tab_bar_area: ratatui::layout::Rect::default(),
-        left_panel_area: ratatui::layout::Rect::default(),
-        right_panel_area: ratatui::layout::Rect::default(),
-        left_tab_areas: Vec::new(),
-        right_tab_areas: Vec::new(),
-        last_click: None,
-        pending_action: None,
-        mouse_button_down_index: None,
-        bookmark_store: fm::bookmarks::BookmarkStore::test_default(),
-        active_drag: None,
-    }
+    let right_tm = TabManager {
+        tabs: vec![tab],
+        active_tab_index: 0,
+    };
+    fm::test_utils::TestAppBuilder::new()
+        .left(left_tm)
+        .right(right_tm)
+        .task_tx(task_tx)
+        .opener(opener)
+        .build()
 }
 
 fn create_file_entry(name: &str, is_dir: bool) -> FileEntry {

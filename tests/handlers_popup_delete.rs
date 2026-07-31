@@ -1,10 +1,7 @@
+use fm::app::AppState;
 use fm::app::Tab;
-use fm::app::{AppState, PanelSide};
-use fm::clipboard::InMemoryFileClipboard;
 use fm::fs::utils::FileEntry;
 use fm::handlers::popup_delete::{handle_delete_event, handle_init_delete};
-use fm::ssh_manager::SshManager;
-use fm::state::FileViewerState;
 use fm::tasks::TaskEvent;
 use std::path::Path;
 use termina::event::KeyCode;
@@ -25,48 +22,13 @@ fn basic_app_with_entry(name: &str) -> AppState {
         selected: false,
     });
     tab.cursor = 0;
-    AppState {
-        left: {
-            let mut tm = fm::app::TabManager::new(Path::new("/tmp")).unwrap();
-            tm.tabs[0] = tab;
-            tm
-        },
-        right: fm::app::TabManager::new(Path::new("/tmp")).unwrap(),
-        active: PanelSide::Left,
-        file_viewer: FileViewerState::new(false, ""),
-        fuzzy_search: fm::ui::fuzzy_search_ui::FuzzySearchState::new(),
-        popups: fm::app::Popups::new(),
-        task_manager: fm::tasks::TaskManager::new(task_tx),
-        ssh_manager: std::sync::Arc::new(SshManager::default()),
-        task_decision_txs: std::collections::HashMap::new(),
-        show_task_manager: false,
-        dir_history: fm::dir_history::DirectoryHistory::new().unwrap(),
-        watcher: None,
-        input_polling_handle: None,
-        keyboard: fm::config::KeyboardConfig::default(),
-        global: fm::config::GlobalConfig {
-            mouse: Some(false),
-            ..fm::config::GlobalConfig::default()
-        },
-        editor_cfg: fm::config::EditorConfig::default(),
-        viewer_cfg: fm::config::ViewerConfig::default(),
-        ssh_history: fm::ssh_history::SshConnectionHistory::new().unwrap(),
-        clipboard: Box::new(InMemoryFileClipboard::new()),
-        remote_watcher: None,
-        archive_cache: std::collections::HashMap::new(),
-        opener: std::sync::Arc::new(fm::opener::SystemOpener),
-        left_tab_bar_area: ratatui::layout::Rect::default(),
-        right_tab_bar_area: ratatui::layout::Rect::default(),
-        left_panel_area: ratatui::layout::Rect::default(),
-        right_panel_area: ratatui::layout::Rect::default(),
-        left_tab_areas: Vec::new(),
-        right_tab_areas: Vec::new(),
-        last_click: None,
-        pending_action: None,
-        mouse_button_down_index: None,
-        bookmark_store: fm::bookmarks::BookmarkStore::test_default(),
-        active_drag: None,
-    }
+    let mut left_tm = fm::app::TabManager::new(Path::new("/tmp")).unwrap();
+    left_tm.tabs[0] = tab;
+    fm::test_utils::TestAppBuilder::new()
+        .left(left_tm)
+        .right(fm::app::TabManager::new(Path::new("/tmp")).unwrap())
+        .task_tx(task_tx)
+        .build()
 }
 
 #[test]

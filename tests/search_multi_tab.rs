@@ -1,9 +1,7 @@
-use fm::app::{AppState, PanelSide};
+use fm::app::PanelSide;
 use fm::app_state::tabs::{Tab, TabManager};
-use fm::clipboard::ClipboardBackend;
 use fm::fs::fs_local::LocalFs;
 use fm::fs::utils::FileEntry;
-use fm::state::FileViewerState;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -64,50 +62,18 @@ fn test_multi_tab_search_timeout() {
     right_tab.search.last_type_time = Some(Instant::now()); // Still active
 
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-    let mut app = AppState {
-        left: TabManager {
+    let mut app = fm::test_utils::TestAppBuilder::new()
+        .left(TabManager {
             tabs: vec![left_tab],
             active_tab_index: 0,
-        },
-        right: TabManager {
+        })
+        .right(TabManager {
             tabs: vec![right_tab],
             active_tab_index: 0,
-        },
-        active: PanelSide::Right,
-        file_viewer: FileViewerState::new(true, "default"),
-        fuzzy_search: fm::ui::fuzzy_search_ui::FuzzySearchState::new(),
-        popups: fm::app::Popups::new(),
-        task_manager: fm::tasks::TaskManager::new(tx),
-        ssh_manager: Arc::new(fm::ssh_manager::SshManager::new(None)),
-        task_decision_txs: std::collections::HashMap::new(),
-        show_task_manager: false,
-        dir_history: fm::dir_history::DirectoryHistory::new().unwrap(),
-        watcher: None,
-        remote_watcher: None,
-        input_polling_handle: None,
-        keyboard: fm::config::KeyboardConfig::default(),
-        global: fm::config::GlobalConfig {
-            mouse: Some(false),
-            ..fm::config::GlobalConfig::default()
-        },
-        editor_cfg: fm::config::EditorConfig::default(),
-        viewer_cfg: fm::config::ViewerConfig::default(),
-        ssh_history: fm::ssh_history::SshConnectionHistory::new().unwrap(),
-        bookmark_store: fm::bookmarks::BookmarkStore::test_default(),
-        clipboard: Box::new(ClipboardBackend::new()),
-        archive_cache: std::collections::HashMap::new(),
-        opener: Arc::new(fm::opener::SystemOpener),
-        left_tab_bar_area: ratatui::layout::Rect::default(),
-        right_tab_bar_area: ratatui::layout::Rect::default(),
-        left_panel_area: ratatui::layout::Rect::default(),
-        right_panel_area: ratatui::layout::Rect::default(),
-        left_tab_areas: Vec::new(),
-        right_tab_areas: Vec::new(),
-        last_click: None,
-        pending_action: None,
-        mouse_button_down_index: None,
-        active_drag: None,
-    };
+        })
+        .task_tx(tx)
+        .build();
+    app.active = PanelSide::Right;
 
     // Before reset
     assert!(!app.left.tabs[0].search.buffer.is_empty());

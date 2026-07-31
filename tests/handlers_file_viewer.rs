@@ -1,57 +1,9 @@
 use fm::app::AppState;
-use fm::clipboard::InMemoryFileClipboard;
 use fm::handlers::file_viewer::handle_file_viewer_event;
-use fm::ssh_history::SshConnectionHistory;
-use fm::ssh_manager::SshManager;
-use fm::state::FileViewerState;
-use fm::tasks::TaskManager;
 use termina::event::KeyCode;
 
 fn test_app(file_lines: usize) -> AppState {
-    let mut app = AppState {
-        left: fm::app::TabManager {
-            tabs: vec![],
-            active_tab_index: 0,
-        },
-        right: fm::app::TabManager {
-            tabs: vec![],
-            active_tab_index: 0,
-        },
-        active: fm::app::PanelSide::Left,
-        file_viewer: FileViewerState::new(false, "test-theme"),
-        fuzzy_search: fm::ui::fuzzy_search_ui::FuzzySearchState::new(),
-        popups: fm::app::Popups::new(),
-        task_manager: TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
-        ssh_manager: std::sync::Arc::new(SshManager::default()),
-        task_decision_txs: std::collections::HashMap::new(),
-        show_task_manager: false,
-        dir_history: fm::dir_history::DirectoryHistory::new().unwrap(),
-        watcher: None,
-        input_polling_handle: None,
-        keyboard: fm::config::KeyboardConfig::default(),
-        global: fm::config::GlobalConfig {
-            mouse: Some(false),
-            ..fm::config::GlobalConfig::default()
-        },
-        editor_cfg: fm::config::EditorConfig::default(),
-        viewer_cfg: fm::config::ViewerConfig::default(),
-        ssh_history: SshConnectionHistory::new().unwrap(),
-        clipboard: Box::new(InMemoryFileClipboard::new()),
-        remote_watcher: None,
-        archive_cache: std::collections::HashMap::new(),
-        opener: std::sync::Arc::new(fm::opener::SystemOpener),
-        left_tab_bar_area: ratatui::layout::Rect::default(),
-        right_tab_bar_area: ratatui::layout::Rect::default(),
-        left_panel_area: ratatui::layout::Rect::default(),
-        right_panel_area: ratatui::layout::Rect::default(),
-        left_tab_areas: Vec::new(),
-        right_tab_areas: Vec::new(),
-        last_click: None,
-        pending_action: None,
-        mouse_button_down_index: None,
-        bookmark_store: fm::bookmarks::BookmarkStore::test_default(),
-        active_drag: None,
-    };
+    let mut app = fm::test_utils::TestAppBuilder::new().build();
     // Populate content lines
     app.file_viewer.content = vec!["line".to_string(); file_lines];
     app.file_viewer.scroll_offset = 5;

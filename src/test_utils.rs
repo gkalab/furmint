@@ -94,7 +94,119 @@ pub fn create_test_tab_with_entries() -> Tab {
     }
 }
 
-/// Creates a test application state.
+/// Builder for constructing `AppState` instances in tests.
+///
+/// Centralizes the full `AppState` struct literal so tests only override the
+/// pieces they need (tabs, task channel, opener) instead of duplicating every
+/// field. Any field added to `AppState` only needs to be handled here.
+#[cfg(any(test, feature = "test-utils"))]
+#[derive(Default)]
+pub struct TestAppBuilder {
+    left: Option<TabManager>,
+    right: Option<TabManager>,
+    task_tx: Option<tokio::sync::mpsc::UnboundedSender<crate::tasks::TaskEvent>>,
+    opener: Option<std::sync::Arc<dyn crate::opener::FileOpener + Send + Sync>>,
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+impl TestAppBuilder {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[must_use]
+    pub fn left(mut self, manager: TabManager) -> Self {
+        self.left = Some(manager);
+        self
+    }
+
+    #[must_use]
+    pub fn right(mut self, manager: TabManager) -> Self {
+        self.right = Some(manager);
+        self
+    }
+
+    #[must_use]
+    pub fn task_tx(
+        mut self,
+        tx: tokio::sync::mpsc::UnboundedSender<crate::tasks::TaskEvent>,
+    ) -> Self {
+        self.task_tx = Some(tx);
+        self
+    }
+
+    #[must_use]
+    pub fn opener(
+        mut self,
+        opener: std::sync::Arc<dyn crate::opener::FileOpener + Send + Sync>,
+    ) -> Self {
+        self.opener = Some(opener);
+        self
+    }
+
+    /// Builds the application state.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `DirectoryHistory` or `SshConnectionHistory` fails to initialize.
+    #[must_use]
+    pub fn build(self) -> AppState {
+        let test_tab = create_test_tab();
+
+        AppState {
+            left: self.left.unwrap_or_else(|| TabManager {
+                tabs: vec![test_tab.clone()],
+                active_tab_index: 0,
+            }),
+            right: self.right.unwrap_or_else(|| TabManager {
+                tabs: vec![test_tab],
+                active_tab_index: 0,
+            }),
+            active: PanelSide::Left,
+            file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
+            fuzzy_search: crate::ui::fuzzy_search_ui::FuzzySearchState::new(),
+            popups: Popups::new(),
+            task_manager: crate::tasks::TaskManager::new(
+                self.task_tx
+                    .unwrap_or_else(|| tokio::sync::mpsc::unbounded_channel().0),
+            ),
+            ssh_manager: Arc::new(crate::ssh_manager::SshManager::default()),
+            task_decision_txs: std::collections::HashMap::new(),
+            show_task_manager: false,
+            dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
+            watcher: None,
+            remote_watcher: None,
+            input_polling_handle: None,
+            keyboard: crate::config::KeyboardConfig::default(),
+            global: crate::config::GlobalConfig {
+                mouse: Some(false),
+                ..crate::config::GlobalConfig::default()
+            },
+            editor_cfg: crate::config::EditorConfig::default(),
+            viewer_cfg: crate::config::ViewerConfig::default(),
+            ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
+            bookmark_store: crate::bookmarks::BookmarkStore::test_default(),
+            clipboard: Box::new(crate::clipboard::InMemoryFileClipboard::new()),
+            archive_cache: std::collections::HashMap::new(),
+            opener: self
+                .opener
+                .unwrap_or_else(|| std::sync::Arc::new(crate::opener::SystemOpener)),
+            left_tab_bar_area: ratatui::layout::Rect::default(),
+            right_tab_bar_area: ratatui::layout::Rect::default(),
+            left_tab_areas: Vec::new(),
+            right_tab_areas: Vec::new(),
+            left_panel_area: ratatui::layout::Rect::default(),
+            right_panel_area: ratatui::layout::Rect::default(),
+            last_click: None,
+            pending_action: None,
+            mouse_button_down_index: None,
+            active_drag: None,
+        }
+    }
+}
+
+/// Creates a test application state using the default builder.
 ///
 /// # Panics
 ///
@@ -102,50 +214,5 @@ pub fn create_test_tab_with_entries() -> Tab {
 #[cfg(any(test, feature = "test-utils"))]
 #[must_use]
 pub fn create_test_app() -> AppState {
-    let test_tab = create_test_tab();
-
-    AppState {
-        left: TabManager {
-            tabs: vec![test_tab.clone()],
-            active_tab_index: 0,
-        },
-        right: TabManager {
-            tabs: vec![test_tab],
-            active_tab_index: 0,
-        },
-        active: PanelSide::Left,
-        file_viewer: crate::state::FileViewerState::new(false, "test-theme"),
-        fuzzy_search: crate::ui::fuzzy_search_ui::FuzzySearchState::new(),
-        popups: Popups::new(),
-        task_manager: crate::tasks::TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
-        ssh_manager: Arc::new(crate::ssh_manager::SshManager::default()),
-        task_decision_txs: std::collections::HashMap::new(),
-        show_task_manager: false,
-        dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
-        watcher: None,
-        remote_watcher: None,
-        input_polling_handle: None,
-        keyboard: crate::config::KeyboardConfig::default(),
-        global: crate::config::GlobalConfig {
-            mouse: Some(false),
-            ..crate::config::GlobalConfig::default()
-        },
-        editor_cfg: crate::config::EditorConfig::default(),
-        viewer_cfg: crate::config::ViewerConfig::default(),
-        ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
-        bookmark_store: crate::bookmarks::BookmarkStore::test_default(),
-        clipboard: Box::new(crate::clipboard::InMemoryFileClipboard::new()),
-        archive_cache: std::collections::HashMap::new(),
-        opener: std::sync::Arc::new(crate::opener::SystemOpener),
-        left_tab_bar_area: ratatui::layout::Rect::default(),
-        right_tab_bar_area: ratatui::layout::Rect::default(),
-        left_tab_areas: Vec::new(),
-        right_tab_areas: Vec::new(),
-        left_panel_area: ratatui::layout::Rect::default(),
-        right_panel_area: ratatui::layout::Rect::default(),
-        last_click: None,
-        pending_action: None,
-        mouse_button_down_index: None,
-        active_drag: None,
-    }
+    TestAppBuilder::new().build()
 }

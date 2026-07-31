@@ -1,15 +1,11 @@
 use fm::app::{AppState, PanelSide, Tab, TabManager};
-use fm::clipboard::InMemoryFileClipboard;
 use fm::clipboard::{FileClipboardAction, FileClipboardData};
 use fm::fs::fs_local::LocalFs;
 use fm::fs::utils::FileEntry;
 use fm::handlers::popup_copy_move::{
     handle_copy_move_event, handle_init_copy, handle_init_move, handle_paste,
 };
-use fm::ssh_history::SshConnectionHistory;
-use fm::ssh_manager::SshManager;
 use fm::state::CopyMoveAction;
-use fm::tasks::TaskManager;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -63,45 +59,20 @@ fn minimal_state_with_entries(
     left_cursor: usize,
     right_cursor: usize,
 ) -> AppState {
-    AppState {
-        left: make_tab_manager(make_tab("/left", left_entries, left_cursor)),
-        right: make_tab_manager(make_tab("/right", right_entries, right_cursor)),
-        active,
-        // Popups and config fields as default/minimal:
-        file_viewer: fm::state::FileViewerState::default(),
-        fuzzy_search: fm::ui::fuzzy_search_ui::FuzzySearchState::default(),
-        popups: fm::app::Popups::new(),
-        task_manager: TaskManager::new(tokio::sync::mpsc::unbounded_channel().0),
-        ssh_manager: std::sync::Arc::new(SshManager::default()),
-        task_decision_txs: HashMap::new(),
-        show_task_manager: false,
-        dir_history: fm::dir_history::DirectoryHistory::default(),
-        watcher: None,
-        input_polling_handle: None,
-        keyboard: fm::config::KeyboardConfig::default(),
-        global: fm::config::GlobalConfig {
-            mouse: Some(false),
-            ..fm::config::GlobalConfig::default()
-        },
-        editor_cfg: fm::config::EditorConfig::default(),
-        viewer_cfg: fm::config::ViewerConfig::default(),
-        ssh_history: SshConnectionHistory::new().unwrap(),
-        clipboard: Box::new(InMemoryFileClipboard::new()),
-        remote_watcher: None,
-        archive_cache: std::collections::HashMap::new(),
-        opener: Arc::new(fm::opener::SystemOpener),
-        left_tab_bar_area: ratatui::layout::Rect::default(),
-        right_tab_bar_area: ratatui::layout::Rect::default(),
-        left_panel_area: ratatui::layout::Rect::default(),
-        right_panel_area: ratatui::layout::Rect::default(),
-        left_tab_areas: Vec::new(),
-        right_tab_areas: Vec::new(),
-        last_click: None,
-        pending_action: None,
-        mouse_button_down_index: None,
-        bookmark_store: fm::bookmarks::BookmarkStore::test_default(),
-        active_drag: None,
-    }
+    let mut app = fm::test_utils::TestAppBuilder::new()
+        .left(make_tab_manager(make_tab(
+            "/left",
+            left_entries,
+            left_cursor,
+        )))
+        .right(make_tab_manager(make_tab(
+            "/right",
+            right_entries,
+            right_cursor,
+        )))
+        .build();
+    app.active = active;
+    app
 }
 
 #[test]
