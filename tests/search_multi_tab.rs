@@ -106,6 +106,7 @@ fn test_multi_tab_search_timeout() {
         last_click: None,
         pending_action: None,
         mouse_button_down_index: None,
+        active_drag: None,
     };
 
     // Before reset

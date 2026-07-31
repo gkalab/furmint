@@ -146,5 +146,6 @@ pub fn create_test_app() -> AppState {
         last_click: None,
         pending_action: None,
         mouse_button_down_index: None,
+        active_drag: None,
     }
 }

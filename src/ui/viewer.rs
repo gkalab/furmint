@@ -34,6 +34,8 @@ pub fn draw_file_viewer(
     palette: &ThemePalette,
     borders: bool,
 ) {
+    viewer.area = area;
+
     let block = Block::default()
         .borders(Borders::ALL)
         .title(viewer.path.to_string_lossy())

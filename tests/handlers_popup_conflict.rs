@@ -54,6 +54,7 @@ fn app_with_conflict(task_id: usize) -> (AppState, mpsc::Receiver<TaskDecision>)
         pending_action: None,
         mouse_button_down_index: None,
         bookmark_store: fm::bookmarks::BookmarkStore::test_default(),
+        active_drag: None,
     };
 
     app.popups.conflict.is_visible = true;

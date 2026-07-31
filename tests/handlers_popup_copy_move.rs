@@ -100,6 +100,7 @@ fn minimal_state_with_entries(
         pending_action: None,
         mouse_button_down_index: None,
         bookmark_store: fm::bookmarks::BookmarkStore::test_default(),
+        active_drag: None,
     }
 }
 

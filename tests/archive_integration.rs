@@ -110,6 +110,7 @@ fn test_app(
         pending_action: None,
         mouse_button_down_index: None,
         bookmark_store: fm::bookmarks::BookmarkStore::test_default(),
+        active_drag: None,
     }
 }
 

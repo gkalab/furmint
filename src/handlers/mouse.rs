@@ -20,70 +20,21 @@ pub async fn handle_mouse_event(app: &mut AppState, event: MouseEvent) {
         false
     };
 
-    // Fuzzy search is not in app.popups.any_visible(), so check it first
     if app.fuzzy_search.list.is_visible {
-        match event.kind {
-            MouseEventKind::Down(MouseButton::Left) => {
-                crate::handlers::popup_fuzzy::handle_fuzzy_search_mouse_click(
-                    app,
-                    event.column,
-                    event.row,
-                    is_double_click,
-                );
-            }
-            MouseEventKind::ScrollUp => {
-                app.fuzzy_search.move_selection_up();
-            }
-            MouseEventKind::ScrollDown => {
-                app.fuzzy_search.move_selection_down();
-            }
-            _ => {}
-        }
+        handle_fuzzy_search_mouse(app, event, is_double_click);
         return;
     }
 
     if app.popups.any_visible() {
-        match event.kind {
-            MouseEventKind::Down(MouseButton::Left) => {
-                if app.popups.ssh_connection.is_visible {
-                    crate::handlers::popup_ssh::handle_ssh_connection_mouse_click(
-                        app,
-                        event.column,
-                        event.row,
-                    );
-                } else if app.popups.bookmark.list.is_visible {
-                    crate::handlers::popup_bookmark::handle_bookmark_mouse_click(
-                        app,
-                        event.column,
-                        event.row,
-                        is_double_click,
-                    );
-                } else {
-                    handle_popup_down(app, event.column, event.row);
-                }
-            }
-            MouseEventKind::Up(MouseButton::Left) => {
-                handle_popup_up(app, event.column, event.row).await;
-            }
-            MouseEventKind::ScrollUp if app.popups.help.is_visible => {
-                crate::ui::help_ui::handle_help_popup_event(KeyCode::Up, app);
-            }
-            MouseEventKind::ScrollDown if app.popups.help.is_visible => {
-                crate::ui::help_ui::handle_help_popup_event(KeyCode::Down, app);
-            }
-            MouseEventKind::ScrollUp if app.popups.bookmark.list.is_visible => {
-                app.popups.bookmark.list.move_selection_up();
-            }
-            MouseEventKind::ScrollDown if app.popups.bookmark.list.is_visible => {
-                app.popups.bookmark.list.move_selection_down();
-            }
-            _ => {}
-        }
+        handle_popup_mouse(app, event, is_double_click).await;
         return;
     }
 
     match event.kind {
         MouseEventKind::Down(MouseButton::Left) => {
+            if check_and_start_scrollbar_drag(app, event.column, event.row) {
+                return;
+            }
             handle_left_click(app, event.column, event.row, is_double_click);
         }
         MouseEventKind::Down(MouseButton::Right) => {
@@ -92,11 +43,93 @@ pub async fn handle_mouse_event(app: &mut AppState, event: MouseEvent) {
         MouseEventKind::Drag(MouseButton::Left) => {
             handle_drag(app, event.column, event.row);
         }
+        MouseEventKind::Up(MouseButton::Left) => {
+            app.active_drag = None;
+        }
         MouseEventKind::ScrollUp => {
             handle_scroll_event(app, (event.column, event.row), true);
         }
         MouseEventKind::ScrollDown => {
             handle_scroll_event(app, (event.column, event.row), false);
+        }
+        _ => {}
+    }
+}
+
+fn handle_fuzzy_search_mouse(app: &mut AppState, event: MouseEvent, is_double_click: bool) {
+    match event.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            if check_and_start_scrollbar_drag(app, event.column, event.row) {
+                return;
+            }
+            crate::handlers::popup_fuzzy::handle_fuzzy_search_mouse_click(
+                app,
+                event.column,
+                event.row,
+                is_double_click,
+            );
+        }
+        MouseEventKind::Up(MouseButton::Left) => {
+            app.active_drag = None;
+        }
+        MouseEventKind::Drag(MouseButton::Left) => {
+            if app.active_drag.is_some() {
+                update_drag_scroll(app, event.column, event.row);
+            }
+        }
+        MouseEventKind::ScrollUp => {
+            app.fuzzy_search.move_selection_up();
+        }
+        MouseEventKind::ScrollDown => {
+            app.fuzzy_search.move_selection_down();
+        }
+        _ => {}
+    }
+}
+
+async fn handle_popup_mouse(app: &mut AppState, event: MouseEvent, is_double_click: bool) {
+    match event.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            if check_and_start_scrollbar_drag(app, event.column, event.row) {
+                return;
+            }
+            if app.popups.ssh_connection.is_visible {
+                crate::handlers::popup_ssh::handle_ssh_connection_mouse_click(
+                    app,
+                    event.column,
+                    event.row,
+                );
+            } else if app.popups.bookmark.list.is_visible {
+                crate::handlers::popup_bookmark::handle_bookmark_mouse_click(
+                    app,
+                    event.column,
+                    event.row,
+                    is_double_click,
+                );
+            } else {
+                handle_popup_down(app, event.column, event.row);
+            }
+        }
+        MouseEventKind::Up(MouseButton::Left) => {
+            app.active_drag = None;
+            handle_popup_up(app, event.column, event.row).await;
+        }
+        MouseEventKind::Drag(MouseButton::Left) => {
+            if app.active_drag.is_some() {
+                update_drag_scroll(app, event.column, event.row);
+            }
+        }
+        MouseEventKind::ScrollUp if app.popups.help.is_visible => {
+            crate::ui::help_ui::handle_help_popup_event(KeyCode::Up, app);
+        }
+        MouseEventKind::ScrollDown if app.popups.help.is_visible => {
+            crate::ui::help_ui::handle_help_popup_event(KeyCode::Down, app);
+        }
+        MouseEventKind::ScrollUp if app.popups.bookmark.list.is_visible => {
+            app.popups.bookmark.list.move_selection_up();
+        }
+        MouseEventKind::ScrollDown if app.popups.bookmark.list.is_visible => {
+            app.popups.bookmark.list.move_selection_down();
         }
         _ => {}
     }
@@ -231,6 +264,7 @@ fn handle_left_click(app: &mut AppState, x: u16, y: u16, is_double_click: bool) 
 
     // Check file viewer
     if app.file_viewer.is_visible && is_in_rect(click_pos, app.file_viewer.area) {
+        app.active_drag = Some(crate::app::DragTarget::FileViewerSelection);
         app.file_viewer.focused = true;
         let borders = app.global.borders.unwrap_or(false);
         let border_offset = u16::from(borders);
@@ -387,6 +421,13 @@ fn handle_panel_click(app: &mut AppState, side: PanelSide, x: u16, y: u16, is_do
 }
 
 fn handle_drag(app: &mut AppState, x: u16, y: u16) {
+    if let Some(active_drag) = app.active_drag
+        && active_drag != crate::app::DragTarget::FileViewerSelection
+    {
+        update_drag_scroll(app, x, y);
+        return;
+    }
+
     if !app.file_viewer.is_visible || !app.file_viewer.focused {
         return;
     }
@@ -413,6 +454,243 @@ fn handle_drag(app: &mut AppState, x: u16, y: u16) {
 
     if let Some((start, _)) = app.file_viewer.selection {
         app.file_viewer.selection = Some((start, (row, char_idx)));
+    }
+}
+
+/// Helper to calculate target item/line index from mouse y coordinate along a scrollbar track.
+/// Inputs are bounded (u16 coordinates, usize UI list items), so truncation/precision loss
+/// is not a practical concern. All values are non-negative and within safe f64 range.
+#[must_use]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)]
+pub fn calculate_scroll_from_y(y: u16, area_y: u16, area_height: u16, total_items: usize) -> usize {
+    if total_items == 0 || area_height == 0 {
+        return 0;
+    }
+    let max_index = total_items.saturating_sub(1);
+    if max_index == 0 {
+        return 0;
+    }
+    let rel_y = y.saturating_sub(area_y).min(area_height.saturating_sub(1));
+    let denom = f64::from((area_height.saturating_sub(1)).max(1));
+    let ratio = f64::from(rel_y) / denom;
+    let index = (ratio * (max_index as f64)).round() as usize;
+    index.min(max_index)
+}
+
+/// Computes the scrollbar hit region for a given area.
+///
+/// Matches the scrollbar rendering in `panel.rs:319-324` and `ui_utils.rs:271+`.
+/// For bordered areas, the scrollbar occupies the rightmost column and the track
+/// excludes the top/bottom border rows.
+#[must_use]
+pub fn scrollbar_hit_region(area: Rect, borders: bool) -> Rect {
+    let scroll_x = area.x + area.width.saturating_sub(1);
+    let y_offset = u16::from(borders);
+    let height_sub = if borders { 2 } else { 0 };
+    Rect {
+        x: scroll_x,
+        y: area.y + y_offset,
+        width: 1,
+        height: area.height.saturating_sub(height_sub),
+    }
+}
+
+/// Computes the scrollbar hit region for a panel area that includes a header row.
+///
+/// Panel rendering in `panel.rs:319-324`:
+/// - x = area.x + area.width - 1 (rightmost column)
+/// - y = area.y + 2 (+1 border + 1 header)
+/// - height = `visible_rows` (passed separately)
+#[must_use]
+pub fn panel_scrollbar_hit_region(area: Rect, borders: bool, visible_rows: usize) -> Rect {
+    let scroll_x = area.x + area.width.saturating_sub(1);
+    let y_offset = if borders { 2 } else { 1 };
+    Rect {
+        x: scroll_x,
+        y: area.y + y_offset,
+        width: 1,
+        height: u16::try_from(visible_rows).unwrap_or(u16::MAX),
+    }
+}
+
+/// Checks if the mouse position is on any scrollbar and starts the drag.
+///
+/// Scrollbar hit regions are computed from the same layout data used during rendering,
+/// ensuring consistency between hit detection and visual layout.
+pub fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) -> bool {
+    let borders = app.global.borders.unwrap_or(false);
+
+    // 1. Fuzzy search popup list scrollbar (inner-area, no extra borders)
+    if app.fuzzy_search.list.is_visible
+        && let Some(list_area) = app.fuzzy_search.list.list_area
+    {
+        let region = scrollbar_hit_region(list_area, false);
+        if is_in_rect((x, y), region) {
+            app.active_drag = Some(crate::app::DragTarget::FuzzySearchScrollbar);
+            update_drag_scroll(app, x, y);
+            return true;
+        }
+    }
+
+    // 2. Bookmark list popup scrollbar (inner-area, no extra borders)
+    if app.popups.bookmark.list.is_visible
+        && let Some(list_area) = app.popups.bookmark.list.list_area
+    {
+        let region = scrollbar_hit_region(list_area, false);
+        if is_in_rect((x, y), region) {
+            app.active_drag = Some(crate::app::DragTarget::BookmarkScrollbar);
+            update_drag_scroll(app, x, y);
+            return true;
+        }
+    }
+
+    // 3. Help popup scrollbar (inner-area, no extra borders)
+    if app.popups.help.is_visible
+        && let Some(table_area) = app.popups.help.table_area
+    {
+        let region = scrollbar_hit_region(table_area, false);
+        if is_in_rect((x, y), region) {
+            app.active_drag = Some(crate::app::DragTarget::HelpScrollbar);
+            update_drag_scroll(app, x, y);
+            return true;
+        }
+    }
+
+    // 4. SSH history list scrollbar (uses dedicated history_area)
+    if app.popups.ssh_connection.is_visible
+        && let Some(history_area) = app.popups.ssh_connection.history_area
+    {
+        let region = scrollbar_hit_region(history_area, true);
+        if is_in_rect((x, y), region) {
+            app.active_drag = Some(crate::app::DragTarget::SshHistoryScrollbar);
+            update_drag_scroll(app, x, y);
+            return true;
+        }
+    }
+
+    // If any popup is visible, do not check main view scrollbars
+    if app.popups.any_visible() {
+        return false;
+    }
+
+    // 5. File Viewer scrollbar (bordered area)
+    if app.file_viewer.is_visible {
+        let region = scrollbar_hit_region(app.file_viewer.area, borders);
+        if is_in_rect((x, y), region) {
+            app.active_drag = Some(crate::app::DragTarget::FileViewerScrollbar);
+            app.file_viewer.focused = true;
+            update_drag_scroll(app, x, y);
+            return true;
+        }
+    }
+
+    // 6. Left Panel scrollbar
+    {
+        let area = app.left_panel_area;
+        let visible_rows = area.height.saturating_sub(3) as usize;
+        let region = panel_scrollbar_hit_region(area, borders, visible_rows);
+        if is_in_rect((x, y), region) {
+            app.active_drag = Some(crate::app::DragTarget::PanelScrollbar(PanelSide::Left));
+            app.active = PanelSide::Left;
+            update_drag_scroll(app, x, y);
+            return true;
+        }
+    }
+
+    // 7. Right Panel scrollbar
+    {
+        let area = app.right_panel_area;
+        let visible_rows = area.height.saturating_sub(3) as usize;
+        let region = panel_scrollbar_hit_region(area, borders, visible_rows);
+        if is_in_rect((x, y), region) {
+            app.active_drag = Some(crate::app::DragTarget::PanelScrollbar(PanelSide::Right));
+            app.active = PanelSide::Right;
+            update_drag_scroll(app, x, y);
+            return true;
+        }
+    }
+
+    false
+}
+
+pub fn update_drag_scroll(app: &mut AppState, _x: u16, y: u16) {
+    let Some(target) = app.active_drag else {
+        return;
+    };
+
+    match target {
+        crate::app::DragTarget::FuzzySearchScrollbar => {
+            if let Some(list_area) = app.fuzzy_search.list.list_area {
+                let total = app.fuzzy_search.list.items.len();
+                let visible = list_area.height as usize;
+                let idx = calculate_scroll_from_y(y, list_area.y, list_area.height, total);
+                app.fuzzy_search.list.selected_index = idx;
+                app.fuzzy_search.list.update_scroll(visible);
+            }
+        }
+        crate::app::DragTarget::BookmarkScrollbar => {
+            if let Some(list_area) = app.popups.bookmark.list.list_area {
+                let total = app.popups.bookmark.list.items.len();
+                let visible = list_area.height as usize;
+                let idx = calculate_scroll_from_y(y, list_area.y, list_area.height, total);
+                app.popups.bookmark.list.selected_index = idx;
+                app.popups.bookmark.list.update_scroll(visible);
+            }
+        }
+        crate::app::DragTarget::HelpScrollbar => {
+            if let Some(table_area) = app.popups.help.table_area {
+                let total = app.popups.help.total_rows;
+                let idx = calculate_scroll_from_y(y, table_area.y, table_area.height, total);
+                app.popups.help.scroll_offset = idx;
+            }
+        }
+        crate::app::DragTarget::SshHistoryScrollbar => {
+            if let Some(history_area) = app.popups.ssh_connection.history_area {
+                let region = scrollbar_hit_region(history_area, true);
+                let total = app.ssh_history.connections.len();
+                if total > 0 {
+                    let idx = calculate_scroll_from_y(y, region.y, region.height, total);
+                    app.popups.ssh_connection.selected_history_idx = Some(idx);
+                }
+            }
+        }
+        crate::app::DragTarget::FileViewerScrollbar => {
+            let area = app.file_viewer.area;
+            let start_y = area.y + 1;
+            let height = area.height.saturating_sub(2);
+            let total = app.file_viewer.total_lines();
+            let idx = calculate_scroll_from_y(y, start_y, height, total);
+            app.file_viewer.scroll_offset = idx;
+        }
+        crate::app::DragTarget::PanelScrollbar(side) => {
+            let (tab, area) = match side {
+                PanelSide::Left => (app.left.active_tab_mut(), app.left_panel_area),
+                PanelSide::Right => (app.right.active_tab_mut(), app.right_panel_area),
+            };
+            let start_y = area.y + 2;
+            let height = area.height.saturating_sub(3);
+            let visible_rows = height as usize;
+            let total = if tab.has_file_filter() {
+                tab.visible_count()
+            } else {
+                tab.entries.len()
+            };
+            if total > 0 {
+                let idx = calculate_scroll_from_y(y, start_y, height, total);
+                if tab.cursor != idx {
+                    tab.cursor = idx;
+                    tab.scroll_to_cursor(visible_rows);
+                    crate::handlers::navigation::update_viewer_content(app);
+                }
+            }
+        }
+        crate::app::DragTarget::FileViewerSelection => {
+            // intentional: file viewer selection drag handled in handle_drag, not scroll
+        }
     }
 }
 
@@ -625,5 +903,125 @@ mod tests {
         // The popup state should be unchanged
         assert!(app.popups.empty_trash.is_visible);
         assert!(app.popups.empty_trash.selected_no);
+    }
+
+    #[test]
+    fn test_calculate_scroll_from_y() {
+        assert_eq!(calculate_scroll_from_y(0, 0, 10, 100), 0);
+        assert_eq!(calculate_scroll_from_y(9, 0, 10, 100), 99);
+        assert_eq!(calculate_scroll_from_y(4, 0, 10, 10), 4);
+        assert_eq!(calculate_scroll_from_y(0, 0, 0, 100), 0);
+        assert_eq!(calculate_scroll_from_y(5, 0, 10, 0), 0);
+    }
+
+    #[tokio::test]
+    async fn test_panel_scrollbar_drag() {
+        let mut app = AppState::test_default();
+        app.left_panel_area = Rect::new(0, 0, 40, 20);
+        let tab = app.left.active_tab_mut();
+        tab.entries = (0..50)
+            .map(|i| crate::fs::utils::FileEntry {
+                name: format!("file_{i}.txt"),
+                size: Some(100),
+                modified: None,
+                is_dir: false,
+                is_symlink: false,
+                attributes: String::new(),
+                selected: false,
+            })
+            .collect();
+        tab.cursor = 0;
+
+        let scrollbar_x = 39; // area.x + area.width - 1
+        let scrollbar_y = 10; // halfway down start_y (2) .. start_y + height (17)
+
+        // Mouse Down on Left Panel Scrollbar
+        handle_mouse_event(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: scrollbar_x,
+                row: scrollbar_y,
+                modifiers: termina::event::Modifiers::NONE,
+            },
+        )
+        .await;
+
+        assert_eq!(
+            app.active_drag,
+            Some(crate::app::DragTarget::PanelScrollbar(PanelSide::Left))
+        );
+        assert!(app.left.active_tab().cursor > 0);
+
+        // Mouse Drag further down
+        handle_mouse_event(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::Drag(MouseButton::Left),
+                column: scrollbar_x,
+                row: 18,
+                modifiers: termina::event::Modifiers::NONE,
+            },
+        )
+        .await;
+
+        assert_eq!(app.left.active_tab().cursor, 49);
+
+        // Mouse Up
+        handle_mouse_event(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::Up(MouseButton::Left),
+                column: scrollbar_x,
+                row: 18,
+                modifiers: termina::event::Modifiers::NONE,
+            },
+        )
+        .await;
+
+        assert_eq!(app.active_drag, None);
+    }
+
+    #[tokio::test]
+    async fn test_file_viewer_scrollbar_drag() {
+        let mut app = AppState::test_default();
+        app.file_viewer.is_visible = true;
+        app.file_viewer.area = Rect::new(0, 0, 40, 20);
+        app.file_viewer.content = (0..100).map(|i| format!("line {i}")).collect();
+        app.file_viewer.scroll_offset = 0;
+
+        let scrollbar_x = 39;
+
+        // Down at bottom of scrollbar
+        handle_mouse_event(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: scrollbar_x,
+                row: 18,
+                modifiers: termina::event::Modifiers::NONE,
+            },
+        )
+        .await;
+
+        assert_eq!(
+            app.active_drag,
+            Some(crate::app::DragTarget::FileViewerScrollbar)
+        );
+        assert_eq!(app.file_viewer.scroll_offset, 99);
+
+        // Up
+        handle_mouse_event(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::Up(MouseButton::Left),
+                column: scrollbar_x,
+                row: 18,
+                modifiers: termina::event::Modifiers::NONE,
+            },
+        )
+        .await;
+
+        assert_eq!(app.active_drag, None);
     }
 }

@@ -73,68 +73,28 @@ pub fn draw_help_popup(
         layout[0],
     );
 
-    let categories = build_help_categories(keyboard);
-
-    let mut rows = Vec::new();
-    for (category, bindings) in categories {
-        rows.push(Row::new(vec![Cell::from(Span::styled(
-            category,
-            Style::default()
-                .add_modifier(Modifier::BOLD)
-                .fg(border_color),
-        ))]));
-
-        for (label, keys) in bindings {
-            let keys_str = keys
-                .as_ref()
-                .map_or_else(|| "None".to_string(), |k| k.join(", "));
-            rows.push(Row::new(vec![
-                Cell::from(format!("  {label}")),
-                Cell::from(keys_str),
-            ]));
-        }
-        rows.push(Row::new(vec![Cell::from("")])); // Spacer
-    }
-
     let table_area = layout[1];
-    let total_rows = rows.len();
+    app.popups.help.table_area = Some(table_area);
+
+    let (rows, total_rows) = build_help_rows(keyboard, border_color);
+    app.popups.help.total_rows = total_rows;
     let visible_height = table_area.height as usize;
 
     // Adjust scroll offset to ensure it's valid
-    // We allow scrolling until the last item is at the top (saturating_sub(1))
-    // to handle cases where rows might wrap or user prefers scrolling to end.
     let max_scroll = total_rows.saturating_sub(1);
     if app.popups.help.scroll_offset > max_scroll {
         app.popups.help.scroll_offset = max_scroll;
     }
 
-    let rows_to_render = rows
-        .into_iter()
-        .skip(app.popups.help.scroll_offset)
-        .take(visible_height);
-
-    let table = Table::new(
-        rows_to_render,
-        [Constraint::Percentage(60), Constraint::Percentage(40)],
-    )
-    .style(Style::default().bg(field_bg_color).fg(text_color));
-
-    f.render_widget(table, table_area);
-
-    // Scrollbar
-    let scroll_area = Rect {
-        x: table_area.x + table_area.width.saturating_sub(1),
-        y: table_area.y,
-        width: 1,
-        height: table_area.height,
-    };
-
-    crate::ui::ui_utils::draw_scrollbar(
+    let scroll_offset = app.popups.help.scroll_offset;
+    let table_style = Style::default().bg(field_bg_color).fg(text_color);
+    render_help_table(
         f,
-        scroll_area,
-        total_rows,
+        rows,
+        table_area,
         visible_height,
-        app.popups.help.scroll_offset,
+        scroll_offset,
+        table_style,
         palette,
     );
 }
@@ -277,4 +237,69 @@ fn build_help_categories(
             ],
         ),
     ]
+}
+
+fn build_help_rows(keyboard: &KeyboardConfig, border_color: Color) -> (Vec<Row<'static>>, usize) {
+    let categories = build_help_categories(keyboard);
+
+    let mut rows = Vec::new();
+    for (category, bindings) in categories {
+        rows.push(Row::new(vec![Cell::from(Span::styled(
+            category,
+            Style::default()
+                .add_modifier(Modifier::BOLD)
+                .fg(border_color),
+        ))]));
+
+        for (label, keys) in bindings {
+            let keys_str = keys
+                .as_ref()
+                .map_or_else(|| "None".to_string(), |k| k.join(", "));
+            rows.push(Row::new(vec![
+                Cell::from(format!("  {label}")),
+                Cell::from(keys_str),
+            ]));
+        }
+        rows.push(Row::new(vec![Cell::from("")]));
+    }
+
+    let total = rows.len();
+    (rows, total)
+}
+
+fn render_help_table(
+    f: &mut ratatui::Frame,
+    rows: Vec<Row<'static>>,
+    table_area: Rect,
+    visible_height: usize,
+    scroll_offset: usize,
+    table_style: Style,
+    palette: &ThemePalette,
+) {
+    let total_rows = rows.len();
+    let rows_to_render = rows.into_iter().skip(scroll_offset).take(visible_height);
+
+    let table = Table::new(
+        rows_to_render,
+        [Constraint::Percentage(60), Constraint::Percentage(40)],
+    )
+    .style(table_style);
+
+    f.render_widget(table, table_area);
+
+    let scroll_area = Rect {
+        x: table_area.x + table_area.width.saturating_sub(1),
+        y: table_area.y,
+        width: 1,
+        height: table_area.height,
+    };
+
+    crate::ui::ui_utils::draw_scrollbar(
+        f,
+        scroll_area,
+        total_rows,
+        visible_height,
+        scroll_offset,
+        palette,
+    );
 }

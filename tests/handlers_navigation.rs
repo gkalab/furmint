@@ -74,6 +74,7 @@ fn test_app(entries: Vec<FileEntry>) -> AppState {
         last_click: None,
         pending_action: None,
         mouse_button_down_index: None,
+        active_drag: None,
     }
 }
 

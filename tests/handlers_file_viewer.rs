@@ -50,6 +50,7 @@ fn test_app(file_lines: usize) -> AppState {
         pending_action: None,
         mouse_button_down_index: None,
         bookmark_store: fm::bookmarks::BookmarkStore::test_default(),
+        active_drag: None,
     };
     // Populate content lines
     app.file_viewer.content = vec!["line".to_string(); file_lines];

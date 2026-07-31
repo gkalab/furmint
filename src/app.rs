@@ -110,6 +110,17 @@ pub enum PendingAction {
     WindowsContextMenu(PathBuf),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DragTarget {
+    FileViewerSelection,
+    PanelScrollbar(PanelSide),
+    FileViewerScrollbar,
+    HelpScrollbar,
+    BookmarkScrollbar,
+    FuzzySearchScrollbar,
+    SshHistoryScrollbar,
+}
+
 pub struct AppState {
     pub left: TabManager,
     pub right: TabManager,
@@ -150,6 +161,7 @@ pub struct AppState {
     pub last_click: Option<(Instant, u16, u16)>,
     pub pending_action: Option<PendingAction>,
     pub mouse_button_down_index: Option<usize>,
+    pub active_drag: Option<DragTarget>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -230,6 +242,7 @@ impl AppState {
             last_click: None,
             pending_action: None,
             mouse_button_down_index: None,
+            active_drag: None,
         }
     }
 

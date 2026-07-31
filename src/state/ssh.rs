@@ -12,6 +12,8 @@ pub struct SshConnectionState {
     pub confirmation: Option<crate::state::ConfirmationState>,
     pub field_areas: Vec<ratatui::layout::Rect>,
     pub history_list_offset: usize,
+    /// Outer (bordered) chunk of the history list. Used for scrollbar hit detection.
+    pub history_area: Option<ratatui::layout::Rect>,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -39,6 +41,7 @@ impl SshConnectionState {
             confirmation: None,
             field_areas: vec![ratatui::layout::Rect::default(); 4],
             history_list_offset: 0,
+            history_area: None,
         }
     }
 }

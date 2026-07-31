@@ -203,6 +203,10 @@ fn draw_history_list(
     f.render_stateful_widget(list, chunk, &mut list_state);
     app.popups.ssh_connection.history_list_offset = list_state.offset();
 
+    // Store the outer chunk so scrollbar hit detection in mouse.rs can use the
+    // same geometry that `scroll_area` derives from below.
+    app.popups.ssh_connection.history_area = Some(chunk);
+
     let scroll_area = chunk.inner(Margin {
         vertical: 1,
         horizontal: 0,
