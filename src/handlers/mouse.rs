@@ -517,10 +517,92 @@ pub fn panel_scrollbar_hit_region(area: Rect, borders: bool, visible_rows: usize
     }
 }
 
+/// Returns the absolute row span `(start, end)` (end exclusive) of a scrollbar thumb,
+/// replicating ratatui's `Scrollbar::part_lengths` for a vertical scrollbar whose begin/end
+/// symbols are `None` (so the track spans the full region height).
+///
+/// Returns `None` when the scrollbar is not rendered (content fits within the viewport).
+#[must_use]
+fn scrollbar_thumb_rows(
+    region: Rect,
+    content_length: usize,
+    visible_length: usize,
+    offset: usize,
+) -> Option<(u16, u16)> {
+    if content_length <= visible_length || region.height == 0 {
+        return None;
+    }
+    let track_length = usize::from(region.height);
+    let viewport_length = visible_length;
+    let max_position = content_length.saturating_sub(1);
+    let start_position = offset.min(max_position);
+    let max_viewport_position = max_position.saturating_add(viewport_length);
+    if max_viewport_position == 0 {
+        return None;
+    }
+    // Integer division that rounds to the nearest integer (rounds up on ties),
+    // matching ratatui's `rounding_divide` used for scrollbar part lengths.
+    let rounding_divide =
+        |numerator: usize, denominator: usize| (numerator + denominator / 2) / denominator;
+    let thumb_length = rounding_divide(
+        viewport_length.saturating_mul(track_length),
+        max_viewport_position,
+    )
+    .clamp(1, track_length);
+    let thumb_start = rounding_divide(
+        start_position.saturating_mul(track_length),
+        max_viewport_position,
+    )
+    .clamp(0, track_length.saturating_sub(thumb_length));
+    let start_row = region.y + u16::try_from(thumb_start).unwrap_or(u16::MAX);
+    let end_row = region.y + u16::try_from(thumb_start + thumb_length).unwrap_or(u16::MAX);
+    Some((start_row, end_row))
+}
+
+/// Starts a scrollbar drag for the given target.
+///
+/// When the click lands on the thumb, the scroll position is left unchanged (it will only
+/// be updated on subsequent drag events). When the click lands on the track (outside the
+/// thumb), the scroll position jumps immediately to the clicked position.
+fn start_scrollbar_drag(
+    app: &mut AppState,
+    y: u16,
+    target: crate::app::DragTarget,
+    region: Rect,
+    content_length: usize,
+    visible_length: usize,
+    offset: usize,
+) {
+    app.active_drag = Some(target);
+    let on_thumb = scrollbar_thumb_rows(region, content_length, visible_length, offset)
+        .is_some_and(|(start, end)| y >= start && y < end);
+    if !on_thumb {
+        update_drag_scroll(app, 0, y);
+    }
+}
+
+/// Returns `(content_length, scrollbar_offset)` for the active tab of a panel, matching the
+/// parameters used when rendering its scrollbar.
+#[must_use]
+fn panel_scrollbar_metrics(app: &AppState, side: PanelSide) -> (usize, usize) {
+    let tab = match side {
+        PanelSide::Left => app.left.active_tab(),
+        PanelSide::Right => app.right.active_tab(),
+    };
+    let content_length = if tab.has_file_filter() {
+        tab.visible_count()
+    } else {
+        tab.entries.len()
+    };
+    let offset = tab.cursor_visible_pos().unwrap_or(tab.cursor);
+    (content_length, offset)
+}
+
 /// Checks if the mouse position is on any scrollbar and starts the drag.
 ///
 /// Scrollbar hit regions are computed from the same layout data used during rendering,
 /// ensuring consistency between hit detection and visual layout.
+#[allow(clippy::too_many_lines)] // one sequential block per scrollbar target
 pub fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) -> bool {
     let borders = app.global.borders.unwrap_or(false);
 
@@ -530,8 +612,15 @@ pub fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) -> boo
     {
         let region = scrollbar_hit_region(list_area, false);
         if is_in_rect((x, y), region) {
-            app.active_drag = Some(crate::app::DragTarget::FuzzySearchScrollbar);
-            update_drag_scroll(app, x, y);
+            start_scrollbar_drag(
+                app,
+                y,
+                crate::app::DragTarget::FuzzySearchScrollbar,
+                region,
+                app.fuzzy_search.list.items.len(),
+                list_area.height as usize,
+                app.fuzzy_search.list.selected_index,
+            );
             return true;
         }
     }
@@ -542,8 +631,15 @@ pub fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) -> boo
     {
         let region = scrollbar_hit_region(list_area, false);
         if is_in_rect((x, y), region) {
-            app.active_drag = Some(crate::app::DragTarget::BookmarkScrollbar);
-            update_drag_scroll(app, x, y);
+            start_scrollbar_drag(
+                app,
+                y,
+                crate::app::DragTarget::BookmarkScrollbar,
+                region,
+                app.popups.bookmark.list.items.len(),
+                list_area.height as usize,
+                app.popups.bookmark.list.selected_index,
+            );
             return true;
         }
     }
@@ -554,8 +650,15 @@ pub fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) -> boo
     {
         let region = scrollbar_hit_region(table_area, false);
         if is_in_rect((x, y), region) {
-            app.active_drag = Some(crate::app::DragTarget::HelpScrollbar);
-            update_drag_scroll(app, x, y);
+            start_scrollbar_drag(
+                app,
+                y,
+                crate::app::DragTarget::HelpScrollbar,
+                region,
+                app.popups.help.total_rows,
+                table_area.height as usize,
+                app.popups.help.scroll_offset,
+            );
             return true;
         }
     }
@@ -566,8 +669,15 @@ pub fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) -> boo
     {
         let region = scrollbar_hit_region(history_area, true);
         if is_in_rect((x, y), region) {
-            app.active_drag = Some(crate::app::DragTarget::SshHistoryScrollbar);
-            update_drag_scroll(app, x, y);
+            start_scrollbar_drag(
+                app,
+                y,
+                crate::app::DragTarget::SshHistoryScrollbar,
+                region,
+                app.ssh_history.connections.len(),
+                region.height as usize,
+                app.popups.ssh_connection.selected_history_idx.unwrap_or(0),
+            );
             return true;
         }
     }
@@ -581,9 +691,16 @@ pub fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) -> boo
     if app.file_viewer.is_visible {
         let region = scrollbar_hit_region(app.file_viewer.area, borders);
         if is_in_rect((x, y), region) {
-            app.active_drag = Some(crate::app::DragTarget::FileViewerScrollbar);
             app.file_viewer.focused = true;
-            update_drag_scroll(app, x, y);
+            start_scrollbar_drag(
+                app,
+                y,
+                crate::app::DragTarget::FileViewerScrollbar,
+                region,
+                app.file_viewer.total_lines(),
+                region.height as usize,
+                app.file_viewer.scroll_offset,
+            );
             return true;
         }
     }
@@ -594,9 +711,17 @@ pub fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) -> boo
         let visible_rows = area.height.saturating_sub(3) as usize;
         let region = panel_scrollbar_hit_region(area, borders, visible_rows);
         if is_in_rect((x, y), region) {
-            app.active_drag = Some(crate::app::DragTarget::PanelScrollbar(PanelSide::Left));
+            let (content_length, offset) = panel_scrollbar_metrics(app, PanelSide::Left);
             app.active = PanelSide::Left;
-            update_drag_scroll(app, x, y);
+            start_scrollbar_drag(
+                app,
+                y,
+                crate::app::DragTarget::PanelScrollbar(PanelSide::Left),
+                region,
+                content_length,
+                visible_rows,
+                offset,
+            );
             return true;
         }
     }
@@ -607,9 +732,17 @@ pub fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) -> boo
         let visible_rows = area.height.saturating_sub(3) as usize;
         let region = panel_scrollbar_hit_region(area, borders, visible_rows);
         if is_in_rect((x, y), region) {
-            app.active_drag = Some(crate::app::DragTarget::PanelScrollbar(PanelSide::Right));
+            let (content_length, offset) = panel_scrollbar_metrics(app, PanelSide::Right);
             app.active = PanelSide::Right;
-            update_drag_scroll(app, x, y);
+            start_scrollbar_drag(
+                app,
+                y,
+                crate::app::DragTarget::PanelScrollbar(PanelSide::Right),
+                region,
+                content_length,
+                visible_rows,
+                offset,
+            );
             return true;
         }
     }
@@ -914,6 +1047,27 @@ mod tests {
         assert_eq!(calculate_scroll_from_y(5, 0, 10, 0), 0);
     }
 
+    #[test]
+    fn test_scrollbar_thumb_rows() {
+        // 50 items, viewport 17, offset 0 → thumb spans rows [0, 4) within a 17-row track
+        assert_eq!(
+            scrollbar_thumb_rows(Rect::new(0, 0, 1, 17), 50, 17, 0),
+            Some((0, 4))
+        );
+        // Same geometry but the region starts at y=2
+        assert_eq!(
+            scrollbar_thumb_rows(Rect::new(0, 2, 1, 17), 50, 17, 0),
+            Some((2, 6))
+        );
+        // No scrollbar when content fits within the viewport
+        assert_eq!(
+            scrollbar_thumb_rows(Rect::new(0, 0, 1, 10), 10, 10, 0),
+            None
+        );
+        // Zero-height region
+        assert_eq!(scrollbar_thumb_rows(Rect::new(0, 0, 1, 0), 10, 5, 0), None);
+    }
+
     #[tokio::test]
     async fn test_panel_scrollbar_drag() {
         let mut app = AppState::test_default();
@@ -983,6 +1137,74 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_panel_scrollbar_thumb_click_does_not_jump() {
+        let mut app = AppState::test_default();
+        app.left_panel_area = Rect::new(0, 0, 40, 20);
+        let tab = app.left.active_tab_mut();
+        tab.entries = (0..50)
+            .map(|i| crate::fs::utils::FileEntry {
+                name: format!("file_{i}.txt"),
+                size: Some(100),
+                modified: None,
+                is_dir: false,
+                is_symlink: false,
+                attributes: String::new(),
+                selected: false,
+            })
+            .collect();
+        tab.cursor = 0;
+
+        let scrollbar_x = 39;
+        let thumb_y = 3; // thumb spans rows [1, 5) at offset 0
+
+        // Mouse Down on the thumb: drag starts but the cursor must NOT move yet
+        handle_mouse_event(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: scrollbar_x,
+                row: thumb_y,
+                modifiers: termina::event::Modifiers::NONE,
+            },
+        )
+        .await;
+
+        assert_eq!(
+            app.active_drag,
+            Some(crate::app::DragTarget::PanelScrollbar(PanelSide::Left))
+        );
+        assert_eq!(app.left.active_tab().cursor, 0);
+
+        // Dragging now scrolls to the pointer position
+        handle_mouse_event(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::Drag(MouseButton::Left),
+                column: scrollbar_x,
+                row: 18,
+                modifiers: termina::event::Modifiers::NONE,
+            },
+        )
+        .await;
+
+        assert_eq!(app.left.active_tab().cursor, 49);
+
+        // Mouse Up
+        handle_mouse_event(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::Up(MouseButton::Left),
+                column: scrollbar_x,
+                row: 18,
+                modifiers: termina::event::Modifiers::NONE,
+            },
+        )
+        .await;
+
+        assert_eq!(app.active_drag, None);
+    }
+
+    #[tokio::test]
     async fn test_file_viewer_scrollbar_drag() {
         let mut app = AppState::test_default();
         app.file_viewer.is_visible = true;
@@ -1008,6 +1230,64 @@ mod tests {
             app.active_drag,
             Some(crate::app::DragTarget::FileViewerScrollbar)
         );
+        assert_eq!(app.file_viewer.scroll_offset, 99);
+
+        // Up
+        handle_mouse_event(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::Up(MouseButton::Left),
+                column: scrollbar_x,
+                row: 18,
+                modifiers: termina::event::Modifiers::NONE,
+            },
+        )
+        .await;
+
+        assert_eq!(app.active_drag, None);
+    }
+
+    #[tokio::test]
+    async fn test_file_viewer_scrollbar_thumb_click_does_not_jump() {
+        let mut app = AppState::test_default();
+        app.file_viewer.is_visible = true;
+        app.file_viewer.area = Rect::new(0, 0, 40, 20);
+        app.file_viewer.content = (0..100).map(|i| format!("line {i}")).collect();
+        app.file_viewer.scroll_offset = 0;
+
+        let scrollbar_x = 39;
+        let thumb_y = 1; // thumb spans rows [0, 3) at offset 0
+
+        // Mouse Down on the thumb: drag starts but the scroll offset must NOT change yet
+        handle_mouse_event(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: scrollbar_x,
+                row: thumb_y,
+                modifiers: termina::event::Modifiers::NONE,
+            },
+        )
+        .await;
+
+        assert_eq!(
+            app.active_drag,
+            Some(crate::app::DragTarget::FileViewerScrollbar)
+        );
+        assert_eq!(app.file_viewer.scroll_offset, 0);
+
+        // Dragging now scrolls to the pointer position
+        handle_mouse_event(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::Drag(MouseButton::Left),
+                column: scrollbar_x,
+                row: 18,
+                modifiers: termina::event::Modifiers::NONE,
+            },
+        )
+        .await;
+
         assert_eq!(app.file_viewer.scroll_offset, 99);
 
         // Up
