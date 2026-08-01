@@ -1,7 +1,6 @@
 //! File viewer event handler
 
 use crate::app::AppState;
-use clipboard::ClipboardProvider;
 use termina::event::{KeyCode, Modifiers};
 
 pub fn handle_file_viewer_event(code: KeyCode, modifiers: Modifiers, app: &mut AppState) {
@@ -28,17 +27,13 @@ pub fn handle_file_viewer_event(code: KeyCode, modifiers: Modifiers, app: &mut A
 fn handle_viewer_copy(code: KeyCode, modifiers: Modifiers, app: &mut AppState) -> bool {
     if code == KeyCode::Char('c') && modifiers == Modifiers::CONTROL {
         if let Some(text) = app.file_viewer.get_selected_text() {
-            if let Ok(mut ctx) = clipboard::ClipboardContext::new() {
-                if let Err(e) = ctx.set_contents(text) {
-                    app.viewer_tab_mut().error = Some(format!("Failed to set clipboard: {e}"));
-                } else {
-                    app.viewer_tab_mut().status_msg = Some((
-                        "Text copied to clipboard".to_string(),
-                        std::time::Instant::now(),
-                    ));
-                }
+            if let Err(e) = crate::handlers::clipboard_utils::set_clipboard_text(&text) {
+                app.viewer_tab_mut().error = Some(format!("Failed to set clipboard: {e}"));
             } else {
-                app.active_tab_mut().error = Some("Clipboard error".to_string());
+                app.viewer_tab_mut().status_msg = Some((
+                    "Text copied to clipboard".to_string(),
+                    std::time::Instant::now(),
+                ));
             }
         }
         return true;
