@@ -141,7 +141,7 @@ pub fn default_global_config() -> GlobalConfig {
         theme: Some("mariana".to_string()),
         terminal: None,
         borders: Some(true),
-        icons: Some(false),
+        icons: Some(true),
         mouse: Some(true),
     }
 }
