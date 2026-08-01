@@ -295,7 +295,7 @@ mod tests {
         let event = WatcherEvent::FileSystemChange(paths);
         super::handle_watcher_event(event, &mut app);
         // Check cursor and error remain valid
-        assert!(app.left.active_tab().cursor == 0);
+        assert_eq!(app.left.active_tab().cursor, 0);
         assert!(app.left.active_tab().error.is_none());
     }
 
