@@ -10,7 +10,6 @@ test-utils = []
 anyhow = "1.0"
 arboard = "3.6"
 async-trait = "0.1"
-bytesize = "2.4"
 bzip2 = "0.6"
 chrono = "0.4"
 cpio = "0.4"
@@ -45,7 +44,6 @@ md5 = "0.8"
 memmap2 = "0.9"
 notify = "8.2"
 notify-debouncer-full = "0.7"
-open = "5.3"
 rand = "0.10"
 ratatui = { version = "0.30.2", features = ["termina"] }
 ratatui-image = { version = "11.0", default-features = false, features = ["tokio", "image-defaults"] }
@@ -53,7 +51,6 @@ regex = "1.12.3"
 secrecy = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-shell-escape = "0.1"
 shell-words = "1.1"
 tar = "0.4"
 tempfile = "3.27"
@@ -69,10 +66,11 @@ zip = "8.6"
 zstd = "0.13"
 
 [target.'cfg(unix)'.dependencies]
-openssh = "0.11"
+shell-escape = "0.1"
 ssh2 = "0.9.6"
 
 [target.'cfg(windows)'.dependencies]
+open = "5.3"
 russh = { version = "0.62", default-features = false, features = ["ring"] }
 russh-sftp = "2.3"
 winapi = { version = "0.3.9", features = ["shellapi", "fileapi", "winnt"] }
@@ -90,7 +88,7 @@ windows = { version = "0.62", features = [
 
 winreg = "0.56"
 
-[build-dependencies]
+[target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
 
 [dev-dependencies]
