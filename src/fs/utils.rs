@@ -242,12 +242,35 @@ pub fn get_attributes(meta: &Metadata, is_dir: bool, is_symlink: bool) -> String
     }
 }
 
+/// Resolves directory links (symlinks/junctions) to their real target so the
+/// directory can be enumerated. On Windows, listing through the link path can
+/// fail with `ERROR_ACCESS_DENIED` (os error 5). No-op on other platforms.
+#[must_use]
+fn resolve_dir_link(path: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        if let Ok(meta) = std::fs::symlink_metadata(path)
+            && meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+        {
+            // `canonicalize` follows the link to its real target and returns a
+            // clean DOS path (no `\\?\` prefix).
+            if let Ok(resolved) = std::fs::canonicalize(path) {
+                return resolved;
+            }
+        }
+    }
+    path.to_path_buf()
+}
+
 /// Lists directory contents including ".." for parent navigation.
 ///
 /// # Errors
 ///
 /// Returns an error if the directory cannot be read.
 pub fn list_dir(path: &Path) -> Result<Vec<FileEntry>> {
+    let path = resolve_dir_link(path);
     let mut entries = vec![];
     // Always add .. for going up
     entries.push(FileEntry {
@@ -259,7 +282,7 @@ pub fn list_dir(path: &Path) -> Result<Vec<FileEntry>> {
         attributes: String::new(),
         selected: false,
     });
-    for entry in fs::read_dir(path)? {
+    for entry in fs::read_dir(&path)? {
         let entry = entry?;
         if let Ok(file_entry) = FileEntry::try_from_dir_entry(&entry) {
             entries.push(file_entry);
@@ -855,6 +878,33 @@ mod tests {
         assert_eq!(
             build_du_command("/path'with'quotes"),
             "du -sb '/path'\\''with'\\''quotes' 2>/dev/null || echo 0"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_list_dir_follows_directory_link() {
+        use std::io::Write;
+        use std::os::windows::fs::symlink_dir;
+
+        let target = tempfile::tempdir().unwrap();
+        let file_path = target.path().join("linked_file.txt");
+        {
+            let mut file = std::fs::File::create(&file_path).unwrap();
+            file.write_all(b"hello").unwrap();
+        }
+
+        let link_dir = tempfile::tempdir().unwrap();
+        let link_path = link_dir.path().join("mylink");
+        // Symlink creation needs Developer Mode or admin; skip otherwise.
+        if symlink_dir(target.path(), &link_path).is_err() {
+            return;
+        }
+
+        let entries = list_dir(&link_path).unwrap();
+        assert!(
+            entries.iter().any(|e| e.name == "linked_file.txt"),
+            "should list the link target's contents, got: {entries:?}"
         );
     }
 }
