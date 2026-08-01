@@ -3,32 +3,24 @@ name = "fm"
 version = "0.1.0"
 edition = "2024"
 
-[build-dependencies]
-winres = "0.1"
-
-[dev-dependencies]
-fm = { path = ".", features = ["test-utils"] }
-
 [features]
 test-utils = []
 
 [dependencies]
-async-trait = "0.1"
 anyhow = "1.0"
+arboard = "3.6"
+async-trait = "0.1"
 bytesize = "2.4"
+bzip2 = "0.6"
 chrono = "0.4"
-termina = "0.3"
+cpio = "0.4"
 directories = "6.0"
+encoding_rs = "0.8"
 filetime = "0.2"
+flate2 = "1.1"
 fuzzy-matcher = "0.3"
+image = { version = "0.25", features = ["default"] }
 libc = "0.2"
-md5 = "0.8"
-notify = "8.2"
-notify-debouncer-full = "0.7"
-rand = "0.10"
-ratatui = { version = "0.30.2", features = ["termina"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
 lumis = { version = "0.11", default-features = false, features = [
     "lang-bash",
     "lang-c",
@@ -49,36 +41,40 @@ lumis = { version = "0.11", default-features = false, features = [
     "lang-yaml",
     "lang-xml",
 ] }
-tokio = { version = "1.52", features = ["full"] }
-tempfile = "3.27"
-toml = "1.1"
-unicode-width = "0.2"
-trash = "5.2"
+md5 = "0.8"
+memmap2 = "0.9"
+notify = "8.2"
+notify-debouncer-full = "0.7"
 open = "5.3"
+rand = "0.10"
+ratatui = { version = "0.30.2", features = ["termina"] }
+ratatui-image = { version = "11.0", default-features = false, features = ["tokio", "image-defaults"] }
+regex = "1.12.3"
+secrecy = "0.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 shell-escape = "0.1"
 shell-words = "1.1"
-arboard = "3.6"
-image = { version = "0.25", features = ["default"] }
-ratatui-image = { version = "11.0", default-features = false, features = ["tokio", "image-defaults"] }
-zip = "8.6"
-walkdir = "2.5"
 tar = "0.4"
-flate2 = "1.1"
-bzip2 = "0.6"
+tempfile = "3.27"
+termina = "0.3"
+tokio = { version = "1.52", features = ["full"] }
+toml = "1.1"
+trash = "5.2"
+unicode-width = "0.2"
+walkdir = "2.5"
 xz2 = "0.1"
-cpio = "0.4"
-zstd = "0.13"
-memmap2 = "0.9"
-encoding_rs = "0.8"
-secrecy = "0.10"
 zeroize = "1.9"
-regex = "1.12.3"
+zip = "8.6"
+zstd = "0.13"
+
+[target.'cfg(unix)'.dependencies]
+openssh = "0.11"
+ssh2 = "0.9.6"
 
 [target.'cfg(windows)'.dependencies]
 russh = { version = "0.62", default-features = false, features = ["ring"] }
 russh-sftp = "2.3"
-
-winreg = "0.56"
 winapi = { version = "0.3.9", features = ["shellapi", "fileapi", "winnt"] }
 windows = { version = "0.62", features = [
     "Win32_Foundation",
@@ -92,9 +88,13 @@ windows = { version = "0.62", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 
-[target.'cfg(unix)'.dependencies]
-openssh = "0.11"
-ssh2 = "0.9.6"
+winreg = "0.56"
+
+[build-dependencies]
+winres = "0.1"
+
+[dev-dependencies]
+fm = { path = ".", features = ["test-utils"] }
 
 [profile.release]
 codegen-units = 1
