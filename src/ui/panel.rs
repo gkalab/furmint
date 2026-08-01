@@ -17,6 +17,12 @@ struct ColumnWidths {
     size_header: String, // Formatted size header with sort indicator
 }
 
+/// Width of the attributes column (type char + 5 flags on Windows, 10 on Unix).
+#[cfg(windows)]
+pub(crate) const ATTRIBUTES_COL_WIDTH: u16 = 6;
+#[cfg(not(windows))]
+pub(crate) const ATTRIBUTES_COL_WIDTH: u16 = 10;
+
 /// Context for rendering an entry row
 struct EntryRowContext<'a> {
     palette: &'a ThemePalette,
@@ -64,8 +70,9 @@ fn calculate_column_widths(panel: &Tab, area: Rect, icons_enabled: bool) -> Colu
     // Calculate available width for name column
     let total_table_width = area.width as usize;
     let icon_width = if icons_enabled { 2 } else { 0 };
-    let name_col_width = if total_table_width > (10 + 19 + 10) {
-        total_table_width - (10 + 19 + 10) - icon_width
+    let fixed_cols = 7 + 19 + usize::from(ATTRIBUTES_COL_WIDTH);
+    let name_col_width = if total_table_width > fixed_cols {
+        total_table_width - fixed_cols - icon_width
     } else {
         10 // minimum width for name
     };
@@ -350,11 +357,15 @@ fn build_header_row(panel: &Tab, size_header: &str) -> [String; 4] {
         "Modified{}",
         sort_indicator(SortColumn::Date, panel.sort.column, panel.sort.direction)
     );
+    #[cfg(windows)]
+    let attributes_header = "Attrib".to_string();
+    #[cfg(not(windows))]
+    let attributes_header = "Attributes".to_string();
     [
         name_header,
         size_header.to_string(),
         modified_header,
-        "Attributes".to_string(),
+        attributes_header,
     ]
 }
 
@@ -412,10 +423,10 @@ pub fn draw_panel(
     let block = build_panel_block(area, palette, active, borders, is_root, panel);
 
     let widths = [
-        Constraint::Min(10),    // Name: dynamic, at least 10
-        Constraint::Length(7),  // Size: always 7 (right-aligned)
-        Constraint::Length(19), // Modified: always 19
-        Constraint::Length(10), // Attributes: always 10
+        Constraint::Min(10),                      // Name: dynamic, at least 10
+        Constraint::Length(7),                    // Size: always 7 (right-aligned)
+        Constraint::Length(19),                   // Modified: always 19
+        Constraint::Length(ATTRIBUTES_COL_WIDTH), // Attributes
     ];
 
     let panel_selection_background = if active {

@@ -182,7 +182,53 @@ pub fn get_attributes(meta: &Metadata, is_dir: bool, is_symlink: bool) -> String
         let s = mode_to_attributes(mode, is_dir, is_symlink);
         format!("{s:<10}") // pad/truncate to 10
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_READONLY: u32 = 0x1;
+        const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+        const FILE_ATTRIBUTE_SYSTEM: u32 = 0x4;
+        const FILE_ATTRIBUTE_NOT_CONTENT_INDEXED: u32 = 0x2000;
+        const FILE_ATTRIBUTE_PINNED: u32 = 0x80000;
+        let flags = meta.file_attributes();
+        let type_char = if is_symlink {
+            'l'
+        } else if is_dir {
+            'd'
+        } else {
+            '-'
+        };
+        let s = format!(
+            "{type_char}{}{}{}{}{}",
+            if flags & FILE_ATTRIBUTE_READONLY != 0 {
+                'r'
+            } else {
+                '-'
+            },
+            if flags & FILE_ATTRIBUTE_HIDDEN != 0 {
+                'h'
+            } else {
+                '-'
+            },
+            if flags & FILE_ATTRIBUTE_SYSTEM != 0 {
+                's'
+            } else {
+                '-'
+            },
+            if flags & FILE_ATTRIBUTE_NOT_CONTENT_INDEXED != 0 {
+                'i'
+            } else {
+                '-'
+            },
+            if flags & FILE_ATTRIBUTE_PINNED != 0 {
+                'p'
+            } else {
+                '-'
+            },
+        );
+        format!("{s:>6}") // pad/truncate to 6 (right-aligned)
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = meta;
         let s = if is_symlink {
@@ -568,6 +614,26 @@ mod tests {
             let attrs = get_attributes(&meta, true, false);
             assert_eq!(attrs.chars().next().unwrap(), 'd');
             assert_eq!(attrs.len(), 10);
+        }
+    }
+
+    #[test]
+    fn test_get_attributes_windows() {
+        #[cfg(windows)]
+        {
+            let temp_dir = std::env::temp_dir();
+            let meta = std::fs::metadata(&temp_dir).unwrap();
+            let attrs = get_attributes(&meta, true, false);
+            assert_eq!(attrs.trim_start().chars().next().unwrap(), 'd');
+            assert_eq!(attrs.len(), 6);
+
+            let temp_file = temp_dir.join("fm_test_attrs.txt");
+            std::fs::write(&temp_file, b"test").unwrap();
+            let meta = std::fs::metadata(&temp_file).unwrap();
+            let attrs = get_attributes(&meta, false, false);
+            assert_eq!(attrs.trim_start().chars().next().unwrap(), '-');
+            assert_eq!(attrs.len(), 6);
+            std::fs::remove_file(&temp_file).ok();
         }
     }
 
