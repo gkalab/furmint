@@ -72,10 +72,8 @@ fn handle_fuzzy_search_mouse(app: &mut AppState, event: MouseEvent, is_double_cl
         MouseEventKind::Up(MouseButton::Left) => {
             app.active_drag = None;
         }
-        MouseEventKind::Drag(MouseButton::Left) => {
-            if app.active_drag.is_some() {
-                update_drag_scroll(app, event.column, event.row);
-            }
+        MouseEventKind::Drag(MouseButton::Left) if app.active_drag.is_some() => {
+            update_drag_scroll(app, event.column, event.row);
         }
         MouseEventKind::ScrollUp => {
             app.fuzzy_search.move_selection_up();
@@ -114,10 +112,8 @@ async fn handle_popup_mouse(app: &mut AppState, event: MouseEvent, is_double_cli
             app.active_drag = None;
             handle_popup_up(app, event.column, event.row).await;
         }
-        MouseEventKind::Drag(MouseButton::Left) => {
-            if app.active_drag.is_some() {
-                update_drag_scroll(app, event.column, event.row);
-            }
+        MouseEventKind::Drag(MouseButton::Left) if app.active_drag.is_some() => {
+            update_drag_scroll(app, event.column, event.row);
         }
         MouseEventKind::ScrollUp if app.popups.help.is_visible => {
             crate::ui::help_ui::handle_help_popup_event(KeyCode::Up, app);
