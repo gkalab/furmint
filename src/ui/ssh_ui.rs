@@ -219,6 +219,7 @@ fn draw_history_list(
         visible_rows,
         app.popups.ssh_connection.selected_history_idx.unwrap_or(0),
         palette,
+        false,
     );
 
     if let Some(error) = &app.popups.ssh_connection.error {

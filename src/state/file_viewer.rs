@@ -560,6 +560,18 @@ impl FileViewerState {
         }
     }
 
+    /// Number of lines that fit in the viewer's visible area (borders excluded).
+    #[must_use]
+    pub fn visible_lines(&self) -> usize {
+        self.area.height.saturating_sub(2) as usize
+    }
+
+    /// Maximum scroll offset so the last line sits at the bottom of the viewport.
+    #[must_use]
+    pub fn max_scroll_offset(&self) -> usize {
+        self.total_lines().saturating_sub(self.visible_lines())
+    }
+
     #[must_use]
     pub fn get_line(&self, idx: usize) -> Option<String> {
         if let Some(indexer) = &self.large_file_indexer

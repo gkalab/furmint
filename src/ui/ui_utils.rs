@@ -268,6 +268,12 @@ pub fn panel_bg_color(palette: &ThemePalette, active: bool, is_root: bool, borde
     }
 }
 
+/// Draws a vertical scrollbar.
+///
+/// `viewport_based` indicates whether `offset` is the first visible line/row of a
+/// viewport (so the max offset is `content_length - visible_length` and the thumb
+/// rests at the bottom when scrolled to the end) or a cursor/item index (max offset
+/// `content_length - 1`).
 pub fn draw_scrollbar(
     f: &mut ratatui::Frame,
     area: ratatui::layout::Rect,
@@ -275,12 +281,13 @@ pub fn draw_scrollbar(
     visible_length: usize,
     offset: usize,
     palette: &crate::theme::ThemePalette,
+    viewport_based: bool,
 ) {
     let scrollbar_color = Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b);
     let track_color = scrollbar_color;
     let track_symbol = Some(" ");
 
-    draw_rat_scrollbar(
+    draw_scrollbar_impl(
         f,
         &ScrollbarContext {
             area,
@@ -291,6 +298,7 @@ pub fn draw_scrollbar(
         track_color,
         scrollbar_color,
         track_symbol,
+        viewport_based,
     );
 }
 
@@ -309,6 +317,7 @@ pub fn draw_tab_scrollbar(
     visible_length: usize,
     offset: usize,
     ctx: &TabScrollbarContext,
+    viewport_based: bool,
 ) {
     let scrollbar_color = Color::Rgb(
         ctx.palette.overlay0.r,
@@ -334,7 +343,7 @@ pub fn draw_tab_scrollbar(
         )
     };
     let track_symbol = if ctx.borders { Some("│") } else { Some(" ") };
-    draw_rat_scrollbar(
+    draw_scrollbar_impl(
         f,
         &ScrollbarContext {
             area,
@@ -345,6 +354,7 @@ pub fn draw_tab_scrollbar(
         track_color,
         scrollbar_color,
         track_symbol,
+        viewport_based,
     );
 }
 
@@ -355,30 +365,78 @@ struct ScrollbarContext {
     offset: usize,
 }
 
-fn draw_rat_scrollbar(
+/// Integer division that rounds to the nearest integer (rounds up on ties),
+/// matching ratatui's `rounding_divide` used for scrollbar part lengths.
+const fn rounding_divide(numerator: usize, denominator: usize) -> usize {
+    (numerator + denominator / 2) / denominator
+}
+
+fn draw_scrollbar_impl(
     f: &mut ratatui::Frame,
     ctx: &ScrollbarContext,
     track_color: Color,
     scrollbar_color: Color,
     track_symbol: Option<&str>,
+    viewport_based: bool,
 ) {
     use ratatui::style::Style;
-    use ratatui::widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState};
+    use ratatui::widgets::Paragraph;
 
-    if ctx.content_length > ctx.visible_length {
-        let mut scrollbar_state = ScrollbarState::new(ctx.content_length)
-            .viewport_content_length(ctx.visible_length)
-            .position(ctx.offset);
-        let scrollbar = Scrollbar::default()
-            .orientation(ScrollbarOrientation::VerticalRight)
-            .begin_symbol(None)
-            .end_symbol(None)
-            .track_symbol(track_symbol)
-            .track_style(Style::default().fg(track_color))
-            .thumb_symbol("▊")
-            .thumb_style(Style::default().fg(scrollbar_color));
-        f.render_stateful_widget(scrollbar, ctx.area, &mut scrollbar_state);
+    let track_symbol = track_symbol.unwrap_or(" ");
+
+    if ctx.content_length <= ctx.visible_length {
+        return;
     }
+
+    let track_length = ctx.area.height as usize;
+    if track_length == 0 {
+        return;
+    }
+
+    let max_position = if viewport_based {
+        ctx.content_length.saturating_sub(ctx.visible_length)
+    } else {
+        ctx.content_length.saturating_sub(1)
+    };
+    let start_position = ctx.offset.min(max_position);
+    let max_viewport_position = max_position.saturating_add(ctx.visible_length);
+    if max_viewport_position == 0 {
+        return;
+    }
+
+    let thumb_length = rounding_divide(
+        ctx.visible_length.saturating_mul(track_length),
+        max_viewport_position,
+    )
+    .clamp(1, track_length);
+
+    let thumb_start = rounding_divide(
+        start_position.saturating_mul(track_length),
+        max_viewport_position,
+    )
+    .clamp(0, track_length.saturating_sub(thumb_length));
+
+    let mut rows = Vec::with_capacity(track_length);
+    for i in 0..track_length {
+        let on_thumb = i >= thumb_start && i < thumb_start + thumb_length;
+        rows.push(Line::from(Span::styled(
+            if on_thumb { "▊" } else { track_symbol },
+            Style::default().fg(if on_thumb {
+                scrollbar_color
+            } else {
+                track_color
+            }),
+        )));
+    }
+    // Render in the rightmost column of the area, matching ratatui's
+    // `ScrollbarOrientation::VerticalRight`.
+    let bar_area = Rect {
+        x: ctx.area.x + ctx.area.width.saturating_sub(1),
+        y: ctx.area.y,
+        width: 1,
+        height: ctx.area.height,
+    };
+    f.render_widget(Paragraph::new(rows), bar_area);
 }
 
 #[must_use]

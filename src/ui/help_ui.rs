@@ -80,8 +80,8 @@ pub fn draw_help_popup(
     app.popups.help.total_rows = total_rows;
     let visible_height = table_area.height as usize;
 
-    // Adjust scroll offset to ensure it's valid
-    let max_scroll = total_rows.saturating_sub(1);
+    // Adjust scroll offset so the last row sits at the bottom of the visible area
+    let max_scroll = total_rows.saturating_sub(visible_height);
     if app.popups.help.scroll_offset > max_scroll {
         app.popups.help.scroll_offset = max_scroll;
     }
@@ -301,5 +301,6 @@ fn render_help_table(
         visible_height,
         scroll_offset,
         palette,
+        true,
     );
 }

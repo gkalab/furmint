@@ -330,6 +330,7 @@ fn draw_scrollbar(
         visible_rows,
         panel.cursor_visible_pos().unwrap_or(panel.cursor),
         ctx,
+        false,
     );
 }
 

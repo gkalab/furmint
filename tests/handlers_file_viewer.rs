@@ -1,5 +1,6 @@
 use fm::app::AppState;
 use fm::handlers::file_viewer::handle_file_viewer_event;
+use ratatui::layout::Rect;
 use termina::event::KeyCode;
 
 fn test_app(file_lines: usize) -> AppState {
@@ -8,6 +9,7 @@ fn test_app(file_lines: usize) -> AppState {
     app.file_viewer.content = vec!["line".to_string(); file_lines];
     app.file_viewer.scroll_offset = 5;
     app.file_viewer.horizontal_scroll_offset = 15;
+    app.file_viewer.area = Rect::new(0, 0, 40, 20);
     app
 }
 
@@ -31,7 +33,7 @@ fn test_up_scroll_decrease() {
 
 #[test]
 fn test_down_scroll_increase() {
-    let mut app = test_app(10);
+    let mut app = test_app(30);
     handle_file_viewer_event(KeyCode::Down, termina::event::Modifiers::NONE, &mut app);
     assert_eq!(app.file_viewer.scroll_offset, 6);
 }
@@ -75,6 +77,10 @@ fn test_home_and_end_keys() {
     handle_file_viewer_event(KeyCode::End, termina::event::Modifiers::NONE, &mut app);
     assert_eq!(
         app.file_viewer.scroll_offset,
-        app.file_viewer.content.len() - 1
+        app.file_viewer.max_scroll_offset()
+    );
+    assert_eq!(
+        app.file_viewer.scroll_offset,
+        40 - app.file_viewer.visible_lines()
     );
 }

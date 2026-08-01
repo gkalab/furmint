@@ -207,6 +207,7 @@ pub fn draw_filterable_list_popup(
         visible_rows,
         state.selected_index,
         palette,
+        false,
     );
 }
 

@@ -514,8 +514,11 @@ pub fn panel_scrollbar_hit_region(area: Rect, borders: bool, visible_rows: usize
 }
 
 /// Returns the absolute row span `(start, end)` (end exclusive) of a scrollbar thumb,
-/// replicating ratatui's `Scrollbar::part_lengths` for a vertical scrollbar whose begin/end
-/// symbols are `None` (so the track spans the full region height).
+/// matching the rendering in `ui_utils::draw_scrollbar_impl`.
+///
+/// When `viewport_based` is true the max offset is `content_length - visible_length`
+/// (thumb rests at the bottom when scrolled to the end); otherwise it is
+/// `content_length - 1` (cursor/item index).
 ///
 /// Returns `None` when the scrollbar is not rendered (content fits within the viewport).
 #[must_use]
@@ -524,13 +527,18 @@ pub fn scrollbar_thumb_rows(
     content_length: usize,
     visible_length: usize,
     offset: usize,
+    viewport_based: bool,
 ) -> Option<(u16, u16)> {
     if content_length <= visible_length || region.height == 0 {
         return None;
     }
     let track_length = usize::from(region.height);
     let viewport_length = visible_length;
-    let max_position = content_length.saturating_sub(1);
+    let max_position = if viewport_based {
+        content_length.saturating_sub(visible_length)
+    } else {
+        content_length.saturating_sub(1)
+    };
     let start_position = offset.min(max_position);
     let max_viewport_position = max_position.saturating_add(viewport_length);
     if max_viewport_position == 0 {
@@ -570,8 +578,18 @@ fn start_scrollbar_drag(
     offset: usize,
 ) {
     app.active_drag = Some(target);
-    let on_thumb = scrollbar_thumb_rows(region, content_length, visible_length, offset)
-        .is_some_and(|(start, end)| y >= start && y < end);
+    let viewport_based = matches!(
+        target,
+        crate::app::DragTarget::HelpScrollbar | crate::app::DragTarget::FileViewerScrollbar
+    );
+    let on_thumb = scrollbar_thumb_rows(
+        region,
+        content_length,
+        visible_length,
+        offset,
+        viewport_based,
+    )
+    .is_some_and(|(start, end)| y >= start && y < end);
     if !on_thumb {
         update_drag_scroll(app, 0, y);
     }
@@ -602,11 +620,18 @@ fn panel_scrollbar_metrics(app: &AppState, side: PanelSide) -> (usize, usize) {
 pub fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) -> bool {
     let borders = app.global.borders.unwrap_or(false);
 
-    // 1. Fuzzy search popup list scrollbar (inner-area, no extra borders)
+    // 1. Fuzzy search popup list scrollbar (no extra borders)
+    // The filterable list popup renders its scrollbar one column right of the inner
+    // area (in the list block's right border column), so the hit region must match.
     if app.fuzzy_search.list.is_visible
         && let Some(list_area) = app.fuzzy_search.list.list_area
     {
-        let region = scrollbar_hit_region(list_area, false);
+        let region = Rect {
+            x: list_area.x + list_area.width.saturating_sub(1) + 1,
+            y: list_area.y,
+            width: 1,
+            height: list_area.height,
+        };
         if is_in_rect((x, y), region) {
             start_scrollbar_drag(
                 app,
@@ -621,11 +646,16 @@ pub fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) -> boo
         }
     }
 
-    // 2. Bookmark list popup scrollbar (inner-area, no extra borders)
+    // 2. Bookmark list popup scrollbar (no extra borders)
     if app.popups.bookmark.list.is_visible
         && let Some(list_area) = app.popups.bookmark.list.list_area
     {
-        let region = scrollbar_hit_region(list_area, false);
+        let region = Rect {
+            x: list_area.x + list_area.width.saturating_sub(1) + 1,
+            y: list_area.y,
+            width: 1,
+            height: list_area.height,
+        };
         if is_in_rect((x, y), region) {
             start_scrollbar_drag(
                 app,
@@ -773,8 +803,9 @@ pub fn update_drag_scroll(app: &mut AppState, _x: u16, y: u16) {
         crate::app::DragTarget::HelpScrollbar => {
             if let Some(table_area) = app.popups.help.table_area {
                 let total = app.popups.help.total_rows;
+                let visible = table_area.height as usize;
                 let idx = calculate_scroll_from_y(y, table_area.y, table_area.height, total);
-                app.popups.help.scroll_offset = idx;
+                app.popups.help.scroll_offset = idx.min(total.saturating_sub(visible));
             }
         }
         crate::app::DragTarget::SshHistoryScrollbar => {
@@ -793,7 +824,7 @@ pub fn update_drag_scroll(app: &mut AppState, _x: u16, y: u16) {
             let height = area.height.saturating_sub(2);
             let total = app.file_viewer.total_lines();
             let idx = calculate_scroll_from_y(y, start_y, height, total);
-            app.file_viewer.scroll_offset = idx;
+            app.file_viewer.scroll_offset = idx.min(app.file_viewer.max_scroll_offset());
         }
         crate::app::DragTarget::PanelScrollbar(side) => {
             let (tab, area) = match side {
@@ -835,8 +866,8 @@ fn handle_file_viewer_scroll(app: &mut AppState, up: bool) {
     if up {
         app.file_viewer.scroll_offset = app.file_viewer.scroll_offset.saturating_sub(3);
     } else {
-        let max_scroll = app.file_viewer.total_lines().saturating_sub(1);
-        app.file_viewer.scroll_offset = (app.file_viewer.scroll_offset + 3).min(max_scroll);
+        app.file_viewer.scroll_offset =
+            (app.file_viewer.scroll_offset + 3).min(app.file_viewer.max_scroll_offset());
     }
 }
 

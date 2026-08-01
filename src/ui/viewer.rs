@@ -72,8 +72,12 @@ pub fn draw_file_viewer(
         (viewer.content.len(), false)
     };
 
-    // Clamp scroll offset to valid range
-    let start_line = viewer.scroll_offset.min(max_lines.saturating_sub(1));
+    // Clamp scroll offset so the last line sits at the bottom of the viewport.
+    let max_scroll = max_lines.saturating_sub(visible_lines);
+    if viewer.scroll_offset > max_scroll {
+        viewer.scroll_offset = max_scroll;
+    }
+    let start_line = viewer.scroll_offset;
     let end_line = (start_line + visible_lines).min(max_lines);
 
     let highlighter = Highlighter::new(viewer.language, viewer.theme.clone());
@@ -123,6 +127,7 @@ pub fn draw_file_viewer(
             is_root: false,
             active: viewer.focused,
         },
+        true,
     );
 }
 

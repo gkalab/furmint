@@ -43,11 +43,12 @@ fn handle_viewer_copy(code: KeyCode, modifiers: Modifiers, app: &mut AppState) -
 
 fn handle_viewer_navigation(code: KeyCode, app: &mut AppState) {
     match code {
-        KeyCode::Up if app.file_viewer.scroll_offset > 0 => {
-            app.file_viewer.scroll_offset -= 1;
+        KeyCode::Up => {
+            app.file_viewer.scroll_offset = app.file_viewer.scroll_offset.saturating_sub(1);
         }
-        KeyCode::Down if app.file_viewer.scroll_offset + 1 < app.file_viewer.total_lines() => {
-            app.file_viewer.scroll_offset += 1;
+        KeyCode::Down => {
+            app.file_viewer.scroll_offset =
+                (app.file_viewer.scroll_offset + 1).min(app.file_viewer.max_scroll_offset());
         }
         KeyCode::Left => {
             app.file_viewer.horizontal_scroll_offset =
@@ -60,13 +61,11 @@ fn handle_viewer_navigation(code: KeyCode, app: &mut AppState) {
             app.file_viewer.scroll_offset = app.file_viewer.scroll_offset.saturating_sub(20);
         }
         KeyCode::PageDown => {
-            let max_scroll = app.file_viewer.total_lines().saturating_sub(1);
-            app.file_viewer.scroll_offset = (app.file_viewer.scroll_offset + 20).min(max_scroll);
+            app.file_viewer.scroll_offset =
+                (app.file_viewer.scroll_offset + 20).min(app.file_viewer.max_scroll_offset());
         }
         KeyCode::Home => app.file_viewer.scroll_offset = 0,
-        KeyCode::End => {
-            app.file_viewer.scroll_offset = app.file_viewer.total_lines().saturating_sub(1);
-        }
+        KeyCode::End => app.file_viewer.scroll_offset = app.file_viewer.max_scroll_offset(),
         _ => {}
     }
 }
