@@ -367,8 +367,64 @@ struct ScrollbarContext {
 
 /// Integer division that rounds to the nearest integer (rounds up on ties),
 /// matching ratatui's `rounding_divide` used for scrollbar part lengths.
+/// Overflow-safe: never computes `numerator + denominator / 2`.
 const fn rounding_divide(numerator: usize, denominator: usize) -> usize {
-    (numerator + denominator / 2) / denominator
+    let quotient = numerator / denominator;
+    let remainder = numerator % denominator;
+    // `remainder >= denominator - remainder` ⟺ `2 * remainder >= denominator`.
+    // `denominator - remainder` cannot underflow because `remainder < denominator`.
+    if remainder >= denominator - remainder {
+        quotient + 1
+    } else {
+        quotient
+    }
+}
+
+/// Computes the thumb geometry `(start, end)` (end exclusive) in track rows for a
+/// vertical scrollbar. Shared by rendering (`draw_scrollbar_impl`) and hit-testing
+/// (`crate::handlers::mouse::scrollbar_thumb_rows`) so the two never diverge.
+///
+/// When `viewport_based` is true the max offset is `content_length - visible_length`
+/// (thumb rests at the bottom when scrolled to the end); otherwise it is
+/// `content_length - 1` (cursor/item index).
+///
+/// Returns `None` when the scrollbar is not rendered (content fits within the viewport
+/// or the track has zero height).
+#[must_use]
+pub fn scrollbar_thumb_geometry(
+    track_length: usize,
+    content_length: usize,
+    visible_length: usize,
+    offset: usize,
+    viewport_based: bool,
+) -> Option<(usize, usize)> {
+    if content_length <= visible_length || track_length == 0 {
+        return None;
+    }
+    let max_position = if viewport_based {
+        content_length.saturating_sub(visible_length)
+    } else {
+        content_length.saturating_sub(1)
+    };
+    let start_position = offset.min(max_position);
+    let max_viewport_position = max_position.saturating_add(visible_length);
+    if max_viewport_position == 0 {
+        return None;
+    }
+
+    let thumb_length = rounding_divide(
+        visible_length.saturating_mul(track_length),
+        max_viewport_position,
+    )
+    .clamp(1, track_length);
+
+    let thumb_start = rounding_divide(
+        start_position.saturating_mul(track_length),
+        max_viewport_position,
+    )
+    .clamp(0, track_length.saturating_sub(thumb_length));
+
+    Some((thumb_start, thumb_start + thumb_length))
 }
 
 fn draw_scrollbar_impl(
@@ -384,41 +440,20 @@ fn draw_scrollbar_impl(
 
     let track_symbol = track_symbol.unwrap_or(" ");
 
-    if ctx.content_length <= ctx.visible_length {
-        return;
-    }
-
     let track_length = ctx.area.height as usize;
-    if track_length == 0 {
+    let Some((thumb_start, thumb_end)) = scrollbar_thumb_geometry(
+        track_length,
+        ctx.content_length,
+        ctx.visible_length,
+        ctx.offset,
+        viewport_based,
+    ) else {
         return;
-    }
-
-    let max_position = if viewport_based {
-        ctx.content_length.saturating_sub(ctx.visible_length)
-    } else {
-        ctx.content_length.saturating_sub(1)
     };
-    let start_position = ctx.offset.min(max_position);
-    let max_viewport_position = max_position.saturating_add(ctx.visible_length);
-    if max_viewport_position == 0 {
-        return;
-    }
-
-    let thumb_length = rounding_divide(
-        ctx.visible_length.saturating_mul(track_length),
-        max_viewport_position,
-    )
-    .clamp(1, track_length);
-
-    let thumb_start = rounding_divide(
-        start_position.saturating_mul(track_length),
-        max_viewport_position,
-    )
-    .clamp(0, track_length.saturating_sub(thumb_length));
 
     let mut rows = Vec::with_capacity(track_length);
     for i in 0..track_length {
-        let on_thumb = i >= thumb_start && i < thumb_start + thumb_length;
+        let on_thumb = i >= thumb_start && i < thumb_end;
         rows.push(Line::from(Span::styled(
             if on_thumb { "▊" } else { track_symbol },
             Style::default().fg(if on_thumb {

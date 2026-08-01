@@ -79,8 +79,20 @@ fn test_home_and_end_keys() {
         app.file_viewer.scroll_offset,
         app.file_viewer.max_scroll_offset()
     );
-    assert_eq!(
-        app.file_viewer.scroll_offset,
-        40 - app.file_viewer.visible_lines()
-    );
+}
+
+#[test]
+fn test_down_scroll_stops_at_max_scroll() {
+    let mut app = test_app(30);
+    let max_scroll = app.file_viewer.max_scroll_offset();
+    app.file_viewer.scroll_offset = max_scroll;
+
+    handle_file_viewer_event(KeyCode::Down, termina::event::Modifiers::NONE, &mut app);
+    assert_eq!(app.file_viewer.scroll_offset, max_scroll);
+
+    handle_file_viewer_event(KeyCode::PageDown, termina::event::Modifiers::NONE, &mut app);
+    assert_eq!(app.file_viewer.scroll_offset, max_scroll);
+
+    handle_file_viewer_event(KeyCode::End, termina::event::Modifiers::NONE, &mut app);
+    assert_eq!(app.file_viewer.scroll_offset, max_scroll);
 }

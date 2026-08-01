@@ -65,19 +65,17 @@ pub fn draw_file_viewer(
         return;
     }
 
-    let visible_lines = inner_area.height as usize;
+    let visible_lines = viewer.visible_lines();
     let (max_lines, is_large_file) = if let Some(indexer) = &viewer.large_file_indexer {
         (indexer.total_lines(), true)
     } else {
         (viewer.content.len(), false)
     };
 
-    // Clamp scroll offset so the last line sits at the bottom of the viewport.
+    // Clamp scroll offset so the last line sits at the bottom of the viewport
+    // (clamped locally without mutating state during the draw pass).
     let max_scroll = max_lines.saturating_sub(visible_lines);
-    if viewer.scroll_offset > max_scroll {
-        viewer.scroll_offset = max_scroll;
-    }
-    let start_line = viewer.scroll_offset;
+    let start_line = viewer.scroll_offset.min(max_scroll);
     let end_line = (start_line + visible_lines).min(max_lines);
 
     let highlighter = Highlighter::new(viewer.language, viewer.theme.clone());

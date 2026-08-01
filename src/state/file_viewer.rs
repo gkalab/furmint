@@ -621,8 +621,8 @@ impl FileViewerState {
         {
             return;
         }
-        // Leave 4 lines above for context
-        self.scroll_offset = line_idx.saturating_sub(4);
+        // Leave 4 lines above for context, clamped so we never scroll past the content.
+        self.scroll_offset = line_idx.saturating_sub(4).min(self.max_scroll_offset());
     }
 
     pub fn search_next(&mut self) -> bool {
