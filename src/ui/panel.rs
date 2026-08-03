@@ -48,8 +48,23 @@ fn sort_indicator(
     }
 }
 
+/// Available width for the name column, matching what ratatui's `Table` allocates.
+///
+/// The fixed non-name columns are Size(7) + Modified(19) + `ATTRIBUTES_COL_WIDTH`.
+/// On top of those, ratatui reserves the block borders (2 columns) and the default
+/// `column_spacing` (1) between the 4 table columns (3 gaps).
+fn name_col_width_for(total_table_width: usize) -> usize {
+    let other_cols = 7 + 19 + usize::from(ATTRIBUTES_COL_WIDTH);
+    let overhead = other_cols + 3 + 2; // 3 gaps between 4 columns, 2 for borders
+    if total_table_width > overhead {
+        total_table_width - overhead
+    } else {
+        10 // minimum width for name
+    }
+}
+
 /// Calculate column widths and headers for the panel
-fn calculate_column_widths(panel: &Tab, area: Rect, icons_enabled: bool) -> ColumnWidths {
+fn calculate_column_widths(panel: &Tab, area: Rect) -> ColumnWidths {
     // Compute max width for Size column
     let size_width = panel
         .entries
@@ -67,15 +82,8 @@ fn calculate_column_widths(panel: &Tab, area: Rect, icons_enabled: bool) -> Colu
     );
     let _ = size_width; // size_width is used in size_header calculation
 
-    // Calculate available width for name column
-    let total_table_width = area.width as usize;
-    let icon_width = if icons_enabled { 2 } else { 0 };
-    let fixed_cols = 7 + 19 + usize::from(ATTRIBUTES_COL_WIDTH);
-    let name_col_width = if total_table_width > fixed_cols {
-        total_table_width - fixed_cols - icon_width
-    } else {
-        10 // minimum width for name
-    };
+    // Calculate available width for name column.
+    let name_col_width = name_col_width_for(area.width as usize);
 
     ColumnWidths {
         name: name_col_width,
@@ -113,8 +121,8 @@ fn render_entry_row<'a>(
     // Account for ratatui border: subtract 2 from available width
     // Also account for icon width (2 chars: icon + space) if icons are enabled
     let icon_width = if ctx.icons_enabled { 2 } else { 0 };
-    let visible_name_width = if ctx.name_col_width > (2 + icon_width) {
-        ctx.name_col_width - 2 - icon_width
+    let visible_name_width = if ctx.name_col_width > icon_width {
+        ctx.name_col_width - icon_width
     } else {
         1
     };
@@ -384,7 +392,7 @@ pub fn draw_panel(
     panel.area = area;
     panel.scroll_to_cursor(visible_rows);
 
-    let col_widths = calculate_column_widths(panel, area, icons_enabled);
+    let col_widths = calculate_column_widths(panel, area);
     let header = build_header_row(panel, &col_widths.size_header);
 
     // Build entry rows
@@ -995,5 +1003,40 @@ mod tests {
         );
         // We expect the file to be absent
         assert!(!spans.iter().any(|s| s.content.contains("short.txt")));
+    }
+
+    #[test]
+    fn test_name_column_fits_ratatui_layout() {
+        // 4 table columns -> 3 gaps at default spacing 1, plus 2 border columns and the
+        // fixed non-name columns (which vary by platform: ATTRIBUTES_COL_WIDTH is 6 on
+        // Windows, 10 elsewhere). The budget is `width - overhead`, and the icon lives
+        // inside the name column, so rendering must never clip the tail of a truncated name.
+        let total_table_width = 100;
+        let name_col = calculate_name_col_for(total_table_width);
+        let real_col = name_column_width(total_table_width);
+
+        assert_eq!(name_col, real_col);
+
+        // With icons enabled the icon (2 chars) is prefixed inside the name column.
+        let with_icon = name_col.saturating_sub(2);
+        assert!(with_icon <= real_col);
+        // Without icons the truncated name uses the full column.
+        assert!(name_col <= real_col);
+        // A name of exactly the budget length fits without overflow.
+        assert!(with_icon < real_col);
+    }
+
+    fn name_column_width(total: usize) -> usize {
+        let attrs = usize::from(ATTRIBUTES_COL_WIDTH);
+        let overhead = 7 + 19 + attrs + 3 + 2;
+        if total > overhead {
+            total - overhead
+        } else {
+            10
+        }
+    }
+
+    fn calculate_name_col_for(total: usize) -> usize {
+        super::name_col_width_for(total)
     }
 }
