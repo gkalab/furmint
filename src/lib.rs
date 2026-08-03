@@ -22,7 +22,7 @@ pub mod test_utils;
 pub mod theme;
 pub mod ui;
 
-use crate::app::AppState;
+pub use crate::app::AppState;
 use crate::app::PendingAction;
 use crate::config::KeyboardConfig;
 use crate::config::load_config;

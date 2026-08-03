@@ -255,25 +255,6 @@ pub async fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConf
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::handlers::input_utils::keyevent_to_string;
-    use termina::event::{KeyCode, Modifiers};
-
-    #[test]
-    fn test_keyevent_to_string() {
-        assert_eq!(
-            keyevent_to_string(KeyCode::Function(3), Modifiers::CONTROL),
-            "Ctrl-F3"
-        );
-        assert_eq!(
-            keyevent_to_string(KeyCode::Char('p'), Modifiers::CONTROL),
-            "Ctrl-p"
-        );
-        assert_eq!(
-            keyevent_to_string(KeyCode::Left, Modifiers::ALT),
-            "Alt-Left"
-        );
-    }
 
     #[test]
     fn test_handle_watcher_event_filesystem_change() {
@@ -349,57 +330,5 @@ mod tests {
         super::handle_watcher_event(event, &mut app);
         // Should not panic or change error field
         assert!(app.left.active_tab().error.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_handle_insert_moves_cursor_down() {
-        use crate::fs::utils::FileEntry;
-        use termina::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, Modifiers};
-        let mut app = crate::app::AppState::test_default();
-        app.left.active_tab_mut().current_dir = std::path::PathBuf::from("/mock");
-        app.left.active_tab_mut().entries = vec![
-            FileEntry {
-                name: "file1.txt".to_string(),
-                is_dir: false,
-                is_symlink: false,
-                size: Some(10),
-                modified: None,
-                attributes: String::new(),
-                selected: false,
-            },
-            FileEntry {
-                name: "file2.txt".to_string(),
-                is_dir: false,
-                is_symlink: false,
-                size: Some(10),
-                modified: None,
-                attributes: String::new(),
-                selected: false,
-            },
-        ];
-        app.right.active_tab_mut().current_dir = std::path::PathBuf::from("/mock");
-
-        let keyboard = KeyboardConfig::default();
-        let (_input_tx, _) = tokio::sync::mpsc::unbounded_channel::<Event>();
-
-        // Initial state: cursor at 0, file1 not selected
-        assert_eq!(app.left.active_tab().cursor, 0);
-        assert!(!app.left.active_tab().entries[0].selected);
-
-        handle_event(
-            Event::Key(KeyEvent {
-                code: KeyCode::Insert,
-                modifiers: Modifiers::NONE,
-                kind: KeyEventKind::Press,
-                state: KeyEventState::NONE,
-            }),
-            &mut app,
-            &keyboard,
-        )
-        .await;
-
-        // After Insert: file1 should be selected, cursor should be at 1
-        assert!(app.left.active_tab().entries[0].selected);
-        assert_eq!(app.left.active_tab().cursor, 1);
     }
 }
