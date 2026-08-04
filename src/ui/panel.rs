@@ -134,7 +134,6 @@ fn attributes_cell(attrs: &str, palette: &ThemePalette, text_fg: Color) -> Cell<
             .map(|c| {
                 let style = match c {
                     'd' => dir_style,
-                    'w' => default_style,
                     'x' => exec_style,
                     'r' | '-' => muted_style,
                     _ => default_style,
