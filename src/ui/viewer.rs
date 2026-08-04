@@ -58,7 +58,13 @@ pub fn draw_file_viewer(
     if let Some(protocol) = &mut viewer.protocol
         && protocol.protocol_type().is_some()
     {
-        f.render_stateful_widget(ratatui_image::StatefulImage::new(), inner_area, protocol);
+        f.render_stateful_widget(
+            ratatui_image::StatefulImage::new().resize(ratatui_image::Resize::Fit(Some(
+                ratatui_image::FilterType::CatmullRom,
+            ))),
+            inner_area,
+            protocol,
+        );
         return;
     }
 
