@@ -108,6 +108,54 @@ fn style_for_entry(entry: &FileEntry, current_dir: &Path, palette: &ThemePalette
     }
 }
 
+/// Style a single character of the Unix attributes string (`drwxrwxrwx`):
+/// the `d` matches directories (blue), `x` matches executables (green),
+/// `w` uses the normal text color, and `r`/`-` use the muted overlay color
+/// (same as the inactive tab title). On Windows the attributes use a
+/// different flag format, so the plain text color is kept there.
+fn attributes_cell(attrs: &str, palette: &ThemePalette, text_fg: Color) -> Cell<'static> {
+    let default_style = Style::default().fg(text_fg);
+    #[cfg(not(windows))]
+    {
+        let dir_style =
+            Style::default().fg(Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b));
+        let exec_style = Style::default().fg(Color::Rgb(
+            palette.green.r,
+            palette.green.g,
+            palette.green.b,
+        ));
+        let muted_style = Style::default().fg(Color::Rgb(
+            palette.overlay0.r,
+            palette.overlay0.g,
+            palette.overlay0.b,
+        ));
+        let spans: Vec<Span> = attrs
+            .chars()
+            .map(|c| {
+                let style = match c {
+                    'd' => dir_style,
+                    'w' => default_style,
+                    'x' => exec_style,
+                    'r' | '-' => muted_style,
+                    _ => default_style,
+                };
+                Span::styled(c.to_string(), style)
+            })
+            .collect();
+        Cell::from(Line::from(spans))
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = palette;
+        Cell::from(attrs.to_string()).style(default_style)
+    }
+    #[cfg(windows)]
+    {
+        let _ = palette;
+        Cell::from(attrs.to_string()).style(default_style)
+    }
+}
+
 /// Render a single entry row
 fn render_entry_row<'a>(
     entry: &'a FileEntry,
@@ -219,7 +267,7 @@ fn render_entry_row<'a>(
         ))
         .style(Style::default().fg(text_fg)),
         Cell::from(format_modified(entry.modified)).style(Style::default().fg(text_fg)),
-        Cell::from(entry.attributes.clone()).style(Style::default().fg(text_fg)),
+        attributes_cell(entry.attributes.as_str(), ctx.palette, text_fg),
     ])
 }
 
