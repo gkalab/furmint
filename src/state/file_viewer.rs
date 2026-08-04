@@ -2,6 +2,12 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
+use ratatui::layout::Rect;
+use ratatui_image::protocol::StatefulProtocol;
+
+const ZOOM_IN_FACTOR: f32 = 1.25;
+const ZOOM_OUT_FACTOR: f32 = 0.8;
+
 #[derive(Default)]
 pub struct FileViewerState {
     pub path: PathBuf,
@@ -26,6 +32,95 @@ pub struct FileViewerState {
     pub search_query: String,
     pub search_regex: Option<regex::Regex>,
     pub current_search_match: Option<(usize, usize, usize)>, // (line_idx, start_char, end_char)
+    pub image_zoom: ImageZoomState,
+}
+
+/// State for viewing an image at higher than "fit" magnification.
+///
+/// `zoom` uses `0.0` as a sentinel meaning "fit the image to the viewport" (the default).
+/// Any value `> 0.0` is an absolute scale factor in the range `[fit_scale, 1.0]`, where
+/// `1.0` corresponds to 100% (natural) zoom. Panning is only meaningful while zoomed in past
+/// "fit".
+#[derive(Default)]
+pub struct ImageZoomState {
+    /// The decoded source image, retained so it can be re-cropped for zoom/pan.
+    pub image: Option<image::DynamicImage>,
+    /// Sentinal `0.0` = fit; otherwise the target scale factor in `[fit, 1.0]`.
+    pub zoom: f32,
+    /// Horizontal pan offset (in viewport cells).
+    pub pan_x: u16,
+    /// Vertical pan offset (in viewport cells).
+    pub pan_y: u16,
+    /// The area the currently installed protocol was prepared for, to detect changes.
+    applied_area: ratatui::layout::Rect,
+    /// The zoom the currently installed protocol was prepared for.
+    applied_zoom: f32,
+    /// The pan the currently installed protocol was prepared for.
+    applied_pan: (u16, u16),
+}
+
+impl ImageZoomState {
+    #[must_use]
+    pub fn effective_zoom(&self, fit: f32) -> f32 {
+        if self.zoom > 0.0 { self.zoom } else { fit }
+    }
+
+    /// Whether the image is zoomed in beyond "fit" (i.e. panning is active).
+    #[must_use]
+    pub fn is_zoomed(&self, fit: f32) -> bool {
+        self.image.is_some() && self.effective_zoom(fit) > fit + 0.001
+    }
+
+    pub fn zoom_in(&mut self, fit: f32) {
+        if self.image.is_none() {
+            return;
+        }
+        let eff = self.effective_zoom(fit);
+        if eff >= 0.999 {
+            return;
+        }
+        let new = (eff * ZOOM_IN_FACTOR).min(1.0);
+        if new <= fit {
+            self.reset_zoom();
+        } else {
+            if self.zoom == 0.0 {
+                self.pan_x = 0;
+                self.pan_y = 0;
+            }
+            self.zoom = new;
+        }
+    }
+
+    pub fn zoom_out(&mut self, fit: f32) {
+        if self.image.is_none() {
+            return;
+        }
+        let eff = self.effective_zoom(fit);
+        let new = (eff * ZOOM_OUT_FACTOR).max(fit).min(1.0);
+        if new <= fit {
+            self.reset_zoom();
+        } else {
+            self.zoom = new;
+        }
+    }
+
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    pub fn pan(&mut self, dx: i64, dy: i64, max: (u16, u16)) {
+        let nx = i64::from(self.pan_x) + dx;
+        let ny = i64::from(self.pan_y) + dy;
+        self.pan_x = nx.clamp(0, i64::from(max.0)) as u16;
+        self.pan_y = ny.clamp(0, i64::from(max.1)) as u16;
+    }
+
+    fn reset_zoom(&mut self) {
+        self.zoom = 0.0;
+        self.pan_x = 0;
+        self.pan_y = 0;
+    }
+
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
 }
 
 #[derive(Default)]
@@ -54,6 +149,7 @@ pub struct ImageLoadResult {
     pub path: PathBuf,
     pub result: Result<ratatui_image::protocol::StatefulProtocol, String>,
     pub picker: Option<ratatui_image::picker::Picker>,
+    pub image: Option<image::DynamicImage>,
 }
 
 impl FileViewerState {
@@ -103,6 +199,7 @@ impl FileViewerState {
             search_query: String::new(),
             search_regex: None,
             current_search_match: None,
+            image_zoom: ImageZoomState::default(),
         }
     }
 
@@ -120,6 +217,7 @@ impl FileViewerState {
         self.search_query = String::new();
         self.search_regex = None;
         self.current_search_match = None;
+        self.image_zoom.reset();
     }
 
     pub fn init_picker_detached(&mut self) {
@@ -138,6 +236,7 @@ impl FileViewerState {
                     path: PathBuf::new(),
                     result: Err("PICKER_INIT".to_string()),
                     picker: Some(picker),
+                    image: None,
                 });
             }
         });
@@ -220,13 +319,16 @@ impl FileViewerState {
 
             tokio::spawn(async move {
                 let path_for_result = path_clone.clone();
-                let result = tokio::task::spawn_blocking(move || {
+                let (result, image): (
+                    Result<StatefulProtocol, String>,
+                    Option<image::DynamicImage>,
+                ) = tokio::task::spawn_blocking(move || {
                     let p = picker.unwrap_or_else(|| {
                         ratatui_image::picker::Picker::from_query_stdio()
                             .unwrap_or_else(|_| ratatui_image::picker::Picker::halfblocks())
                     });
 
-                    provider_clone
+                    let decode_result = provider_clone
                         .read_file(&path_clone)
                         .map_err(|e| e.to_string())
                         .and_then(|data| {
@@ -236,16 +338,24 @@ impl FileViewerState {
                                 .with_guessed_format()
                                 .map_err(|e| e.to_string())
                                 .and_then(|r| r.decode().map_err(|e| e.to_string()))
-                        })
-                        .map(|image| p.new_resize_protocol(image))
+                        });
+
+                    match decode_result {
+                        Ok(dyn_image) => (
+                            Ok(p.new_resize_protocol(dyn_image.clone())),
+                            Some(dyn_image),
+                        ),
+                        Err(e) => (Err(e), None),
+                    }
                 })
                 .await
-                .unwrap_or_else(|e| Err(e.to_string()));
+                .unwrap_or_else(|e| (Err(e.to_string()), None));
 
                 let _ = image_tx_clone.send(ImageLoadResult {
                     load_id,
                     path: path_for_result,
                     result,
+                    image,
                     picker: None,
                 });
             });
@@ -361,6 +471,8 @@ impl FileViewerState {
             return;
         }
         self.is_loading = false;
+        self.image_zoom.reset();
+        self.image_zoom.image = res.image;
         match res.result {
             Ok(proto) => {
                 if let Some(tp) = &mut self.protocol {
@@ -376,6 +488,173 @@ impl FileViewerState {
                 self.content = vec![format!("Error loading image: {e}")];
             }
         }
+    }
+
+    #[must_use]
+    fn font_size(&self) -> Option<ratatui_image::FontSize> {
+        self.picker
+            .as_ref()
+            .map(ratatui_image::picker::Picker::font_size)
+    }
+
+    /// Scale factor that fits the image proportionally into the viewport (capped at 1.0).
+    #[must_use]
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
+    pub fn fit_scale(&self) -> f32 {
+        let (Some(img), Some(font)) = (&self.image_zoom.image, self.font_size()) else {
+            return 1.0;
+        };
+        if self.area.width == 0 || self.area.height == 0 {
+            return 1.0;
+        }
+        let nw = img.width() as f32 / f32::from(font.width);
+        let nh = img.height() as f32 / f32::from(font.height);
+        (f32::from(self.area.width) / nw)
+            .min(f32::from(self.area.height) / nh)
+            .min(1.0)
+    }
+
+    /// Whether an image is currently displayed zoomed in beyond "fit" (panning is active).
+    #[must_use]
+    pub fn is_image_zoomed(&self) -> bool {
+        self.image_zoom.is_zoomed(self.fit_scale())
+    }
+
+    /// Zoom in one step towards 100%.
+    pub fn zoom_image_in(&mut self) {
+        self.image_zoom.zoom_in(self.fit_scale());
+    }
+
+    /// Zoom out one step towards "fit".
+    pub fn zoom_image_out(&mut self) {
+        self.image_zoom.zoom_out(self.fit_scale());
+    }
+
+    /// Pan the displayed window by `(dx, dy)` viewport cells (clamped to image bounds).
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::similar_names
+    )]
+    pub fn pan_image(&mut self, dx: i64, dy: i64) {
+        if !self.is_image_zoomed() {
+            return;
+        }
+        let Some(font) = self.font_size() else {
+            return;
+        };
+        let fit = self.fit_scale();
+        let scale = self.image_zoom.effective_zoom(fit);
+        let (rw, rh) = self.render_pixel_size(scale);
+        let rw_cells = (rw as f32 / f32::from(font.width)).ceil() as u16;
+        let rh_cells = (rh as f32 / f32::from(font.height)).ceil() as u16;
+        let max_x = rw_cells.saturating_sub(self.area.width);
+        let max_y = rh_cells.saturating_sub(self.area.height);
+        self.image_zoom.pan(dx, dy, (max_x, max_y));
+    }
+
+    /// Pixel dimensions of the whole image at the given scale.
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
+    fn render_pixel_size(&self, scale: f32) -> (u32, u32) {
+        let Some(img) = &self.image_zoom.image else {
+            return (0, 0);
+        };
+        (
+            (img.width() as f32 * scale).round() as u32,
+            (img.height() as f32 * scale).round() as u32,
+        )
+    }
+
+    /// Ensure `self.protocol` holds a protocol matching the current zoom/pan/`area`.
+    ///
+    /// When zoomed in, a crop of the scaled source image sized to the viewport is produced so
+    /// the (larger than viewport) image can be panned. When not zoomed, the full image protocol
+    /// is restored. Rebuilds only when the zoom, pan or area changed.
+    #[allow(clippy::float_cmp)]
+    pub fn prepare_image_protocol(&mut self, area: Rect) {
+        let (Some(font), Some(picker)) = (self.font_size(), self.picker.clone()) else {
+            return;
+        };
+        if self.image_zoom.image.is_none() {
+            return;
+        }
+
+        let fit = self.fit_scale();
+        let scale = self.image_zoom.effective_zoom(fit);
+        let pan = (self.image_zoom.pan_x, self.image_zoom.pan_y);
+
+        if self.image_zoom.applied_area == area
+            && self.image_zoom.applied_zoom == scale
+            && self.image_zoom.applied_pan == pan
+            && self.protocol.is_some()
+        {
+            return;
+        }
+
+        let proto = if self.image_zoom.is_zoomed(fit) {
+            self.build_zoomed_protocol(&picker, font, scale)
+        } else {
+            self.image_zoom
+                .image
+                .clone()
+                .map(|img| picker.new_resize_protocol(img))
+        };
+
+        let Some(proto) = proto else { return };
+
+        if let Some(tp) = &mut self.protocol {
+            tp.replace_protocol(proto);
+        } else if let Some(tx) = &self.resize_tx {
+            self.protocol = Some(ratatui_image::thread::ThreadProtocol::new(
+                tx.clone(),
+                Some(proto),
+            ));
+        }
+        self.image_zoom.applied_area = area;
+        self.image_zoom.applied_zoom = scale;
+        self.image_zoom.applied_pan = pan;
+    }
+
+    /// Build a `StatefulProtocol` showing the panned window of the zoomed image.
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::similar_names
+    )]
+    fn build_zoomed_protocol(
+        &self,
+        picker: &ratatui_image::picker::Picker,
+        font: ratatui_image::FontSize,
+        scale: f32,
+    ) -> Option<StatefulProtocol> {
+        let img = self.image_zoom.image.clone()?;
+        let (rw, rh) = self.render_pixel_size(scale);
+        let vw = (f32::from(self.area.width) * f32::from(font.width)).ceil() as u32;
+        let vh = (f32::from(self.area.height) * f32::from(font.height)).ceil() as u32;
+        let max_x = rw.saturating_sub(vw);
+        let max_y = rh.saturating_sub(vh);
+        let ox =
+            ((f32::from(self.image_zoom.pan_x) * f32::from(font.width)).round() as u32).min(max_x);
+        let oy =
+            ((f32::from(self.image_zoom.pan_y) * f32::from(font.height)).round() as u32).min(max_y);
+
+        let scaled = img.resize(
+            rw.max(1),
+            rh.max(1),
+            image::imageops::FilterType::CatmullRom,
+        );
+        let crop = scaled.crop_imm(ox, oy, vw, vh);
+        Some(picker.new_resize_protocol(crop))
     }
 
     #[must_use]
@@ -791,5 +1070,78 @@ impl FileViewerState {
         }
 
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dummy_image() -> image::DynamicImage {
+        image::DynamicImage::new_rgba8(100, 50)
+    }
+
+    #[test]
+    fn zoom_starts_at_fit_and_is_not_zoomed() {
+        let mut z = ImageZoomState::default();
+        z.image = Some(dummy_image());
+        let fit = 0.5;
+        assert!(!z.is_zoomed(fit));
+        assert!((z.effective_zoom(fit) - fit).abs() < 1e-6);
+    }
+
+    #[test]
+    fn zoom_in_moves_past_fit_and_caps_at_100_percent() {
+        let mut z = ImageZoomState::default();
+        z.image = Some(dummy_image());
+        let fit = 0.4;
+        z.zoom_in(fit);
+        assert!(z.is_zoomed(fit));
+        assert!(z.zoom > fit && z.zoom <= 1.0);
+
+        // Zoom in many times until capped at 100%.
+        for _ in 0..50 {
+            z.zoom_in(fit);
+        }
+        assert!((z.effective_zoom(fit) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn zoom_out_returns_to_fit() {
+        let mut z = ImageZoomState::default();
+        z.image = Some(dummy_image());
+        let fit = 0.5;
+        z.zoom_in(fit);
+        assert!(z.is_zoomed(fit));
+        for _ in 0..50 {
+            z.zoom_out(fit);
+        }
+        assert!(!z.is_zoomed(fit));
+        assert_eq!(z.zoom, 0.0);
+        assert_eq!((z.pan_x, z.pan_y), (0, 0));
+    }
+
+    #[test]
+    fn pan_is_clamped_to_max() {
+        let mut z = ImageZoomState::default();
+        z.image = Some(dummy_image());
+        z.zoom_in(0.5);
+        let max = (10, 5);
+
+        z.pan(10000, 10000, max);
+        assert_eq!((z.pan_x, z.pan_y), max);
+
+        z.pan(-10000, -10000, max);
+        assert_eq!((z.pan_x, z.pan_y), (0, 0));
+    }
+
+    #[test]
+    fn zoom_in_from_already_100_percent_is_noop() {
+        let mut z = ImageZoomState::default();
+        z.image = Some(dummy_image());
+        let fit = 0.9;
+        z.zoom = 1.0;
+        z.zoom_in(fit);
+        assert!((z.zoom - 1.0).abs() < 1e-6);
     }
 }

@@ -1,7 +1,7 @@
 use crate::app::{AppState, PanelSide};
 use ratatui::layout::Rect;
 use std::time::{Duration, Instant};
-use termina::event::{KeyCode, MouseButton, MouseEvent, MouseEventKind};
+use termina::event::{KeyCode, Modifiers, MouseButton, MouseEvent, MouseEventKind};
 
 pub async fn handle_mouse_event(app: &mut AppState, event: MouseEvent) {
     // Compute double-click before dispatching so all popups get consistent detection
@@ -45,12 +45,15 @@ pub async fn handle_mouse_event(app: &mut AppState, event: MouseEvent) {
         }
         MouseEventKind::Up(MouseButton::Left) => {
             app.active_drag = None;
+            app.last_drag_pos = None;
         }
         MouseEventKind::ScrollUp => {
-            handle_scroll_event(app, (event.column, event.row), true);
+            let ctrl = event.modifiers.contains(Modifiers::CONTROL);
+            handle_scroll_event(app, (event.column, event.row), true, ctrl);
         }
         MouseEventKind::ScrollDown => {
-            handle_scroll_event(app, (event.column, event.row), false);
+            let ctrl = event.modifiers.contains(Modifiers::CONTROL);
+            handle_scroll_event(app, (event.column, event.row), false, ctrl);
         }
         _ => {}
     }
@@ -260,8 +263,14 @@ fn handle_left_click(app: &mut AppState, x: u16, y: u16, is_double_click: bool) 
 
     // Check file viewer
     if app.file_viewer.is_visible && is_in_rect(click_pos, app.file_viewer.area) {
-        app.active_drag = Some(crate::app::DragTarget::FileViewerSelection);
         app.file_viewer.focused = true;
+        if app.file_viewer.is_image_zoomed() {
+            // Dragging a zoomed-in image pans it instead of selecting text.
+            app.active_drag = Some(crate::app::DragTarget::FileViewerPan);
+            app.last_drag_pos = Some(click_pos);
+            return;
+        }
+        app.active_drag = Some(crate::app::DragTarget::FileViewerSelection);
         let borders = app.global.borders.unwrap_or(false);
         let border_offset = u16::from(borders);
         let inner_y = y.saturating_sub(app.file_viewer.area.y + border_offset);
@@ -420,7 +429,17 @@ fn handle_drag(app: &mut AppState, x: u16, y: u16) {
     if let Some(active_drag) = app.active_drag
         && active_drag != crate::app::DragTarget::FileViewerSelection
     {
-        update_drag_scroll(app, x, y);
+        if active_drag == crate::app::DragTarget::FileViewerPan {
+            if let Some((lx, ly)) = app.last_drag_pos {
+                let dx = i64::from(x) - i64::from(lx);
+                let dy = i64::from(y) - i64::from(ly);
+                // Pan so the content follows the cursor.
+                app.file_viewer.pan_image(-dx, -dy);
+            }
+            app.last_drag_pos = Some((x, y));
+        } else {
+            update_drag_scroll(app, x, y);
+        }
         return;
     }
 
@@ -850,13 +869,25 @@ pub fn update_drag_scroll(app: &mut AppState, _x: u16, y: u16) {
                 }
             }
         }
-        crate::app::DragTarget::FileViewerSelection => {
-            // intentional: file viewer selection drag handled in handle_drag, not scroll
+        crate::app::DragTarget::FileViewerSelection | crate::app::DragTarget::FileViewerPan => {
+            // intentional: file viewer selection drag / pan handled in handle_drag, not scroll
         }
     }
 }
 
-fn handle_scroll_event(app: &mut AppState, pos: (u16, u16), up: bool) {
+fn handle_scroll_event(app: &mut AppState, pos: (u16, u16), up: bool, ctrl: bool) {
+    if ctrl
+        && app.file_viewer.is_visible
+        && is_in_rect(pos, app.file_viewer.area)
+        && app.file_viewer.image_zoom.image.is_some()
+    {
+        if up {
+            app.file_viewer.zoom_image_in();
+        } else {
+            app.file_viewer.zoom_image_out();
+        }
+        return;
+    }
     if app.file_viewer.is_visible && is_in_rect(pos, app.file_viewer.area) {
         handle_file_viewer_scroll(app, up);
     } else {

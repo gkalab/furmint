@@ -42,6 +42,10 @@ fn handle_viewer_copy(code: KeyCode, modifiers: Modifiers, app: &mut AppState) -
 }
 
 fn handle_viewer_navigation(code: KeyCode, app: &mut AppState) {
+    if app.file_viewer.is_image_zoomed() {
+        handle_image_pan(code, app);
+        return;
+    }
     match code {
         KeyCode::Up => {
             app.file_viewer.scroll_offset = app.file_viewer.scroll_offset.saturating_sub(1);
@@ -70,8 +74,41 @@ fn handle_viewer_navigation(code: KeyCode, app: &mut AppState) {
     }
 }
 
+/// Pan the zoomed-in image with the arrow/page/home/end keys.
+fn handle_image_pan(code: KeyCode, app: &mut AppState) {
+    let viewer = &mut app.file_viewer;
+    let step = i64::from((viewer.area.width / 10).max(1));
+    let (dx, dy): (i64, i64) = match code {
+        KeyCode::Up => (0, -step),
+        KeyCode::Down => (0, step),
+        KeyCode::Left => (-step, 0),
+        KeyCode::Right => (step, 0),
+        KeyCode::PageUp => (0, -(step * 5)),
+        KeyCode::PageDown => (0, step * 5),
+        KeyCode::Home => (-i64::from(viewer.area.width), 0),
+        KeyCode::End => (i64::from(viewer.area.width), 0),
+        _ => return,
+    };
+    viewer.pan_image(dx, dy);
+}
+
 fn handle_viewer_shortcuts(code: KeyCode, modifiers: Modifiers, app: &mut AppState) {
     let shortcut = crate::handlers::input_utils::keyevent_to_string(code, modifiers);
+
+    // Image zoom (+ / = zoom in, - zoom out); only meaningful when an image is displayed.
+    if let KeyCode::Char(c) = code
+        && (c == '+' || c == '=')
+        && app.file_viewer.image_zoom.image.is_some()
+    {
+        app.file_viewer.zoom_image_in();
+        return;
+    }
+    if let KeyCode::Char('-') = code {
+        if app.file_viewer.image_zoom.image.is_some() {
+            app.file_viewer.zoom_image_out();
+        }
+        return;
+    }
 
     if app
         .keyboard

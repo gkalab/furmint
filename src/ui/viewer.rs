@@ -55,16 +55,25 @@ pub fn draw_file_viewer(
     let inner_area = block.inner(area);
     f.render_widget(block, area);
 
-    if let Some(protocol) = &mut viewer.protocol
-        && protocol.protocol_type().is_some()
+    if viewer
+        .protocol
+        .as_ref()
+        .and_then(|p| p.protocol_type())
+        .is_some()
     {
-        f.render_stateful_widget(
-            ratatui_image::StatefulImage::new().resize(ratatui_image::Resize::Fit(Some(
-                ratatui_image::FilterType::CatmullRom,
-            ))),
-            inner_area,
-            protocol,
-        );
+        viewer.prepare_image_protocol(inner_area);
+        let resize = if viewer.is_image_zoomed() {
+            ratatui_image::Resize::Scale(Some(ratatui_image::FilterType::CatmullRom))
+        } else {
+            ratatui_image::Resize::Fit(Some(ratatui_image::FilterType::CatmullRom))
+        };
+        if let Some(protocol) = &mut viewer.protocol {
+            f.render_stateful_widget(
+                ratatui_image::StatefulImage::new().resize(resize),
+                inner_area,
+                protocol,
+            );
+        }
         return;
     }
 

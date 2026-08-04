@@ -113,6 +113,7 @@ pub enum PendingAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DragTarget {
     FileViewerSelection,
+    FileViewerPan,
     PanelScrollbar(PanelSide),
     FileViewerScrollbar,
     HelpScrollbar,
@@ -162,6 +163,7 @@ pub struct AppState {
     pub pending_action: Option<PendingAction>,
     pub mouse_button_down_index: Option<usize>,
     pub active_drag: Option<DragTarget>,
+    pub last_drag_pos: Option<(u16, u16)>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -243,6 +245,7 @@ impl AppState {
             pending_action: None,
             mouse_button_down_index: None,
             active_drag: None,
+            last_drag_pos: None,
         }
     }
 

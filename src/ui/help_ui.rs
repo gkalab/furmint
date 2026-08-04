@@ -2,7 +2,19 @@ use crate::config::KeyboardConfig;
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table};
+use std::sync::LazyLock;
 use termina::event::KeyCode as CrosstermKeyCode;
+
+static VIEWER_ZOOM_IN_KEYS: LazyLock<Option<Vec<String>>> =
+    LazyLock::new(|| Some(vec!["+/=".to_string()]));
+static VIEWER_ZOOM_OUT_KEYS: LazyLock<Option<Vec<String>>> =
+    LazyLock::new(|| Some(vec!["-".to_string()]));
+static VIEWER_ZOOM_MOUSE_KEYS: LazyLock<Option<Vec<String>>> =
+    LazyLock::new(|| Some(vec!["Ctrl + Scroll Wheel".to_string()]));
+static VIEWER_PAN_KEYS_KEYS: LazyLock<Option<Vec<String>>> =
+    LazyLock::new(|| Some(vec!["Arrows / PgUp / PgDn / Home / End".to_string()]));
+static VIEWER_PAN_MOUSE_KEYS: LazyLock<Option<Vec<String>>> =
+    LazyLock::new(|| Some(vec!["Drag".to_string()]));
 
 pub fn draw_help_popup(
     f: &mut ratatui::Frame,
@@ -234,6 +246,11 @@ fn build_help_categories(
                 ("Search", &keyboard.viewer_search),
                 ("Search Next", &keyboard.viewer_search_next),
                 ("Search Previous", &keyboard.viewer_search_prev),
+                ("Zoom In", &*VIEWER_ZOOM_IN_KEYS),
+                ("Zoom Out", &*VIEWER_ZOOM_OUT_KEYS),
+                ("Zoom (mouse)", &*VIEWER_ZOOM_MOUSE_KEYS),
+                ("Pan (keys)", &*VIEWER_PAN_KEYS_KEYS),
+                ("Pan (mouse)", &*VIEWER_PAN_MOUSE_KEYS),
             ],
         ),
     ]

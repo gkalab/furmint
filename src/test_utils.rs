@@ -202,6 +202,7 @@ impl TestAppBuilder {
             pending_action: None,
             mouse_button_down_index: None,
             active_drag: None,
+            last_drag_pos: None,
         }
     }
 }
