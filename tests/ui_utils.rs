@@ -69,3 +69,32 @@ fn test_truncate_path_with_ellipsis_root() {
     let s = ui_utils::truncate_path_with_ellipsis(p, 5);
     assert_eq!(s, "/");
 }
+
+#[test]
+fn test_replace_home_with_tilde_under_home() {
+    let home = std::env::home_dir().expect("home dir should exist");
+    let p = home.join("projects").join("deep");
+    let s = ui_utils::replace_home_with_tilde(&p);
+    assert_eq!(s, "~/projects/deep");
+}
+
+#[test]
+fn test_replace_home_with_tilde_exact_home() {
+    let home = std::env::home_dir().expect("home dir should exist");
+    let s = ui_utils::replace_home_with_tilde(&home);
+    assert_eq!(s, "~");
+}
+
+#[test]
+fn test_replace_home_with_tilde_outside_home() {
+    let p = Path::new("/usr/share/doc");
+    let s = ui_utils::replace_home_with_tilde(p);
+    assert_eq!(s, "/usr/share/doc");
+}
+
+#[test]
+fn test_replace_home_with_tilde_relative() {
+    let p = Path::new("relative/path");
+    let s = ui_utils::replace_home_with_tilde(p);
+    assert_eq!(s, "relative/path");
+}

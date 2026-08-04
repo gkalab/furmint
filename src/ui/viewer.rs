@@ -36,9 +36,10 @@ pub fn draw_file_viewer(
 ) {
     viewer.area = area;
 
+    let title = crate::ui::ui_utils::replace_home_with_tilde(&viewer.path);
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(viewer.path.to_string_lossy())
+        .title(format!(" {title} "))
         .border_style(Style::default().fg(if viewer.focused {
             Color::Rgb(palette.border.r, palette.border.g, palette.border.b)
         } else {

@@ -246,11 +246,11 @@ fn build_panel_block(
     let panel_bg = panel_bg_color(palette, active, is_root, borders);
 
     let prefix = panel.provider.display_prefix();
-    let path_str = panel.provider.display_path(&panel.current_dir);
+    let tilde_path = crate::ui::ui_utils::replace_home_with_tilde(&panel.current_dir);
     let full_title = if prefix.is_empty() {
-        format!("{path_str} ")
+        format!(" {tilde_path} ")
     } else {
-        format!("{prefix}:{path_str} ")
+        format!(" {prefix}:{tilde_path} ")
     };
     let title_width = area.width.saturating_sub(4) as usize;
     let panel_title = if full_title.len() > title_width {
