@@ -266,6 +266,7 @@ fn handle_left_click(app: &mut AppState, x: u16, y: u16, is_double_click: bool) 
         app.file_viewer.focused = true;
         if app.file_viewer.is_image_zoomed() {
             // Dragging a zoomed-in image pans it instead of selecting text.
+            app.file_viewer.selection = None;
             app.active_drag = Some(crate::app::DragTarget::FileViewerPan);
             app.last_drag_pos = Some(click_pos);
             return;

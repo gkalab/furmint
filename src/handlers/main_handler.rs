@@ -198,6 +198,7 @@ async fn handle_global_interceptors(
             update_viewer_content(app);
         } else {
             app.file_viewer.focused = false;
+            app.file_viewer.release_image();
         }
         return Some(false);
     }
@@ -206,6 +207,7 @@ async fn handle_global_interceptors(
     if app.file_viewer.is_visible && code == KeyCode::Escape {
         app.file_viewer.is_visible = false;
         app.file_viewer.focused = false;
+        app.file_viewer.release_image();
         return Some(false);
     }
 

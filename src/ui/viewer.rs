@@ -53,6 +53,7 @@ pub fn draw_file_viewer(
     };
 
     let inner_area = block.inner(area);
+    viewer.render_area = inner_area;
     f.render_widget(block, area);
 
     if viewer
@@ -61,7 +62,7 @@ pub fn draw_file_viewer(
         .and_then(|p| p.protocol_type())
         .is_some()
     {
-        viewer.prepare_image_protocol(inner_area);
+        viewer.prepare_image_protocol();
         let resize = if viewer.is_image_zoomed() {
             ratatui_image::Resize::Scale(Some(ratatui_image::FilterType::CatmullRom))
         } else {
