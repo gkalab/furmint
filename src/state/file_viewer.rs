@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
+use ratatui_image::ResizeEncodeRender;
 use ratatui_image::protocol::StatefulProtocol;
 
 const ZOOM_IN_FACTOR: f32 = 1.25;
@@ -671,7 +672,17 @@ impl FileViewerState {
 
         let scaled = self.scale_for_zoom(&img, rw, rh, scale);
         let crop = scaled.crop_imm(ox, oy, vw, vh);
-        Some(picker.new_resize_protocol(crop))
+
+        let mut proto = picker.new_resize_protocol(crop);
+        // The crop is already exactly the viewport's pixel size, so `Scale` resizing is a
+        // no-op; only the encode runs. Encode synchronously so the same frame that pans also
+        // renders the image, instead of sending the protocol through the async `ThreadProtocol`
+        // which would leave a cleared (blank) frame until the worker returns.
+        proto.resize_encode(
+            &ratatui_image::Resize::Scale(Some(ratatui_image::FilterType::CatmullRom)),
+            self.render_area.into(),
+        );
+        Some(proto)
     }
 
     /// Returns the source image resized to `(rw, rh)`, caching it for the given `scale`.
@@ -1306,6 +1317,22 @@ mod tests {
         fv.prepare_image_protocol();
         assert!(fv.image_zoom.scaled.is_some());
         assert!(fv.protocol.is_some());
+    }
+
+    #[test]
+    fn zoomed_protocol_is_encoded_and_ready_to_render() {
+        let mut fv = test_viewer();
+        fv.zoom_image_in();
+        fv.pan_image(3, 3);
+        fv.prepare_image_protocol();
+        let protocol = fv.protocol.as_mut().expect("protocol installed");
+        let resize = ratatui_image::Resize::Scale(Some(ratatui_image::FilterType::CatmullRom));
+        assert!(
+            protocol
+                .needs_resize(&resize, fv.render_area.into())
+                .is_none(),
+            "zoomed protocol must be already encoded so the next draw renders immediately"
+        );
     }
 
     #[test]
