@@ -1,7 +1,6 @@
 use fm::app::AppState;
 use fm::handlers::popup_conflict::handle_conflict_event;
 use fm::tasks::TaskDecision;
-use std::path::Path;
 use termina::event::KeyCode;
 use tokio::sync::mpsc;
 
@@ -10,8 +9,8 @@ fn app_with_conflict(task_id: usize) -> (AppState, mpsc::Receiver<TaskDecision>)
     let (task_tx, _task_rx) = mpsc::unbounded_channel::<TaskEvent>();
     let (dec_tx, dec_rx) = mpsc::channel(1);
     let mut app = fm::test_utils::TestAppBuilder::new()
-        .left(fm::app::TabManager::new(Path::new("/tmp")).unwrap())
-        .right(fm::app::TabManager::new(Path::new("/tmp")).unwrap())
+        .left(fm::app::TabManager::new(&std::env::temp_dir()).unwrap())
+        .right(fm::app::TabManager::new(&std::env::temp_dir()).unwrap())
         .task_tx(task_tx)
         .build();
     app.task_decision_txs.insert(task_id, dec_tx);

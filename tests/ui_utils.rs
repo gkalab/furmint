@@ -75,7 +75,10 @@ fn test_replace_home_with_tilde_under_home() {
     let home = std::env::home_dir().expect("home dir should exist");
     let p = home.join("projects").join("deep");
     let s = ui_utils::replace_home_with_tilde(&p);
-    assert_eq!(s, "~/projects/deep");
+    let expected = ["~", "projects", "deep"]
+        .iter()
+        .collect::<std::path::PathBuf>();
+    assert_eq!(std::path::Path::new(&s), expected);
 }
 
 #[test]

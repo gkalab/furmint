@@ -4,7 +4,6 @@ use fm::handlers::popup_create::{
     handle_init_create_file,
 };
 use fm::tasks::TaskEvent;
-use std::path::Path;
 use termina::event::KeyCode;
 use termina::event::Modifiers;
 use tokio::sync::mpsc;
@@ -13,8 +12,8 @@ fn basic_app_state() -> AppState {
     let (task_tx, _task_rx) = mpsc::unbounded_channel::<TaskEvent>();
 
     fm::test_utils::TestAppBuilder::new()
-        .left(fm::app::TabManager::new(Path::new("/tmp")).unwrap())
-        .right(fm::app::TabManager::new(Path::new("/tmp")).unwrap())
+        .left(fm::app::TabManager::new(&std::env::temp_dir()).unwrap())
+        .right(fm::app::TabManager::new(&std::env::temp_dir()).unwrap())
         .task_tx(task_tx)
         .build()
 }
@@ -308,7 +307,7 @@ async fn test_handle_create_file_remote_uses_remote_edit_workflow() {
     // triggers edit_file_remote instead of open_file_in_editor_with_env_handling)
     assert!(app.popups.remote_edit.is_visible);
     assert_eq!(app.popups.remote_edit.filename, "remote_new_file.txt");
-    let expected_remote_path = std::path::Path::new("/tmp").join("remote_new_file.txt");
+    let expected_remote_path = std::env::temp_dir().join("remote_new_file.txt");
     assert_eq!(app.popups.remote_edit.remote_path, expected_remote_path);
 
     // A temp file should exist on the local filesystem (not the remote path)

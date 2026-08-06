@@ -3,14 +3,13 @@ use fm::app::Tab;
 use fm::fs::utils::FileEntry;
 use fm::handlers::popup_delete::{handle_delete_event, handle_init_delete};
 use fm::tasks::TaskEvent;
-use std::path::Path;
 use termina::event::KeyCode;
 use tokio::sync::mpsc;
 
 fn basic_app_with_entry(name: &str) -> AppState {
     let (task_tx, _task_rx) = mpsc::unbounded_channel::<TaskEvent>();
 
-    let mut tab = Tab::new(Path::new("/tmp")).unwrap();
+    let mut tab = Tab::new(&std::env::temp_dir()).unwrap();
     tab.entries.clear();
     tab.entries.push(FileEntry {
         name: name.to_string(),
@@ -22,11 +21,11 @@ fn basic_app_with_entry(name: &str) -> AppState {
         selected: false,
     });
     tab.cursor = 0;
-    let mut left_tm = fm::app::TabManager::new(Path::new("/tmp")).unwrap();
+    let mut left_tm = fm::app::TabManager::new(&std::env::temp_dir()).unwrap();
     left_tm.tabs[0] = tab;
     fm::test_utils::TestAppBuilder::new()
         .left(left_tm)
-        .right(fm::app::TabManager::new(Path::new("/tmp")).unwrap())
+        .right(fm::app::TabManager::new(&std::env::temp_dir()).unwrap())
         .task_tx(task_tx)
         .build()
 }

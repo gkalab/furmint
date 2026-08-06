@@ -7,7 +7,6 @@ use fm::state::ssh::SshField;
 use fm::tasks::TaskEvent;
 #[cfg(unix)]
 use secrecy::ExposeSecret;
-use std::path::Path;
 use termina::event::{KeyCode, Modifiers};
 use tokio::sync::mpsc;
 
@@ -15,8 +14,8 @@ fn basic_app_state() -> AppState {
     let (task_tx, _task_rx) = mpsc::unbounded_channel::<TaskEvent>();
 
     fm::test_utils::TestAppBuilder::new()
-        .left(fm::app::TabManager::new(Path::new("/tmp")).unwrap())
-        .right(fm::app::TabManager::new(Path::new("/tmp")).unwrap())
+        .left(fm::app::TabManager::new(&std::env::temp_dir()).unwrap())
+        .right(fm::app::TabManager::new(&std::env::temp_dir()).unwrap())
         .task_tx(task_tx)
         .build()
 }

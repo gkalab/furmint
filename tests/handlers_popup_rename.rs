@@ -31,7 +31,7 @@ fn test_app_with_entry(name: &str, is_dir: bool, path: &std::path::Path) -> AppS
 
 #[test]
 fn test_init_rename_for_normal_file() {
-    let mut app = test_app_with_entry("myfile.txt", false, &std::path::PathBuf::from("/tmp"));
+    let mut app = test_app_with_entry("myfile.txt", false, &std::env::temp_dir());
     handle_init_rename(&mut app);
     assert!(app.popups.rename.is_visible);
     assert_eq!(app.popups.rename.original_name, "myfile.txt");
@@ -41,14 +41,14 @@ fn test_init_rename_for_normal_file() {
 
 #[test]
 fn test_init_rename_skips_dotdot() {
-    let mut app = test_app_with_entry("..", true, &std::path::PathBuf::from("/tmp"));
+    let mut app = test_app_with_entry("..", true, &std::env::temp_dir());
     handle_init_rename(&mut app);
     assert!(!app.popups.rename.is_visible);
 }
 
 #[test]
 fn test_rename_typing_and_backspace() {
-    let mut app = test_app_with_entry("file.txt", false, &std::path::PathBuf::from("/tmp"));
+    let mut app = test_app_with_entry("file.txt", false, &std::env::temp_dir());
     handle_init_rename(&mut app);
     let orig = app.popups.rename.new_name.clone();
     handle_rename_event(KeyCode::Char('a'), Modifiers::NONE, &mut app);
@@ -59,7 +59,7 @@ fn test_rename_typing_and_backspace() {
 
 #[test]
 fn test_rename_esc_resets() {
-    let mut app = test_app_with_entry("other.txt", false, &std::path::PathBuf::from("/tmp"));
+    let mut app = test_app_with_entry("other.txt", false, &std::env::temp_dir());
     handle_init_rename(&mut app);
     assert!(app.popups.rename.is_visible);
     handle_rename_event(KeyCode::Escape, Modifiers::NONE, &mut app);
@@ -68,7 +68,7 @@ fn test_rename_esc_resets() {
 
 #[test]
 fn test_rename_enter_same_name_resets() {
-    let mut app = test_app_with_entry("foo.txt", false, &std::path::PathBuf::from("/tmp"));
+    let mut app = test_app_with_entry("foo.txt", false, &std::env::temp_dir());
     handle_init_rename(&mut app);
     assert!(app.popups.rename.is_visible);
     handle_rename_event(KeyCode::Enter, Modifiers::NONE, &mut app);
@@ -77,7 +77,7 @@ fn test_rename_enter_same_name_resets() {
 
 #[test]
 fn test_rename_navigation() {
-    let mut app = test_app_with_entry("test.txt", false, &std::path::PathBuf::from("/tmp"));
+    let mut app = test_app_with_entry("test.txt", false, &std::env::temp_dir());
     handle_init_rename(&mut app);
     // Original name is test.txt, stem is test (len 4), cursor should be at 4
     assert_eq!(app.popups.rename.cursor_position, 4);
