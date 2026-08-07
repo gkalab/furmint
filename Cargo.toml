@@ -106,3 +106,6 @@ incremental = true
 
 [lints.clippy]
 pedantic = "warn"
+
+[patch.crates-io]
+zune-core = "=0.5.1"
