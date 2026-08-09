@@ -3569,6 +3569,7 @@ dependencies = [
  "ed25519-dalek",
  "elliptic-curve",
  "enum_dispatch",
+ "flate2",
  "futures",
  "generic-array 1.4.4",
  "getrandom 0.4.3",

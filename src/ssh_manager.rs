@@ -164,7 +164,20 @@ impl SshManager {
             self.keepalive_interval,
         )
         .await
-        .map_err(|_e| SshError::Auth(AuthError::KeyAuthFailed))
+        .map_err(
+            |e| match e.downcast_ref::<crate::fs::fs_sftp_russh::PubkeyAuthError>() {
+                Some(crate::fs::fs_sftp_russh::PubkeyAuthError::AgentRejected) => SshError::Auth(
+                    AuthError::AgentError("Agent authentication failed".to_string()),
+                ),
+                Some(crate::fs::fs_sftp_russh::PubkeyAuthError::NoAuthMethods) => {
+                    SshError::Auth(AuthError::NoAuthMethodsAvailable)
+                }
+                Some(crate::fs::fs_sftp_russh::PubkeyAuthError::KeyRejected(_)) => {
+                    SshError::Auth(AuthError::KeyAuthFailed)
+                }
+                None => SshError::Auth(AuthError::KeyAuthFailed),
+            },
+        )
     }
 
     #[must_use]

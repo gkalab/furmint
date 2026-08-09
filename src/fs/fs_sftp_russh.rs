@@ -2,18 +2,18 @@
 //!
 //! This pure-Rust implementation is used on all platforms. It replaces the
 //! `ssh2`/`libssh2` backend, which had KEX negotiation failures against modern
-//! OpenSSH servers. On Unix, public-key authentication also tries the
-//! `SSH_AUTH_SOCK` ssh-agent before falling back to key files in `~/.ssh/`.
+//! OpenSSH servers. Public-key authentication tries the ssh-agent before
+//! falling back to key files in `~/.ssh/`: on Unix via `SSH_AUTH_SOCK`, on
+//! Windows via the OpenSSH named pipe (`\\.\pipe\openssh-ssh-agent`) with a
+//! `PuTTY` Pageant fallback.
 
 use crate::fs::fs_provider::FileSystemProvider;
 use crate::fs::utils::FileEntry;
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use russh::client;
-#[cfg(unix)]
 use russh::keys::agent::AgentIdentity;
-#[cfg(unix)]
-use russh::keys::agent::client::AgentClient;
+use russh::keys::agent::client::{AgentClient, AgentStream};
 use russh::keys::ssh_key;
 use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::{FileAttributes, OpenFlags};
@@ -37,9 +37,50 @@ impl client::Handler for SshClientHandler {
         &mut self,
         _key: &ssh_key::PublicKey,
     ) -> std::result::Result<bool, Self::Error> {
+        // NOTE: host keys are accepted unconditionally (no known_hosts/TOFU).
         Ok(true)
     }
 }
+
+/// Outcome of an ssh-agent public-key authentication attempt.
+enum AgentAuthOutcome {
+    /// An agent identity was accepted; the caller owns an authenticated session.
+    Authenticated,
+    /// No agent could be reached or it held no identities.
+    Unavailable,
+    /// The agent held identities, but the server rejected every one.
+    AllRejected,
+}
+
+/// Public-key authentication failure categories, so callers can distinguish an
+/// agent rejection from a key-file rejection for better diagnostics.
+#[derive(Debug)]
+pub enum PubkeyAuthError {
+    /// The ssh-agent was available and held identities, but the server
+    /// rejected every one of them.
+    AgentRejected,
+    /// No agent identity or key file was accepted; the last key-file error.
+    KeyRejected(String),
+    /// Neither an agent nor default key files were available.
+    NoAuthMethods,
+}
+
+impl std::fmt::Display for PubkeyAuthError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AgentRejected => write!(f, "Agent authentication failed"),
+            Self::KeyRejected(e) => f.write_str(e),
+            Self::NoAuthMethods => {
+                write!(
+                    f,
+                    "No ssh-agent or SSH key files available for authentication"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for PubkeyAuthError {}
 
 pub struct SftpFs {
     session: Arc<client::Handle<SshClientHandler>>,
@@ -91,12 +132,15 @@ impl SftpFs {
         .await
     }
 
-    /// Connect using public-key authentication: tries the ssh-agent
-    /// (`SSH_AUTH_SOCK`, Unix only) and then the default key files in `~/.ssh/`.
+    /// Connect using public-key authentication: tries the ssh-agent and then
+    /// the default key files in `~/.ssh/`. The agent is discovered on Unix via
+    /// `SSH_AUTH_SOCK`, on Windows via the OpenSSH named pipe with a Pageant
+    /// fallback.
     ///
     /// # Errors
     ///
-    /// Returns an error if the SSH connection fails or all identities are rejected.
+    /// Returns an error if the SSH connection fails or all identities are
+    /// rejected.
     pub async fn connect_pubkey(
         host: &str,
         port: u16,
@@ -113,23 +157,18 @@ impl SftpFs {
             .await
             .map_err(|e| anyhow!("SSH connect failed: {e}"))?;
 
-        #[cfg(unix)]
-        if Self::agent_auth(&mut handle, user).await? {
-            return Self::from_handle(handle, host.to_string(), user.to_string(), None).await;
+        let mut agent_rejected = false;
+        match Self::agent_auth(&mut handle, user).await {
+            AgentAuthOutcome::Authenticated => {
+                return Self::from_handle(handle, host.to_string(), user.to_string(), None).await;
+            }
+            AgentAuthOutcome::AllRejected => agent_rejected = true,
+            AgentAuthOutcome::Unavailable => {}
         }
 
         let keys = find_default_ssh_keys();
         if keys.is_empty() {
-            #[cfg(unix)]
-            {
-                return Err(anyhow!(
-                    "No ssh-agent or SSH key files available for authentication"
-                ));
-            }
-            #[cfg(not(unix))]
-            {
-                return Err(anyhow!("No SSH key files found in ~/.ssh/"));
-            }
+            return Err(PubkeyAuthError::NoAuthMethods.into());
         }
 
         let mut last_err = anyhow!("All key authentication attempts failed");
@@ -161,23 +200,30 @@ impl SftpFs {
                 }
             }
         }
-        Err(last_err)
+        Err(if agent_rejected {
+            PubkeyAuthError::AgentRejected.into()
+        } else {
+            PubkeyAuthError::KeyRejected(last_err.to_string()).into()
+        })
     }
 
-    /// Attempt public-key authentication via the ssh-agent discovered through
-    /// the `SSH_AUTH_SOCK` environment variable. Returns `true` when an
-    /// identity was accepted (the caller then owns a successfully
-    /// authenticated session). No-op when no agent is available.
-    #[cfg(unix)]
-    async fn agent_auth(handle: &mut client::Handle<SshClientHandler>, user: &str) -> Result<bool> {
-        let Ok(mut agent) = AgentClient::connect_env().await else {
-            return Ok(false);
+    /// Attempt public-key authentication via the ssh-agent. Returns
+    /// `Authenticated` when an identity was accepted (the caller then owns a
+    /// successfully authenticated session), `AllRejected` when the agent held
+    /// identities but the server rejected every one, and `Unavailable` when no
+    /// agent could be reached or it had no identities.
+    async fn agent_auth(
+        handle: &mut client::Handle<SshClientHandler>,
+        user: &str,
+    ) -> AgentAuthOutcome {
+        let Ok(mut agent) = Self::connect_agent().await else {
+            return AgentAuthOutcome::Unavailable;
         };
         let Ok(identities) = agent.request_identities().await else {
-            return Ok(false);
+            return AgentAuthOutcome::Unavailable;
         };
         if identities.is_empty() {
-            return Ok(false);
+            return AgentAuthOutcome::Unavailable;
         }
 
         let rsa_hash: Option<russh::keys::HashAlg> = handle
@@ -186,6 +232,7 @@ impl SftpFs {
             .unwrap_or(None)
             .flatten();
 
+        let mut rejected_any = false;
         for identity in &identities {
             let result = match identity {
                 AgentIdentity::Certificate { certificate, .. } => {
@@ -205,10 +252,45 @@ impl SftpFs {
                 }
             };
             if matches!(result, Ok(russh::client::AuthResult::Success)) {
-                return Ok(true);
+                return AgentAuthOutcome::Authenticated;
+            }
+            rejected_any = true;
+        }
+        if rejected_any {
+            AgentAuthOutcome::AllRejected
+        } else {
+            AgentAuthOutcome::Unavailable
+        }
+    }
+
+    /// Connect to the platform's ssh-agent, boxing the differing stream types
+    /// so all connect paths share a single `AgentClient` type.
+    async fn connect_agent() -> anyhow::Result<AgentClient<Box<dyn AgentStream + Send + Unpin>>> {
+        #[cfg(unix)]
+        {
+            AgentClient::connect_env()
+                .await
+                .map_err(|e| anyhow!("Failed to connect to SSH agent: {e}"))?
+                .dynamic()
+        }
+        #[cfg(windows)]
+        {
+            match AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent").await {
+                Ok(agent) => Ok(agent.dynamic()),
+                Err(pipe_err) => AgentClient::connect_pageant()
+                    .await
+                    .map_err(|pageant_err| {
+                        anyhow!(
+                            "Failed to connect to SSH agent: {pipe_err}; Pageant: {pageant_err}"
+                        )
+                    })
+                    .map(AgentClient::dynamic),
             }
         }
-        Ok(false)
+        #[cfg(not(any(unix, windows)))]
+        {
+            Err(anyhow!("SSH agent is not supported on this platform"))
+        }
     }
 
     /// Open the SFTP subsystem over a freshly-authenticated session handle.
@@ -250,8 +332,14 @@ impl SftpFs {
         F: FnOnce(Arc<SftpSession>) -> Fut,
         Fut: std::future::Future<Output = Result<R>>,
     {
-        let sftp = Arc::clone(&self.sftp);
-        tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(f(sftp)))
+        let handle = tokio::runtime::Handle::try_current()
+            .map_err(|_| anyhow!("No Tokio runtime available for SFTP operation"))?;
+        if handle.runtime_flavor() != tokio::runtime::RuntimeFlavor::MultiThread {
+            return Err(anyhow!(
+                "SFTP operations require the multi-threaded Tokio runtime"
+            ));
+        }
+        tokio::task::block_in_place(|| handle.block_on(f(Arc::clone(&self.sftp))))
     }
 
     /// Recursively delete a remote directory via SFTP.
