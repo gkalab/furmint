@@ -268,10 +268,10 @@ impl SftpFs {
     async fn connect_agent() -> anyhow::Result<AgentClient<Box<dyn AgentStream + Send + Unpin>>> {
         #[cfg(unix)]
         {
-            AgentClient::connect_env()
+            Ok(AgentClient::connect_env()
                 .await
                 .map_err(|e| anyhow!("Failed to connect to SSH agent: {e}"))?
-                .dynamic()
+                .dynamic())
         }
         #[cfg(windows)]
         {
