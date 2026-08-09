@@ -33,7 +33,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: musl-binary
-          path: target/x86_64-unknown-linux-musl/release/*
+          path: target/x86_64-unknown-linux-musl/release/fm
 
   build-windows:
     name: Build Windows Release Binary
@@ -54,4 +54,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-binary
-          path: target/x86_64-pc-windows-msvc/release/*
+          path: target/x86_64-pc-windows-msvc/release/fm.exe
