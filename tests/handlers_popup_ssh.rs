@@ -5,7 +5,6 @@ use fm::handlers::popup_ssh::{
 };
 use fm::state::ssh::SshField;
 use fm::tasks::TaskEvent;
-#[cfg(unix)]
 use secrecy::ExposeSecret;
 use termina::event::{KeyCode, Modifiers};
 use tokio::sync::mpsc;
@@ -171,26 +170,127 @@ fn test_handle_reconnect_ssh_no_op_for_local() {
     assert!(!app.popups.ssh_password.is_visible);
 }
 
-#[cfg(unix)]
+/// Minimal stand-in for a remote (non-local) filesystem provider, used to test
+/// the reconnect handler without opening a real SSH connection.
+struct MockSftpProvider {
+    context: String,
+}
+
+impl MockSftpProvider {
+    fn new(user: &str, host: &str) -> Self {
+        Self {
+            context: format!("[{user}@{host}]"),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl fm::fs::fs_provider::FileSystemProvider for MockSftpProvider {
+    fn list_dir(&self, _path: &std::path::Path) -> anyhow::Result<Vec<fm::fs::utils::FileEntry>> {
+        unreachable!("not used by tests")
+    }
+
+    fn create_dir(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+        unreachable!("not used by tests")
+    }
+
+    fn create_file(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+        unreachable!("not used by tests")
+    }
+
+    fn delete(&self, _path: &std::path::Path, _recursive: bool) -> anyhow::Result<()> {
+        unreachable!("not used by tests")
+    }
+
+    fn rename(&self, _from: &std::path::Path, _to: &std::path::Path) -> anyhow::Result<()> {
+        unreachable!("not used by tests")
+    }
+
+    fn read_file(&self, _path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
+        unreachable!("not used by tests")
+    }
+
+    fn read_file_at(
+        &self,
+        _path: &std::path::Path,
+        _offset: u64,
+        _len: usize,
+    ) -> anyhow::Result<Vec<u8>> {
+        unreachable!("not used by tests")
+    }
+
+    fn write_file(&self, _path: &std::path::Path, _data: &[u8]) -> anyhow::Result<()> {
+        unreachable!("not used by tests")
+    }
+
+    fn write_file_at(
+        &self,
+        _path: &std::path::Path,
+        _offset: u64,
+        _data: &[u8],
+    ) -> anyhow::Result<()> {
+        unreachable!("not used by tests")
+    }
+
+    fn display_prefix(&self) -> &str {
+        &self.context
+    }
+
+    fn is_local(&self) -> bool {
+        false
+    }
+
+    fn exists(&self, _path: &std::path::Path) -> bool {
+        unreachable!("not used by tests")
+    }
+
+    fn is_dir(&self, _path: &std::path::Path) -> bool {
+        unreachable!("not used by tests")
+    }
+
+    fn canonicalize(&self, _path: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
+        unreachable!("not used by tests")
+    }
+
+    fn get_permissions(&self, _path: &std::path::Path) -> Option<u32> {
+        unreachable!("not used by tests")
+    }
+
+    fn set_permissions(&self, _path: &std::path::Path, _mode: u32) -> bool {
+        unreachable!("not used by tests")
+    }
+
+    fn get_modified_time(&self, _path: &std::path::Path) -> Option<std::time::SystemTime> {
+        unreachable!("not used by tests")
+    }
+
+    fn set_modified_time(&self, _path: &std::path::Path, _mtime: std::time::SystemTime) -> bool {
+        unreachable!("not used by tests")
+    }
+
+    fn context_key(&self) -> String {
+        self.context.clone()
+    }
+
+    fn display_path(&self, path: &std::path::Path) -> String {
+        path.to_string_lossy().to_string()
+    }
+
+    async fn calc_dir_size(&self, _path: &std::path::Path) -> anyhow::Result<u64> {
+        unreachable!("not used by tests")
+    }
+}
+
 #[test]
 fn test_handle_reconnect_ssh_sets_up_password_prompt() {
-    use fm::fs::fs_sftp::SftpFs;
-    use ssh2::Session;
-
     let mut app = basic_app_state();
 
-    // Create a mock SftpFs with mock session BEFORE registering session
-    // This is important because handle_reconnect_ssh uses active_tab() at the start
-    let mock_session = Session::new().unwrap();
-    let sftp_fs = SftpFs::new(
-        mock_session,
-        "example.com".to_string(),
-        "testuser".to_string(),
-        None,
-    );
+    // Create a mock remote provider BEFORE registering the session because
+    // handle_reconnect_ssh uses active_tab() at the start.
+    let mock_provider = MockSftpProvider::new("testuser", "example.com");
 
     // Replace the provider for left tab FIRST
-    app.left.active_tab_mut().provider = std::sync::Arc::new(sftp_fs);
+    app.left.active_tab_mut().provider = std::sync::Arc::new(mock_provider);
 
     // Register a mock SSH session AFTER setting up provider
     app.ssh_manager.register_session(

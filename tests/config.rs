@@ -52,7 +52,7 @@ fn test_merge_global_config_theme_validation() {
 
 #[test]
 fn test_merge_global_config_valid_theme() {
-    let valid_theme = THEME_NAMES.iter().next().unwrap().to_string();
+    let valid_theme = (*THEME_NAMES.iter().next().unwrap()).to_string();
     let user = Some(GlobalConfig {
         theme: Some(valid_theme.clone()),
         ..GlobalConfig::default()

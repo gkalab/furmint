@@ -2,9 +2,6 @@ use crate::config::SshConfig;
 use secrecy::{ExposeSecret, SecretString};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-#[cfg(unix)]
-use crate::fs::utils::find_default_ssh_keys;
-
 #[derive(Debug, Clone)]
 pub struct SessionState {
     pub session_id: String,
@@ -12,12 +9,6 @@ pub struct SessionState {
     pub port: u16,
     pub user: String,
     pub target_path: Option<String>,
-}
-
-#[derive(Debug)]
-pub enum SshManagerError {
-    JoinError(tokio::task::JoinError),
-    HardKill,
 }
 
 #[derive(Debug)]
@@ -159,102 +150,6 @@ impl SshManager {
         Ok((session_id, fs))
     }
 
-    #[cfg(unix)]
-    async fn try_connect_with_keys_backend(
-        &self,
-        host: String,
-        port: u16,
-        user: String,
-    ) -> Result<crate::fs::fs_sftp::SftpFs, SshError> {
-        let addr = format!("{host}:{port}");
-        let tcp = tokio::net::TcpStream::connect(&addr)
-            .await
-            .map_err(|e| SshError::Network(e.into()))?;
-        let tcp = tcp
-            .into_std()
-            .map_err(|e| SshError::Internal(e.to_string()))?;
-
-        let grace = Duration::from_secs(self.read_timeout_secs);
-        let hard = Duration::from_secs(self.watchdog_secs);
-        let keepalive = self.keepalive_interval;
-        let timeout_ms = u32::try_from(self.read_timeout_secs * 1000).unwrap();
-
-        self.spawn_blocking_with_watchdog(
-            move || -> Result<crate::fs::fs_sftp::SftpFs, SshError> {
-                let mut sess =
-                    ssh2::Session::new().map_err(|e| SshError::Internal(e.to_string()))?;
-                sess.set_timeout(timeout_ms);
-                sess.set_tcp_stream(tcp);
-                sess.handshake().map_err(|e| {
-                    let mut msg = e.to_string();
-                    if matches!(e.code(), ssh2::ErrorCode::Session(-5)) {
-                        msg.push_str(" (Check if your server requires modern SHA-2 RSA or Curve25519; ensure you're using ssh2 0.9.5+)");
-                    }
-                    SshError::Network(NetworkError::Other(msg))
-                })?;
-
-                let agent_result = sess.agent();
-                let mut agent_connected = false;
-                let mut agent_identity_count = 0;
-
-                if let Ok(mut agent) = agent_result {
-                    agent_connected = agent.connect().is_ok();
-                    if agent_connected
-                        && agent.list_identities().is_ok()
-                        && let Ok(identities) = agent.identities()
-                    {
-                        agent_identity_count = identities.len();
-                        for identity in identities {
-                            if agent.userauth(&user, &identity).is_ok() && sess.authenticated() {
-                                sess.set_compress(true);
-                                sess.set_keepalive(true, keepalive);
-                                return Ok(crate::fs::fs_sftp::SftpFs::new(
-                                    sess,
-                                    host.clone(),
-                                    user.clone(),
-                                    None,
-                                ));
-                            }
-                        }
-                    }
-                }
-
-                let keys = find_default_ssh_keys();
-                if keys.is_empty() && agent_identity_count == 0 {
-                    return Err(SshError::Auth(AuthError::NoAuthMethodsAvailable));
-                }
-
-                for key in keys {
-                    if sess.userauth_pubkey_file(&user, None, &key, None).is_ok()
-                        && sess.authenticated()
-                    {
-                        sess.set_compress(true);
-                        sess.set_keepalive(true, keepalive);
-                        return Ok(crate::fs::fs_sftp::SftpFs::new(
-                            sess,
-                            host.clone(),
-                            user.clone(),
-                            None,
-                        ));
-                    }
-                }
-
-                if agent_connected && agent_identity_count > 0 {
-                    Err(SshError::Auth(AuthError::AgentError(
-                        "Agent authentication failed".to_string(),
-                    )))
-                } else {
-                    Err(SshError::Auth(AuthError::KeyAuthFailed))
-                }
-            },
-            grace,
-            hard,
-        )
-        .await
-        .map_err(|e| SshError::Internal(format!("Connection error: {e:?}")))?
-    }
-
-    #[cfg(windows)]
     async fn try_connect_with_keys_backend(
         &self,
         host: String,
@@ -328,63 +223,6 @@ impl SshManager {
         Ok((session_id, fs))
     }
 
-    #[cfg(unix)]
-    async fn connect_ssh_backend(
-        &self,
-        host: String,
-        port: u16,
-        user: String,
-        password: SecretString,
-        _target_path: Option<String>,
-    ) -> Result<crate::fs::fs_sftp::SftpFs, SshError> {
-        let addr = format!("{host}:{port}");
-        let tcp = tokio::net::TcpStream::connect(&addr)
-            .await
-            .map_err(|e| SshError::Network(e.into()))?;
-        let tcp = tcp
-            .into_std()
-            .map_err(|e| SshError::Internal(e.to_string()))?;
-
-        let grace = Duration::from_secs(self.read_timeout_secs);
-        let hard = Duration::from_secs(self.watchdog_secs);
-        let keepalive = self.keepalive_interval;
-        let timeout_ms = u32::try_from(self.read_timeout_secs * 1000).unwrap();
-
-        self.spawn_blocking_with_watchdog(
-            move || -> Result<crate::fs::fs_sftp::SftpFs, SshError> {
-                let mut sess =
-                    ssh2::Session::new().map_err(|e| SshError::Internal(e.to_string()))?;
-                sess.set_timeout(timeout_ms);
-                sess.set_tcp_stream(tcp);
-                sess.handshake().map_err(|e| {
-                    let mut msg = e.to_string();
-                    if matches!(e.code(), ssh2::ErrorCode::Session(-5)) {
-                        msg.push_str(" (Check if your server requires modern SHA-2 RSA or Curve25519; ensure you're using ssh2 0.9.5+)");
-                    }
-                    SshError::Network(NetworkError::Other(msg))
-                })?;
-                sess.userauth_password(&user, password.expose_secret())
-                    .map_err(|_| SshError::Auth(AuthError::PasswordAuthFailed))?;
-                if !sess.authenticated() {
-                    return Err(SshError::Auth(AuthError::PasswordAuthFailed));
-                }
-                sess.set_compress(true);
-                sess.set_keepalive(true, keepalive);
-                Ok(crate::fs::fs_sftp::SftpFs::new(
-                    sess,
-                    host,
-                    user,
-                    Some(password),
-                ))
-            },
-            grace,
-            hard,
-        )
-        .await
-        .map_err(|e| SshError::Internal(format!("Connection failed: {e:?}")))?
-    }
-
-    #[cfg(windows)]
     async fn connect_ssh_backend(
         &self,
         host: String,
@@ -583,48 +421,6 @@ impl SshManager {
             }
         }
     }
-
-    /// Spawns a blocking operation with a watchdog timeout.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the operation times out or fails.
-    pub async fn spawn_blocking_with_watchdog<T, F>(
-        &self,
-        f: F,
-        grace: Duration,
-        hard: Duration,
-    ) -> Result<T, SshManagerError>
-    where
-        F: FnOnce() -> T + Send + 'static,
-        T: Send + 'static,
-    {
-        let mut jh = tokio::task::spawn_blocking(f);
-
-        tokio::select! {
-            join_res = &mut jh => {
-                match join_res {
-                    Ok(v) => Ok(v),
-                    Err(e) => Err(SshManagerError::JoinError(e)),
-                }
-            }
-            () = tokio::time::sleep(grace) => {
-                // Grace exceeded; attempt abort and wait for hard duration
-                jh.abort();
-                tokio::select! {
-                    join_res = &mut jh => {
-                        match join_res {
-                            Ok(v) => Ok(v),
-                            Err(e) => Err(SshManagerError::JoinError(e)),
-                        }
-                    }
-                    () = tokio::time::sleep(hard) => {
-                        Err(SshManagerError::HardKill)
-                    }
-                }
-            }
-        }
-    }
 }
 
 impl Default for SshManager {
@@ -684,42 +480,6 @@ mod tests {
             suffix.parse::<u64>().is_ok(),
             "suffix should be numeric: {suffix}"
         );
-    }
-
-    #[tokio::test]
-    async fn test_spawn_blocking_with_watchdog_success() {
-        let mgr = SshManager::new(None);
-
-        let res = mgr
-            .spawn_blocking_with_watchdog(
-                || {
-                    std::thread::sleep(std::time::Duration::from_millis(20));
-                    123
-                },
-                Duration::from_millis(100),
-                Duration::from_millis(100),
-            )
-            .await;
-
-        assert_eq!(res.unwrap(), 123);
-    }
-
-    #[tokio::test]
-    async fn test_spawn_blocking_with_watchdog_hard_kill() {
-        let mgr = SshManager::new(None);
-
-        let res = mgr
-            .spawn_blocking_with_watchdog(
-                || {
-                    std::thread::sleep(std::time::Duration::from_millis(300));
-                    5
-                },
-                Duration::from_millis(10),
-                Duration::from_millis(10),
-            )
-            .await;
-
-        assert!(matches!(res, Err(SshManagerError::HardKill)));
     }
 
     #[test]

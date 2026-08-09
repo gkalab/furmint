@@ -1,14 +1,19 @@
-//! Windows-only SFTP filesystem backend using russh + russh-sftp.
+//! SFTP filesystem backend using russh + russh-sftp.
 //!
-//! On Linux the existing `fs_sftp` module backed by `ssh2`/`libssh2` is used.
-//! On Windows `libssh2` has KEX negotiation failures against modern OpenSSH
-//! servers, so this pure-Rust implementation is used instead.
+//! This pure-Rust implementation is used on all platforms. It replaces the
+//! `ssh2`/`libssh2` backend, which had KEX negotiation failures against modern
+//! OpenSSH servers. On Unix, public-key authentication also tries the
+//! `SSH_AUTH_SOCK` ssh-agent before falling back to key files in `~/.ssh/`.
 
 use crate::fs::fs_provider::FileSystemProvider;
 use crate::fs::utils::FileEntry;
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use russh::client;
+#[cfg(unix)]
+use russh::keys::agent::AgentIdentity;
+#[cfg(unix)]
+use russh::keys::agent::client::AgentClient;
 use russh::keys::ssh_key;
 use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::{FileAttributes, OpenFlags};
@@ -86,11 +91,12 @@ impl SftpFs {
         .await
     }
 
-    /// Connect using public-key authentication (tries default key files in ~/.ssh/).
+    /// Connect using public-key authentication: tries the ssh-agent
+    /// (`SSH_AUTH_SOCK`, Unix only) and then the default key files in `~/.ssh/`.
     ///
     /// # Errors
     ///
-    /// Returns an error if the SSH connection fails or all found keys are rejected.
+    /// Returns an error if the SSH connection fails or all identities are rejected.
     pub async fn connect_pubkey(
         host: &str,
         port: u16,
@@ -107,14 +113,28 @@ impl SftpFs {
             .await
             .map_err(|e| anyhow!("SSH connect failed: {e}"))?;
 
+        #[cfg(unix)]
+        if Self::agent_auth(&mut handle, user).await? {
+            return Self::from_handle(handle, host.to_string(), user.to_string(), None).await;
+        }
+
         let keys = find_default_ssh_keys();
         if keys.is_empty() {
-            return Err(anyhow!("No SSH key files found in ~/.ssh/"));
+            #[cfg(unix)]
+            {
+                return Err(anyhow!(
+                    "No ssh-agent or SSH key files available for authentication"
+                ));
+            }
+            #[cfg(not(unix))]
+            {
+                return Err(anyhow!("No SSH key files found in ~/.ssh/"));
+            }
         }
 
         let mut last_err = anyhow!("All key authentication attempts failed");
         for key_path in &keys {
-            // Load the key via russh::keys::load_secret_key (re-exported or moved in 0.59)
+            // Load the key via russh::keys::load_secret_key.
             let key_pair = match russh::keys::load_secret_key(key_path, None) {
                 Ok(k) => k,
                 Err(e) => {
@@ -142,6 +162,53 @@ impl SftpFs {
             }
         }
         Err(last_err)
+    }
+
+    /// Attempt public-key authentication via the ssh-agent discovered through
+    /// the `SSH_AUTH_SOCK` environment variable. Returns `true` when an
+    /// identity was accepted (the caller then owns a successfully
+    /// authenticated session). No-op when no agent is available.
+    #[cfg(unix)]
+    async fn agent_auth(handle: &mut client::Handle<SshClientHandler>, user: &str) -> Result<bool> {
+        let Ok(mut agent) = AgentClient::connect_env().await else {
+            return Ok(false);
+        };
+        let Ok(identities) = agent.request_identities().await else {
+            return Ok(false);
+        };
+        if identities.is_empty() {
+            return Ok(false);
+        }
+
+        let rsa_hash: Option<russh::keys::HashAlg> = handle
+            .best_supported_rsa_hash()
+            .await
+            .unwrap_or(None)
+            .flatten();
+
+        for identity in &identities {
+            let result = match identity {
+                AgentIdentity::Certificate { certificate, .. } => {
+                    handle
+                        .authenticate_certificate_with(
+                            user,
+                            certificate.clone(),
+                            rsa_hash,
+                            &mut agent,
+                        )
+                        .await
+                }
+                AgentIdentity::PublicKey { key, .. } => {
+                    handle
+                        .authenticate_publickey_with(user, key.clone(), rsa_hash, &mut agent)
+                        .await
+                }
+            };
+            if matches!(result, Ok(russh::client::AuthResult::Success)) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// Open the SFTP subsystem over a freshly-authenticated session handle.
