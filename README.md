@@ -1,4 +1,27 @@
-A terminal file manager with dual-panel interface, tabs, and SSH/SFTP support.
+Furmint (fm), a terminal file manager with dual-panel interface, tabs, and SSH/SFTP support.
+
+## AI Disclosure
+This project started out as a vibe coding experiment and AI is heavily used for development.
+
+## State of the project
+Although I use it everyday, be aware that this is beta software - don't trust it with any of your data.
+
+## Why
+Why yet another file manager? 
+I’ve always wanted a cross-platform TUI file manager (Windows/Linux) with a dual-panel interface like Midnight Commander, 
+but with tabs and a different, more modern look.
+[fman] (https://fman.io/) was an inspiration for the GoTo on steroids (Ctrl+P) feature, [Yazi] (https://github.com/sxyazi/yazi) for the image preview.
+
+## Alternatives
+If you're looking for a stable, open-source, cross-platform, dual-panel file manager, there is
+[Midnight Commander] (https://github.com/MidnightCommander/mc) - TUI
+[Double Commander](https://github.com/doublecmd/doublecmd) - GUI
+
+## Key Features
+- Single file executable
+- Dual-panel interface
+- Tabs
+- SSH/SFTP remote connections
 
 ## Installation
 ```bash
@@ -6,25 +29,18 @@ cargo install fm
 ```
 
 ## Usage
-Run `fm` to start the file manager. Use arrow keys to navigate, Enter to open directories/files.
+Run `fm` to start Furmint. Use arrow keys to navigate, Enter to open directories/files, Tab to switch panels.
 
 ## Configuration
 Create a config file at:
 - Linux: `~/.config/fm/config.toml`
-- macOS: `~/Library/Application Support/fm/config.toml`
 - Windows: `%APPDATA%\fm\config.toml`
 
 Run `fm --create-config` to generate a default configuration.
 
-## Key Features
-- Dual-panel interface
-- Tabbed browsing per panel
-- SSH/SFTP remote connections
-- Configurable keyboard shortcuts
-- Multiple themes
-- File operations (copy, move, delete, rename)
-
-## Default Shortcuts
+## Main Default Shortcuts
+- `Arrow keys`: Navigate
+- `Tab`: Switch panels
 - `F1`: Help
 - `F2`: Rename
 - `F3`: File viewer
@@ -33,15 +49,13 @@ Run `fm --create-config` to generate a default configuration.
 - `F6`: Move
 - `F7`: New directory
 - `F9`: Open terminal
-- `F10`: Tasks
 - `Delete`: Delete
 - `Ctrl+Q`: Quit
+- `Ctrl+P`: Search/select recently used directories
 - `Ctrl+T`: New tab
 - `Ctrl+N`: Open SSH connection
-- `Tab`: Switch panels
-- `Arrow keys`: Navigate
 
-## Example
+## Example Configuration
 
 #### Example
 ```toml
