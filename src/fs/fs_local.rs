@@ -69,17 +69,26 @@ impl FileSystemProvider for LocalFs {
     }
 
     fn create_file(&self, path: &Path) -> Result<()> {
-        let is_zip = path
+        let ext = path
             .extension()
             .and_then(|s| s.to_str())
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"));
+            .unwrap_or("")
+            .to_lowercase();
 
-        if is_zip {
-            let file = std::fs::File::create(path)?;
-            let zip_writer = zip::ZipWriter::new(file);
-            zip_writer.finish()?;
-        } else {
-            std::fs::File::create(path)?;
+        match ext.as_str() {
+            "zip" => {
+                let file = std::fs::File::create(path)?;
+                let zip_writer = zip::ZipWriter::new(file);
+                zip_writer.finish()?;
+            }
+            "7z" => {
+                let writer = sevenz_rust2::ArchiveWriter::create(path)
+                    .map_err(|e| anyhow::anyhow!("Failed to create 7z archive: {e}"))?;
+                writer.finish()?;
+            }
+            _ => {
+                std::fs::File::create(path)?;
+            }
         }
         Ok(())
     }

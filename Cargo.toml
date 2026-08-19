@@ -53,6 +53,7 @@ russh-sftp = "2.3"
 secrecy = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+sevenz-rust2 = { version = "0.21", features = ["deflate", "zstd"] }
 shell-words = "1.1"
 tar = "0.4"
 tempfile = "3.27"

@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 pub mod common;
 pub mod gzip;
 pub mod rpm;
+pub mod sevenz;
 pub mod tar;
 pub mod zip;
 
@@ -90,6 +91,26 @@ pub trait ArchiveFormat: Send + Sync {
         ))
     }
 
+    /// Adds multiple files and directories to the archive in a single operation.
+    ///
+    /// The default implementation adds directories and files sequentially. Formats
+    /// that rewrite the whole archive should override this to batch everything into
+    /// one rewrite for better performance.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any entry cannot be added or if the format is read-only.
+    fn add_files_and_directories(
+        &self,
+        files: &[(&Path, &str)],
+        directories: &[(&str, Option<std::time::SystemTime>)],
+    ) -> Result<()> {
+        for (dest, mtime) in directories {
+            self.add_directory(dest, *mtime)?;
+        }
+        self.add_files(files)
+    }
+
     /// Sets the modified time of a file or directory within the archive.
     ///
     /// # Errors
@@ -133,6 +154,8 @@ pub fn get_archive_handler(path: &Path) -> Result<Box<dyn ArchiveFormat>> {
 
     if ext == "zip" || ext == "jar" {
         Ok(Box::new(zip::ZipHandler::new(path)))
+    } else if ext == "7z" {
+        Ok(Box::new(sevenz::SevenZHandler::new(path)))
     } else if ext == "tar"
         || (ext == "gz"
             && (std::path::Path::new(&stem).extension().is_some_and(|ext| {

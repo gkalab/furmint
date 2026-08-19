@@ -223,6 +223,10 @@ impl FileSystem for ProviderFileSystem {
         self.0.is_local()
     }
 
+    fn is_archive(&self) -> bool {
+        self.0.is_archive()
+    }
+
     fn get_password(&self) -> Option<SecretString> {
         self.0.get_password()
     }

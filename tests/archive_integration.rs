@@ -201,18 +201,18 @@ async fn test_open_supported_archive_tar_gz() {
 }
 
 #[tokio::test]
-async fn test_open_unsupported_archive_7z_fallback() {
+async fn test_open_unsupported_archive_fallback() {
     // 1. Setup
     let temp_dir = tempfile::tempdir().unwrap();
-    let archive_path = temp_dir.path().join("test.7z");
+    let archive_path = temp_dir.path().join("test.rar");
     File::create(&archive_path)
         .unwrap()
-        .write_all(b"dummy 7z content")
+        .write_all(b"dummy archive content")
         .unwrap();
 
     // 2. Setup AppState with MockOpener
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let entries = vec![create_file_entry("test.7z", false)];
+    let entries = vec![create_file_entry("test.rar", false)];
     let mock_opener = Arc::new(MockOpener::new());
     let mut app = test_app(entries, tx, mock_opener.clone());
 
@@ -237,6 +237,47 @@ async fn test_open_unsupported_archive_7z_fallback() {
     assert!(
         mock_opener.was_called(),
         "Fallback file opener should have been called for unsupported archive"
+    );
+}
+
+#[tokio::test]
+async fn test_open_corrupt_7z_shows_error() {
+    // 1. Setup: create a .7z file with invalid content
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive_path = temp_dir.path().join("test.7z");
+    File::create(&archive_path)
+        .unwrap()
+        .write_all(b"dummy 7z content")
+        .unwrap();
+
+    // 2. Setup AppState with MockOpener
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let entries = vec![create_file_entry("test.7z", false)];
+    let mock_opener = Arc::new(MockOpener::new());
+    let mut app = test_app(entries, tx, mock_opener.clone());
+
+    app.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
+    app.left.active_tab_mut().cursor = 0;
+
+    // 3. Trigger enter — 7z is now a supported extension, so it goes through
+    //    handle_open_archive. The corrupt content will cause an error event.
+    handle_enter(&mut app);
+
+    // 4. Verify: we get an error event (not ArchiveLoaded, not fallback to opener)
+    let event = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+        .await
+        .expect("timed out waiting for task event");
+    match event {
+        Some(TaskEvent::Error(_, _, msg)) => {
+            assert!(!msg.is_empty(), "Error message should not be empty");
+        }
+        other => panic!("Expected Error event, got {other:?}"),
+    }
+
+    // The fallback opener should NOT have been called
+    assert!(
+        !mock_opener.was_called(),
+        "Should not fall back to file opener for corrupt 7z"
     );
 }
 
@@ -1087,4 +1128,119 @@ async fn test_zip_rename() {
             .unwrap(),
         b"inner content"
     );
+}
+
+#[tokio::test]
+async fn test_zip_copy_directory_batch() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src = temp_dir.path().join("src");
+    std::fs::create_dir(&src).unwrap();
+    std::fs::write(src.join("top.txt"), b"top").unwrap();
+    let sub1 = src.join("sub1");
+    std::fs::create_dir(&sub1).unwrap();
+    std::fs::write(sub1.join("a.txt"), b"a").unwrap();
+    let sub2 = src.join("sub2");
+    std::fs::create_dir(&sub2).unwrap();
+    std::fs::write(sub2.join("c.txt"), b"c").unwrap();
+
+    let archive_path = temp_dir.path().join("tree_batch.zip");
+    let local_fs = fm::fs::fs_local::LocalFs::new();
+    local_fs.create_file(&archive_path).unwrap();
+
+    let src_fs = ProviderFileSystem(Arc::new(LocalFs::new()));
+    let archive_fs = ArchiveFs::new(&archive_path).unwrap();
+
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let progress = TaskProgressContext {
+        id: 77,
+        tx,
+        cancel: Arc::new(AtomicBool::new(false)),
+        processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+    };
+
+    archive_fs
+        .copy_from_local(&src_fs, &src, Path::new("tree"), &progress)
+        .await
+        .unwrap()
+        .unwrap();
+
+    for path in [
+        "tree/top.txt",
+        "tree/sub1",
+        "tree/sub1/a.txt",
+        "tree/sub2",
+        "tree/sub2/c.txt",
+    ] {
+        assert!(
+            archive_fs.get_entry(Path::new(path)).is_some(),
+            "{path} missing"
+        );
+    }
+    assert_eq!(
+        archive_fs.read_file(Path::new("tree/sub1/a.txt")).unwrap(),
+        b"a"
+    );
+}
+
+#[tokio::test]
+async fn test_recursive_op_copies_directory_tree_to_7z() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src = temp_dir.path().join("src");
+    std::fs::create_dir(&src).unwrap();
+    std::fs::write(src.join("top.txt"), b"top").unwrap();
+    let sub1 = src.join("sub1");
+    std::fs::create_dir(&sub1).unwrap();
+    std::fs::write(sub1.join("a.txt"), b"a").unwrap();
+    let sub2 = src.join("sub2");
+    std::fs::create_dir(&sub2).unwrap();
+    std::fs::write(sub2.join("b.txt"), b"b").unwrap();
+
+    let archive_path = temp_dir.path().join("ops_tree.7z");
+    let local_provider = LocalFs::new();
+    local_provider.create_file(&archive_path).unwrap();
+
+    let src_fs = ProviderFileSystem(Arc::new(LocalFs::new()));
+    let dest_fs = ProviderFileSystem(Arc::new(ArchiveFs::new(&archive_path).unwrap()));
+
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let processed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let (_, decision_rx) = mpsc::channel(8);
+    let decision_rx = Arc::new(tokio::sync::Mutex::new(decision_rx));
+
+    let total = 6; // src dir + top.txt + sub1 + a.txt + sub2 + b.txt
+    let ctx = fm::fs::ops::RecursiveOpContext {
+        src_fs: &src_fs,
+        dest_fs: &dest_fs,
+        src: &src,
+        dest: Path::new("tree"),
+        action: fm::app::CopyMoveAction::Copy,
+        cancel: &cancel,
+        tx: &tx,
+        id: 1,
+        total,
+        total_bytes: 0,
+        processed: &processed,
+        processed_bytes: &processed_bytes,
+        decision_rx: &decision_rx,
+    };
+    let mut decision_state = fm::fs::ops::DecisionState::new();
+    fm::fs::ops::recursive_op(ctx, &mut decision_state)
+        .await
+        .unwrap();
+
+    let archive_fs = ArchiveFs::new(&archive_path).unwrap();
+    for path in ["tree/top.txt", "tree/sub1/a.txt", "tree/sub2/b.txt"] {
+        assert!(
+            archive_fs.get_entry(Path::new(path)).is_some(),
+            "{path} missing"
+        );
+    }
+    assert_eq!(
+        archive_fs.read_file(Path::new("tree/sub1/a.txt")).unwrap(),
+        b"a"
+    );
+    assert_eq!(processed.load(Ordering::Relaxed), total);
 }

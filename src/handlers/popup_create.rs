@@ -158,7 +158,7 @@ async fn handle_post_create_actions(app: &mut AppState, path_buf: std::path::Pat
     let is_zip = path_buf
         .extension()
         .and_then(|s| s.to_str())
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"));
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("zip") || ext.eq_ignore_ascii_case("7z"));
 
     if is_zip {
         // Focus the file first so handle_enter can find it

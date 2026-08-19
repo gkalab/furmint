@@ -382,6 +382,11 @@ impl FileSystemProvider for ArchiveFs {
                     let mut files_to_add = Vec::new();
                     let mut dirs_to_add = Vec::new();
 
+                    // The destination directory itself (walkdir below skips the root).
+                    if !dest_str.is_empty() {
+                        dirs_to_add.push((dest_str.clone(), src.metadata()?.modified().ok()));
+                    }
+
                     // Walk directory and collect files/dirs
                     for entry in walkdir::WalkDir::new(&src) {
                         let entry = entry?;
@@ -403,17 +408,14 @@ impl FileSystemProvider for ArchiveFs {
                         }
                     }
 
-                    // Add directories first
-                    for (d_dest, mtime) in dirs_to_add {
-                        handler.add_directory(&d_dest, mtime)?;
-                    }
-
-                    // Batch add files
+                    // Batch add directories and files in a single rewrite
+                    let dirs_refs: Vec<(&str, Option<std::time::SystemTime>)> =
+                        dirs_to_add.iter().map(|(d, m)| (d.as_str(), *m)).collect();
                     let files_refs: Vec<(&Path, &str)> = files_to_add
                         .iter()
                         .map(|(p, d)| (p.as_path(), d.as_str()))
                         .collect();
-                    handler.add_files(&files_refs)?;
+                    handler.add_files_and_directories(&files_refs, &dirs_refs)?;
                 } else {
                     handler.add_file(&src, &dest_str)?;
                 }

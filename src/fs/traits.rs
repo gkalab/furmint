@@ -58,6 +58,9 @@ pub trait FileSystem: Send + Sync {
     ) -> anyhow::Result<()>;
     fn context_key(&self) -> String;
     fn is_local(&self) -> bool;
+    fn is_archive(&self) -> bool {
+        false
+    }
     fn get_password(&self) -> Option<SecretString> {
         None
     }

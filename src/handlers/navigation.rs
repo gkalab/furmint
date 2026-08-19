@@ -64,7 +64,7 @@ fn archive_path_and_ext(app: &mut AppState) -> Option<(PathBuf, String, String)>
             if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                 let ext = ext.to_lowercase();
                 if [
-                    "zip", "jar", "tar", "gz", "tgz", "bz2", "tbz2", "xz", "txz", "rpm",
+                    "zip", "jar", "7z", "tar", "gz", "tgz", "bz2", "tbz2", "xz", "txz", "rpm",
                 ]
                 .contains(&ext.as_str())
                 {

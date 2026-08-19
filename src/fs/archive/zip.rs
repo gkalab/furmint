@@ -275,6 +275,85 @@ impl ZipHandler {
 
         Ok(())
     }
+
+    fn do_add_files_and_directories(
+        &self,
+        files: &[(&Path, &str)],
+        directories: &[(&str, Option<SystemTime>)],
+    ) -> Result<()> {
+        let mut dest_names: Vec<String> = Vec::with_capacity(files.len() + directories.len());
+        for (_, dest) in files {
+            let dest_norm = common::normalize_path(dest).to_string_lossy().to_string();
+            dest_names.push(dest_norm);
+        }
+        for (dest, _) in directories {
+            let mut dest_str = dest.to_string();
+            if !dest_str.ends_with('/') {
+                dest_str.push('/');
+            }
+            let dest_norm = common::normalize_path(&dest_str)
+                .to_string_lossy()
+                .to_string();
+            dest_names.push(dest_norm);
+        }
+
+        // If any destination already exists, drop the old entries first so the
+        // appended ones replace them.
+        if dest_names.iter().any(|d| self.has_entry(d)) {
+            let skip_set: std::collections::HashSet<&String> = dest_names.iter().collect();
+            self.rewrite_all_entries(|writer, zip_file| {
+                let name_norm = common::normalize_path(zip_file.name())
+                    .to_string_lossy()
+                    .to_string();
+                if !skip_set.contains(&name_norm) {
+                    writer.raw_copy_file(zip_file)?;
+                }
+                Ok(())
+            })?;
+        }
+
+        // Append all entries in a single session.
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&self.path)
+            .or_else(|_| {
+                let f = File::create(&self.path)?;
+                zip::ZipWriter::new(f).finish()?;
+                std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(&self.path)
+            })?;
+
+        let mut writer =
+            zip::ZipWriter::new_append(file).context("Failed to open zip for appending")?;
+
+        for (dest, mtime) in directories {
+            let dest_norm = common::normalize_path(dest).to_string_lossy().to_string();
+            let options = SimpleFileOptions::default()
+                .last_modified_time(mtime.map_or_else(
+                    || Self::system_time_to_zip_dt(SystemTime::now()),
+                    Self::system_time_to_zip_dt,
+                ))
+                .unix_permissions(0o755);
+            writer.add_directory(dest_norm, options)?;
+        }
+        for (src, dest) in files {
+            let mut src_file = File::open(src).context("Failed to open source file")?;
+            let metadata = src_file.metadata()?;
+            let options = SimpleFileOptions::default()
+                .last_modified_time(metadata.modified().ok().map_or_else(
+                    || zip::DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).unwrap(),
+                    Self::system_time_to_zip_dt,
+                ))
+                .unix_permissions(Self::get_metadata_mode(&metadata));
+            writer.start_file(dest, options)?;
+            std::io::copy(&mut src_file, &mut writer)?;
+        }
+        writer.finish()?;
+        Ok(())
+    }
 }
 
 impl ArchiveFormat for ZipHandler {
@@ -557,13 +636,24 @@ impl ArchiveFormat for ZipHandler {
     }
 
     /// Adds multiple files to the archive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any file cannot be added or the archive cannot be rewritten.
     fn add_files(&self, files: &[(&Path, &str)]) -> Result<()> {
-        // Since add_file already optimizes with new_append for new entries,
-        // calling it in a loop is much faster than before.
-        // For even more performance, we could open the ZipWriter once here.
-        for (src, dest) in files {
-            self.add_file(src, dest)?;
-        }
-        Ok(())
+        self.do_add_files_and_directories(files, &[])
+    }
+
+    /// Adds multiple files and directories to the archive in a single operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any entry cannot be added or the archive cannot be rewritten.
+    fn add_files_and_directories(
+        &self,
+        files: &[(&Path, &str)],
+        directories: &[(&str, Option<SystemTime>)],
+    ) -> Result<()> {
+        self.do_add_files_and_directories(files, directories)
     }
 }

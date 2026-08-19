@@ -239,6 +239,13 @@ async fn handle_directory(
     let dest_exists = ctx.dest_fs.try_exists(dest).await.unwrap_or(false);
     let dest_is_dir = dest_exists && ctx.dest_fs.is_dir(dest).await.unwrap_or(false);
 
+    // For archive destinations, hand off the whole directory at once so the
+    // entire tree is added in a single batched rewrite (archives cannot append).
+    if ctx.dest_fs.is_archive() {
+        return handle_archive_directory(ctx, decision_state, src, dest, dest_exists, &progress)
+            .await;
+    }
+
     // For providers that handle extraction themselves (e.g. archives), ask before
     // we hand off control — but only when the destination already exists as a directory
     // (replacing a whole tree). A non-directory blocking the path is handled below.
@@ -264,6 +271,52 @@ async fn handle_directory(
 
     update_progress_and_postprocess(ctx, decision_state, src, stack);
     add_children_to_stack(ctx, src, dest, stack).await
+}
+
+async fn handle_archive_directory(
+    ctx: &RecursiveOpContext<'_>,
+    decision_state: &mut DecisionState,
+    src: &std::path::Path,
+    dest: &std::path::Path,
+    dest_exists: bool,
+    progress: &crate::fs::traits::TaskProgressContext,
+) -> Result<()> {
+    let tree_count = count_items(ctx.src_fs, &[src.to_path_buf()]).await;
+    let mark_processed = |ctx: &RecursiveOpContext<'_>| {
+        let p = ctx
+            .processed
+            .fetch_add(tree_count, std::sync::atomic::Ordering::Relaxed)
+            + tree_count;
+        let _ = ctx.tx.send(crate::tasks::TaskEvent::UpdateProgress(
+            ctx.id, p, ctx.total,
+        ));
+    };
+
+    if dest_exists {
+        match resolve_conflict(ctx, decision_state, dest).await? {
+            ConflictResult::Perform => {}
+            ConflictResult::Skip => {
+                mark_processed(ctx);
+                return Ok(());
+            }
+            ConflictResult::Cancel => return Ok(()),
+        }
+    }
+
+    let res = ctx
+        .dest_fs
+        .copy_from_local(ctx.src_fs, src, dest, progress)
+        .await;
+    if let Some(res) = res {
+        if res.is_ok()
+            && let Some(mtime) = ctx.src_fs.get_modified_time(src).await
+        {
+            let _ = ctx.dest_fs.set_modified_time(dest, mtime).await;
+        }
+        mark_processed(ctx);
+        return res;
+    }
+    Ok(())
 }
 
 async fn handle_copy_to_local_with_existing_dir(
