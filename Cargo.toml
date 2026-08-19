@@ -20,7 +20,7 @@ flate2 = "1.1"
 fuzzy-matcher = "0.3"
 image = { version = "0.25", features = ["default"] }
 libc = "0.2"
-lumis = { version = "0.11", default-features = false, features = [
+lumis = { version = "0.13", default-features = false, features = [
     "lang-bash",
     "lang-c",
     "lang-cmake",
