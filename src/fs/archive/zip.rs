@@ -100,8 +100,16 @@ impl ZipHandler {
         ) -> Result<()>,
     {
         let parent = self.path.parent().unwrap_or(Path::new("."));
-        let mut temp_file = tempfile::NamedTempFile::new_in(parent)?;
+
+        let mut temp_file = match tempfile::NamedTempFile::new_in(parent) {
+            Ok(t) => t,
+            Err(e) => tempfile::NamedTempFile::new().map_err(|err| {
+                anyhow::anyhow!("Failed to create zip temp file ({e}; fallback {err})")
+            })?,
+        };
         let temp_path = temp_file.path().to_path_buf();
+        let temp_in_parent = temp_path.parent() == Some(parent);
+
         {
             let file = File::open(&self.path).context("Failed to open archive")?;
             let mut archive = zip::ZipArchive::new(file).context("Failed to read zip")?;
@@ -113,8 +121,25 @@ impl ZipHandler {
             }
             writer.finish()?;
         }
-        std::fs::rename(temp_path, &self.path)?;
-        Ok(())
+
+        // Flush to disk and fully close all handles before installing the new
+        // archive (some filesystems refuse to rename a file that is still open).
+        temp_file.as_file().sync_all().ok();
+        temp_file
+            .keep()
+            .context("Failed to finalize zip temp file")?;
+
+        if temp_in_parent && std::fs::rename(&temp_path, &self.path).is_ok() {
+            return Ok(());
+        }
+
+        // Fallback: replace the archive in place. Only write access to the
+        // archive file itself is required, so this works on mounts that reject
+        // rename-over-existing (e.g. vboxsf shared folders).
+        let res = common::replace_file_in_place(temp_path.as_path(), self.path.as_path())
+            .context("Failed to replace zip archive");
+        common::remove_or_truncate_temp(&temp_path);
+        res
     }
 }
 

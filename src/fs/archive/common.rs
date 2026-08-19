@@ -1,5 +1,6 @@
 use crate::fs::fs_archive::ArchiveEntry;
 use crate::fs::utils::FileEntry;
+use anyhow::{Context, Result};
 use filetime::{FileTime, set_file_handle_times, set_file_mtime};
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
@@ -147,6 +148,49 @@ pub fn preserve_mtimes(mut dir_mtimes: Vec<(PathBuf, SystemTime)>) {
     dir_mtimes.sort_by_key(|b| std::cmp::Reverse(b.0.as_os_str().len()));
     for (dir, mtime) in dir_mtimes {
         let _ = set_file_mtime(&dir, FileTime::from_system_time(mtime));
+    }
+}
+
+/// Replaces the contents of `to` with the contents of `from` in place.
+///
+/// The destination is truncated and rewritten in place, so its inode, ownership
+/// and permissions are preserved and only write access to the file itself is
+/// required (no write access to the containing directory). This is used as a
+/// fallback when a same-directory atomic rename is unsupported (e.g. vboxsf
+/// shared folders).
+///
+/// # Errors
+///
+/// Returns an error if `from` cannot be read or `to` cannot be opened or written.
+pub fn replace_file_in_place(from: &Path, to: &Path) -> Result<()> {
+    let mut src =
+        std::fs::File::open(from).with_context(|| format!("Failed to open {}", from.display()))?;
+    let mut dst = std::fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(to)
+        .with_context(|| format!("Failed to open {} for writing", to.display()))?;
+    std::io::copy(&mut src, &mut dst)
+        .with_context(|| format!("Failed to copy {} over {}", from.display(), to.display()))?;
+    dst.sync_all()
+        .with_context(|| format!("Failed to sync {}", to.display()))?;
+    Ok(())
+}
+
+/// Best-effort cleanup of a stale archive rewrite temp file.
+///
+/// Tries to remove it; if the mount will not let the guest unlink its own files,
+/// truncates it to zero bytes so it wastes no disk space. Errors are ignored.
+pub fn remove_or_truncate_temp(path: &Path) {
+    if std::fs::remove_file(path).is_ok() {
+        return;
+    }
+    if let Ok(f) = std::fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(path)
+    {
+        let _ = f.sync_all();
     }
 }
 
