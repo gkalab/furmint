@@ -279,8 +279,7 @@ fn handle_open_archive(app: &mut AppState, path: &PathBuf, filename: String) {
             match crate::app::Tab::with_provider(&std::path::PathBuf::from("/"), provider) {
                 Ok(mut tab) => {
                     tab.custom_title = Some(filename);
-                    manager.tabs.push(tab);
-                    manager.active_tab_index = manager.tabs.len() - 1;
+                    manager.insert_tab_after_active(tab);
                     // Set active panel
                     app.active = if side_index == 0 {
                         crate::app::PanelSide::Left

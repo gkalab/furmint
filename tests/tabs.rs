@@ -128,3 +128,69 @@ fn test_new_tab_with_provider() {
     assert_eq!(manager.tabs.len(), 2);
     assert_eq!(manager.active_tab().current_dir, test_path.to_path_buf());
 }
+
+#[test]
+fn test_new_tab_inserts_after_active_tab() {
+    let mut manager = TabManager::new(Path::new(".")).unwrap();
+    let provider = Arc::new(fm::fs::fs_local::LocalFs::new());
+
+    // Create two more tabs -> tabs: [0, 1, 2], active: 2
+    manager
+        .new_tab_with_provider(Path::new(".."), provider.clone(), None)
+        .unwrap();
+    manager
+        .new_tab_with_provider(Path::new(".."), provider.clone(), None)
+        .unwrap();
+    assert_eq!(manager.tabs.len(), 3);
+    assert_eq!(manager.active_tab_index, 2);
+
+    // Switch back to the first tab, then open a new tab
+    manager.active_tab_index = 0;
+    manager
+        .new_tab_with_provider(Path::new(".."), provider, None)
+        .unwrap();
+
+    assert_eq!(manager.tabs.len(), 4);
+    // New tab must be right after the previously active tab (index 0), not at the end
+    assert_eq!(manager.active_tab_index, 1);
+    assert_eq!(manager.tabs[1].current_dir, Path::new("..").to_path_buf());
+}
+
+#[test]
+fn test_close_tab_activates_previous_tab() {
+    let mut manager = TabManager::new(Path::new(".")).unwrap();
+    let provider = Arc::new(fm::fs::fs_local::LocalFs::new());
+
+    manager
+        .new_tab_with_provider(Path::new(".."), provider.clone(), None)
+        .unwrap();
+    manager
+        .new_tab_with_provider(Path::new(".."), provider.clone(), None)
+        .unwrap();
+    assert_eq!(manager.tabs.len(), 3);
+
+    // Close the middle tab (active = 1); previous tab (index 0) must become active
+    manager.active_tab_index = 1;
+    assert!(manager.close_tab(1));
+    assert_eq!(manager.tabs.len(), 2);
+    assert_eq!(manager.active_tab_index, 0);
+    assert_eq!(manager.tabs[0].current_dir, Path::new(".").to_path_buf());
+
+    // Close the first tab; no previous exists, so the new first tab becomes active
+    assert!(manager.close_tab(0));
+    assert_eq!(manager.tabs.len(), 1);
+    assert_eq!(manager.active_tab_index, 0);
+
+    // Close a non-active tab before the active one
+    manager
+        .new_tab_with_provider(Path::new(".."), provider.clone(), None)
+        .unwrap();
+    manager
+        .new_tab_with_provider(Path::new(".."), provider.clone(), None)
+        .unwrap();
+    manager.active_tab_index = 2;
+    assert!(manager.close_tab(0));
+    assert_eq!(manager.tabs.len(), 2);
+    // Active tab stays on the same logical tab, now shifted to index 1
+    assert_eq!(manager.active_tab_index, 1);
+}

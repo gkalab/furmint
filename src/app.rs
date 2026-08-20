@@ -610,8 +610,7 @@ impl AppState {
 
                 tab.custom_title = connection_name;
                 let tab_manager = self.active_tab_manager_mut();
-                tab_manager.tabs.push(tab);
-                tab_manager.active_tab_index = tab_manager.tabs.len() - 1;
+                tab_manager.insert_tab_after_active(tab);
             }
             Err(e) => {
                 self.active_tab_mut().error = Some(format!("Failed to browse SFTP: {e}"));

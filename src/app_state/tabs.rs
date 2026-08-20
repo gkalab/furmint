@@ -988,6 +988,13 @@ impl TabManager {
         &mut self.tabs[self.active_tab_index]
     }
 
+    /// Inserts a tab immediately after the currently active tab and makes it active.
+    pub fn insert_tab_after_active(&mut self, tab: Tab) {
+        let new_index = self.active_tab_index + 1;
+        self.tabs.insert(new_index, tab);
+        self.active_tab_index = new_index;
+    }
+
     /// Creates a new tab at the specified path.
     ///
     /// # Errors
@@ -1020,8 +1027,7 @@ impl TabManager {
             tab.cursor = pos;
         }
 
-        self.tabs.push(tab);
-        self.active_tab_index = self.tabs.len() - 1;
+        self.insert_tab_after_active(tab);
         Ok(())
     }
 
@@ -1035,9 +1041,12 @@ impl TabManager {
 
     pub fn close_tab(&mut self, index: usize) -> bool {
         if self.tabs.len() > 1 {
+            let active = self.active_tab_index;
             self.tabs.remove(index);
-            if self.active_tab_index >= self.tabs.len() {
-                self.active_tab_index = self.tabs.len() - 1;
+            if index == active {
+                self.active_tab_index = active.saturating_sub(1);
+            } else if index < active {
+                self.active_tab_index = active - 1;
             }
             true
         } else {

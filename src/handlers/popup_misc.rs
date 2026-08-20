@@ -222,9 +222,7 @@ fn handle_archive_loaded(
     match crate::app::Tab::with_provider(&std::path::PathBuf::from("/"), provider) {
         Ok(mut tab) => {
             tab.custom_title = Some(filename);
-            manager.tabs.push(tab);
-            let new_index = manager.tabs.len() - 1;
-            manager.active_tab_index = new_index;
+            manager.insert_tab_after_active(tab);
 
             // Set active panel to this side
             if side_index == 0 {
