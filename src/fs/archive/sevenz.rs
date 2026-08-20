@@ -120,6 +120,17 @@ impl SevenZHandler {
         entry.has_last_modified_date = true;
     }
 
+    /// Interprets a stored 7z file attribute as a Unix mode when it carries
+    /// file-type bits (p7zip writes the full `st_mode` when the archive's host
+    /// OS is Unix, including `S_IFREG`/`S_IFDIR` in the high nibble).
+    fn unix_mode(attrs: u32) -> Option<u32> {
+        if attrs & 0xF000 != 0 {
+            Some(attrs & 0xFFFF)
+        } else {
+            None
+        }
+    }
+
     fn do_scan(&self) -> Result<ScanResult> {
         let reader = self.open_reader()?;
         let files = reader.archive().files.clone();
@@ -136,7 +147,11 @@ impl SevenZHandler {
             } else {
                 None
             };
-            let attributes = if is_dir {
+            let attributes = if file.has_windows_attributes
+                && let Some(mode) = Self::unix_mode(file.windows_attributes)
+            {
+                crate::fs::utils::mode_to_attributes(mode, is_dir, false)
+            } else if is_dir {
                 "drwxr-xr-x".to_string()
             } else if file.has_windows_attributes && file.windows_attributes & 0x1 != 0 {
                 "-r--r--r--".to_string()
@@ -210,9 +225,9 @@ impl SevenZHandler {
                     None
                 };
                 let mode = if entry.is_directory {
-                    Some(0o040_755)
+                    Some(Self::unix_mode(entry.windows_attributes).unwrap_or(0o040_755))
                 } else {
-                    Some(0o100_644)
+                    Some(Self::unix_mode(entry.windows_attributes).unwrap_or(0o100_644))
                 };
 
                 common::handle_extraction_entry(
@@ -319,12 +334,23 @@ impl SevenZHandler {
                 for (dest, mtime) in prepared_dirs {
                     let mut entry = ArchiveEntry::new_directory(&dest);
                     Self::set_entry_mtime(&mut entry, mtime);
+                    #[cfg(unix)]
+                    {
+                        entry.windows_attributes = 0o040_755;
+                        entry.has_windows_attributes = true;
+                    }
                     writer.push_archive_entry(entry, None::<&mut dyn Read>)?;
                 }
                 for (src, dest, mtime) in prepared_files {
                     let mut entry = ArchiveEntry::from_path(&src, dest);
                     if let Some(mtime) = mtime {
                         Self::set_entry_mtime(&mut entry, mtime);
+                    }
+                    #[cfg(unix)]
+                    if let Ok(meta) = std::fs::metadata(&src) {
+                        use std::os::unix::fs::PermissionsExt;
+                        entry.windows_attributes = meta.permissions().mode();
+                        entry.has_windows_attributes = true;
                     }
                     let file = File::open(&src).map_err(|e| {
                         sevenz_rust2::Error::Io(e, src.to_string_lossy().to_string().into())
