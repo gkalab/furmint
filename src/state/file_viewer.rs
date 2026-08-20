@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 use ratatui_image::ResizeEncodeRender;
@@ -23,6 +25,8 @@ pub struct FileViewerState {
     pub resize_tx: Option<UnboundedSender<ratatui_image::thread::ResizeRequest>>,
     pub picker: Option<ratatui_image::picker::Picker>,
     pub image_load_tx: Option<UnboundedSender<ImageLoadResult>>,
+    pub content_load_tx: Option<UnboundedSender<ContentLoadResult>>,
+    pub content_load_id: usize,
     pub is_loading: bool,
     pub current_load_id: usize,
     pub area: ratatui::layout::Rect,
@@ -37,6 +41,7 @@ pub struct FileViewerState {
     pub current_search_match: Option<(usize, usize, usize)>, // (line_idx, start_char, end_char)
     pub image_zoom: ImageZoomState,
     pub archive_rows: Option<Vec<crate::fs::archive::preview::ArchiveTreeRow>>,
+    cancel_flag: Option<Arc<AtomicBool>>,
 }
 
 /// State for viewing an image at higher than "fit" magnification.
@@ -157,6 +162,14 @@ pub struct ImageLoadResult {
     pub image: Option<image::DynamicImage>,
 }
 
+pub struct ContentLoadResult {
+    pub load_id: usize,
+    pub path: PathBuf,
+    pub content: Vec<String>,
+    pub archive_rows: Option<Vec<crate::fs::archive::preview::ArchiveTreeRow>>,
+    pub language: lumis::languages::Language,
+}
+
 impl FileViewerState {
     #[must_use]
     pub fn new(is_dark_theme: bool, app_theme_name: &str) -> Self {
@@ -195,6 +208,8 @@ impl FileViewerState {
             resize_tx: None,
             picker: None,
             image_load_tx: None,
+            content_load_tx: None,
+            content_load_id: 0,
             is_loading: false,
             current_load_id: 0,
             area: ratatui::layout::Rect::default(),
@@ -207,6 +222,7 @@ impl FileViewerState {
             current_search_match: None,
             image_zoom: ImageZoomState::default(),
             archive_rows: None,
+            cancel_flag: None,
         }
     }
 
@@ -226,6 +242,19 @@ impl FileViewerState {
         self.current_search_match = None;
         self.image_zoom.reset();
         self.archive_rows = None;
+    }
+
+    fn cancel_background_load(&mut self) {
+        if let Some(flag) = self.cancel_flag.take() {
+            flag.store(true, Ordering::Relaxed);
+        }
+    }
+
+    fn new_cancel_flag(&mut self) -> Arc<AtomicBool> {
+        self.cancel_background_load();
+        let flag = Arc::new(AtomicBool::new(false));
+        self.cancel_flag = Some(flag.clone());
+        flag
     }
 
     /// Drop the decoded image, its scaled cache and any installed protocol.
@@ -331,9 +360,10 @@ impl FileViewerState {
             self.is_loading = true;
             self.current_load_id += 1;
             let load_id = self.current_load_id;
+            let image_tx_clone = image_tx.clone();
+            let cancel_flag = self.new_cancel_flag();
             let path_clone = path.to_path_buf();
             let provider_clone = std::sync::Arc::clone(provider);
-            let image_tx_clone = image_tx.clone();
             let picker = self.picker.clone();
 
             tokio::spawn(async move {
@@ -370,6 +400,9 @@ impl FileViewerState {
                 .await
                 .unwrap_or_else(|e| (Err(e.to_string()), None));
 
+                if cancel_flag.load(Ordering::Relaxed) {
+                    return;
+                }
                 let _ = image_tx_clone.send(ImageLoadResult {
                     load_id,
                     path: path_for_result,
@@ -388,6 +421,7 @@ impl FileViewerState {
         size: Option<u64>,
         limit_bytes: u64,
     ) {
+        self.cancel_background_load();
         self.reset();
         self.path.clone_from(&path.to_path_buf());
         if provider.is_dir(path) {
@@ -422,20 +456,12 @@ impl FileViewerState {
             return;
         }
 
-        // Archive tree preview
+        // Archive tree preview — scan in background to avoid blocking the UI
         if provider.is_local()
             && let Ok(handler) = crate::fs::archive::get_archive_handler(path)
-            && let Ok(scan_result) = handler.scan()
         {
-            let rows = crate::fs::archive::preview::build_archive_tree(&scan_result);
-            if !rows.is_empty() {
-                self.content = rows
-                    .iter()
-                    .map(|r| format!("{}{}", r.prefix, r.name))
-                    .collect();
-                self.archive_rows = Some(rows);
-                return;
-            }
+            self.spawn_archive_scan(handler);
+            return;
         }
 
         self.language =
@@ -502,7 +528,7 @@ impl FileViewerState {
         if res.load_id == 0 {
             return;
         }
-        if res.load_id != self.current_load_id {
+        if res.load_id != self.current_load_id || res.path != self.path {
             return;
         }
         self.is_loading = false;
@@ -523,6 +549,69 @@ impl FileViewerState {
                 self.content = vec![format!("Error loading image: {e}")];
             }
         }
+    }
+
+    pub fn handle_content_load_result(&mut self, res: ContentLoadResult) {
+        if res.load_id != self.content_load_id || res.path != self.path {
+            return;
+        }
+        self.is_loading = false;
+        self.content = res.content;
+        self.archive_rows = res.archive_rows;
+        self.language = res.language;
+    }
+
+    fn spawn_archive_scan(&mut self, handler: Box<dyn crate::fs::archive::ArchiveFormat>) {
+        self.is_loading = true;
+        self.content_load_id += 1;
+        let load_id = self.content_load_id;
+        let cancel_flag = self.new_cancel_flag();
+        let path = self.path.clone();
+        let Some(tx) = self.content_load_tx.clone() else {
+            return;
+        };
+        tokio::spawn(async move {
+            let result = tokio::task::spawn_blocking(move || handler.scan())
+                .await
+                .unwrap_or_else(|e| Err(anyhow::anyhow!(e.to_string())));
+            if cancel_flag.load(Ordering::Relaxed) {
+                return;
+            }
+            let load_result = match result {
+                Ok(scan_result) => {
+                    let rows = crate::fs::archive::preview::build_archive_tree(&scan_result);
+                    if rows.is_empty() {
+                        ContentLoadResult {
+                            load_id,
+                            path,
+                            content: Vec::new(),
+                            archive_rows: None,
+                            language: lumis::languages::Language::default(),
+                        }
+                    } else {
+                        let content = rows
+                            .iter()
+                            .map(|r| format!("{}{}", r.prefix, r.name))
+                            .collect();
+                        ContentLoadResult {
+                            load_id,
+                            path,
+                            content,
+                            archive_rows: Some(rows),
+                            language: lumis::languages::Language::default(),
+                        }
+                    }
+                }
+                Err(e) => ContentLoadResult {
+                    load_id,
+                    path,
+                    content: vec![format!("Error scanning archive: {e}")],
+                    archive_rows: None,
+                    language: lumis::languages::Language::default(),
+                },
+            };
+            let _ = tx.send(load_result);
+        });
     }
 
     #[must_use]

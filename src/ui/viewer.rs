@@ -80,9 +80,32 @@ pub fn draw_file_viewer(
     }
 
     if viewer.content.is_empty() && viewer.large_file_indexer.is_none() {
+        if viewer.is_loading {
+            let loading_style = Style::default().fg(Color::Rgb(
+                palette.overlay0.r,
+                palette.overlay0.g,
+                palette.overlay0.b,
+            ));
+            f.render_widget(
+                Paragraph::new(Line::from(Span::styled("  Loading...", loading_style))),
+                inner_area,
+            );
+        }
         return;
     }
 
+    render_text_content(f, viewer, area, inner_area, palette, borders, icons_enabled);
+}
+
+fn render_text_content(
+    f: &mut ratatui::Frame,
+    viewer: &mut FileViewerState,
+    area: Rect,
+    inner_area: Rect,
+    palette: &ThemePalette,
+    borders: bool,
+    icons_enabled: bool,
+) {
     let visible_lines = viewer.visible_lines();
     let (max_lines, is_large_file) = if let Some(indexer) = &viewer.large_file_indexer {
         (indexer.total_lines(), true)
@@ -90,8 +113,6 @@ pub fn draw_file_viewer(
         (viewer.content.len(), false)
     };
 
-    // Clamp scroll offset so the last line sits at the bottom of the viewport
-    // (clamped locally without mutating state during the draw pass).
     let max_scroll = max_lines.saturating_sub(visible_lines);
     let start_line = viewer.scroll_offset.min(max_scroll);
     let end_line = (start_line + visible_lines).min(max_lines);
@@ -124,7 +145,6 @@ pub fn draw_file_viewer(
 
     f.render_widget(Paragraph::new(lines), inner_area);
 
-    // Scrollbar
     let scroll_area = Rect {
         x: area.x + area.width - 1,
         y: area.y + 1,

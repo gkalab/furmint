@@ -50,6 +50,7 @@ pub(crate) struct EventSources<'a> {
     pub watcher_rx: &'a mut UnboundedReceiver<crate::fs::watcher::WatcherEvent>,
     pub task_rx: &'a mut UnboundedReceiver<crate::tasks::TaskEvent>,
     pub image_load_rx: &'a mut UnboundedReceiver<crate::state::ImageLoadResult>,
+    pub content_load_rx: &'a mut UnboundedReceiver<crate::state::ContentLoadResult>,
 }
 
 /// Runs the main event loop for the application.
@@ -165,6 +166,11 @@ where
                             // Handle image load results
                             Some(load_result) = sources.image_load_rx.recv() => {
                                 app.file_viewer.handle_load_result(load_result);
+                                draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
+                            }
+                            // Handle content load results (archive scans, etc.)
+                            Some(content_result) = sources.content_load_rx.recv() => {
+                                app.file_viewer.handle_content_load_result(content_result);
                                 draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
                             }
                             else => break,

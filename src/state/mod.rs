@@ -28,7 +28,7 @@ pub use drive_select::DriveSelectState;
 pub use empty_trash::EmptyTrashState;
 pub use error::ErrorState;
 pub use file_filter::FileFilterState;
-pub use file_viewer::{FileViewerSearchState, FileViewerState, ImageLoadResult};
+pub use file_viewer::{ContentLoadResult, FileViewerSearchState, FileViewerState, ImageLoadResult};
 pub use help::HelpState;
 pub use quit::QuitConfirmationState;
 pub use remote_edit::RemoteEditState;
