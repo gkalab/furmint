@@ -196,6 +196,36 @@ async fn test_zip_timestamps() {
 }
 
 #[tokio::test]
+async fn test_zip_dot_dot_resolves_to_directory() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive_path = temp_dir.path().join("test_dotdot.zip");
+
+    {
+        let file = File::create(&archive_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let options = SimpleFileOptions::default();
+        zip.add_directory("folder", options).unwrap();
+        zip.start_file("folder/file.txt", options).unwrap();
+        zip.write_all(b"hello").unwrap();
+        zip.finish().unwrap();
+    }
+
+    let archive_fs = ArchiveFs::new(&archive_path).unwrap();
+
+    // "folder/.." is the parent (root), so it must be treated as a directory.
+    assert!(archive_fs.is_dir(Path::new("folder")));
+    assert!(archive_fs.is_dir(Path::new("folder/..")));
+    assert!(archive_fs.is_dir(Path::new("/folder/..")));
+    assert!(archive_fs.exists(Path::new("folder/..")));
+    assert!(archive_fs.is_dir(Path::new("..")));
+
+    // Nested resolution: "a/b/.." == "a"
+    assert!(archive_fs.is_dir(Path::new("folder/../folder")));
+    assert!(!archive_fs.is_dir(Path::new("folder/../file.txt")));
+    assert!(!archive_fs.exists(Path::new("folder/../file.txt")));
+}
+
+#[tokio::test]
 async fn test_zip_add_files_batch() {
     let temp_dir = tempfile::tempdir().unwrap();
     let src_dir = temp_dir.path().join("src_dir");

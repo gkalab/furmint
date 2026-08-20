@@ -63,6 +63,44 @@ impl ArchiveFs {
         self.get_entry(path)
     }
 
+    /// Resolves a path against the archive's virtual tree, collapsing `.` and `..`
+    /// components (e.g. `some_dir/..` becomes the archive root `"."`).
+    ///
+    /// # Panics
+    ///
+    /// This function never panics.
+    #[must_use]
+    fn resolve_internal_path(path: &Path) -> PathBuf {
+        let rel_path = if path.has_root() {
+            path.strip_prefix("/").unwrap_or(path)
+        } else {
+            path
+        };
+        let p_str = rel_path.to_string_lossy().replace('\\', "/");
+        let p_norm = p_str.trim_end_matches('/');
+
+        let mut resolved: Vec<String> = Vec::new();
+        for comp in Path::new(p_norm).components() {
+            match comp {
+                std::path::Component::CurDir
+                | std::path::Component::RootDir
+                | std::path::Component::Prefix(_) => {}
+                std::path::Component::ParentDir => {
+                    resolved.pop();
+                }
+                std::path::Component::Normal(name) => {
+                    resolved.push(name.to_string_lossy().to_string());
+                }
+            }
+        }
+
+        if resolved.is_empty() {
+            PathBuf::from(".")
+        } else {
+            PathBuf::from(resolved.join("/"))
+        }
+    }
+
     fn scan_archive(&self) -> Result<()> {
         let (entries, tree) = self.handler.scan()?;
         *self.entries.lock().unwrap() = entries;
@@ -242,34 +280,12 @@ impl FileSystemProvider for ArchiveFs {
     }
 
     fn exists(&self, path: &Path) -> bool {
-        let rel_path = if path.has_root() {
-            path.strip_prefix("/").unwrap_or(path)
-        } else {
-            path
-        };
-        let p_str = rel_path.to_string_lossy().replace('\\', "/");
-        let p_norm = PathBuf::from(p_str.trim_end_matches('/'));
-        let p = if p_norm == Path::new("") {
-            Path::new(".")
-        } else {
-            &p_norm
-        };
-        self.entries.lock().unwrap().contains_key(p) || p == Path::new(".")
+        let p = Self::resolve_internal_path(path);
+        self.entries.lock().unwrap().contains_key(&p) || p == Path::new(".")
     }
 
     fn is_dir(&self, path: &Path) -> bool {
-        let rel_path = if path.has_root() {
-            path.strip_prefix("/").unwrap_or(path)
-        } else {
-            path
-        };
-        let p_str = rel_path.to_string_lossy().replace('\\', "/");
-        let p_norm = PathBuf::from(p_str.trim_end_matches('/'));
-        let p = if p_norm == Path::new("") {
-            Path::new(".")
-        } else {
-            &p_norm
-        };
+        let p = Self::resolve_internal_path(path);
 
         if p == Path::new(".") {
             true
@@ -277,7 +293,7 @@ impl FileSystemProvider for ArchiveFs {
             self.entries
                 .lock()
                 .unwrap()
-                .get(p)
+                .get(&p)
                 .is_some_and(|e| e.file_entry.is_dir)
         }
     }
