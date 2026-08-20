@@ -36,6 +36,7 @@ pub struct FileViewerState {
     pub search_regex: Option<regex::Regex>,
     pub current_search_match: Option<(usize, usize, usize)>, // (line_idx, start_char, end_char)
     pub image_zoom: ImageZoomState,
+    pub archive_rows: Option<Vec<crate::fs::archive::preview::ArchiveTreeRow>>,
 }
 
 /// State for viewing an image at higher than "fit" magnification.
@@ -205,6 +206,7 @@ impl FileViewerState {
             search_regex: None,
             current_search_match: None,
             image_zoom: ImageZoomState::default(),
+            archive_rows: None,
         }
     }
 
@@ -223,6 +225,7 @@ impl FileViewerState {
         self.search_regex = None;
         self.current_search_match = None;
         self.image_zoom.reset();
+        self.archive_rows = None;
     }
 
     /// Drop the decoded image, its scaled cache and any installed protocol.
@@ -417,6 +420,22 @@ impl FileViewerState {
         if Self::is_image(path) {
             self.load_image(path, provider);
             return;
+        }
+
+        // Archive tree preview
+        if provider.is_local()
+            && let Ok(handler) = crate::fs::archive::get_archive_handler(path)
+            && let Ok(scan_result) = handler.scan()
+        {
+            let rows = crate::fs::archive::preview::build_archive_tree(&scan_result);
+            if !rows.is_empty() {
+                self.content = rows
+                    .iter()
+                    .map(|r| format!("{}{}", r.prefix, r.name))
+                    .collect();
+                self.archive_rows = Some(rows);
+                return;
+            }
         }
 
         self.language =

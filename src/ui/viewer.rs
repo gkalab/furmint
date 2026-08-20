@@ -33,6 +33,7 @@ pub fn draw_file_viewer(
     area: Rect,
     palette: &ThemePalette,
     borders: bool,
+    icons_enabled: bool,
 ) {
     viewer.area = area;
 
@@ -115,6 +116,7 @@ pub fn draw_file_viewer(
             normalized_selection,
             max_width: inner_area.width as usize,
             palette,
+            icons_enabled,
         }) {
             lines.push(line);
         }
@@ -178,9 +180,134 @@ struct ViewerLineContext<'a> {
     normalized_selection: Option<((usize, usize), (usize, usize))>,
     max_width: usize,
     palette: &'a ThemePalette,
+    icons_enabled: bool,
+}
+
+fn format_archive_size(size: u64) -> String {
+    #[allow(clippy::cast_precision_loss)]
+    if size >= 1_073_741_824 {
+        let val = size as f64 / 1_073_741_824.0;
+        let s = format!("{val:.1}");
+        format!("{}G", s.trim_end_matches(".0"))
+    } else if size >= 1_048_576 {
+        let val = size as f64 / 1_048_576.0;
+        let s = format!("{val:.1}");
+        format!("{}M", s.trim_end_matches(".0"))
+    } else if size >= 1_024 {
+        let val = size as f64 / 1_024.0;
+        let s = format!("{val:.1}");
+        format!("{}K", s.trim_end_matches(".0"))
+    } else {
+        format!("{size}B")
+    }
+}
+
+fn render_archive_line(
+    ctx: &ViewerLineContext,
+    row: &crate::fs::archive::preview::ArchiveTreeRow,
+) -> Line<'static> {
+    let overlay_color = Color::Rgb(
+        ctx.palette.overlay0.r,
+        ctx.palette.overlay0.g,
+        ctx.palette.overlay0.b,
+    );
+    let dir_color = Color::Rgb(ctx.palette.blue.r, ctx.palette.blue.g, ctx.palette.blue.b);
+    let text_color = Color::Rgb(ctx.palette.text.r, ctx.palette.text.g, ctx.palette.text.b);
+    let subtext_color = Color::Rgb(
+        ctx.palette.subtext.r,
+        ctx.palette.subtext.g,
+        ctx.palette.subtext.b,
+    );
+
+    let icon = if ctx.icons_enabled {
+        crate::icons::get_icon(&row.name, row.is_dir, false)
+    } else {
+        ""
+    };
+    let size_str = if row.is_dir {
+        String::new()
+    } else {
+        row.size.map(format_archive_size).unwrap_or_default()
+    };
+
+    let search_fg = Color::Rgb(ctx.palette.base.r, ctx.palette.base.g, ctx.palette.base.b);
+    let highlight_bg = Color::Rgb(
+        ctx.palette.yellow.r,
+        ctx.palette.yellow.g,
+        ctx.palette.yellow.b,
+    );
+
+    let prefix_chars = row.prefix.chars().count();
+    let icon_chars = icon.chars().count();
+    let icon_offset = if icon.is_empty() { 0 } else { icon_chars + 1 };
+    let map_content_to_rendered = |c: usize| {
+        if c < prefix_chars { c } else { c + icon_offset }
+    };
+
+    let search_ranges: Vec<(usize, usize)> = ctx
+        .viewer
+        .current_search_match
+        .filter(|(line, _, _)| *line == ctx.line_idx)
+        .map(|(_, s, e)| (map_content_to_rendered(s), map_content_to_rendered(e)))
+        .into_iter()
+        .collect();
+
+    let render_segment = |text: &str, seg_start: usize, style: Style| -> Vec<Span<'static>> {
+        let mut spans: Vec<Span<'static>> = Vec::new();
+        for (pos, ch) in (seg_start..).zip(text.chars()) {
+            let in_range = search_ranges.iter().any(|(s, e)| pos >= *s && pos < *e);
+            let char_style = if in_range {
+                style.fg(search_fg).bg(highlight_bg)
+            } else {
+                style
+            };
+            if let Some(last) = spans.last_mut()
+                && last.style == char_style
+            {
+                let mut new_content = last.content.to_string();
+                new_content.push(ch);
+                last.content = new_content.into();
+            } else {
+                spans.push(Span::styled(ch.to_string(), char_style));
+            }
+        }
+        spans
+    };
+
+    let mut spans = Vec::new();
+    let mut seg_start = 0;
+    let prefix_style = Style::default().fg(overlay_color);
+    let entry_style = Style::default().fg(if row.is_dir { dir_color } else { text_color });
+
+    spans.extend(render_segment(&row.prefix, seg_start, prefix_style));
+    seg_start += prefix_chars;
+    if !icon.is_empty() {
+        spans.extend(render_segment(&format!("{icon} "), seg_start, entry_style));
+        seg_start += icon_chars + 1;
+    }
+    spans.extend(render_segment(&row.name, seg_start, entry_style));
+
+    let left_width = unicode_width::UnicodeWidthStr::width(row.prefix.as_str())
+        + unicode_width::UnicodeWidthStr::width(icon)
+        + usize::from(!icon.is_empty())
+        + unicode_width::UnicodeWidthStr::width(row.name.as_str());
+
+    if !size_str.is_empty() && ctx.max_width > left_width + size_str.len() {
+        let pad_len = ctx.max_width - left_width - size_str.len();
+        spans.push(Span::raw(" ".repeat(pad_len)));
+        spans.push(Span::styled(size_str, Style::default().fg(subtext_color)));
+    }
+
+    Line::from(spans)
 }
 
 fn render_viewer_line(ctx: &ViewerLineContext) -> Option<Line<'static>> {
+    if let Some(rows) = &ctx.viewer.archive_rows
+        && let Some(row) = rows.get(ctx.line_idx)
+    {
+        return Some(render_archive_line(ctx, row));
+    }
+
     let selection_range = ctx.normalized_selection.and_then(|((r1, c1), (r2, c2))| {
         if ctx.line_idx < r1 || ctx.line_idx > r2 {
             None
@@ -442,8 +569,94 @@ pub fn generate_line_spans(ctx: &LineSpansContext<'_>) -> Vec<Span<'static>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fs::archive::preview::ArchiveTreeRow;
+    use crate::theme::catppuccin_macchiato;
     use lumis::themes::Style as LumisStyle;
     use unicode_width::UnicodeWidthStr;
+
+    fn test_palette() -> crate::theme::ThemePalette {
+        catppuccin_macchiato()
+    }
+
+    #[test]
+    fn test_archive_search_highlight() {
+        let mut viewer = FileViewerState::new(true, "catppuccin macchiato");
+        viewer.archive_rows = Some(vec![ArchiveTreeRow {
+            prefix: "└─ ".to_string(),
+            name: "src".to_string(),
+            is_dir: true,
+            size: None,
+        }]);
+        // Content line is "└─ src"; match "src" at chars 3-6.
+        viewer.current_search_match = Some((0, 3, 6));
+
+        let ctx = ViewerLineContext {
+            line_idx: 0,
+            viewer: &viewer,
+            is_large_file: false,
+            highlighter: &Highlighter::new(lumis::languages::Language::default(), None),
+            default_fg: None,
+            normalized_selection: None,
+            max_width: 100,
+            palette: &test_palette(),
+            icons_enabled: true,
+        };
+
+        let line = render_viewer_line(&ctx).expect("line should render");
+        let text: String = line.spans.iter().map(|s| s.content.to_string()).collect();
+        assert_eq!(text, "└─ 󰉋 src");
+
+        // The highlighted "src" span should have yellow bg and base fg.
+        let highlighted = line
+            .spans
+            .iter()
+            .find(|s| s.content == "src")
+            .expect("src span");
+        assert_eq!(
+            highlighted.style.bg,
+            Some(Color::Rgb(
+                test_palette().yellow.r,
+                test_palette().yellow.g,
+                test_palette().yellow.b
+            ))
+        );
+        assert_eq!(
+            highlighted.style.fg,
+            Some(Color::Rgb(
+                test_palette().base.r,
+                test_palette().base.g,
+                test_palette().base.b
+            ))
+        );
+    }
+
+    #[test]
+    fn test_archive_line_hides_icons_when_disabled() {
+        let mut viewer = FileViewerState::new(true, "catppuccin macchiato");
+        viewer.archive_rows = Some(vec![ArchiveTreeRow {
+            prefix: "└─ ".to_string(),
+            name: "main.rs".to_string(),
+            is_dir: false,
+            size: Some(1024),
+        }]);
+
+        let ctx = ViewerLineContext {
+            line_idx: 0,
+            viewer: &viewer,
+            is_large_file: false,
+            highlighter: &Highlighter::new(lumis::languages::Language::default(), None),
+            default_fg: None,
+            normalized_selection: None,
+            max_width: 100,
+            palette: &test_palette(),
+            icons_enabled: false,
+        };
+
+        let line = render_viewer_line(&ctx).expect("line should render");
+        let text: String = line.spans.iter().map(|s| s.content.to_string()).collect();
+        assert!(text.starts_with("└─ main.rs"), "got: {text}");
+        assert!(!line.spans.iter().any(|s| s.content == "󰉋"));
+    }
 
     #[test]
     fn test_rendering_overflow_prevention() {

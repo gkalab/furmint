@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 pub mod common;
 pub mod gzip;
+pub mod preview;
 pub mod rpm;
 pub mod sevenz;
 pub mod tar;

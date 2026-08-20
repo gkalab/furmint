@@ -68,6 +68,7 @@ fn draw_side(
             area,
             palette,
             app.global.borders.unwrap_or(false),
+            app.global.icons.unwrap_or(false),
         );
     } else {
         let is_active = app.active == side && !app.file_viewer.focused;
