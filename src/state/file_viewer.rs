@@ -457,10 +457,8 @@ impl FileViewerState {
         }
 
         // Archive tree preview — scan in background to avoid blocking the UI
-        if provider.is_local()
-            && let Ok(handler) = crate::fs::archive::get_archive_handler(path)
-        {
-            self.spawn_archive_scan(handler);
+        if provider.is_local() && crate::fs::archive::looks_like_archive(path) {
+            self.spawn_archive_scan(path);
             return;
         }
 
@@ -561,19 +559,23 @@ impl FileViewerState {
         self.language = res.language;
     }
 
-    fn spawn_archive_scan(&mut self, handler: Box<dyn crate::fs::archive::ArchiveFormat>) {
+    fn spawn_archive_scan(&mut self, path: &std::path::Path) {
         self.is_loading = true;
         self.content_load_id += 1;
         let load_id = self.content_load_id;
         let cancel_flag = self.new_cancel_flag();
-        let path = self.path.clone();
+        let path = path.to_path_buf();
         let Some(tx) = self.content_load_tx.clone() else {
             return;
         };
         tokio::spawn(async move {
-            let result = tokio::task::spawn_blocking(move || handler.scan())
-                .await
-                .unwrap_or_else(|e| Err(anyhow::anyhow!(e.to_string())));
+            let result_path = path.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                let handler = crate::fs::archive::get_archive_handler(&path)?;
+                handler.scan()
+            })
+            .await
+            .unwrap_or_else(|e| Err(anyhow::anyhow!(e.to_string())));
             if cancel_flag.load(Ordering::Relaxed) {
                 return;
             }
@@ -583,7 +585,7 @@ impl FileViewerState {
                     if rows.is_empty() {
                         ContentLoadResult {
                             load_id,
-                            path,
+                            path: result_path,
                             content: Vec::new(),
                             archive_rows: None,
                             language: lumis::languages::Language::default(),
@@ -595,7 +597,7 @@ impl FileViewerState {
                             .collect();
                         ContentLoadResult {
                             load_id,
-                            path,
+                            path: result_path,
                             content,
                             archive_rows: Some(rows),
                             language: lumis::languages::Language::default(),
@@ -604,7 +606,7 @@ impl FileViewerState {
                 }
                 Err(e) => ContentLoadResult {
                     load_id,
-                    path,
+                    path: result_path,
                     content: vec![format!("Error scanning archive: {e}")],
                     archive_rows: None,
                     language: lumis::languages::Language::default(),

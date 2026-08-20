@@ -135,12 +135,15 @@ pub trait ArchiveFormat: Send + Sync {
     }
 }
 
-/// Returns an archive handler for the given path based on file extension.
-///
-/// # Errors
-///
-/// Returns an error if the archive format is not supported or cannot be opened.
-pub fn get_archive_handler(path: &Path) -> Result<Box<dyn ArchiveFormat>> {
+enum ArchiveFormatKind {
+    Zip,
+    SevenZ,
+    Tar,
+    Gzip,
+    Rpm,
+}
+
+fn detect_format(path: &Path) -> Option<ArchiveFormatKind> {
     let ext = path
         .extension()
         .and_then(|s| s.to_str())
@@ -154,9 +157,9 @@ pub fn get_archive_handler(path: &Path) -> Result<Box<dyn ArchiveFormat>> {
         .to_lowercase();
 
     if ext == "zip" || ext == "jar" {
-        Ok(Box::new(zip::ZipHandler::new(path)))
+        Some(ArchiveFormatKind::Zip)
     } else if ext == "7z" {
-        Ok(Box::new(sevenz::SevenZHandler::new(path)))
+        Some(ArchiveFormatKind::SevenZ)
     } else if ext == "tar"
         || (ext == "gz"
             && (std::path::Path::new(&stem).extension().is_some_and(|ext| {
@@ -169,12 +172,41 @@ pub fn get_archive_handler(path: &Path) -> Result<Box<dyn ArchiveFormat>> {
         || ext == "xz"
         || ext == "txz"
     {
-        Ok(Box::new(tar::TarHandler::new(path)?))
+        Some(ArchiveFormatKind::Tar)
     } else if ext == "gz" {
-        Ok(Box::new(gzip::GzipHandler::new(path)?))
+        Some(ArchiveFormatKind::Gzip)
     } else if ext == "rpm" {
-        Ok(Box::new(rpm::RpmHandler::new(path)))
+        Some(ArchiveFormatKind::Rpm)
     } else {
-        Err(anyhow::anyhow!("Unsupported archive format: {ext}"))
+        None
+    }
+}
+
+/// Returns `true` if the path has a supported archive file extension.
+///
+/// This is a cheap check that only examines the file name, without opening or
+/// reading the file.
+#[must_use]
+pub fn looks_like_archive(path: &Path) -> bool {
+    detect_format(path).is_some()
+}
+
+/// Returns an archive handler for the given path based on file extension.
+///
+/// # Errors
+///
+/// Returns an error if the archive format is not supported or cannot be opened.
+pub fn get_archive_handler(path: &Path) -> Result<Box<dyn ArchiveFormat>> {
+    let kind = detect_format(path).ok_or_else(|| {
+        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+        anyhow::anyhow!("Unsupported archive format: {ext}")
+    })?;
+
+    match kind {
+        ArchiveFormatKind::Zip => Ok(Box::new(zip::ZipHandler::new(path))),
+        ArchiveFormatKind::SevenZ => Ok(Box::new(sevenz::SevenZHandler::new(path))),
+        ArchiveFormatKind::Tar => Ok(Box::new(tar::TarHandler::new(path)?)),
+        ArchiveFormatKind::Gzip => Ok(Box::new(gzip::GzipHandler::new(path)?)),
+        ArchiveFormatKind::Rpm => Ok(Box::new(rpm::RpmHandler::new(path))),
     }
 }
