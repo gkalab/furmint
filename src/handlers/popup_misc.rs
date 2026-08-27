@@ -24,35 +24,10 @@ pub(crate) fn handle_quit_popup_event(code: KeyCode, app: &mut AppState) -> bool
 pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::AppState) {
     match event {
         crate::tasks::TaskEvent::UpdateStatus(id, status) => {
-            app.task_manager.update_task_status(id, &status);
-            if let crate::tasks::TaskStatus::Completed = status {
-                // If we have a watcher, it should handle local refreshes.
-                // However, on Windows we don't watch network shares for performance reasons,
-                // so we need to manually refresh if any tab is on a network share.
-                if app.watcher.is_none() || app.is_any_tab_on_network_share() {
-                    app.refresh_active_tabs();
-                } else {
-                    app.reload_remote();
-                }
-            }
+            handle_update_status(app, id, &status);
         }
         crate::tasks::TaskEvent::UpdateProgress(id, p, t) => {
-            app.task_manager.update_task_progress(id, p, t);
-            // Refresh remote UI periodically during progress updates to show new files
-            // Local UI is handled by AppWatcher
-
-            let now = u64::try_from(
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis(),
-            )
-            .unwrap_or(u64::MAX);
-            let last = LAST_REFRESH.load(std::sync::atomic::Ordering::Relaxed);
-            if now - last > 2000 {
-                app.reload_remote();
-                LAST_REFRESH.store(now, std::sync::atomic::Ordering::Relaxed);
-            }
+            handle_update_progress(app, id, p, t);
         }
         crate::tasks::TaskEvent::UpdateByteProgress(id, p, t) => {
             app.task_manager.update_task_byte_progress(id, p, t);
@@ -64,18 +39,10 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
             app.task_manager.update_task_rsync_mode(id, rsync);
         }
         crate::tasks::TaskEvent::Conflict(id, path, conflict_type) => {
-            // Show conflict popup
-            app.popups.conflict.task_id = id;
-            app.popups.conflict.conflict_path = path;
-            app.popups.conflict.conflict_type = conflict_type;
-            app.popups.conflict.is_visible = true;
+            handle_conflict(app, id, path, conflict_type);
         }
         crate::tasks::TaskEvent::Error(id, path, msg) => {
-            // Show error popup
-            app.popups.error.task_id = id;
-            app.popups.error.error_path = path;
-            app.popups.error.error_message = msg;
-            app.popups.error.is_visible = true;
+            handle_task_error(app, id, path, msg);
         }
         crate::tasks::TaskEvent::SshConnected(ctx) => {
             app.handle_ssh_connected(ctx);
@@ -89,16 +56,36 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
         crate::tasks::TaskEvent::SshError(host, user, error) => {
             handle_ssh_error(app, host, user, error);
         }
+        crate::tasks::TaskEvent::SshHostKey {
+            host,
+            port,
+            user,
+            presented_fp,
+            stored_fp,
+            key_line,
+            password,
+            target_path,
+            key_auth,
+            connection_name,
+        } => {
+            handle_ssh_host_key(
+                app,
+                crate::state::host_key::HostKeyPrompt {
+                    host,
+                    port,
+                    user,
+                    presented_fp,
+                    stored_fp,
+                    key_line,
+                    password,
+                    target_path,
+                    key_auth,
+                    connection_name,
+                },
+            );
+        }
         crate::tasks::TaskEvent::DirSizeCalculated(_id, path, size) => {
-            // Update the cached size for this directory in the active tab
-            // Note: The path may belong to either left or right panel
-            // We update both panels to be safe
-            let path_buf = path;
-            for panel in [&mut app.left, &mut app.right] {
-                for tab in &mut panel.tabs {
-                    tab.set_dir_size(path_buf.clone(), size);
-                }
-            }
+            handle_dir_size_calculated(app, &path, size);
         }
         crate::tasks::TaskEvent::ArchiveLoaded(side_index, wrapper, filename, path) => {
             handle_archive_loaded(app, side_index, wrapper, filename, path);
@@ -114,6 +101,71 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
     }
 }
 
+fn handle_update_status(
+    app: &mut crate::app::AppState,
+    id: usize,
+    status: &crate::tasks::TaskStatus,
+) {
+    app.task_manager.update_task_status(id, status);
+    if let crate::tasks::TaskStatus::Completed = status {
+        if app.watcher.is_none() || app.is_any_tab_on_network_share() {
+            app.refresh_active_tabs();
+        } else {
+            app.reload_remote();
+        }
+    }
+}
+
+fn handle_update_progress(app: &mut crate::app::AppState, id: usize, p: usize, t: usize) {
+    app.task_manager.update_task_progress(id, p, t);
+    let now = u64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis(),
+    )
+    .unwrap_or(u64::MAX);
+    let last = LAST_REFRESH.load(std::sync::atomic::Ordering::Relaxed);
+    if now - last > 2000 {
+        app.reload_remote();
+        LAST_REFRESH.store(now, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+fn handle_conflict(
+    app: &mut crate::app::AppState,
+    id: usize,
+    path: std::path::PathBuf,
+    conflict_type: crate::tasks::ConflictType,
+) {
+    app.popups.conflict.task_id = id;
+    app.popups.conflict.conflict_path = path;
+    app.popups.conflict.conflict_type = conflict_type;
+    app.popups.conflict.is_visible = true;
+}
+
+fn handle_task_error(app: &mut crate::app::AppState, id: usize, path: String, msg: String) {
+    app.popups.error.task_id = id;
+    app.popups.error.error_path = path;
+    app.popups.error.error_message = msg;
+    app.popups.error.is_visible = true;
+}
+
+fn handle_ssh_host_key(
+    app: &mut crate::app::AppState,
+    prompt: crate::state::host_key::HostKeyPrompt,
+) {
+    app.popups.host_key.show(prompt);
+}
+
+fn handle_dir_size_calculated(app: &mut crate::app::AppState, path: &std::path::Path, size: u64) {
+    for panel in [&mut app.left, &mut app.right] {
+        for tab in &mut panel.tabs {
+            tab.set_dir_size(path.to_path_buf(), size);
+        }
+    }
+}
+
 fn handle_ssh_error(
     app: &mut crate::app::AppState,
     host: String,
@@ -121,10 +173,35 @@ fn handle_ssh_error(
     error: crate::ssh_manager::SshError,
 ) {
     match error {
-        crate::ssh_manager::SshError::Network(_) => {
+        crate::ssh_manager::SshError::Network(_) | crate::ssh_manager::SshError::Connection(_) => {
             app.popups.ssh_connection.is_visible = true;
             app.popups.ssh_connection.error = Some(error.to_string());
             app.popups.ssh_connection.active_field = crate::state::ssh::SshField::ConnectionString;
+        }
+        crate::ssh_manager::SshError::HostKey {
+            host: h,
+            port,
+            presented,
+            stored,
+            key_line,
+        } => {
+            // Fallback: should normally be emitted as SshHostKey, but handle direct error too
+            app.popups
+                .host_key
+                .show(crate::state::host_key::HostKeyPrompt {
+                    host: h,
+                    port,
+                    user,
+                    presented_fp: presented,
+                    stored_fp: stored,
+                    key_line,
+                    password: None,
+                    target_path: None,
+                    key_auth: true,
+                    connection_name: None,
+                });
+            // Keep host/user for reference
+            let _ = (host,);
         }
         crate::ssh_manager::SshError::Auth(_) => {
             app.popups.ssh_password.is_visible = true;

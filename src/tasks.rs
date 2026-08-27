@@ -47,6 +47,18 @@ pub enum TaskEvent {
     SshReconnected(SshContext),
     SshReconnectFailed(String, String), // session_id, error_message
     SshError(String, String, crate::ssh_manager::SshError), // host, user, error
+    SshHostKey {
+        host: String,
+        port: u16,
+        user: String,
+        presented_fp: String,
+        stored_fp: Option<String>,
+        key_line: String,
+        password: Option<secrecy::SecretString>,
+        target_path: Option<String>,
+        key_auth: bool,
+        connection_name: Option<String>,
+    },
     /// Directory size calculation completed: (`task_id`, path, `size_in_bytes`)
     DirSizeCalculated(usize, std::path::PathBuf, u64),
     ArchiveLoaded(usize, ProviderWrapper, String, std::path::PathBuf), // side_index, provider, filename, path

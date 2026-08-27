@@ -395,57 +395,164 @@ fn start_ssh_auth(app: &mut AppState) {
 
         app.popups.ssh_connection.is_visible = false;
 
-        let task_title = format!("Connecting to {}@{}", parsed.user, parsed.host);
-        let ssh_manager = app.ssh_manager.clone();
-        let host = parsed.host.clone();
-        let user = parsed.user.clone();
-        let path = parsed.path.clone();
-        let connection_name = name_opt;
-
-        app.task_manager
-            .spawn_task(&task_title, move |cancel, tx, id| async move {
-                let result = tokio::select! {
-                    res = ssh_manager.try_connect_with_keys(parsed.host, port, parsed.user) => Some(res),
-                    () = async {
-                        while !cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                        }
-                    } => None,
-                };
-
-                let Some(result) = result else {
-                    let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Cancelled));
-                    return;
-                };
-
-                match result {
-                    Ok((session_id, fs)) => {
-                        ssh_manager.cache_password(&session_id, SecretString::new(String::new().into()));
-                        ssh_manager.register_session(
-                            session_id.clone(),
-                            host.clone(),
-                            port,
-                            user.clone(),
-                            path.clone(),
-                        );
-
-                        let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Completed));
-                        let _ = tx.send(TaskEvent::SshConnected(SshContext {
-                            provider: Arc::new(fs),
-                            path: path.map(std::path::PathBuf::from),
-                            name: connection_name,
-                        }));
-                    }
-
-                    Err(e) => {
-                        let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Completed));
-                        let _ = tx.send(TaskEvent::SshError(host, user, e));
-                    }
-                }
-            });
+        spawn_ssh_connect_with_keys(app, parsed.host, port, parsed.user, parsed.path, name_opt);
     } else {
         app.popups.ssh_connection.error = Some("Invalid connection string format".to_string());
     }
+}
+
+pub fn spawn_ssh_connect_with_keys(
+    app: &mut AppState,
+    host: String,
+    port: u16,
+    user: String,
+    target_path: Option<String>,
+    connection_name: Option<String>,
+) {
+    let task_title = format!("Connecting to {user}@{host}");
+    let ssh_manager = app.ssh_manager.clone();
+    app.task_manager
+        .spawn_task(&task_title, move |cancel, tx, id| async move {
+            let result = tokio::select! {
+                res = ssh_manager.try_connect_with_keys(host.clone(), port, user.clone()) => Some(res),
+                () = async {
+                    while !cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                    }
+                } => None,
+            };
+            let Some(result) = result else {
+                let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Cancelled));
+                return;
+            };
+            match result {
+                Ok((session_id, fs)) => {
+                    ssh_manager.cache_password(&session_id, SecretString::new(String::new().into()));
+                    let path_for_reg = target_path.clone();
+                    let path_for_ctx = target_path.clone().map(std::path::PathBuf::from);
+                    ssh_manager.register_session(
+                        session_id.clone(),
+                        host.clone(),
+                        port,
+                        user.clone(),
+                        path_for_reg,
+                    );
+                    let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Completed));
+                    let _ = tx.send(TaskEvent::SshConnected(SshContext {
+                        provider: Arc::new(fs),
+                        path: path_for_ctx,
+                        name: connection_name.clone(),
+                    }));
+                }
+                Err(e) => {
+                    let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Completed));
+                    if let crate::ssh_manager::SshError::HostKey {
+                        host: hk_host,
+                        port: hk_port,
+                        presented,
+                        stored,
+                        key_line,
+                    } = e
+                    {
+                        let _ = tx.send(TaskEvent::SshHostKey {
+                            host: hk_host,
+                            port: hk_port,
+                            user,
+                            presented_fp: presented,
+                            stored_fp: stored,
+                            key_line,
+                            password: None,
+                            target_path,
+                            key_auth: true,
+                            connection_name,
+                        });
+                    } else {
+                        let _ = tx.send(TaskEvent::SshError(host, user, e));
+                    }
+                }
+            }
+        });
+}
+
+pub fn spawn_ssh_connect_with_password(
+    app: &mut AppState,
+    host: String,
+    port: u16,
+    user: String,
+    password: SecretString,
+    target_path: Option<String>,
+    connection_name: Option<String>,
+) {
+    let name = format!("Connecting to {user}@{host}");
+    let ssh_manager = app.ssh_manager.clone();
+    app.task_manager
+        .spawn_task(&name, move |cancel, tx, id| async move {
+            let password_for_cache =
+                SecretString::new(password.expose_secret().to_string().into());
+            let pw_for_event = SecretString::new(password.expose_secret().to_string().into());
+            let target_path_for_connect = target_path.clone();
+            let result = tokio::select! {
+                res = ssh_manager.connect_ssh(host.clone(), port, user.clone(), password, target_path_for_connect) => Some(res),
+                () = async {
+                    while !cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                    }
+                } => None,
+            };
+            let Some(result) = result else {
+                let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Cancelled));
+                return;
+            };
+            match result {
+                Ok((session_id, fs)) => {
+                    ssh_manager.cache_password(&session_id, password_for_cache);
+                    let path_for_reg = target_path.clone();
+                    let path_for_ctx = target_path.clone().map(std::path::PathBuf::from);
+                    ssh_manager.register_session(
+                        session_id.clone(),
+                        host.clone(),
+                        port,
+                        user.clone(),
+                        path_for_reg,
+                    );
+                    let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Completed));
+                    let _ = tx.send(TaskEvent::SshConnected(SshContext {
+                        provider: Arc::new(fs),
+                        path: path_for_ctx,
+                        name: connection_name.clone(),
+                    }));
+                }
+                Err(e) => {
+                    let _ = tx.send(TaskEvent::UpdateStatus(
+                        id,
+                        TaskStatus::Failed(e.to_string()),
+                    ));
+                    if let crate::ssh_manager::SshError::HostKey {
+                        host: hk_host,
+                        port: hk_port,
+                        presented,
+                        stored,
+                        key_line,
+                    } = e
+                    {
+                        let _ = tx.send(TaskEvent::SshHostKey {
+                            host: hk_host,
+                            port: hk_port,
+                            user: user.clone(),
+                            presented_fp: presented,
+                            stored_fp: stored,
+                            key_line,
+                            password: Some(pw_for_event),
+                            target_path: target_path.clone(),
+                            key_auth: false,
+                            connection_name: connection_name.clone(),
+                        });
+                    } else {
+                        let _ = tx.send(TaskEvent::SshError(host, user, e));
+                    }
+                }
+            }
+        });
 }
 
 pub fn handle_ssh_password_event(app: &mut AppState, code: KeyCode, modifiers: Modifiers) -> bool {
@@ -578,54 +685,15 @@ fn connect_ssh(
     target_path: Option<String>,
     connection_name: Option<String>,
 ) {
-    let name = format!("Connecting to {user}@{host}");
-    let ssh_manager = app.ssh_manager.clone();
-    let target_path_clone = target_path.clone();
-    let host_for_reg = host.clone();
-    let user_for_reg = user.clone();
-    let password_for_cache = SecretString::new(password.expose_secret().to_string().into());
-    app.task_manager
-        .spawn_task(&name, move |cancel, tx, id| async move {
-            let result = tokio::select! {
-                res = ssh_manager.connect_ssh(host, port, user, password, target_path_clone) => Some(res),
-                () = async {
-                    while !cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                    }
-                } => None,
-            };
-
-            let Some(result) = result else {
-                let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Cancelled));
-                return;
-            };
-
-            match result {
-                Ok((session_id, fs)) => {
-                    ssh_manager.cache_password(&session_id, password_for_cache);
-                    ssh_manager.register_session(
-                        session_id.clone(),
-                        host_for_reg,
-                        port,
-                        user_for_reg,
-                        target_path.clone(),
-                    );
-                    let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Completed));
-                    let _ = tx.send(TaskEvent::SshConnected(SshContext {
-                        provider: Arc::new(fs),
-                        path: target_path.map(std::path::PathBuf::from),
-                        name: connection_name,
-                    }));
-                }
-                Err(e) => {
-                    let _ = tx.send(TaskEvent::UpdateStatus(
-                        id,
-                        TaskStatus::Failed(e.to_string()),
-                    ));
-                    let _ = tx.send(TaskEvent::SshError(host_for_reg, user_for_reg, e));
-                }
-            }
-        });
+    spawn_ssh_connect_with_password(
+        app,
+        host,
+        port,
+        user,
+        password,
+        target_path,
+        connection_name,
+    );
 }
 
 fn show_password_popup_for_reconnect(

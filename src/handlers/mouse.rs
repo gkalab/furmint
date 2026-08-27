@@ -193,6 +193,14 @@ fn find_button_index(app: &AppState, x: u16, y: u16) -> Option<usize> {
         }
         return None;
     }
+    if app.popups.host_key.is_visible {
+        for (i, rect) in app.popups.host_key.button_areas.iter().enumerate() {
+            if is_in_rect(pos, *rect) {
+                return Some(i);
+            }
+        }
+        return None;
+    }
 
     None
 }
@@ -216,6 +224,8 @@ fn handle_popup_down(app: &mut AppState, x: u16, y: u16) {
             app.popups.delete.selected_no = i == 0;
         } else if app.popups.empty_trash.is_visible {
             app.popups.empty_trash.selected_no = i == 0;
+        } else if app.popups.host_key.is_visible {
+            app.popups.host_key.selected_no = i == 0;
         }
     }
 }
@@ -255,6 +265,9 @@ async fn handle_popup_up(app: &mut AppState, x: u16, y: u16) {
     } else if app.popups.empty_trash.is_visible {
         app.popups.empty_trash.selected_no = down_index == 0;
         crate::ui::empty_trash_ui::handle_empty_trash_popup_event(KeyCode::Enter, app);
+    } else if app.popups.host_key.is_visible {
+        app.popups.host_key.selected_no = down_index == 0;
+        crate::ui::host_key_ui::handle_host_key_popup_event(KeyCode::Enter, app);
     }
 }
 

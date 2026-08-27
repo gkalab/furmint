@@ -27,18 +27,83 @@ use super::utils::{
     build_du_command, calculate_optimal_chunk_size, find_default_ssh_keys, format_sftp_permissions,
     is_dot_or_dotdot, normalize_sftp_path,
 };
+use crate::ssh_known_hosts::HostKeyChecker;
 
-pub(crate) struct SshClientHandler;
+/// Host-key verification failed. The server presented a key that is not in
+/// `known_hosts` or differs from the stored one. This error is distinct
+/// from authentication failures so callers can prompt the user with a TOFU
+/// dialog instead of a password retry.
+#[derive(Debug)]
+pub struct HostKeyMismatch {
+    pub presented_fp: String,
+    pub stored_fp: Option<String>,
+    pub key_line: String,
+}
+
+impl std::fmt::Display for HostKeyMismatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.stored_fp {
+            Some(stored) => write!(
+                f,
+                "Host key changed (was {stored}, now {})",
+                self.presented_fp
+            ),
+            None => write!(f, "Unknown host key {}", self.presented_fp),
+        }
+    }
+}
+
+impl std::error::Error for HostKeyMismatch {}
+
+pub(crate) struct SshClientHandler {
+    checker: std::sync::Arc<HostKeyChecker>,
+}
 
 impl client::Handler for SshClientHandler {
     type Error = russh::Error;
 
     async fn check_server_key(
         &mut self,
-        _key: &ssh_key::PublicKey,
+        key: &ssh_key::PublicKey,
     ) -> std::result::Result<bool, Self::Error> {
-        // NOTE: host keys are accepted unconditionally (no known_hosts/TOFU).
-        Ok(true)
+        let fingerprint = key.fingerprint(ssh_key::HashAlg::Sha256).to_string();
+        let raw = key.to_openssh().unwrap_or_else(|_| String::new());
+        let key_line = raw.split_whitespace().take(2).collect::<Vec<_>>().join(" ");
+        if key_line.is_empty() {
+            return Ok(false);
+        }
+        // Re-read file in case it was changed externally between the
+        // SshManager reload and this handshake.
+        self.checker.known.reload();
+        let stored_line = self
+            .checker
+            .known
+            .find(&self.checker.host, self.checker.port);
+        match stored_line {
+            Some(stored) if stored == key_line => Ok(true),
+            Some(_) => {
+                let stored_fp = self
+                    .checker
+                    .known
+                    .fingerprint_for(&self.checker.host, self.checker.port);
+                let mut guard = self.checker.presented.lock().unwrap();
+                *guard = Some(crate::ssh_known_hosts::PresentedKey {
+                    fingerprint,
+                    key_line,
+                    stored_fp,
+                });
+                Ok(false)
+            }
+            None => {
+                let mut guard = self.checker.presented.lock().unwrap();
+                *guard = Some(crate::ssh_known_hosts::PresentedKey {
+                    fingerprint,
+                    key_line,
+                    stored_fp: None,
+                });
+                Ok(false)
+            }
+        }
     }
 }
 
@@ -104,15 +169,38 @@ impl SftpFs {
         password: &str,
         read_timeout_secs: u64,
         keepalive_interval: u32,
+        checker: std::sync::Arc<crate::ssh_known_hosts::HostKeyChecker>,
     ) -> Result<Self> {
         let config = Arc::new(client::Config {
             inactivity_timeout: Some(Duration::from_secs(read_timeout_secs)),
             keepalive_interval: Some(Duration::from_secs(u64::from(keepalive_interval))),
             ..Default::default()
         });
-        let mut handle = client::connect(config, (host, port), SshClientHandler)
-            .await
-            .map_err(|e| anyhow!("SSH connect failed: {e}"))?;
+        let checker_clone = std::sync::Arc::clone(&checker);
+        let mut handle = match client::connect(
+            config,
+            (host, port),
+            SshClientHandler {
+                checker: checker_clone,
+            },
+        )
+        .await
+        {
+            Ok(h) => h,
+            Err(e) => {
+                if matches!(e, russh::Error::UnknownKey)
+                    && let Some(presented) = checker.take_presented()
+                {
+                    return Err(HostKeyMismatch {
+                        presented_fp: presented.fingerprint,
+                        stored_fp: presented.stored_fp,
+                        key_line: presented.key_line,
+                    }
+                    .into());
+                }
+                return Err(anyhow!("SSH connect failed: {e}"));
+            }
+        };
 
         let ok = handle
             .authenticate_password(user, password)
@@ -147,15 +235,38 @@ impl SftpFs {
         user: &str,
         read_timeout_secs: u64,
         keepalive_interval: u32,
+        checker: std::sync::Arc<crate::ssh_known_hosts::HostKeyChecker>,
     ) -> Result<Self> {
         let config = Arc::new(client::Config {
             inactivity_timeout: Some(Duration::from_secs(read_timeout_secs)),
             keepalive_interval: Some(Duration::from_secs(u64::from(keepalive_interval))),
             ..Default::default()
         });
-        let mut handle = client::connect(config, (host, port), SshClientHandler)
-            .await
-            .map_err(|e| anyhow!("SSH connect failed: {e}"))?;
+        let checker_clone = std::sync::Arc::clone(&checker);
+        let mut handle = match client::connect(
+            config,
+            (host, port),
+            SshClientHandler {
+                checker: checker_clone,
+            },
+        )
+        .await
+        {
+            Ok(h) => h,
+            Err(e) => {
+                if matches!(e, russh::Error::UnknownKey)
+                    && let Some(presented) = checker.take_presented()
+                {
+                    return Err(HostKeyMismatch {
+                        presented_fp: presented.fingerprint,
+                        stored_fp: presented.stored_fp,
+                        key_line: presented.key_line,
+                    }
+                    .into());
+                }
+                return Err(anyhow!("SSH connect failed: {e}"));
+            }
+        };
 
         let mut agent_rejected = false;
         match Self::agent_auth(&mut handle, user).await {

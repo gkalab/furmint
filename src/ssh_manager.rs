@@ -51,6 +51,14 @@ pub enum AuthError {
 pub enum SshError {
     Network(NetworkError),
     Auth(AuthError),
+    HostKey {
+        host: String,
+        port: u16,
+        presented: String,
+        stored: Option<String>,
+        key_line: String,
+    },
+    Connection(String),
     InvalidInput(String),
     Internal(String),
 }
@@ -60,6 +68,23 @@ impl std::fmt::Display for SshError {
         match self {
             SshError::Network(e) => write!(f, "Network error: {e}"),
             SshError::Auth(e) => write!(f, "Authentication error: {e}"),
+            SshError::HostKey {
+                host,
+                port,
+                presented,
+                stored,
+                ..
+            } => {
+                if let Some(stored) = stored {
+                    write!(
+                        f,
+                        "Host key for {host}:{port} changed (was {stored}, now {presented})"
+                    )
+                } else {
+                    write!(f, "Unknown host key for {host}:{port}: {presented}")
+                }
+            }
+            SshError::Connection(s) => write!(f, "Connection error: {s}"),
             SshError::InvalidInput(s) => write!(f, "Invalid input: {s}"),
             SshError::Internal(s) => write!(f, "Internal error: {s}"),
         }
@@ -102,6 +127,7 @@ pub struct SshManager {
     sessions: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, SessionState>>>,
     password_cache:
         std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, SecretString>>>,
+    known_hosts: std::sync::Arc<crate::ssh_known_hosts::KnownHosts>,
 }
 
 impl SshManager {
@@ -123,7 +149,13 @@ impl SshManager {
             password_cache: std::sync::Arc::new(std::sync::RwLock::new(
                 std::collections::HashMap::new(),
             )),
+            known_hosts: std::sync::Arc::new(crate::ssh_known_hosts::KnownHosts::new()),
         }
+    }
+
+    #[must_use]
+    pub fn known_hosts(&self) -> std::sync::Arc<crate::ssh_known_hosts::KnownHosts> {
+        std::sync::Arc::clone(&self.known_hosts)
     }
 
     /// Attempts to connect to a remote host using SSH key authentication.
@@ -156,16 +188,32 @@ impl SshManager {
         port: u16,
         user: String,
     ) -> Result<crate::fs::fs_sftp::SftpFs, SshError> {
+        self.known_hosts.reload();
+        let checker = std::sync::Arc::new(crate::ssh_known_hosts::HostKeyChecker::new(
+            host.clone(),
+            port,
+            std::sync::Arc::clone(&self.known_hosts),
+        ));
         crate::fs::fs_sftp_russh::SftpFs::connect_pubkey(
             &host,
             port,
             &user,
             self.read_timeout_secs,
             self.keepalive_interval,
+            checker,
         )
         .await
-        .map_err(
-            |e| match e.downcast_ref::<crate::fs::fs_sftp_russh::PubkeyAuthError>() {
+        .map_err(|e| {
+            if let Some(m) = e.downcast_ref::<crate::fs::fs_sftp_russh::HostKeyMismatch>() {
+                return SshError::HostKey {
+                    host: host.clone(),
+                    port,
+                    presented: m.presented_fp.clone(),
+                    stored: m.stored_fp.clone(),
+                    key_line: m.key_line.clone(),
+                };
+            }
+            match e.downcast_ref::<crate::fs::fs_sftp_russh::PubkeyAuthError>() {
                 Some(crate::fs::fs_sftp_russh::PubkeyAuthError::AgentRejected) => SshError::Auth(
                     AuthError::AgentError("Agent authentication failed".to_string()),
                 ),
@@ -175,9 +223,16 @@ impl SshManager {
                 Some(crate::fs::fs_sftp_russh::PubkeyAuthError::KeyRejected(_)) => {
                     SshError::Auth(AuthError::KeyAuthFailed)
                 }
-                None => SshError::Auth(AuthError::KeyAuthFailed),
-            },
-        )
+                None => {
+                    let msg = e.to_string();
+                    if msg.contains("SSH connect failed") {
+                        SshError::Connection(msg)
+                    } else {
+                        SshError::Auth(AuthError::KeyAuthFailed)
+                    }
+                }
+            }
+        })
     }
 
     #[must_use]
@@ -244,6 +299,12 @@ impl SshManager {
         password: SecretString,
         _target_path: Option<String>,
     ) -> Result<crate::fs::fs_sftp::SftpFs, SshError> {
+        self.known_hosts.reload();
+        let checker = std::sync::Arc::new(crate::ssh_known_hosts::HostKeyChecker::new(
+            host.clone(),
+            port,
+            std::sync::Arc::clone(&self.known_hosts),
+        ));
         crate::fs::fs_sftp_russh::SftpFs::connect_password(
             &host,
             port,
@@ -251,9 +312,36 @@ impl SshManager {
             password.expose_secret(),
             self.read_timeout_secs,
             self.keepalive_interval,
+            checker,
         )
         .await
-        .map_err(|_e| SshError::Auth(AuthError::PasswordAuthFailed))
+        .map_err(|e| {
+            if let Some(m) = e.downcast_ref::<crate::fs::fs_sftp_russh::HostKeyMismatch>() {
+                return SshError::HostKey {
+                    host: host.clone(),
+                    port,
+                    presented: m.presented_fp.clone(),
+                    stored: m.stored_fp.clone(),
+                    key_line: m.key_line.clone(),
+                };
+            }
+            let msg = e.to_string();
+            if msg.contains("SSH connect failed") {
+                return SshError::Connection(msg);
+            }
+            if msg.contains("Password authentication") {
+                return SshError::Auth(AuthError::PasswordAuthFailed);
+            }
+            // Fallback: treat as auth failure unless it looks like a network error
+            if msg.contains("timed out")
+                || msg.contains("refused")
+                || msg.contains("unreachable")
+                || msg.contains("No route")
+            {
+                return SshError::Connection(msg);
+            }
+            SshError::Auth(AuthError::PasswordAuthFailed)
+        })
     }
 
     /// Registers a new SSH session.
@@ -421,6 +509,11 @@ impl SshManager {
                 .await
             {
                 Ok(result) => return Ok(result),
+                Err(SshError::HostKey { .. }) => {
+                    return Err(SshError::Internal(format!(
+                        "Reconnection failed after {attempt} attempts: host key mismatch"
+                    )));
+                }
                 Err(e) if attempt >= max_attempts => {
                     return Err(SshError::Internal(format!(
                         "Reconnection failed after {attempt} attempts: {e}"
@@ -459,6 +552,9 @@ mod tests {
             sessions: std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
             password_cache: std::sync::Arc::new(std::sync::RwLock::new(
                 std::collections::HashMap::new(),
+            )),
+            known_hosts: std::sync::Arc::new(crate::ssh_known_hosts::KnownHosts::with_path(
+                std::path::PathBuf::from("/tmp/fm_test_known_hosts_backoff"),
             )),
         };
 

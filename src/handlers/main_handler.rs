@@ -90,6 +90,13 @@ fn handle_quit_and_interceptors(
             && !app.popups.error.is_visible
             && !app.popups.help.is_visible
             && !app.popups.drive_select.is_visible
+            && !app.popups.host_key.is_visible
+            && !app.popups.empty_trash.is_visible
+            && !app.popups.create_file.is_visible
+            && !app.popups.ssh_connection.is_visible
+            && !app.popups.ssh_password.is_visible
+            && !app.popups.bookmark.list.is_visible
+            && !app.popups.viewer_search.is_visible
             && !app.popups.remote_edit.is_visible
             && !app.show_task_manager)
     {
@@ -163,6 +170,11 @@ async fn handle_popup_events(
     }
     if app.popups.ssh_password.is_visible {
         return Some(handle_ssh_password_event(app, code, modifiers));
+    }
+    if app.popups.host_key.is_visible {
+        return Some(crate::ui::host_key_ui::handle_host_key_popup_event(
+            code, app,
+        ));
     }
     if app.popups.remote_edit.is_visible {
         return Some(crate::handlers::editor::handle_remote_edit_event(code, app).await);

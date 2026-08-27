@@ -15,6 +15,7 @@ pub mod large_text;
 pub mod opener;
 pub mod paths;
 pub mod ssh_history;
+pub mod ssh_known_hosts;
 pub mod ssh_manager;
 pub mod state;
 pub mod tasks;

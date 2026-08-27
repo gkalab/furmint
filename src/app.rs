@@ -12,7 +12,7 @@ use std::time::Instant;
 pub use crate::state::{
     ConflictState, CopyMoveAction, CopyMoveState, CreateDirectoryState, CreateFileState,
     DeleteState, DriveSelectState, EmptyTrashState, ErrorState, FileViewerSearchState,
-    FileViewerState, HelpState, QuitConfirmationState, RemoteEditState, RenameState,
+    FileViewerState, HelpState, HostKeyState, QuitConfirmationState, RemoteEditState, RenameState,
     RenameTabState, SshConnectionState, SshPasswordState,
 };
 
@@ -40,6 +40,7 @@ pub struct Popups {
     pub drive_select: DriveSelectState,
     pub ssh_connection: SshConnectionState,
     pub ssh_password: SshPasswordState,
+    pub host_key: HostKeyState,
     pub remote_edit: RemoteEditState,
     pub bookmark: BookmarkState,
     pub viewer_search: FileViewerSearchState,
@@ -63,6 +64,7 @@ impl Popups {
             drive_select: DriveSelectState::new(),
             ssh_connection: SshConnectionState::new(),
             ssh_password: SshPasswordState::new(),
+            host_key: HostKeyState::new(),
             remote_edit: RemoteEditState::new(),
             bookmark: BookmarkState::new(),
             viewer_search: FileViewerSearchState::new(),
@@ -85,6 +87,7 @@ impl Popups {
             || self.drive_select.is_visible
             || self.ssh_connection.is_visible
             || self.ssh_password.is_visible
+            || self.host_key.is_visible
             || self.remote_edit.is_visible
             || self.bookmark.list.is_visible
             || self.viewer_search.is_visible

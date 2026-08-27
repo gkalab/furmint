@@ -10,6 +10,7 @@ pub mod error_ui;
 pub mod filterable_list;
 pub mod fuzzy_search_ui;
 pub mod help_ui;
+pub mod host_key_ui;
 pub mod main_ui;
 pub mod panel;
 pub mod quit_ui;

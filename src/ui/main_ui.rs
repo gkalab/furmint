@@ -197,6 +197,7 @@ pub fn draw_all_popups(
     if app.popups.ssh_password.is_visible {
         crate::ui::ssh_ui::draw_ssh_password_popup(f, app, palette);
     }
+    crate::ui::host_key_ui::draw_host_key_popup(f, &mut app.popups.host_key, palette);
     crate::ui::remote_edit_ui::draw_remote_edit_popup(f, &mut app.popups.remote_edit, palette);
     crate::ui::bookmark_ui::draw_bookmark_popup(f, &mut app.popups.bookmark, palette);
 }
