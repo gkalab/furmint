@@ -221,6 +221,14 @@ pub struct ExtractionEntryMetadata<'a> {
 /// Returns `None` if the path would escape the root (this is the cue for the
 /// caller to abort extraction).
 fn normalize_relative(name: &str) -> Option<PathBuf> {
+    let name = if name
+        .get(0..2)
+        .is_some_and(|p| p.as_bytes()[0].is_ascii_alphabetic() && p.as_bytes()[1] == b':')
+    {
+        &name[2..]
+    } else {
+        name
+    };
     let mut out = PathBuf::new();
     let mut depth = 0usize;
     for comp in Path::new(name).components() {
