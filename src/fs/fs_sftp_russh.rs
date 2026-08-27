@@ -97,13 +97,13 @@ struct ConnGuard {
 
 impl ConnGuard {
     fn new(handle: client::Handle<SshClientHandler>) -> Self {
-        Self { handle: Some(handle) }
+        Self {
+            handle: Some(handle),
+        }
     }
 
     fn as_handle(&mut self) -> &mut client::Handle<SshClientHandler> {
-        self.handle
-            .as_mut()
-            .expect("ConnGuard consumed twice")
+        self.handle.as_mut().expect("ConnGuard consumed twice")
     }
 
     fn into_inner(mut self) -> client::Handle<SshClientHandler> {
@@ -297,8 +297,13 @@ impl SftpFs {
             }
         }
 
-        Self::from_handle(guard.into_inner(), host.to_string(), user.to_string(), Some(password))
-            .await
+        Self::from_handle(
+            guard.into_inner(),
+            host.to_string(),
+            user.to_string(),
+            Some(password),
+        )
+        .await
     }
 
     /// Connect using public-key authentication: tries the ssh-agent and then

@@ -603,7 +603,8 @@ pub fn handle_ssh_password_event(app: &mut AppState, code: KeyCode, modifiers: M
 }
 
 fn reconnect_ssh(app: &mut AppState, session_id: String, password: SecretString) {
-    if app.ssh_manager
+    if app
+        .ssh_manager
         .get_session(&session_id)
         .is_some_and(|s| s.reconnecting)
     {

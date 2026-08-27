@@ -129,7 +129,9 @@ impl SshManager {
     pub fn new(ssh_config: Option<&SshConfig>) -> Self {
         let keepalive_interval = ssh_config.and_then(|c| c.keepalive_interval).unwrap_or(10);
         let read_timeout_secs = ssh_config.and_then(|c| c.read_timeout_secs).unwrap_or(15);
-        let connect_timeout_secs = ssh_config.and_then(|c| c.connect_timeout_secs).unwrap_or(30);
+        let connect_timeout_secs = ssh_config
+            .and_then(|c| c.connect_timeout_secs)
+            .unwrap_or(30);
 
         Self {
             base_backoff: Duration::from_secs(1),
@@ -327,7 +329,9 @@ impl SshManager {
             if let Some(c) = e.downcast_ref::<crate::fs::fs_sftp_russh::SshConnectError>() {
                 return SshError::Network(Self::classify_connect_error(&c.detail));
             }
-            if e.downcast_ref::<crate::fs::fs_sftp_russh::PasswordAuthError>().is_some() {
+            if e.downcast_ref::<crate::fs::fs_sftp_russh::PasswordAuthError>()
+                .is_some()
+            {
                 return SshError::Auth(AuthError::PasswordAuthFailed);
             }
             SshError::Connection(e.to_string())
@@ -349,9 +353,9 @@ impl SshManager {
         password: SecretString,
         target_path: Option<String>,
     ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
-        let (session_id, fs) =
-            self.connect_ssh(host.clone(), port, user.clone(), password.clone())
-                .await?;
+        let (session_id, fs) = self
+            .connect_ssh(host.clone(), port, user.clone(), password.clone())
+            .await?;
         self.register_session(
             session_id.clone(),
             host,
@@ -410,27 +414,39 @@ impl SshManager {
             auth_method,
             reconnecting: false,
         };
-        let mut sessions = self.sessions.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut sessions = self
+            .sessions
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         sessions.insert(session_id, state);
     }
 
     /// Unregisters an SSH session.
     pub fn unregister_session(&self, session_id: &str) {
-        let mut sessions = self.sessions.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut sessions = self
+            .sessions
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         sessions.remove(session_id);
     }
 
     /// Gets a session by ID.
     #[must_use]
     pub fn get_session(&self, session_id: &str) -> Option<SessionState> {
-        let sessions = self.sessions.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let sessions = self
+            .sessions
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         sessions.get(session_id).cloned()
     }
 
     /// Gets all sessions.
     #[must_use]
     pub fn get_all_sessions(&self) -> Vec<SessionState> {
-        let sessions = self.sessions.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let sessions = self
+            .sessions
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         sessions.values().cloned().collect()
     }
 
@@ -438,7 +454,10 @@ impl SshManager {
     /// reconnect requests for the same session are rejected instead of
     /// duplicating connection attempts.
     pub fn set_reconnecting(&self, session_id: &str, reconnecting: bool) {
-        let mut sessions = self.sessions.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut sessions = self
+            .sessions
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(s) = sessions.get_mut(session_id) {
             s.reconnecting = reconnecting;
         }
@@ -446,14 +465,20 @@ impl SshManager {
 
     /// Caches a password for a session.
     pub fn cache_password(&self, session_id: &str, password: SecretString) {
-        let mut cache = self.password_cache.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut cache = self
+            .password_cache
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         cache.insert(session_id.to_string(), password);
     }
 
     /// Gets a cached password for a session.
     #[must_use]
     pub fn get_cached_password(&self, session_id: &str) -> Option<SecretString> {
-        let cache = self.password_cache.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let cache = self
+            .password_cache
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         cache.get(session_id).cloned()
     }
 
@@ -461,19 +486,28 @@ impl SshManager {
     /// owns the same zeroized buffer without leaving a stale copy behind.
     #[must_use]
     pub fn take_cached_password(&self, session_id: &str) -> Option<SecretString> {
-        let mut cache = self.password_cache.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut cache = self
+            .password_cache
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         cache.remove(session_id)
     }
 
     /// Clears a cached password for a session.
     pub fn clear_password(&self, session_id: &str) {
-        let mut cache = self.password_cache.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut cache = self
+            .password_cache
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         cache.remove(session_id);
     }
 
     /// Clears all cached passwords.
     pub fn clear_all_passwords(&self) {
-        let mut cache = self.password_cache.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut cache = self
+            .password_cache
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         cache.clear();
     }
 
@@ -634,7 +668,10 @@ impl SshManager {
         let max_attempts = max_attempts.unwrap_or(u32::MAX);
 
         loop {
-            match self.try_connect_with_keys(host.clone(), port, user.clone()).await {
+            match self
+                .try_connect_with_keys(host.clone(), port, user.clone())
+                .await
+            {
                 Ok(result) => return Ok(result),
                 Err(SshError::HostKey { .. }) => {
                     return Err(SshError::Internal(format!(

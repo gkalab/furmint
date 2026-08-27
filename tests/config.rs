@@ -266,12 +266,9 @@ fn test_validate_ssh_config_timeout_greater_than_connect_timeout() {
     };
     let result = validate_ssh_config(&config);
     assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("read_timeout_secs (60) must be less than or equal to connect_timeout_secs (30)")
-    );
+    assert!(result.unwrap_err().to_string().contains(
+        "read_timeout_secs (60) must be less than or equal to connect_timeout_secs (30)"
+    ));
 }
 
 #[test]
