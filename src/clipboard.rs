@@ -85,7 +85,7 @@ pub mod win_clipboard {
         SetClipboardData,
     };
     use windows::Win32::System::Memory::{
-        GMEM_MOVEABLE, GMEM_ZEROINIT, GlobalAlloc, GlobalLock, GlobalUnlock,
+        GMEM_MOVEABLE, GMEM_ZEROINIT, GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock,
     };
     use windows::Win32::UI::Shell::{DragQueryFileW, HDROP};
     use windows::core::w;
@@ -210,6 +210,13 @@ pub mod win_clipboard {
         let h = HGLOBAL(hglobal as *mut _);
         let ptr = unsafe { GlobalLock(h) };
         if ptr.is_null() {
+            return None;
+        }
+        let size = unsafe { GlobalSize(h) };
+        if size < std::mem::size_of::<u32>() {
+            unsafe {
+                let _ = GlobalUnlock(h);
+            }
             return None;
         }
         let value = unsafe { *(ptr as *const u32) };
