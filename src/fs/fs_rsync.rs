@@ -287,7 +287,9 @@ async fn build_rsync_command(
     // Build rsync command with progress monitoring
     let mut cmd = if let Some(ref pass) = password {
         let mut c = tokio::process::Command::new("sshpass");
-        c.arg("-p").arg(pass.expose_secret()).arg("rsync");
+        c.arg("-e")
+            .arg("rsync")
+            .env("SSHPASS", pass.expose_secret());
         c
     } else {
         tokio::process::Command::new("rsync")
