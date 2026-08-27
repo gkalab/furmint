@@ -19,6 +19,7 @@ fn create_test_tab(name: &str, entries: Vec<FileEntry>) -> Tab {
         scroll_offset: 0,
         error: None,
         custom_title: None,
+        ssh_session_id: None,
         status_msg: None,
         dir_sizes: std::collections::HashMap::new(),
         is_reloading: false,

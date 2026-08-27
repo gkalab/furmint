@@ -301,6 +301,8 @@ fn test_handle_reconnect_ssh_sets_up_password_prompt() {
         Some("/remote/path".to_string()),
     );
 
+    app.left.active_tab_mut().ssh_session_id = Some("test_session".to_string());
+
     handle_reconnect_ssh(&mut app);
 
     assert!(app.popups.ssh_password.is_visible);

@@ -84,6 +84,7 @@ pub struct SshContext {
     pub provider: Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
     pub path: Option<std::path::PathBuf>,
     pub name: Option<String>,
+    pub session_id: Option<String>,
 }
 
 impl std::fmt::Debug for SshContext {
@@ -91,6 +92,7 @@ impl std::fmt::Debug for SshContext {
         f.debug_struct("SshContext")
             .field("path", &self.path)
             .field("name", &self.name)
+            .field("session_id", &self.session_id)
             .field("provider", &"FileSystemProvider")
             .finish()
     }

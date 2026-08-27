@@ -36,6 +36,7 @@ fn make_tab(path: &str, entries: Vec<FileEntry>, cursor: usize) -> Tab {
         scroll_offset: 0,
         error: None,
         custom_title: None,
+        ssh_session_id: None,
         status_msg: None,
         dir_sizes: HashMap::new(),
         is_reloading: false,

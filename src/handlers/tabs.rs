@@ -8,7 +8,7 @@ use directories::UserDirs;
 use std::sync::Arc;
 
 pub(crate) fn handle_new_tab(app: &mut AppState) {
-    let (target_dir, provider, cursor) = {
+    let (target_dir, provider, cursor, ssh_session_id) = {
         let tab = app.active_tab();
         if tab.is_archive() {
             let archive_file_path = tab.provider.archive_path();
@@ -24,12 +24,14 @@ pub(crate) fn handle_new_tab(app: &mut AppState) {
                 parent_dir,
                 Arc::new(LocalFs::new()) as Arc<dyn FileSystemProvider>,
                 None,
+                None,
             )
         } else {
             (
                 tab.current_dir.clone(),
                 tab.provider.clone(),
                 Some(tab.cursor),
+                tab.ssh_session_id.clone(),
             )
         }
     };
@@ -37,6 +39,8 @@ pub(crate) fn handle_new_tab(app: &mut AppState) {
     let tab_manager = app.active_tab_manager_mut();
     if let Err(e) = tab_manager.new_tab_with_provider(&target_dir, provider, cursor) {
         tab_manager.active_tab_mut().error = Some(format!("Error creating tab: {e}"));
+    } else {
+        tab_manager.active_tab_mut().ssh_session_id = ssh_session_id;
     }
 }
 
@@ -63,10 +67,38 @@ pub(crate) fn handle_close_tab(app: &mut AppState) {
         return;
     }
 
-    if !app.active_tab_manager_mut().close_tab(current_index) {
-        // Could not close (last tab)
+    let (session_id, provider) = {
+        let tab = app.active_tab();
+        (tab.ssh_session_id.clone(), tab.provider.clone())
+    };
+
+    if app.active_tab_manager_mut().close_tab(current_index) {
+        cleanup_closed_ssh_tab(app, session_id, &provider);
     }
     update_viewer_content(app);
+}
+
+/// Unregisters the SSH session and drops the cached password of a closed tab,
+/// unless another tab still shares the same provider connection.
+pub(crate) fn cleanup_closed_ssh_tab(
+    app: &mut AppState,
+    session_id: Option<String>,
+    provider: &Arc<dyn FileSystemProvider>,
+) {
+    let Some(session_id) = session_id else {
+        return;
+    };
+    let shared = app
+        .left
+        .tabs
+        .iter()
+        .chain(app.right.tabs.iter())
+        .any(|t| Arc::ptr_eq(&t.provider, provider));
+    if shared {
+        return;
+    }
+    app.ssh_manager.unregister_session(&session_id);
+    app.ssh_manager.clear_password(&session_id);
 }
 
 pub(crate) fn handle_move_tab(app: &mut AppState, target_side: crate::app_state::tabs::PanelSide) {
@@ -74,5 +106,99 @@ pub(crate) fn handle_move_tab(app: &mut AppState, target_side: crate::app_state:
         app.active_tab_mut().error = Some(e.to_string());
     } else {
         update_viewer_content(app);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app_state::tabs::TabManager;
+    use secrecy::SecretString;
+    use std::path::Path;
+
+    fn test_app() -> AppState {
+        crate::test_utils::TestAppBuilder::new()
+            .left(TabManager::new(Path::new(".")).unwrap())
+            .right(TabManager::new(Path::new(".")).unwrap())
+            .build()
+    }
+
+    #[test]
+    fn test_close_tab_cleans_up_ssh_session() {
+        let mut app = test_app();
+
+        app.left.new_tab(Path::new("."), None).unwrap();
+        let session_id = "ssh_testhost_22_1".to_string();
+        app.left.active_tab_mut().ssh_session_id = Some(session_id.clone());
+        app.ssh_manager.register_session(
+            session_id.clone(),
+            "testhost".to_string(),
+            22,
+            "user".to_string(),
+            None,
+        );
+        app.ssh_manager
+            .cache_password(&session_id, SecretString::new("secret".to_string().into()));
+
+        assert!(app.ssh_manager.get_session(&session_id).is_some());
+        assert!(app.ssh_manager.get_cached_password(&session_id).is_some());
+
+        handle_close_tab(&mut app);
+
+        assert_eq!(app.left.tabs.len(), 1);
+        assert!(app.ssh_manager.get_session(&session_id).is_none());
+        assert!(app.ssh_manager.get_cached_password(&session_id).is_none());
+    }
+
+    #[test]
+    fn test_close_tab_keeps_session_when_provider_shared() {
+        let mut app = test_app();
+
+        let provider = app.left.tabs[0].provider.clone();
+        app.left
+            .new_tab_with_provider(Path::new("."), provider, None)
+            .unwrap();
+        let session_id = "ssh_testhost_22_1".to_string();
+        app.left.active_tab_mut().ssh_session_id = Some(session_id.clone());
+        app.left.tabs[0].ssh_session_id = Some(session_id.clone());
+        app.ssh_manager.register_session(
+            session_id.clone(),
+            "testhost".to_string(),
+            22,
+            "user".to_string(),
+            None,
+        );
+
+        handle_close_tab(&mut app);
+
+        assert_eq!(app.left.tabs.len(), 1);
+        assert!(app.ssh_manager.get_session(&session_id).is_some());
+    }
+
+    #[test]
+    fn test_close_tab_without_session_id_is_noop() {
+        let mut app = test_app();
+
+        app.left.new_tab(Path::new("."), None).unwrap();
+        assert!(app.left.active_tab_mut().ssh_session_id.is_none());
+
+        handle_close_tab(&mut app);
+
+        assert_eq!(app.left.tabs.len(), 1);
+    }
+
+    #[test]
+    fn test_new_tab_inherits_ssh_session_id() {
+        let mut app = test_app();
+
+        app.left.active_tab_mut().ssh_session_id = Some("ssh_testhost_22_1".to_string());
+
+        handle_new_tab(&mut app);
+
+        assert_eq!(app.left.tabs.len(), 2);
+        assert_eq!(
+            app.left.tabs.last().unwrap().ssh_session_id.as_deref(),
+            Some("ssh_testhost_22_1")
+        );
     }
 }

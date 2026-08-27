@@ -629,6 +629,41 @@ mod tests {
     }
 
     #[test]
+    fn test_get_session_distinguishes_same_user_host() {
+        let mgr = SshManager::new(None);
+
+        mgr.register_session(
+            "ssh_host1.com_22_1".to_string(),
+            "host1.com".to_string(),
+            22,
+            "user".to_string(),
+            Some("/path/a".to_string()),
+        );
+        mgr.register_session(
+            "ssh_host1.com_22_2".to_string(),
+            "host1.com".to_string(),
+            22,
+            "user".to_string(),
+            Some("/path/b".to_string()),
+        );
+
+        assert_eq!(
+            mgr.get_session("ssh_host1.com_22_1")
+                .unwrap()
+                .target_path
+                .as_deref(),
+            Some("/path/a")
+        );
+        assert_eq!(
+            mgr.get_session("ssh_host1.com_22_2")
+                .unwrap()
+                .target_path
+                .as_deref(),
+            Some("/path/b")
+        );
+    }
+
+    #[test]
     fn test_get_all_sessions() {
         let mgr = SshManager::new(None);
 

@@ -71,6 +71,7 @@ pub struct Tab {
     pub scroll_offset: usize,
     pub error: Option<String>,
     pub custom_title: Option<String>,
+    pub ssh_session_id: Option<String>,
     pub status_msg: Option<(String, std::time::Instant)>,
     /// Cache of calculated directory sizes: path -> size in bytes
     pub dir_sizes: std::collections::HashMap<PathBuf, u64>,
@@ -113,6 +114,7 @@ impl Tab {
             scroll_offset: 0,
             error: None,
             custom_title: None,
+            ssh_session_id: None,
             status_msg: None,
             dir_sizes: std::collections::HashMap::new(),
             is_reloading: false,

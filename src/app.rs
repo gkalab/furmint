@@ -612,6 +612,7 @@ impl AppState {
                 }
 
                 tab.custom_title = connection_name;
+                tab.ssh_session_id = ctx.session_id;
                 let tab_manager = self.active_tab_manager_mut();
                 tab_manager.insert_tab_after_active(tab);
             }
@@ -644,6 +645,7 @@ impl AppState {
 
         // Replace the provider
         tab.provider = ctx.provider;
+        tab.ssh_session_id = ctx.session_id;
 
         if let Some((col, dir)) = sort_settings {
             tab.sort.column = col;
