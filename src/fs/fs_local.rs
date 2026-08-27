@@ -178,7 +178,7 @@ impl FileSystemProvider for LocalFs {
     }
 
     fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
-        Ok(fs::canonicalize(path)?)
+        Ok(fs_ops::strip_extended_prefix(fs::canonicalize(path)?))
     }
 
     fn get_permissions(&self, path: &Path) -> Option<u32> {

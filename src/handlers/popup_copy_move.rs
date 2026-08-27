@@ -435,7 +435,7 @@ pub fn handle_copy_move_event(code: KeyCode, modifiers: Modifiers, app: &mut App
             let dest_provider = app.inactive_tab().provider.clone();
             let dest_abs = if dest_provider.is_local() {
                 if let Ok(p) = dest_path.canonicalize() {
-                    p
+                    crate::fs::utils::strip_extended_prefix(p)
                 } else if dest_path.is_absolute() {
                     dest_path.clone()
                 } else {
