@@ -299,6 +299,7 @@ fn test_handle_reconnect_ssh_sets_up_password_prompt() {
         22,
         "testuser".to_string(),
         Some("/remote/path".to_string()),
+        fm::ssh_manager::AuthMethod::Password,
     );
 
     app.left.active_tab_mut().ssh_session_id = Some("test_session".to_string());

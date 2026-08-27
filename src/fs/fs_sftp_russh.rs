@@ -55,6 +55,76 @@ impl std::fmt::Display for HostKeyMismatch {
 
 impl std::error::Error for HostKeyMismatch {}
 
+/// The SSH transport connection (TCP, KEX or transport handshake) failed,
+/// before any authentication was attempted. Distinct from authentication
+/// failures so callers can avoid offering a password prompt for a host that
+/// was never reachable.
+#[derive(Debug)]
+pub struct SshConnectError {
+    pub detail: String,
+}
+
+impl std::fmt::Display for SshConnectError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.detail)
+    }
+}
+
+impl std::error::Error for SshConnectError {}
+
+/// Password authentication failed: either the server rejected the password or
+/// the transport broke down while authenticating.
+#[derive(Debug)]
+pub struct PasswordAuthError {
+    pub detail: String,
+}
+
+impl std::fmt::Display for PasswordAuthError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.detail)
+    }
+}
+
+impl std::error::Error for PasswordAuthError {}
+
+/// Owns a freshly connected `client::Handle` until it is either handed over to
+/// a `SftpFs` or the connect future fails/is cancelled. Dropping the guard
+/// without handover sends a disconnect so the server session does not linger
+/// until its own timeout.
+struct ConnGuard {
+    handle: Option<client::Handle<SshClientHandler>>,
+}
+
+impl ConnGuard {
+    fn new(handle: client::Handle<SshClientHandler>) -> Self {
+        Self { handle: Some(handle) }
+    }
+
+    fn as_handle(&mut self) -> &mut client::Handle<SshClientHandler> {
+        self.handle
+            .as_mut()
+            .expect("ConnGuard consumed twice")
+    }
+
+    fn into_inner(mut self) -> client::Handle<SshClientHandler> {
+        self.handle.take().expect("ConnGuard consumed twice")
+    }
+}
+
+impl Drop for ConnGuard {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take()
+            && let Ok(rt) = tokio::runtime::Handle::try_current()
+        {
+            rt.spawn(async move {
+                let _ = handle
+                    .disconnect(russh::Disconnect::ByApplication, "", "en")
+                    .await;
+            });
+        }
+    }
+}
+
 pub(crate) struct SshClientHandler {
     checker: std::sync::Arc<HostKeyChecker>,
 }
@@ -181,7 +251,7 @@ impl SftpFs {
             ..Default::default()
         });
         let checker_clone = std::sync::Arc::clone(&checker);
-        let mut handle = match client::connect(
+        let handle = match client::connect(
             config,
             (host, port),
             SshClientHandler {
@@ -202,22 +272,33 @@ impl SftpFs {
                     }
                     .into());
                 }
-                return Err(anyhow!("SSH connect failed: {e}"));
+                return Err(SshConnectError {
+                    detail: format!("SSH connect failed: {e}"),
+                }
+                .into());
             }
         };
 
+        let mut guard = ConnGuard::new(handle);
         {
             let exposed = password.expose_secret();
-            let ok = handle
+            let ok = guard
+                .as_handle()
                 .authenticate_password(user, exposed)
                 .await
-                .map_err(|e| anyhow!("Password authentication error: {e}"))?;
+                .map_err(|e| PasswordAuthError {
+                    detail: format!("Password authentication error: {e}"),
+                })?;
             if !matches!(ok, russh::client::AuthResult::Success) {
-                return Err(anyhow!("Password authentication rejected by server"));
+                return Err(PasswordAuthError {
+                    detail: "Password authentication rejected by server".to_string(),
+                }
+                .into());
             }
         }
 
-        Self::from_handle(handle, host.to_string(), user.to_string(), Some(password)).await
+        Self::from_handle(guard.into_inner(), host.to_string(), user.to_string(), Some(password))
+            .await
     }
 
     /// Connect using public-key authentication: tries the ssh-agent and then
@@ -243,7 +324,7 @@ impl SftpFs {
             ..Default::default()
         });
         let checker_clone = std::sync::Arc::clone(&checker);
-        let mut handle = match client::connect(
+        let handle = match client::connect(
             config,
             (host, port),
             SshClientHandler {
@@ -264,14 +345,24 @@ impl SftpFs {
                     }
                     .into());
                 }
-                return Err(anyhow!("SSH connect failed: {e}"));
+                return Err(SshConnectError {
+                    detail: format!("SSH connect failed: {e}"),
+                }
+                .into());
             }
         };
 
+        let mut guard = ConnGuard::new(handle);
         let mut agent_rejected = false;
-        match Self::agent_auth(&mut handle, user).await {
+        match Self::agent_auth(guard.as_handle(), user).await {
             AgentAuthOutcome::Authenticated => {
-                return Self::from_handle(handle, host.to_string(), user.to_string(), None).await;
+                return Self::from_handle(
+                    guard.into_inner(),
+                    host.to_string(),
+                    user.to_string(),
+                    None,
+                )
+                .await;
             }
             AgentAuthOutcome::AllRejected => agent_rejected = true,
             AgentAuthOutcome::Unavailable => {}
@@ -298,10 +389,15 @@ impl SftpFs {
                 None, // default hash alg
             );
 
-            match handle.authenticate_publickey(user, pk).await {
+            match guard.as_handle().authenticate_publickey(user, pk).await {
                 Ok(russh::client::AuthResult::Success) => {
-                    return Self::from_handle(handle, host.to_string(), user.to_string(), None)
-                        .await;
+                    return Self::from_handle(
+                        guard.into_inner(),
+                        host.to_string(),
+                        user.to_string(),
+                        None,
+                    )
+                    .await;
                 }
                 Ok(_) => {
                     last_err = anyhow!("Key rejected by server: {}", key_path.display());

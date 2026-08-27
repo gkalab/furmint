@@ -1,6 +1,14 @@
 use crate::config::SshConfig;
 use secrecy::SecretString;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+
+/// Authentication method a session was established with; reconnection must use
+/// the same method unless the user explicitly falls back to a password.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthMethod {
+    Password,
+    Pubkey,
+}
 
 #[derive(Debug, Clone)]
 pub struct SessionState {
@@ -9,6 +17,10 @@ pub struct SessionState {
     pub port: u16,
     pub user: String,
     pub target_path: Option<String>,
+    pub auth_method: AuthMethod,
+    /// Set while a reconnection attempt is in flight so concurrent requests
+    /// for the same session are rejected instead of duplicating attempts.
+    pub reconnecting: bool,
 }
 
 #[derive(Debug)]
@@ -19,24 +31,6 @@ pub enum NetworkError {
     NoRoute,
     InvalidAddress,
     Other(String),
-}
-
-impl From<std::io::Error> for NetworkError {
-    fn from(e: std::io::Error) -> Self {
-        use std::io::ErrorKind::{
-            AddrInUse, AddrNotAvailable, BrokenPipe, ConnectionRefused, ConnectionReset,
-            HostUnreachable, NetworkUnreachable, NotConnected, TimedOut,
-        };
-
-        match e.kind() {
-            ConnectionRefused => NetworkError::ConnectionRefused,
-            TimedOut => NetworkError::ConnectionTimedOut,
-            NotConnected | AddrNotAvailable => NetworkError::InvalidAddress,
-            NetworkUnreachable => NetworkError::NoRoute,
-            HostUnreachable => NetworkError::HostUnreachable,
-            AddrInUse | BrokenPipe | ConnectionReset | _ => NetworkError::Other(e.to_string()),
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -123,7 +117,7 @@ pub struct SshManager {
     jitter_pct: f64,
     pub keepalive_interval: u32,
     pub read_timeout_secs: u64,
-    pub watchdog_secs: u64,
+    pub connect_timeout_secs: u64,
     sessions: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, SessionState>>>,
     password_cache:
         std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, SecretString>>>,
@@ -135,7 +129,7 @@ impl SshManager {
     pub fn new(ssh_config: Option<&SshConfig>) -> Self {
         let keepalive_interval = ssh_config.and_then(|c| c.keepalive_interval).unwrap_or(10);
         let read_timeout_secs = ssh_config.and_then(|c| c.read_timeout_secs).unwrap_or(15);
-        let watchdog_secs = ssh_config.and_then(|c| c.watchdog_secs).unwrap_or(30);
+        let connect_timeout_secs = ssh_config.and_then(|c| c.connect_timeout_secs).unwrap_or(30);
 
         Self {
             base_backoff: Duration::from_secs(1),
@@ -144,7 +138,7 @@ impl SshManager {
             jitter_pct: 0.2,
             keepalive_interval,
             read_timeout_secs,
-            watchdog_secs,
+            connect_timeout_secs,
             sessions: std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
             password_cache: std::sync::Arc::new(std::sync::RwLock::new(
                 std::collections::HashMap::new(),
@@ -170,7 +164,7 @@ impl SshManager {
         user: String,
     ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
         let session_id = Self::generate_session_id(&host, port);
-        let timeout = Duration::from_secs(self.watchdog_secs);
+        let timeout = Duration::from_secs(self.connect_timeout_secs);
 
         let fs = tokio::time::timeout(
             timeout,
@@ -213,6 +207,9 @@ impl SshManager {
                     key_line: m.key_line.clone(),
                 };
             }
+            if let Some(c) = e.downcast_ref::<crate::fs::fs_sftp_russh::SshConnectError>() {
+                return SshError::Network(Self::classify_connect_error(&c.detail));
+            }
             match e.downcast_ref::<crate::fs::fs_sftp_russh::PubkeyAuthError>() {
                 Some(crate::fs::fs_sftp_russh::PubkeyAuthError::AgentRejected) => SshError::Auth(
                     AuthError::AgentError("Agent authentication failed".to_string()),
@@ -223,16 +220,26 @@ impl SshManager {
                 Some(crate::fs::fs_sftp_russh::PubkeyAuthError::KeyRejected(_)) => {
                     SshError::Auth(AuthError::KeyAuthFailed)
                 }
-                None => {
-                    let msg = e.to_string();
-                    if msg.contains("SSH connect failed") {
-                        SshError::Connection(msg)
-                    } else {
-                        SshError::Auth(AuthError::KeyAuthFailed)
-                    }
-                }
+                None => SshError::Connection(e.to_string()),
             }
         })
+    }
+
+    /// Maps a transport connection failure to the most specific
+    /// `NetworkError` variant based on the error text.
+    fn classify_connect_error(detail: &str) -> NetworkError {
+        let lower = detail.to_lowercase();
+        if lower.contains("timed out") {
+            NetworkError::ConnectionTimedOut
+        } else if lower.contains("refused") {
+            NetworkError::ConnectionRefused
+        } else if lower.contains("no route") {
+            NetworkError::NoRoute
+        } else if lower.contains("unreachable") {
+            NetworkError::HostUnreachable
+        } else {
+            NetworkError::Other(detail.to_string())
+        }
     }
 
     #[must_use]
@@ -244,15 +251,9 @@ impl SshManager {
             secs = self.max_backoff.as_secs_f64();
         }
 
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.subsec_nanos());
-        let seed = f64::from(u16::try_from(i64::from(nanos) % 1000).unwrap_or(0)) / 1000.0; // 0..1
-        let jitter = 1.0 + (seed * 2.0 - 1.0) * self.jitter_pct;
-        secs *= jitter;
-        if secs < 0.0 {
-            secs = 0.0;
-        }
+        let u = rand::random::<f64>();
+        let jitter = 1.0 + (u * 2.0 - 1.0) * self.jitter_pct;
+        secs = (secs * jitter).min(self.max_backoff.as_secs_f64());
         Duration::from_secs_f64(secs)
     }
 
@@ -276,14 +277,13 @@ impl SshManager {
         port: u16,
         user: String,
         password: SecretString,
-        target_path: Option<String>,
     ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
         let session_id = Self::generate_session_id(&host, port);
-        let timeout = Duration::from_secs(self.watchdog_secs);
+        let timeout = Duration::from_secs(self.connect_timeout_secs);
 
         let fs = tokio::time::timeout(
             timeout,
-            self.connect_ssh_backend(host, port, user, password, target_path),
+            self.connect_ssh_backend(host, port, user, password),
         )
         .await
         .map_err(|_| SshError::Network(NetworkError::ConnectionTimedOut))??;
@@ -297,7 +297,6 @@ impl SshManager {
         port: u16,
         user: String,
         password: SecretString,
-        _target_path: Option<String>,
     ) -> Result<crate::fs::fs_sftp::SftpFs, SshError> {
         self.known_hosts.reload();
         let checker = std::sync::Arc::new(crate::ssh_known_hosts::HostKeyChecker::new(
@@ -325,30 +324,74 @@ impl SshManager {
                     key_line: m.key_line.clone(),
                 };
             }
-            let msg = e.to_string();
-            if msg.contains("SSH connect failed") {
-                return SshError::Connection(msg);
+            if let Some(c) = e.downcast_ref::<crate::fs::fs_sftp_russh::SshConnectError>() {
+                return SshError::Network(Self::classify_connect_error(&c.detail));
             }
-            if msg.contains("Password authentication") {
+            if e.downcast_ref::<crate::fs::fs_sftp_russh::PasswordAuthError>().is_some() {
                 return SshError::Auth(AuthError::PasswordAuthFailed);
             }
-            // Fallback: treat as auth failure unless it looks like a network error
-            if msg.contains("timed out")
-                || msg.contains("refused")
-                || msg.contains("unreachable")
-                || msg.contains("No route")
-            {
-                return SshError::Connection(msg);
-            }
-            SshError::Auth(AuthError::PasswordAuthFailed)
+            SshError::Connection(e.to_string())
         })
     }
 
+    /// Connects with password authentication, registers the resulting session
+    /// and caches the password so background reconnection can retry without
+    /// user interaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the connection or authentication fails.
+    pub async fn connect_password_session(
+        &self,
+        host: String,
+        port: u16,
+        user: String,
+        password: SecretString,
+        target_path: Option<String>,
+    ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
+        let (session_id, fs) =
+            self.connect_ssh(host.clone(), port, user.clone(), password.clone())
+                .await?;
+        self.register_session(
+            session_id.clone(),
+            host,
+            port,
+            user,
+            target_path,
+            AuthMethod::Password,
+        );
+        self.cache_password(&session_id, password);
+        Ok((session_id, fs))
+    }
+
+    /// Connects with public-key authentication and registers the resulting
+    /// session.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the connection or key authentication fails.
+    pub async fn connect_pubkey_session(
+        &self,
+        host: String,
+        port: u16,
+        user: String,
+        target_path: Option<String>,
+    ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
+        let (session_id, fs) = self
+            .try_connect_with_keys(host.clone(), port, user.clone())
+            .await?;
+        self.register_session(
+            session_id.clone(),
+            host,
+            port,
+            user,
+            target_path,
+            AuthMethod::Pubkey,
+        );
+        Ok((session_id, fs))
+    }
+
     /// Registers a new SSH session.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the session mutex cannot be locked.
     pub fn register_session(
         &self,
         session_id: String,
@@ -356,6 +399,7 @@ impl SshManager {
         port: u16,
         user: String,
         target_path: Option<String>,
+        auth_method: AuthMethod,
     ) {
         let state = SessionState {
             session_id: session_id.clone(),
@@ -363,101 +407,83 @@ impl SshManager {
             port,
             user,
             target_path,
+            auth_method,
+            reconnecting: false,
         };
-        let mut sessions = self.sessions.write().unwrap();
+        let mut sessions = self.sessions.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         sessions.insert(session_id, state);
     }
 
     /// Unregisters an SSH session.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the session mutex cannot be locked.
     pub fn unregister_session(&self, session_id: &str) {
-        let mut sessions = self.sessions.write().unwrap();
+        let mut sessions = self.sessions.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         sessions.remove(session_id);
     }
 
     /// Gets a session by ID.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the session mutex cannot be locked.
     #[must_use]
     pub fn get_session(&self, session_id: &str) -> Option<SessionState> {
-        let sessions = self.sessions.read().unwrap();
+        let sessions = self.sessions.read().unwrap_or_else(std::sync::PoisonError::into_inner);
         sessions.get(session_id).cloned()
     }
 
     /// Gets all sessions.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the session mutex cannot be locked.
     #[must_use]
     pub fn get_all_sessions(&self) -> Vec<SessionState> {
-        let sessions = self.sessions.read().unwrap();
+        let sessions = self.sessions.read().unwrap_or_else(std::sync::PoisonError::into_inner);
         sessions.values().cloned().collect()
     }
 
+    /// Marks a session as (not) currently being reconnected, so concurrent
+    /// reconnect requests for the same session are rejected instead of
+    /// duplicating connection attempts.
+    pub fn set_reconnecting(&self, session_id: &str, reconnecting: bool) {
+        let mut sessions = self.sessions.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(s) = sessions.get_mut(session_id) {
+            s.reconnecting = reconnecting;
+        }
+    }
+
     /// Caches a password for a session.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the password cache mutex cannot be locked.
     pub fn cache_password(&self, session_id: &str, password: SecretString) {
-        let mut cache = self.password_cache.write().unwrap();
+        let mut cache = self.password_cache.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         cache.insert(session_id.to_string(), password);
     }
 
     /// Gets a cached password for a session.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the password cache mutex cannot be locked.
     #[must_use]
     pub fn get_cached_password(&self, session_id: &str) -> Option<SecretString> {
-        let cache = self.password_cache.read().unwrap();
+        let cache = self.password_cache.read().unwrap_or_else(std::sync::PoisonError::into_inner);
         cache.get(session_id).cloned()
     }
 
     /// Removes and returns the cached password for a session, so the caller
     /// owns the same zeroized buffer without leaving a stale copy behind.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the password cache mutex cannot be locked.
     #[must_use]
     pub fn take_cached_password(&self, session_id: &str) -> Option<SecretString> {
-        let mut cache = self.password_cache.write().unwrap();
+        let mut cache = self.password_cache.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         cache.remove(session_id)
     }
 
     /// Clears a cached password for a session.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the password cache mutex cannot be locked.
     pub fn clear_password(&self, session_id: &str) {
-        let mut cache = self.password_cache.write().unwrap();
+        let mut cache = self.password_cache.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         cache.remove(session_id);
     }
 
     /// Clears all cached passwords.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the password cache mutex cannot be locked.
     pub fn clear_all_passwords(&self) {
-        let mut cache = self.password_cache.write().unwrap();
+        let mut cache = self.password_cache.write().unwrap_or_else(std::sync::PoisonError::into_inner);
         cache.clear();
     }
 
-    /// Reconnects a session with a new password.
+    /// Reconnects a session with a password, replacing the old session entry
+    /// on success.
     ///
     /// # Errors
     ///
-    /// Returns an error if reconnection fails.
+    /// Returns an error if the session is unknown, a reconnection is already
+    /// in flight for it, or if reconnection fails.
     pub async fn reconnect_session(
         &self,
         session_id: &str,
@@ -466,6 +492,17 @@ impl SshManager {
         let session = self.get_session(session_id).ok_or_else(|| {
             SshError::InvalidInput(format!("Session {session_id} not found for reconnection"))
         })?;
+        if session.reconnecting {
+            return Err(SshError::Internal(
+                "Reconnection already in progress for this session".to_string(),
+            ));
+        }
+        self.set_reconnecting(session_id, true);
+        let _guard = ReconnectGuard {
+            manager: self,
+            session_id: session_id.to_string(),
+            active: true,
+        };
 
         let (new_session_id, fs) = self
             .reconnect_with_backoff(
@@ -473,7 +510,56 @@ impl SshManager {
                 session.port,
                 session.user.clone(),
                 &password,
-                session.target_path.clone(),
+                Some(3),
+            )
+            .await?;
+
+        self.clear_password(session_id);
+        self.unregister_session(session_id);
+        self.register_session(
+            new_session_id.clone(),
+            session.host,
+            session.port,
+            session.user,
+            session.target_path,
+            AuthMethod::Password,
+        );
+        self.cache_password(&new_session_id, password);
+
+        Ok((new_session_id, fs))
+    }
+
+    /// Reconnects a public-key authenticated session using key/agent
+    /// authentication.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the session is unknown, a reconnection is already
+    /// in flight for it, or if reconnection fails.
+    pub async fn reconnect_session_with_keys(
+        &self,
+        session_id: &str,
+    ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
+        let session = self.get_session(session_id).ok_or_else(|| {
+            SshError::InvalidInput(format!("Session {session_id} not found for reconnection"))
+        })?;
+        if session.reconnecting {
+            return Err(SshError::Internal(
+                "Reconnection already in progress for this session".to_string(),
+            ));
+        }
+        self.set_reconnecting(session_id, true);
+        let _guard = ReconnectGuard {
+            manager: self,
+            session_id: session_id.to_string(),
+            active: true,
+        };
+
+        let (new_session_id, fs) = self
+            .reconnect_keys_with_backoff(
+                session.host.clone(),
+                session.port,
+                session.user.clone(),
                 Some(3),
             )
             .await?;
@@ -485,12 +571,13 @@ impl SshManager {
             session.port,
             session.user,
             session.target_path,
+            AuthMethod::Pubkey,
         );
 
         Ok((new_session_id, fs))
     }
 
-    /// Reconnects with exponential backoff.
+    /// Reconnects with a password using exponential backoff.
     ///
     /// # Errors
     ///
@@ -501,7 +588,6 @@ impl SshManager {
         port: u16,
         user: String,
         password: &SecretString,
-        target_path: Option<String>,
         max_attempts: Option<u32>,
     ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
         let mut attempt = 1u32;
@@ -509,13 +595,7 @@ impl SshManager {
 
         loop {
             match self
-                .connect_ssh(
-                    host.clone(),
-                    port,
-                    user.clone(),
-                    password.clone(),
-                    target_path.clone(),
-                )
+                .connect_ssh(host.clone(), port, user.clone(), password.clone())
                 .await
             {
                 Ok(result) => return Ok(result),
@@ -535,6 +615,59 @@ impl SshManager {
                     attempt += 1;
                 }
             }
+        }
+    }
+
+    /// Reconnects with key authentication using exponential backoff.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if reconnection fails after all attempts.
+    pub async fn reconnect_keys_with_backoff(
+        &self,
+        host: String,
+        port: u16,
+        user: String,
+        max_attempts: Option<u32>,
+    ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
+        let mut attempt = 1u32;
+        let max_attempts = max_attempts.unwrap_or(u32::MAX);
+
+        loop {
+            match self.try_connect_with_keys(host.clone(), port, user.clone()).await {
+                Ok(result) => return Ok(result),
+                Err(SshError::HostKey { .. }) => {
+                    return Err(SshError::Internal(format!(
+                        "Reconnection failed after {attempt} attempts: host key mismatch"
+                    )));
+                }
+                Err(e) if attempt >= max_attempts => {
+                    return Err(SshError::Internal(format!(
+                        "Reconnection failed after {attempt} attempts: {e}"
+                    )));
+                }
+                Err(_) => {
+                    let delay = self.compute_backoff(attempt);
+                    tokio::time::sleep(delay).await;
+                    attempt += 1;
+                }
+            }
+        }
+    }
+}
+
+/// Clears the `reconnecting` flag on a session when the reconnect future ends,
+/// including on error and cancellation.
+struct ReconnectGuard<'a> {
+    manager: &'a SshManager,
+    session_id: String,
+    active: bool,
+}
+
+impl Drop for ReconnectGuard<'_> {
+    fn drop(&mut self) {
+        if self.active {
+            self.manager.set_reconnecting(&self.session_id, false);
         }
     }
 }
@@ -559,7 +692,7 @@ mod tests {
             jitter_pct: 0.0,
             keepalive_interval: 10,
             read_timeout_secs: 15,
-            watchdog_secs: 30,
+            connect_timeout_secs: 30,
             sessions: std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
             password_cache: std::sync::Arc::new(std::sync::RwLock::new(
                 std::collections::HashMap::new(),
@@ -588,6 +721,12 @@ mod tests {
             got >= low && got <= high,
             "got {got} not in [{low}..{high}]"
         );
+
+        // Jittered delay at the backoff cap must never exceed the cap.
+        for _ in 0..100 {
+            assert!(mgr_j.compute_backoff(8).as_secs_f64() <= 60.0);
+            assert!(mgr_j.compute_backoff(8).as_secs_f64() >= 60.0 * (1.0 - 0.2));
+        }
     }
 
     #[test]
@@ -613,6 +752,7 @@ mod tests {
             22,
             "user".to_string(),
             Some("/remote/path".to_string()),
+            AuthMethod::Password,
         );
 
         // Verify session is registered
@@ -622,6 +762,16 @@ mod tests {
         assert_eq!(session.host, "example.com");
         assert_eq!(session.port, 22);
         assert_eq!(session.user, "user");
+        assert_eq!(session.auth_method, AuthMethod::Password);
+        assert!(!session.reconnecting);
+
+        // Reconnecting flag toggles and reads back
+        mgr.set_reconnecting("session_test", true);
+        assert!(mgr.get_session("session_test").unwrap().reconnecting);
+        mgr.set_reconnecting("session_test", false);
+        assert!(!mgr.get_session("session_test").unwrap().reconnecting);
+        // Flag for an unknown session is a no-op
+        mgr.set_reconnecting("unknown", true);
 
         // Unregister session
         mgr.unregister_session("session_test");
@@ -638,6 +788,7 @@ mod tests {
             22,
             "user".to_string(),
             Some("/path/a".to_string()),
+            AuthMethod::Password,
         );
         mgr.register_session(
             "ssh_host1.com_22_2".to_string(),
@@ -645,6 +796,7 @@ mod tests {
             22,
             "user".to_string(),
             Some("/path/b".to_string()),
+            AuthMethod::Pubkey,
         );
 
         assert_eq!(
@@ -673,6 +825,7 @@ mod tests {
             22,
             "u1".to_string(),
             None,
+            AuthMethod::Password,
         );
         mgr.register_session(
             "s2".to_string(),
@@ -680,6 +833,7 @@ mod tests {
             22,
             "u2".to_string(),
             None,
+            AuthMethod::Pubkey,
         );
 
         let sessions = mgr.get_all_sessions();

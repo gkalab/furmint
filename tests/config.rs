@@ -184,7 +184,7 @@ fn test_validate_ssh_config_valid() {
     let config = SshConfig {
         keepalive_interval: Some(10),
         read_timeout_secs: Some(15),
-        watchdog_secs: Some(30),
+        connect_timeout_secs: Some(30),
     };
     assert!(validate_ssh_config(&config).is_ok());
 }
@@ -194,7 +194,7 @@ fn test_validate_ssh_config_invalid_keepalive_zero() {
     let config = SshConfig {
         keepalive_interval: Some(0),
         read_timeout_secs: Some(15),
-        watchdog_secs: Some(30),
+        connect_timeout_secs: Some(30),
     };
     let result = validate_ssh_config(&config);
     assert!(result.is_err());
@@ -211,7 +211,7 @@ fn test_validate_ssh_config_invalid_keepalive_too_large() {
     let config = SshConfig {
         keepalive_interval: Some(4000),
         read_timeout_secs: Some(15),
-        watchdog_secs: Some(30),
+        connect_timeout_secs: Some(30),
     };
     let result = validate_ssh_config(&config);
     assert!(result.is_err());
@@ -228,7 +228,7 @@ fn test_validate_ssh_config_invalid_timeout_zero() {
     let config = SshConfig {
         keepalive_interval: Some(10),
         read_timeout_secs: Some(0),
-        watchdog_secs: Some(30),
+        connect_timeout_secs: Some(30),
     };
     let result = validate_ssh_config(&config);
     assert!(result.is_err());
@@ -241,11 +241,11 @@ fn test_validate_ssh_config_invalid_timeout_zero() {
 }
 
 #[test]
-fn test_validate_ssh_config_invalid_watchdog_zero() {
+fn test_validate_ssh_config_invalid_connect_timeout_zero() {
     let config = SshConfig {
         keepalive_interval: Some(10),
         read_timeout_secs: Some(15),
-        watchdog_secs: Some(0),
+        connect_timeout_secs: Some(0),
     };
     let result = validate_ssh_config(&config);
     assert!(result.is_err());
@@ -253,16 +253,16 @@ fn test_validate_ssh_config_invalid_watchdog_zero() {
         result
             .unwrap_err()
             .to_string()
-            .contains("watchdog_secs must be greater than 0")
+            .contains("connect_timeout_secs must be greater than 0")
     );
 }
 
 #[test]
-fn test_validate_ssh_config_timeout_greater_than_watchdog() {
+fn test_validate_ssh_config_timeout_greater_than_connect_timeout() {
     let config = SshConfig {
         keepalive_interval: Some(10),
         read_timeout_secs: Some(60),
-        watchdog_secs: Some(30),
+        connect_timeout_secs: Some(30),
     };
     let result = validate_ssh_config(&config);
     assert!(result.is_err());
@@ -270,7 +270,7 @@ fn test_validate_ssh_config_timeout_greater_than_watchdog() {
         result
             .unwrap_err()
             .to_string()
-            .contains("read_timeout_secs (60) must be less than or equal to watchdog_secs (30)")
+            .contains("read_timeout_secs (60) must be less than or equal to connect_timeout_secs (30)")
     );
 }
 
@@ -279,7 +279,7 @@ fn test_validate_ssh_config_none_values() {
     let config = SshConfig {
         keepalive_interval: None,
         read_timeout_secs: None,
-        watchdog_secs: None,
+        connect_timeout_secs: None,
     };
     assert!(validate_ssh_config(&config).is_ok());
 }
@@ -289,7 +289,7 @@ fn test_validate_ssh_config_partial_values() {
     let config = SshConfig {
         keepalive_interval: Some(10),
         read_timeout_secs: None,
-        watchdog_secs: None,
+        connect_timeout_secs: None,
     };
     assert!(validate_ssh_config(&config).is_ok());
 }

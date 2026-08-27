@@ -136,6 +136,7 @@ mod tests {
             22,
             "user".to_string(),
             None,
+            crate::ssh_manager::AuthMethod::Password,
         );
         app.ssh_manager
             .cache_password(&session_id, SecretString::new("secret".to_string().into()));
@@ -167,6 +168,7 @@ mod tests {
             22,
             "user".to_string(),
             None,
+            crate::ssh_manager::AuthMethod::Password,
         );
 
         handle_close_tab(&mut app);

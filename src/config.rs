@@ -65,7 +65,7 @@ pub struct ViewerConfig {
 pub struct SshConfig {
     pub keepalive_interval: Option<u32>,
     pub read_timeout_secs: Option<u64>,
-    pub watchdog_secs: Option<u64>,
+    pub connect_timeout_secs: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -465,22 +465,23 @@ pub fn validate_ssh_config(config: &SshConfig) -> Result<()> {
         }
     }
 
-    if let Some(watchdog) = config.watchdog_secs {
-        if watchdog == 0 {
-            return Err(anyhow!("SSH watchdog_secs must be greater than 0"));
+    if let Some(connect_timeout) = config.connect_timeout_secs {
+        if connect_timeout == 0 {
+            return Err(anyhow!("SSH connect_timeout_secs must be greater than 0"));
         }
-        if watchdog > 3600 {
+        if connect_timeout > 3600 {
             return Err(anyhow!(
-                "SSH watchdog_secs must be less than or equal to 3600 seconds (1 hour)"
+                "SSH connect_timeout_secs must be less than or equal to 3600 seconds (1 hour)"
             ));
         }
     }
 
-    if let (Some(timeout), Some(watchdog)) = (config.read_timeout_secs, config.watchdog_secs)
-        && timeout > watchdog
+    if let (Some(timeout), Some(connect_timeout)) =
+        (config.read_timeout_secs, config.connect_timeout_secs)
+        && timeout > connect_timeout
     {
         return Err(anyhow!(
-            "SSH read_timeout_secs ({timeout}) must be less than or equal to watchdog_secs ({watchdog})"
+            "SSH read_timeout_secs ({timeout}) must be less than or equal to connect_timeout_secs ({connect_timeout})"
         ));
     }
 
@@ -539,7 +540,7 @@ pub fn load_config() -> Result<(
     let default_ssh = SshConfig {
         keepalive_interval: Some(3),
         read_timeout_secs: Some(5),
-        watchdog_secs: Some(30),
+        connect_timeout_secs: Some(30),
     };
     let (keyboard, global, editor, viewer, ssh) = if path.exists() {
         let content =
