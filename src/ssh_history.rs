@@ -96,6 +96,11 @@ impl SshConnectionHistory {
     pub fn save(&self) -> anyhow::Result<()> {
         let content = serde_json::to_string_pretty(&self.connections)?;
         fs::write(&self.path, content)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&self.path, fs::Permissions::from_mode(0o600));
+        }
         Ok(())
     }
     /// Loads the SSH connection history from disk.
