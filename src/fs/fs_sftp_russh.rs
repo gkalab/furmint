@@ -159,6 +159,10 @@ pub struct SftpFs {
 impl SftpFs {
     /// Connect with password authentication and return a ready `SftpFs`.
     ///
+    /// Takes the owned `SecretString` so the same zeroized buffer can be
+    /// exposed briefly at the russh boundary and then stored on `SftpFs`
+    /// without re-materializing a second copy.
+    ///
     /// # Errors
     ///
     /// Returns an error if the SSH connection fails or authentication is rejected.
@@ -166,7 +170,7 @@ impl SftpFs {
         host: &str,
         port: u16,
         user: &str,
-        password: &str,
+        password: SecretString,
         read_timeout_secs: u64,
         keepalive_interval: u32,
         checker: std::sync::Arc<crate::ssh_known_hosts::HostKeyChecker>,
@@ -202,22 +206,18 @@ impl SftpFs {
             }
         };
 
-        let ok = handle
-            .authenticate_password(user, password)
-            .await
-            .map_err(|e| anyhow!("Password authentication error: {e}"))?;
-
-        if !matches!(ok, russh::client::AuthResult::Success) {
-            return Err(anyhow!("Password authentication rejected by server"));
+        {
+            let exposed = password.expose_secret();
+            let ok = handle
+                .authenticate_password(user, exposed)
+                .await
+                .map_err(|e| anyhow!("Password authentication error: {e}"))?;
+            if !matches!(ok, russh::client::AuthResult::Success) {
+                return Err(anyhow!("Password authentication rejected by server"));
+            }
         }
 
-        Self::from_handle(
-            handle,
-            host.to_string(),
-            user.to_string(),
-            Some(SecretString::new(password.to_string().into())),
-        )
-        .await
+        Self::from_handle(handle, host.to_string(), user.to_string(), Some(password)).await
     }
 
     /// Connect using public-key authentication: tries the ssh-agent and then
@@ -807,9 +807,7 @@ impl FileSystemProvider for SftpFs {
     }
 
     fn get_password(&self) -> Option<SecretString> {
-        self.password
-            .as_ref()
-            .map(|p| SecretString::new(p.expose_secret().to_string().into()))
+        self.password.clone()
     }
 
     fn display_path(&self, path: &Path) -> String {

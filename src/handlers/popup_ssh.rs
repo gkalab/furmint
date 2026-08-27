@@ -487,9 +487,7 @@ pub fn spawn_ssh_connect_with_password(
     let ssh_manager = app.ssh_manager.clone();
     app.task_manager
         .spawn_task(&name, move |cancel, tx, id| async move {
-            let password_for_cache =
-                SecretString::new(password.expose_secret().to_string().into());
-            let pw_for_event = SecretString::new(password.expose_secret().to_string().into());
+            let pw = password.clone();
             let target_path_for_connect = target_path.clone();
             let result = tokio::select! {
                 res = ssh_manager.connect_ssh(host.clone(), port, user.clone(), password, target_path_for_connect) => Some(res),
@@ -505,7 +503,7 @@ pub fn spawn_ssh_connect_with_password(
             };
             match result {
                 Ok((session_id, fs)) => {
-                    ssh_manager.cache_password(&session_id, password_for_cache);
+                    ssh_manager.cache_password(&session_id, pw);
                     let path_for_reg = target_path.clone();
                     let path_for_ctx = target_path.clone().map(std::path::PathBuf::from);
                     ssh_manager.register_session(
@@ -542,7 +540,7 @@ pub fn spawn_ssh_connect_with_password(
                             presented_fp: presented,
                             stored_fp: stored,
                             key_line,
-                            password: Some(pw_for_event),
+                            password: Some(pw),
                             target_path: target_path.clone(),
                             key_auth: false,
                             connection_name: connection_name.clone(),
@@ -564,14 +562,7 @@ pub fn handle_ssh_password_event(app: &mut AppState, code: KeyCode, modifiers: M
             }
         }
         KeyCode::Enter => {
-            let password = SecretString::new(
-                app.popups
-                    .ssh_password
-                    .password
-                    .expose_secret()
-                    .to_string()
-                    .into(),
-            );
+            let password = std::mem::take(&mut app.popups.ssh_password.password);
             let session_id = app.popups.ssh_password.session_id.clone();
 
             app.popups.ssh_password.is_visible = false;
@@ -610,7 +601,9 @@ pub fn handle_ssh_password_event(app: &mut AppState, code: KeyCode, modifiers: M
         | KeyCode::Char('v' | _)
         | KeyCode::Backspace
         | KeyCode::Delete => {
-            let mut p = app.popups.ssh_password.password.expose_secret().to_string();
+            let mut p = std::mem::take(&mut app.popups.ssh_password.password)
+                .expose_secret()
+                .to_string();
             if crate::handlers::input_utils::handle_text_input(
                 code,
                 modifiers,
@@ -618,7 +611,7 @@ pub fn handle_ssh_password_event(app: &mut AppState, code: KeyCode, modifiers: M
                 &mut app.popups.ssh_password.cursor_position,
                 false,
             ) {
-                app.popups.ssh_password.password = SecretString::new(p.into());
+                app.popups.ssh_password.password = p.into();
             }
         }
         _ => {}
@@ -630,12 +623,12 @@ fn reconnect_ssh(app: &mut AppState, session_id: String, password: SecretString)
     let ssh_manager = app.ssh_manager.clone();
     let current_dir = app.active_tab().current_dir.clone();
     let old_session_id = session_id.clone();
-    let password_for_cache = SecretString::new(password.expose_secret().to_string().into());
     let connection_name = app.active_tab().custom_title.clone();
 
     app.task_manager.spawn_task(
         "Reconnecting SSH session",
         move |cancel, tx, id| async move {
+            let pw = password.clone();
             let result = tokio::select! {
                 res = ssh_manager.reconnect_session(&session_id, password) => Some(res),
                 () = async {
@@ -653,7 +646,7 @@ fn reconnect_ssh(app: &mut AppState, session_id: String, password: SecretString)
             match result {
                 Ok((new_session_id, fs)) => {
                     ssh_manager.clear_password(&old_session_id);
-                    ssh_manager.cache_password(&new_session_id, password_for_cache);
+                    ssh_manager.cache_password(&new_session_id, pw);
                     let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Completed));
                     let _ = tx.send(TaskEvent::SshReconnected(SshContext {
                         provider: Arc::new(fs),
@@ -841,20 +834,19 @@ pub fn handle_reconnect_ssh(app: &mut AppState) {
 
     if let Some(session) = session {
         // Check if we have a cached password
-        if let Some(cached_password) = app.ssh_manager.get_cached_password(&session.session_id) {
+        if let Some(password) = app.ssh_manager.take_cached_password(&session.session_id) {
             // Try to reconnect with cached password
             let ssh_manager = app.ssh_manager.clone();
             let current_dir = app.active_tab().current_dir.clone();
             let session_id = session.session_id.clone();
-            let password_for_cache =
-                SecretString::new(cached_password.expose_secret().to_string().into());
+            let pw = password.clone();
             let connection_name = app.active_tab().custom_title.clone();
 
             app.task_manager.spawn_task(
                 "Reconnecting SSH session",
                 move |cancel, tx, id| async move {
                     let result = tokio::select! {
-                        res = ssh_manager.reconnect_session(&session_id, cached_password) => Some(res),
+                        res = ssh_manager.reconnect_session(&session_id, password) => Some(res),
                         () = async {
                             while !cancel.load(std::sync::atomic::Ordering::Relaxed) {
                                 tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -863,14 +855,15 @@ pub fn handle_reconnect_ssh(app: &mut AppState) {
                     };
 
                     let Some(result) = result else {
+                        // Restore the cache entry so a later retry can reuse it
+                        ssh_manager.cache_password(&session_id, pw);
                         let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Cancelled));
                         return;
                     };
 
                     match result {
                         Ok((new_session_id, fs)) => {
-                            ssh_manager.clear_password(&session_id);
-                            ssh_manager.cache_password(&new_session_id, password_for_cache);
+                            ssh_manager.cache_password(&new_session_id, pw);
                             let _ = tx.send(TaskEvent::UpdateStatus(id, TaskStatus::Completed));
                             let _ = tx.send(TaskEvent::SshReconnected(SshContext {
                                 provider: Arc::new(fs),
@@ -879,6 +872,8 @@ pub fn handle_reconnect_ssh(app: &mut AppState) {
                             }));
                         }
                         Err(e) => {
+                            // Restore the cache entry so a later retry can reuse it
+                            ssh_manager.cache_password(&session_id, pw);
                             // Check if it's an authentication failure
                             if e.to_string().contains("Authentication failed") {
                                 let _ = tx.send(TaskEvent::SshReconnectFailed(

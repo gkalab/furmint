@@ -1,7 +1,6 @@
 use crate::app::HostKeyState;
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
-use secrecy::ExposeSecret;
 
 pub fn draw_host_key_popup(f: &mut Frame, state: &mut HostKeyState, palette: &ThemePalette) {
     if !state.is_visible {
@@ -101,10 +100,7 @@ pub fn handle_host_key_popup_event(
             let user = state.user.clone();
             let target_path = state.target_path.clone();
             let key_auth = state.key_auth;
-            let password = state
-                .password
-                .as_ref()
-                .map(|p| secrecy::SecretString::new(p.expose_secret().to_string().into()));
+            let password = state.password.take();
             let connection_name = state.connection_name.clone();
             state.is_visible = false;
 

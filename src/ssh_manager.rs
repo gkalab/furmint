@@ -1,5 +1,5 @@
 use crate::config::SshConfig;
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::SecretString;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone)]
@@ -309,7 +309,7 @@ impl SshManager {
             &host,
             port,
             &user,
-            password.expose_secret(),
+            password,
             self.read_timeout_secs,
             self.keepalive_interval,
             checker,
@@ -418,9 +418,19 @@ impl SshManager {
     #[must_use]
     pub fn get_cached_password(&self, session_id: &str) -> Option<SecretString> {
         let cache = self.password_cache.read().unwrap();
-        cache
-            .get(session_id)
-            .map(|p| SecretString::new(p.expose_secret().to_string().into()))
+        cache.get(session_id).cloned()
+    }
+
+    /// Removes and returns the cached password for a session, so the caller
+    /// owns the same zeroized buffer without leaving a stale copy behind.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the password cache mutex cannot be locked.
+    #[must_use]
+    pub fn take_cached_password(&self, session_id: &str) -> Option<SecretString> {
+        let mut cache = self.password_cache.write().unwrap();
+        cache.remove(session_id)
     }
 
     /// Clears a cached password for a session.
@@ -462,7 +472,7 @@ impl SshManager {
                 session.host.clone(),
                 session.port,
                 session.user.clone(),
-                password,
+                &password,
                 session.target_path.clone(),
                 Some(3),
             )
@@ -490,7 +500,7 @@ impl SshManager {
         host: String,
         port: u16,
         user: String,
-        password: SecretString,
+        password: &SecretString,
         target_path: Option<String>,
         max_attempts: Option<u32>,
     ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
@@ -503,7 +513,7 @@ impl SshManager {
                     host.clone(),
                     port,
                     user.clone(),
-                    SecretString::new(password.expose_secret().to_string().into()),
+                    password.clone(),
                     target_path.clone(),
                 )
                 .await
@@ -538,6 +548,7 @@ impl Default for SshManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use secrecy::ExposeSecret;
 
     #[test]
     fn test_backoff_values_and_jitter_bounds() {
