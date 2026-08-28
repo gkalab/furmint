@@ -5,6 +5,8 @@ use std::path::Path;
 
 pub struct ProviderFileSystem(pub std::sync::Arc<dyn crate::fs::fs_provider::FileSystemProvider>);
 
+const WHOLE_FILE_COPY_LIMIT: u64 = 32 * 1024 * 1024;
+
 #[async_trait]
 impl FileSystem for ProviderFileSystem {
     async fn try_exists(&self, path: &std::path::Path) -> anyhow::Result<bool> {
@@ -97,18 +99,51 @@ impl FileSystem for ProviderFileSystem {
             let mtime = entry.modified;
             let perms = provider.get_permissions(&src_buf);
 
-            let data = provider.read_file(&src_buf)?;
-            let processed = data.len() as u64;
+            if total_size <= WHOLE_FILE_COPY_LIMIT {
+                let data = provider.read_file(&src_buf)?;
+                if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                    return Ok(());
+                }
+                provider.write_file_with_permissions(&dst_buf, &data, perms)?;
+                let processed = data.len() as u64;
+                let _ = tx.send(crate::tasks::TaskEvent::UpdateByteProgress(
+                    id,
+                    processed,
+                    total_size.max(processed),
+                ));
+            } else {
+                let chunk_size = crate::fs::utils::calculate_optimal_chunk_size(total_size);
+                let mut offset = 0u64;
+                loop {
+                    if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                        return Ok(());
+                    }
+                    let remaining = total_size.saturating_sub(offset);
+                    let len = if remaining == 0 {
+                        chunk_size
+                    } else {
+                        std::cmp::min(chunk_size, usize::try_from(remaining).unwrap_or(usize::MAX))
+                    };
+                    let chunk = provider.read_file_at(&src_buf, offset, len)?;
+                    if chunk.is_empty() {
+                        break;
+                    }
+                    provider.write_file_at(&dst_buf, offset, &chunk)?;
+                    offset += chunk.len() as u64;
+                    let _ = tx.send(crate::tasks::TaskEvent::UpdateByteProgress(
+                        id,
+                        offset,
+                        total_size.max(offset),
+                    ));
+                }
 
-            if cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                return Ok(());
+                if offset == 0 {
+                    provider.create_file(&dst_buf)?;
+                }
+                if let Some(mode) = perms {
+                    let _ = provider.set_permissions(&dst_buf, mode);
+                }
             }
-
-            provider.write_file_with_permissions(&dst_buf, &data, perms)?;
-
-            let _ = tx.send(crate::tasks::TaskEvent::UpdateByteProgress(
-                id, processed, total_size,
-            ));
 
             if let Some(mt) = mtime {
                 provider.set_modified_time(&dst_buf, mt);
@@ -249,5 +284,124 @@ impl FileSystem for ProviderFileSystem {
         progress: &super::traits::TaskProgressContext,
     ) -> Option<anyhow::Result<()>> {
         self.0.copy_from_local(src_fs, src, dest, progress).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fs::fs_local::LocalFs;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
+
+    fn fs() -> ProviderFileSystem {
+        ProviderFileSystem(Arc::new(LocalFs::new()))
+    }
+
+    fn byte_events(events: Vec<crate::tasks::TaskEvent>) -> Vec<(u64, u64)> {
+        events
+            .into_iter()
+            .filter_map(|e| match e {
+                crate::tasks::TaskEvent::UpdateByteProgress(_, p, t) => Some((p, t)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn test_copy_with_progress_small_file_whole() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("small.bin");
+        let dst = dir.path().join("small_copy.bin");
+        // Below WHOLE_FILE_COPY_LIMIT => single whole-file copy, one progress event
+        let data: Vec<u8> = (0..1024).map(|i| (i % 251).try_into().unwrap()).collect();
+        std::fs::write(&src, &data).unwrap();
+
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let cancel = Arc::new(AtomicBool::new(false));
+        fs().copy_with_progress(&src, &dst, 7, &tx, &cancel)
+            .await
+            .unwrap();
+
+        let mut events = Vec::new();
+        while let Ok(e) = rx.try_recv() {
+            events.push(e);
+        }
+        let progress = byte_events(events);
+        assert_eq!(
+            progress,
+            vec![(data.len() as u64, data.len() as u64)],
+            "small file should emit a single progress event"
+        );
+        assert_eq!(std::fs::read(&dst).unwrap(), data);
+    }
+
+    #[tokio::test]
+    async fn test_copy_with_progress_multi_chunk() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("big.bin");
+        let dst = dir.path().join("big_copy.bin");
+        // 33MB file (> WHOLE_FILE_COPY_LIMIT) => 8MB chunks => multiple progress events
+        let len = 33 * 1024 * 1024;
+        let data: Vec<u8> = (0..len).map(|i| (i % 251).try_into().unwrap()).collect();
+        std::fs::write(&src, &data).unwrap();
+
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let cancel = Arc::new(AtomicBool::new(false));
+        fs().copy_with_progress(&src, &dst, 7, &tx, &cancel)
+            .await
+            .unwrap();
+
+        let mut events = Vec::new();
+        while let Ok(e) = rx.try_recv() {
+            events.push(e);
+        }
+        let progress = byte_events(events);
+        assert!(
+            progress.len() >= 2,
+            "expected multiple progress events, got {progress:?}"
+        );
+        assert_eq!(
+            progress.last().unwrap(),
+            &(data.len() as u64, data.len() as u64)
+        );
+        for window in progress.windows(2) {
+            assert!(
+                window[0].0 < window[1].0,
+                "progress not monotonic: {progress:?}"
+            );
+        }
+        assert_eq!(std::fs::read(&dst).unwrap(), data);
+    }
+
+    #[tokio::test]
+    async fn test_copy_with_progress_empty_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("empty.bin");
+        let dst = dir.path().join("empty_copy.bin");
+        std::fs::write(&src, b"").unwrap();
+
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let cancel = Arc::new(AtomicBool::new(false));
+        fs().copy_with_progress(&src, &dst, 1, &tx, &cancel)
+            .await
+            .unwrap();
+        assert!(dst.exists());
+        assert_eq!(std::fs::read(&dst).unwrap(), Vec::<u8>::new());
+    }
+
+    #[tokio::test]
+    async fn test_copy_with_progress_cancel() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("cancel.bin");
+        let dst = dir.path().join("cancel_copy.bin");
+        std::fs::write(&src, vec![0u8; 1024]).unwrap();
+
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let cancel = Arc::new(AtomicBool::new(true));
+        fs().copy_with_progress(&src, &dst, 1, &tx, &cancel)
+            .await
+            .unwrap();
+        assert!(!dst.exists());
     }
 }
