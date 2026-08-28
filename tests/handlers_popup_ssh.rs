@@ -252,6 +252,10 @@ impl fm::fs::fs_provider::FileSystemProvider for MockSftpProvider {
         unreachable!("not used by tests")
     }
 
+    fn get_file_info(&self, _path: &std::path::Path) -> Option<fm::fs::fs_provider::FileMetadata> {
+        unreachable!("not used by tests")
+    }
+
     fn get_permissions(&self, _path: &std::path::Path) -> Option<u32> {
         unreachable!("not used by tests")
     }

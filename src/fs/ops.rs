@@ -603,7 +603,9 @@ async fn perform_file_copy(
 
         match copy_res {
             Ok(()) => {
-                if let Some(mtime) = ctx.src_fs.get_modified_time(src).await {
+                // copy_with_progress already preserves mtime on same-fs copies;
+                // only the cross-fs SFTP path needs an explicit sync.
+                if !same_fs && let Some(mtime) = ctx.src_fs.get_modified_time(src).await {
                     let _ = ctx.dest_fs.set_modified_time(dest, mtime).await;
                 }
                 break;

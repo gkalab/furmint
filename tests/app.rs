@@ -3,7 +3,7 @@ use fm::app::{
     TabManager,
 };
 use fm::app_state::tabs::{PanelSide, SortDirection};
-use fm::fs::fs_provider::FileSystemProvider;
+use fm::fs::fs_provider::{FileMetadata, FileSystemProvider};
 use fm::fs::utils::FileEntry;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -274,6 +274,9 @@ fn test_can_swap_active_tabs() {
         fn canonicalize(&self, path: &Path) -> anyhow::Result<std::path::PathBuf> {
             Ok(path.to_path_buf())
         }
+        fn get_file_info(&self, _path: &Path) -> Option<FileMetadata> {
+            None
+        }
         fn get_permissions(&self, _path: &Path) -> Option<u32> {
             None
         }
@@ -383,6 +386,9 @@ fn test_drive_navigation_matches_opposite_pane() {
         }
         fn canonicalize(&self, path: &Path) -> anyhow::Result<std::path::PathBuf> {
             Ok(path.to_path_buf())
+        }
+        fn get_file_info(&self, _path: &Path) -> Option<FileMetadata> {
+            None
         }
         fn get_permissions(&self, _path: &Path) -> Option<u32> {
             None

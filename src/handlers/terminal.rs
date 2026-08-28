@@ -451,6 +451,12 @@ mod tests {
         fn canonicalize(&self, path: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
             Ok(path.to_path_buf())
         }
+        fn get_file_info(
+            &self,
+            _: &std::path::Path,
+        ) -> Option<crate::fs::fs_provider::FileMetadata> {
+            None
+        }
         fn get_permissions(&self, _: &std::path::Path) -> Option<u32> {
             None
         }

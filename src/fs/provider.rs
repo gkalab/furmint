@@ -1,7 +1,6 @@
 use super::traits::FileSystem;
 use async_trait::async_trait;
 use secrecy::SecretString;
-use std::path::Path;
 
 pub struct ProviderFileSystem(pub std::sync::Arc<dyn crate::fs::fs_provider::FileSystemProvider>);
 
@@ -62,14 +61,10 @@ impl FileSystem for ProviderFileSystem {
         let p = self.0.clone();
         let path = path.to_path_buf();
         Ok(tokio::task::spawn_blocking(move || {
-            let parent = path.parent().unwrap_or(Path::new("/"));
-            let entries = p.list_dir(parent)?;
-            let name = path.file_name().unwrap_or_default().to_string_lossy();
-            let entry = entries
-                .iter()
-                .find(|e| e.name == name)
+            let info = p
+                .get_file_info(&path)
                 .ok_or_else(|| anyhow::anyhow!("File not found: {}", path.display()))?;
-            Ok::<u64, anyhow::Error>(entry.size.unwrap_or(0))
+            Ok::<u64, anyhow::Error>(info.size)
         })
         .await??)
     }
@@ -90,14 +85,12 @@ impl FileSystem for ProviderFileSystem {
 
         tokio::task::spawn_blocking(move || {
             // we need to get total_size first
-            let entries = provider.list_dir(src_buf.parent().unwrap_or(Path::new("/")))?;
-            let entry = entries
-                .iter()
-                .find(|e| e.name == src_buf.file_name().unwrap_or_default().to_string_lossy())
-                .ok_or_else(|| anyhow::anyhow!("Source file not found in directory listing"))?;
-            let total_size = entry.size.unwrap_or(0);
-            let mtime = entry.modified;
-            let perms = provider.get_permissions(&src_buf);
+            let info = provider
+                .get_file_info(&src_buf)
+                .ok_or_else(|| anyhow::anyhow!("Source file not found: {}", src_buf.display()))?;
+            let total_size = info.size;
+            let mtime = info.modified;
+            let perms = info.permissions;
 
             if total_size <= WHOLE_FILE_COPY_LIMIT {
                 let data = provider.read_file(&src_buf)?;

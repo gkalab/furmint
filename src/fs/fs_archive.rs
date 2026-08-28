@@ -1,5 +1,5 @@
 use crate::fs::archive::{ArchiveFormat, get_archive_handler};
-use crate::fs::fs_provider::FileSystemProvider;
+use crate::fs::fs_provider::{FileMetadata, FileSystemProvider};
 use crate::fs::traits::{FileSystem, TaskProgressContext};
 use crate::fs::utils::FileEntry;
 use anyhow::Result;
@@ -300,6 +300,32 @@ impl FileSystemProvider for ArchiveFs {
 
     fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
         Ok(path.to_path_buf())
+    }
+
+    fn get_file_info(&self, path: &Path) -> Option<FileMetadata> {
+        let rel_path = if path.has_root() {
+            path.strip_prefix("/").unwrap_or(path)
+        } else {
+            path
+        };
+        let p_str = rel_path.to_string_lossy().replace('\\', "/");
+        let p_norm = PathBuf::from(p_str.trim_end_matches('/'));
+        let p = if p_norm == Path::new("") {
+            Path::new(".")
+        } else {
+            &p_norm
+        };
+
+        if p == Path::new(".") {
+            return None;
+        }
+        let entries = self.entries.lock().unwrap();
+        let entry = entries.get(p)?;
+        Some(FileMetadata {
+            size: entry.file_entry.size.unwrap_or(0),
+            modified: entry.file_entry.modified,
+            permissions: Some(0o444),
+        })
     }
 
     fn get_permissions(&self, _path: &Path) -> Option<u32> {

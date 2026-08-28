@@ -2,7 +2,7 @@
 //!
 //! This wraps the existing `fs_ops` functions to provide the trait interface.
 
-use crate::fs::fs_provider::FileSystemProvider;
+use crate::fs::fs_provider::{FileMetadata, FileSystemProvider};
 use crate::fs::utils as fs_ops;
 use anyhow::Result;
 use fs_ops::FileEntry;
@@ -181,6 +181,22 @@ impl FileSystemProvider for LocalFs {
         Ok(fs_ops::strip_extended_prefix(fs::canonicalize(path)?))
     }
 
+    fn get_file_info(&self, path: &Path) -> Option<FileMetadata> {
+        let meta = fs::metadata(path).ok()?;
+        #[cfg(unix)]
+        let permissions: Option<u32> = {
+            use std::os::unix::fs::PermissionsExt;
+            Some(meta.permissions().mode() & 0o777)
+        };
+        #[cfg(not(unix))]
+        let permissions: Option<u32> = None;
+        Some(FileMetadata {
+            size: meta.len(),
+            modified: meta.modified().ok(),
+            permissions,
+        })
+    }
+
     fn get_permissions(&self, path: &Path) -> Option<u32> {
         #[cfg(unix)]
         {
@@ -349,6 +365,42 @@ mod tests {
         }
 
         // Clean up
+        std::fs::remove_file(&test_file).unwrap();
+    }
+
+    #[test]
+    fn test_local_fs_get_file_info() {
+        use std::fs::File;
+        use std::io::Write;
+
+        let fs = LocalFs::new();
+        let temp_dir = std::env::temp_dir();
+        let test_file = temp_dir.join("test_get_file_info.txt");
+
+        {
+            let mut file = File::create(&test_file).unwrap();
+            file.write_all(b"hello").unwrap();
+        }
+
+        let info = fs.get_file_info(&test_file).expect("file should exist");
+        assert_eq!(info.size, 5);
+        assert!(info.modified.is_some());
+
+        #[cfg(unix)]
+        {
+            let perms = info.permissions.expect("unix should report permissions");
+            assert!(perms <= 0o777);
+        }
+        #[cfg(not(unix))]
+        {
+            assert_eq!(info.permissions, None);
+        }
+
+        assert_eq!(
+            fs.get_file_info(&temp_dir.join("definitely_missing_42")),
+            None
+        );
+
         std::fs::remove_file(&test_file).unwrap();
     }
 

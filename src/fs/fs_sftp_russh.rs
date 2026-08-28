@@ -7,7 +7,7 @@
 //! Windows via the OpenSSH named pipe (`\\.\pipe\openssh-ssh-agent`) with a
 //! `PuTTY` Pageant fallback.
 
-use crate::fs::fs_provider::FileSystemProvider;
+use crate::fs::fs_provider::{FileMetadata, FileSystemProvider};
 use crate::fs::utils::FileEntry;
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
@@ -829,6 +829,23 @@ impl FileSystemProvider for SftpFs {
                 .map_err(|e| anyhow!("Failed to canonicalize: {e}"))?;
             Ok(PathBuf::from(s))
         })
+    }
+
+    fn get_file_info(&self, path: &Path) -> Option<FileMetadata> {
+        self.run_async(|sftp| async move {
+            let meta = sftp
+                .metadata(normalize_sftp_path(path))
+                .await
+                .map_err(|e| anyhow!("{e}"))?;
+            Ok(FileMetadata {
+                size: meta.size.unwrap_or(0),
+                modified: meta
+                    .mtime
+                    .map(|t| std::time::UNIX_EPOCH + std::time::Duration::from_secs(u64::from(t))),
+                permissions: meta.permissions.map(|p| p & 0o777),
+            })
+        })
+        .ok()
     }
 
     fn get_permissions(&self, path: &Path) -> Option<u32> {

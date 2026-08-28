@@ -647,6 +647,13 @@ mod tests {
             true
         }
 
+        fn get_file_info(
+            &self,
+            _path: &std::path::Path,
+        ) -> Option<crate::fs::fs_provider::FileMetadata> {
+            None
+        }
+
         fn get_permissions(&self, _path: &std::path::Path) -> Option<u32> {
             *self.permissions_result.lock().unwrap()
         }

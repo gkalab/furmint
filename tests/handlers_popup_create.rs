@@ -262,6 +262,12 @@ async fn test_handle_create_file_remote_uses_remote_edit_workflow() {
         ) -> bool {
             true
         }
+        fn get_file_info(
+            &self,
+            _path: &std::path::Path,
+        ) -> Option<fm::fs::fs_provider::FileMetadata> {
+            None
+        }
         fn get_permissions(&self, _path: &std::path::Path) -> Option<u32> {
             None
         }

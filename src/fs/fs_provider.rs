@@ -10,6 +10,15 @@ use anyhow::Result;
 use async_trait::async_trait;
 use secrecy::SecretString;
 use std::path::Path;
+use std::time::SystemTime;
+
+/// Per-file metadata: size, modification time and permissions.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FileMetadata {
+    pub size: u64,
+    pub modified: Option<SystemTime>,
+    pub permissions: Option<u32>,
+}
 
 /// Trait for filesystem operations that can be backed by different implementations.
 #[async_trait]
@@ -140,6 +149,10 @@ pub trait FileSystemProvider: Send + Sync {
     ///
     /// Returns an error if the path cannot be canonicalized.
     fn canonicalize(&self, path: &Path) -> Result<std::path::PathBuf>;
+
+    /// Get per-file metadata (size, modification time, permissions) in a single
+    /// stat-like call. Returns None if the file doesn't exist.
+    fn get_file_info(&self, path: &Path) -> Option<FileMetadata>;
 
     /// Get file permissions as a Unix mode (e.g., 0o755).
     /// Returns None if not supported or file doesn't exist.
