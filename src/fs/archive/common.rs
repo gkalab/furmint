@@ -284,7 +284,7 @@ fn extract_dir_entry(
 fn ensure_parent_safe(target: &Path, dest: &Path, name: &str) -> anyhow::Result<()> {
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent)?;
-        if !parent.canonicalize().is_ok_and(|p| p.starts_with(dest)) {
+        if target != dest && !parent.canonicalize().is_ok_and(|p| p.starts_with(dest)) {
             return Err(anyhow!("unsafe path in archive: {name}"));
         }
     }
@@ -601,5 +601,63 @@ mod tests {
         extract_blob(&blob, &dest, "").unwrap();
         let out = dest.join("a/b/c.txt");
         assert_eq!(std::fs::read_to_string(&out).unwrap(), "hello");
+    }
+
+    #[test]
+    fn extraction_single_file_to_final_path() {
+        // Single-file extraction passes the final file path as `dest` (not a
+        // directory), which must not trip the containment check.
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("out.txt");
+        let opts_progress = test_progress();
+        let opts = ExtractOptions {
+            src_str: "out.txt",
+            dest: &dest,
+            is_dir: false,
+            progress: &opts_progress,
+        };
+        let mut cursor = Cursor::new(b"hello".as_slice());
+        handle_extraction_entry(
+            &mut cursor,
+            &ExtractionEntryMetadata {
+                name_raw: "out.txt",
+                is_dir: false,
+                is_symlink: false,
+                size: 5,
+                mtime: None,
+                mode: None,
+            },
+            &opts,
+            &mut Vec::new(),
+            &mut std::time::Instant::now(),
+        )
+        .unwrap();
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "hello");
+
+        // Same for a file from a subdirectory; `dest` is still just the file.
+        let dest2 = dir.path().join("sub").join("b.txt");
+        let opts2 = ExtractOptions {
+            src_str: "a/b.txt",
+            dest: &dest2,
+            is_dir: false,
+            progress: &opts_progress,
+        };
+        let mut cursor = Cursor::new(b"world".as_slice());
+        handle_extraction_entry(
+            &mut cursor,
+            &ExtractionEntryMetadata {
+                name_raw: "a/b.txt",
+                is_dir: false,
+                is_symlink: false,
+                size: 5,
+                mtime: None,
+                mode: None,
+            },
+            &opts2,
+            &mut Vec::new(),
+            &mut std::time::Instant::now(),
+        )
+        .unwrap();
+        assert_eq!(std::fs::read_to_string(&dest2).unwrap(), "world");
     }
 }
