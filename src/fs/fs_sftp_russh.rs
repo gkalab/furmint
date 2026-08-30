@@ -537,23 +537,6 @@ impl SftpFs {
         })
     }
 
-    /// Run an async SFTP closure from a synchronous context using
-    /// `block_in_place` + the current Tokio handle.
-    fn run_async<F, Fut, R>(&self, f: F) -> Result<R>
-    where
-        F: FnOnce(Arc<SftpSession>) -> Fut,
-        Fut: std::future::Future<Output = Result<R>>,
-    {
-        let handle = tokio::runtime::Handle::try_current()
-            .map_err(|_| anyhow!("No Tokio runtime available for SFTP operation"))?;
-        if handle.runtime_flavor() != tokio::runtime::RuntimeFlavor::MultiThread {
-            return Err(anyhow!(
-                "SFTP operations require the multi-threaded Tokio runtime"
-            ));
-        }
-        tokio::task::block_in_place(|| handle.block_on(f(Arc::clone(&self.sftp))))
-    }
-
     /// Recursively delete a remote directory via SFTP.
     async fn delete_recursive(sftp: &SftpSession, path: &str) -> Result<()> {
         let entries = sftp
@@ -578,26 +561,6 @@ impl SftpFs {
             .await
             .map_err(|e| anyhow!("rmdir {path}: {e}"))
     }
-
-    pub async fn download(
-        &self,
-        src: &Path,
-        dest_fs: &dyn crate::fs::traits::FileSystem,
-        dest: &Path,
-        progress: &crate::fs::traits::TaskProgressContext,
-    ) -> Option<anyhow::Result<()>> {
-        self.copy_to_local(src, dest_fs, dest, progress).await
-    }
-
-    pub async fn upload(
-        &self,
-        src_fs: &dyn crate::fs::traits::FileSystem,
-        src: &Path,
-        dest: &Path,
-        progress: &crate::fs::traits::TaskProgressContext,
-    ) -> Option<anyhow::Result<()>> {
-        self.copy_from_local(src_fs, src, dest, progress).await
-    }
 }
 
 impl Drop for SftpFs {
@@ -605,13 +568,11 @@ impl Drop for SftpFs {
         let sftp = Arc::clone(&self.sftp);
         let session = Arc::clone(&self.session);
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            tokio::task::block_in_place(|| {
-                handle.block_on(async {
-                    let _ = sftp.close().await;
-                    let _ = session
-                        .disconnect(russh::Disconnect::ByApplication, "", "en")
-                        .await;
-                });
+            handle.spawn(async move {
+                let _ = sftp.close().await;
+                let _ = session
+                    .disconnect(russh::Disconnect::ByApplication, "", "en")
+                    .await;
             });
         }
     }
@@ -621,176 +582,187 @@ impl Drop for SftpFs {
 impl FileSystemProvider for SftpFs {
     // ---- directory listing ------------------------------------------------
 
-    fn list_dir(&self, path: &Path) -> Result<Vec<FileEntry>> {
-        self.run_async(|sftp| async move {
-            let path_str = normalize_sftp_path(path);
-            let entries = sftp
-                .read_dir(&path_str)
-                .await
-                .map_err(|e| anyhow!("Failed to read directory: {e}"))?;
+    async fn list_dir(&self, path: &Path) -> Result<Vec<FileEntry>> {
+        let sftp = &*self.sftp;
+        let path_str = normalize_sftp_path(path);
+        let entries = sftp
+            .read_dir(&path_str)
+            .await
+            .map_err(|e| anyhow!("Failed to read directory: {e}"))?;
 
-            let mut result = Vec::new();
-            // prepend ".." for parent navigation
+        let mut result = Vec::new();
+        // prepend ".." for parent navigation
+        result.push(FileEntry {
+            name: "..".to_string(),
+            is_dir: true,
+            is_symlink: false,
+            size: None,
+            modified: None,
+            attributes: String::new(),
+            selected: false,
+        });
+
+        for entry in entries {
+            let name = entry.file_name().clone();
+            if name.is_empty() || name == "." || name == ".." {
+                continue;
+            }
+            let meta = entry.metadata();
+            let is_dir = meta.is_dir();
+            let is_symlink = meta
+                .permissions
+                .is_some_and(|p| (p & 0o170_000) == 0o120_000);
+            let size = if is_dir { None } else { meta.size };
+            let modified = meta
+                .mtime
+                .map(|t| std::time::UNIX_EPOCH + std::time::Duration::from_secs(u64::from(t)));
             result.push(FileEntry {
-                name: "..".to_string(),
-                is_dir: true,
-                is_symlink: false,
-                size: None,
-                modified: None,
-                attributes: String::new(),
+                name,
+                is_dir,
+                is_symlink,
+                size,
+                modified,
+                attributes: format_sftp_permissions(meta.permissions.unwrap_or(0)),
                 selected: false,
             });
+        }
+        Ok(result)
+    }
 
-            for entry in entries {
-                let name = entry.file_name().clone();
-                if name.is_empty() || name == "." || name == ".." {
-                    continue;
-                }
-                let meta = entry.metadata();
-                let is_dir = meta.is_dir();
-                let is_symlink = meta
-                    .permissions
-                    .is_some_and(|p| (p & 0o170_000) == 0o120_000);
-                let size = if is_dir { None } else { meta.size };
-                let modified = meta
-                    .mtime
-                    .map(|t| std::time::UNIX_EPOCH + std::time::Duration::from_secs(u64::from(t)));
-                result.push(FileEntry {
-                    name,
-                    is_dir,
-                    is_symlink,
-                    size,
-                    modified,
-                    attributes: format_sftp_permissions(meta.permissions.unwrap_or(0)),
-                    selected: false,
-                });
+    async fn create_dir(&self, path: &Path) -> Result<()> {
+        let sftp = &*self.sftp;
+        let p = normalize_sftp_path(path);
+        sftp.create_dir(p)
+            .await
+            .map_err(|e| anyhow!("Failed to create directory: {e}"))
+    }
+
+    async fn create_dir_all(&self, path: &Path) -> Result<()> {
+        let sftp = &*self.sftp;
+        let full = normalize_sftp_path(path);
+        let mut current = String::new();
+        for comp in full.split('/') {
+            if comp.is_empty() {
+                continue;
             }
-            Ok(result)
-        })
-    }
-
-    fn create_dir(&self, path: &Path) -> Result<()> {
-        self.run_async(|sftp| async move {
-            let p = normalize_sftp_path(path);
-            sftp.create_dir(p)
-                .await
-                .map_err(|e| anyhow!("Failed to create directory: {e}"))
-        })
-    }
-
-    fn create_file(&self, path: &Path) -> Result<()> {
-        self.run_async(|sftp| async move {
-            let p = normalize_sftp_path(path);
-            sftp.create(p)
-                .await
-                .map_err(|e| anyhow!("Failed to create file: {e}"))?;
-            Ok(())
-        })
-    }
-
-    fn delete(&self, path: &Path, recursive: bool) -> Result<()> {
-        self.run_async(|sftp| async move {
-            let p = normalize_sftp_path(path);
-            let meta = sftp
-                .metadata(&p)
-                .await
-                .map_err(|e| anyhow!("Failed to stat path: {e}"))?;
-            if meta.is_dir() {
-                if recursive {
-                    SftpFs::delete_recursive(&sftp, &p).await
-                } else {
-                    sftp.remove_dir(p)
-                        .await
-                        .map_err(|e| anyhow!("Failed to remove directory: {e}"))
-                }
+            if current.is_empty() {
+                current = comp.to_string();
             } else {
-                sftp.remove_file(p)
-                    .await
-                    .map_err(|e| anyhow!("Failed to remove file: {e}"))
+                current.push('/');
+                current.push_str(comp);
             }
-        })
+
+            match sftp.metadata(&current).await {
+                Ok(meta) if meta.is_dir() => {}
+                Ok(_) => return Err(anyhow!("{current} exists and is not a directory")),
+                Err(_) => {
+                    if let Err(e) = sftp.create_dir(current.clone()).await {
+                        let meta = sftp
+                            .metadata(&current)
+                            .await
+                            .map_err(|e| anyhow!("Failed to create directory {current}: {e}"))?;
+                        if !meta.is_dir() {
+                            return Err(anyhow!("{current} exists and is not a directory"));
+                        }
+                        let _ = e; // "already exists" — safe to continue
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
-    fn rename(&self, from: &Path, to: &Path) -> Result<()> {
-        self.run_async(|sftp| async move {
-            sftp.rename(normalize_sftp_path(from), normalize_sftp_path(to))
+    async fn create_file(&self, path: &Path) -> Result<()> {
+        let sftp = &*self.sftp;
+        let p = normalize_sftp_path(path);
+        sftp.create(p)
+            .await
+            .map_err(|e| anyhow!("Failed to create file: {e}"))?;
+        Ok(())
+    }
+
+    async fn delete(&self, path: &Path, recursive: bool) -> Result<()> {
+        let sftp = &*self.sftp;
+        let p = normalize_sftp_path(path);
+        let meta = sftp
+            .metadata(&p)
+            .await
+            .map_err(|e| anyhow!("Failed to stat path: {e}"))?;
+        if meta.is_dir() {
+            if recursive {
+                SftpFs::delete_recursive(sftp, &p).await
+            } else {
+                sftp.remove_dir(p)
+                    .await
+                    .map_err(|e| anyhow!("Failed to remove directory: {e}"))
+            }
+        } else {
+            sftp.remove_file(p)
                 .await
-                .map_err(|e| anyhow!("Failed to rename: {e}"))
-        })
+                .map_err(|e| anyhow!("Failed to remove file: {e}"))
+        }
     }
 
-    fn read_file(&self, path: &Path) -> Result<Vec<u8>> {
-        self.run_async(|sftp| async move {
-            sftp.read(normalize_sftp_path(path))
+    async fn rename(&self, from: &Path, to: &Path) -> Result<()> {
+        let sftp = &*self.sftp;
+        sftp.rename(normalize_sftp_path(from), normalize_sftp_path(to))
+            .await
+            .map_err(|e| anyhow!("Failed to rename: {e}"))
+    }
+
+    async fn read_file(&self, path: &Path) -> Result<Vec<u8>> {
+        let sftp = &*self.sftp;
+        sftp.read(normalize_sftp_path(path))
+            .await
+            .map_err(|e| anyhow!("Failed to read file: {e}"))
+    }
+
+    async fn read_file_at(&self, path: &Path, offset: u64, len: usize) -> Result<Vec<u8>> {
+        let sftp = &*self.sftp;
+        let p = normalize_sftp_path(path);
+        let mut file = sftp
+            .open(p)
+            .await
+            .map_err(|e| anyhow!("Failed to open file: {e}"))?;
+        file.seek(std::io::SeekFrom::Start(offset))
+            .await
+            .map_err(|e| anyhow!("Failed to seek: {e}"))?;
+        let mut buf = vec![0u8; len];
+        let n = file
+            .read(&mut buf)
+            .await
+            .map_err(|e| anyhow!("Failed to read: {e}"))?;
+        buf.truncate(n);
+        Ok(buf)
+    }
+
+    async fn write_file(&self, path: &Path, data: &[u8]) -> Result<()> {
+        let sftp = &*self.sftp;
+        sftp.write(normalize_sftp_path(path), data)
+            .await
+            .map_err(|e| anyhow!("Failed to write file: {e}"))
+    }
+
+    async fn write_file_at(&self, path: &Path, offset: u64, data: &[u8]) -> Result<()> {
+        let sftp = &*self.sftp;
+        let p = normalize_sftp_path(path);
+        if offset == 0 {
+            sftp.write(p, data)
                 .await
-                .map_err(|e| anyhow!("Failed to read file: {e}"))
-        })
-    }
-
-    fn read_file_at(&self, path: &Path, offset: u64, len: usize) -> Result<Vec<u8>> {
-        self.run_async(|sftp| async move {
-            let p = normalize_sftp_path(path);
+                .map_err(|e| anyhow!("Failed to write file: {e}"))
+        } else {
             let mut file = sftp
-                .open(p)
+                .open_with_flags(p, OpenFlags::READ | OpenFlags::WRITE)
                 .await
-                .map_err(|e| anyhow!("Failed to open file: {e}"))?;
+                .map_err(|e| anyhow!("Failed to open file for write-at: {e}"))?;
             file.seek(std::io::SeekFrom::Start(offset))
                 .await
                 .map_err(|e| anyhow!("Failed to seek: {e}"))?;
-            let mut buf = vec![0u8; len];
-            let n = file
-                .read(&mut buf)
+            file.write_all(data)
                 .await
-                .map_err(|e| anyhow!("Failed to read: {e}"))?;
-            buf.truncate(n);
-            Ok(buf)
-        })
-    }
-
-    fn write_file(&self, path: &Path, data: &[u8]) -> Result<()> {
-        let data = data.to_vec();
-        self.run_async(|sftp| async move {
-            sftp.write(normalize_sftp_path(path), &data)
-                .await
-                .map_err(|e| anyhow!("Failed to write file: {e}"))
-        })
-    }
-
-    fn write_file_at(&self, path: &Path, offset: u64, data: &[u8]) -> Result<()> {
-        let data = data.to_vec();
-        self.run_async(|sftp| async move {
-            let p = normalize_sftp_path(path);
-            if offset == 0 {
-                sftp.write(p, &data)
-                    .await
-                    .map_err(|e| anyhow!("Failed to write file: {e}"))
-            } else {
-                let mut file = sftp
-                    .open_with_flags(p, OpenFlags::READ | OpenFlags::WRITE)
-                    .await
-                    .map_err(|e| anyhow!("Failed to open file for write-at: {e}"))?;
-                file.seek(std::io::SeekFrom::Start(offset))
-                    .await
-                    .map_err(|e| anyhow!("Failed to seek: {e}"))?;
-                file.write_all(&data)
-                    .await
-                    .map_err(|e| anyhow!("Failed to write at offset {offset}: {e}"))?;
-                Ok(())
-            }
-        })
-    }
-
-    fn write_file_with_permissions(
-        &self,
-        path: &Path,
-        data: &[u8],
-        mode: Option<u32>,
-    ) -> Result<()> {
-        self.write_file(path, data)?;
-        if let Some(m) = mode {
-            let _ = self.set_permissions(path, m);
+                .map_err(|e| anyhow!("Failed to write at offset {offset}: {e}"))?;
+            Ok(())
         }
-        Ok(())
     }
 
     fn display_prefix(&self) -> &str {
@@ -801,122 +773,100 @@ impl FileSystemProvider for SftpFs {
         false
     }
 
-    fn exists(&self, path: &Path) -> bool {
-        self.run_async(|sftp| async move {
-            sftp.try_exists(normalize_sftp_path(path))
-                .await
-                .map_err(|e| anyhow!("{e}"))
-        })
-        .unwrap_or(false)
-    }
-
-    fn is_dir(&self, path: &Path) -> bool {
-        self.run_async(|sftp| async move {
-            let meta = sftp
-                .metadata(normalize_sftp_path(path))
-                .await
-                .map_err(|e| anyhow!("{e}"))?;
-            Ok(meta.is_dir())
-        })
-        .unwrap_or(false)
-    }
-
-    fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
-        self.run_async(|sftp| async move {
-            let s = sftp
-                .canonicalize(normalize_sftp_path(path))
-                .await
-                .map_err(|e| anyhow!("Failed to canonicalize: {e}"))?;
-            Ok(PathBuf::from(s))
-        })
-    }
-
-    fn get_file_info(&self, path: &Path) -> Option<FileMetadata> {
-        self.run_async(|sftp| async move {
-            let meta = sftp
-                .metadata(normalize_sftp_path(path))
-                .await
-                .map_err(|e| anyhow!("{e}"))?;
-            Ok(FileMetadata {
-                size: meta.size.unwrap_or(0),
-                modified: meta
-                    .mtime
-                    .map(|t| std::time::UNIX_EPOCH + std::time::Duration::from_secs(u64::from(t))),
-                permissions: meta.permissions.map(|p| p & 0o777),
-            })
-        })
-        .ok()
-    }
-
-    fn get_permissions(&self, path: &Path) -> Option<u32> {
-        self.run_async(|sftp| async move {
-            let meta = sftp
-                .metadata(normalize_sftp_path(path))
-                .await
-                .map_err(|e| anyhow!("{e}"))?;
-            Ok(meta.permissions.map(|p| p & 0o777))
-        })
-        .ok()
-        .flatten()
-    }
-
-    fn set_permissions(&self, path: &Path, mode: u32) -> bool {
-        self.run_async(|sftp| async move {
-            let p = normalize_sftp_path(path);
-            sftp.set_metadata(
-                p,
-                FileAttributes {
-                    size: None,
-                    uid: None,
-                    gid: None,
-                    user: None,
-                    group: None,
-                    permissions: Some(mode),
-                    atime: None,
-                    mtime: None,
-                },
-            )
+    async fn exists(&self, path: &Path) -> bool {
+        let sftp = &*self.sftp;
+        sftp.try_exists(normalize_sftp_path(path))
             .await
-            .map_err(|e| anyhow!("setstat failed: {e}"))
+            .unwrap_or(false)
+    }
+
+    async fn is_dir(&self, path: &Path) -> bool {
+        let sftp = &*self.sftp;
+        let Ok(meta) = sftp.metadata(normalize_sftp_path(path)).await else {
+            return false;
+        };
+        meta.is_dir()
+    }
+
+    async fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
+        let sftp = &*self.sftp;
+        let s = sftp
+            .canonicalize(normalize_sftp_path(path))
+            .await
+            .map_err(|e| anyhow!("Failed to canonicalize: {e}"))?;
+        Ok(PathBuf::from(s))
+    }
+
+    async fn get_file_info(&self, path: &Path) -> Option<FileMetadata> {
+        let sftp = &*self.sftp;
+        let Ok(meta) = sftp.metadata(normalize_sftp_path(path)).await else {
+            return None;
+        };
+        Some(FileMetadata {
+            size: meta.size.unwrap_or(0),
+            modified: meta
+                .mtime
+                .map(|t| std::time::UNIX_EPOCH + std::time::Duration::from_secs(u64::from(t))),
+            permissions: meta.permissions.map(|p| p & 0o777),
         })
+    }
+
+    async fn get_permissions(&self, path: &Path) -> Option<u32> {
+        let sftp = &*self.sftp;
+        let Ok(meta) = sftp.metadata(normalize_sftp_path(path)).await else {
+            return None;
+        };
+        meta.permissions.map(|p| p & 0o777)
+    }
+
+    async fn set_permissions(&self, path: &Path, mode: u32) -> bool {
+        let sftp = &*self.sftp;
+        let p = normalize_sftp_path(path);
+        sftp.set_metadata(
+            p,
+            FileAttributes {
+                size: None,
+                uid: None,
+                gid: None,
+                user: None,
+                group: None,
+                permissions: Some(mode),
+                atime: None,
+                mtime: None,
+            },
+        )
+        .await
         .is_ok()
     }
 
-    fn get_modified_time(&self, path: &Path) -> Option<std::time::SystemTime> {
-        self.run_async(|sftp| async move {
-            let meta = sftp
-                .metadata(normalize_sftp_path(path))
-                .await
-                .map_err(|e| anyhow!("{e}"))?;
-            Ok(meta
-                .mtime
-                .map(|t| std::time::UNIX_EPOCH + std::time::Duration::from_secs(u64::from(t))))
-        })
-        .ok()
-        .flatten()
+    async fn get_modified_time(&self, path: &Path) -> Option<std::time::SystemTime> {
+        let sftp = &*self.sftp;
+        let Ok(meta) = sftp.metadata(normalize_sftp_path(path)).await else {
+            return None;
+        };
+        meta.mtime
+            .map(|t| std::time::UNIX_EPOCH + std::time::Duration::from_secs(u64::from(t)))
     }
 
-    fn set_modified_time(&self, path: &Path, mtime: std::time::SystemTime) -> bool {
+    async fn set_modified_time(&self, path: &Path, mtime: std::time::SystemTime) -> bool {
+        let sftp = &*self.sftp;
         let secs = mtime
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| u32::try_from(d.as_secs()).unwrap_or(u32::MAX));
-        self.run_async(|sftp| async move {
-            sftp.set_metadata(
-                normalize_sftp_path(path),
-                FileAttributes {
-                    size: None,
-                    uid: None,
-                    gid: None,
-                    user: None,
-                    group: None,
-                    permissions: None,
-                    atime: None,
-                    mtime: Some(secs),
-                },
-            )
-            .await
-            .map_err(|e| anyhow!("setstat mtime failed: {e}"))
-        })
+        sftp.set_metadata(
+            normalize_sftp_path(path),
+            FileAttributes {
+                size: None,
+                uid: None,
+                gid: None,
+                user: None,
+                group: None,
+                permissions: None,
+                atime: None,
+                mtime: Some(secs),
+            },
+        )
+        .await
         .is_ok()
     }
 
@@ -969,9 +919,9 @@ impl FileSystemProvider for SftpFs {
     async fn copy_to_local(
         &self,
         src: &Path,
-        dest_fs: &dyn crate::fs::traits::FileSystem,
+        dest_fs: &dyn FileSystemProvider,
         dest: &Path,
-        progress: &crate::fs::traits::TaskProgressContext,
+        progress: &crate::fs::fs_provider::TaskProgressContext,
     ) -> Option<anyhow::Result<()>> {
         let src_str = normalize_sftp_path(src);
         let dest_path = dest.to_path_buf();
@@ -1018,7 +968,7 @@ impl FileSystemProvider for SftpFs {
                 Err(e) => return Some(Err(anyhow!("Read error: {e}"))),
             };
             let chunk = buf[..n].to_vec();
-            if let Err(e) = dest_fs.write_chunk(&dest_path, offset, &chunk).await {
+            if let Err(e) = dest_fs.write_file_at(&dest_path, offset, &chunk).await {
                 return Some(Err(anyhow!("{e}")));
             }
             offset += n as u64;
@@ -1042,15 +992,15 @@ impl FileSystemProvider for SftpFs {
 
     async fn copy_from_local(
         &self,
-        src_fs: &dyn crate::fs::traits::FileSystem,
+        src_fs: &dyn FileSystemProvider,
         src: &Path,
         dest: &Path,
-        progress: &crate::fs::traits::TaskProgressContext,
+        progress: &crate::fs::fs_provider::TaskProgressContext,
     ) -> Option<anyhow::Result<()>> {
         let dest_str = normalize_sftp_path(dest);
         let src_path = src.to_path_buf();
 
-        if src_fs.is_dir(&src_path).await.unwrap_or(false) {
+        if src_fs.is_dir(&src_path).await {
             return None;
         }
 
@@ -1088,7 +1038,7 @@ impl FileSystemProvider for SftpFs {
             if len == 0 {
                 break;
             }
-            let chunk = match src_fs.read_chunk(&src_path, offset, len).await {
+            let chunk = match src_fs.read_file_at(&src_path, offset, len).await {
                 Ok(d) => d,
                 Err(e) => return Some(Err(e)),
             };

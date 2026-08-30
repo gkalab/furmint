@@ -89,8 +89,8 @@ impl Tab {
     /// # Errors
     ///
     /// Returns an error if the directory cannot be read.
-    pub fn new(path: &Path) -> anyhow::Result<Self> {
-        Self::with_provider(path, Arc::new(LocalFs::new()))
+    pub async fn new(path: &Path) -> anyhow::Result<Self> {
+        Self::with_provider(path, Arc::new(LocalFs::new())).await
     }
 
     /// Create a new tab with a custom filesystem provider
@@ -98,11 +98,11 @@ impl Tab {
     /// # Errors
     ///
     /// Returns an error if the directory cannot be listed.
-    pub fn with_provider(
+    pub async fn with_provider(
         path: &Path,
         provider: Arc<dyn FileSystemProvider>,
     ) -> anyhow::Result<Self> {
-        let entries = provider.list_dir(path)?;
+        let entries = provider.list_dir(path).await?;
         let mut tab = Self {
             area: ratatui::layout::Rect::default(),
             provider,
@@ -132,8 +132,8 @@ impl Tab {
     /// # Errors
     ///
     /// Returns an error if the directory cannot be read.
-    pub fn from_persistent(p: PersistentTab) -> anyhow::Result<Self> {
-        let mut tab = Self::new(&p.path)?;
+    pub async fn from_persistent(p: PersistentTab) -> anyhow::Result<Self> {
+        let mut tab = Self::new(&p.path).await?;
         tab.cursor = p.cursor;
         tab.sort.column = p.sort_column;
         tab.sort.direction = p.sort_direction;
@@ -284,8 +284,8 @@ impl Tab {
     /// # Errors
     ///
     /// Returns an error if the directory cannot be listed.
-    pub fn navigate_to(&mut self, path: &Path) -> anyhow::Result<()> {
-        let entries = self.provider.list_dir(path)?;
+    pub async fn navigate_to(&mut self, path: &Path) -> anyhow::Result<()> {
+        let entries = self.provider.list_dir(path).await?;
         self.error = None;
 
         self.current_dir = path.to_path_buf();
@@ -537,8 +537,8 @@ impl Tab {
     /// # Errors
     ///
     /// Returns an error if the directory cannot be listed.
-    pub fn reload(&mut self) -> anyhow::Result<bool> {
-        let entries = self.provider.list_dir(&self.current_dir)?;
+    pub async fn reload(&mut self) -> anyhow::Result<bool> {
+        let entries = self.provider.list_dir(&self.current_dir).await?;
         self.error = None;
         Ok(self.reload_preserving_state(entries))
     }
@@ -548,8 +548,8 @@ impl Tab {
     /// # Errors
     ///
     /// Returns an error if the directory cannot be listed.
-    pub fn reload_and_focus(&mut self, name: &str) -> anyhow::Result<()> {
-        self.reload()?;
+    pub async fn reload_and_focus(&mut self, name: &str) -> anyhow::Result<()> {
+        self.reload().await?;
         if let Some(idx) = self.entries.iter().position(|e| e.name == name) {
             self.cursor = idx;
         }
@@ -561,7 +561,7 @@ impl Tab {
     /// # Errors
     ///
     /// Returns an error if the parent directory cannot be listed.
-    pub fn go_up(&mut self) -> anyhow::Result<()> {
+    pub async fn go_up(&mut self) -> anyhow::Result<()> {
         if let Some(parent) = self.current_dir.parent() {
             let parent_path = parent.to_path_buf();
             let current_name = self
@@ -570,7 +570,7 @@ impl Tab {
                 .map(std::ffi::OsStr::to_os_string);
 
             let cursor_before = self.cursor;
-            self.navigate_to(&parent_path)?;
+            self.navigate_to(&parent_path).await?;
 
             self.cursor = cursor_before;
 
@@ -892,8 +892,8 @@ impl TabManager {
     /// # Errors
     ///
     /// Returns an error if the initial directory cannot be read.
-    pub fn new(initial_path: &Path) -> anyhow::Result<Self> {
-        let tab = Tab::new(initial_path)?;
+    pub async fn new(initial_path: &Path) -> anyhow::Result<Self> {
+        let tab = Tab::new(initial_path).await?;
         Ok(Self {
             tabs: vec![tab],
             active_tab_index: 0,
@@ -905,16 +905,15 @@ impl TabManager {
     /// # Errors
     ///
     /// Returns an error if no valid tabs can be restored.
-    pub fn from_persistent(p: crate::app::PersistentPanel) -> anyhow::Result<Self> {
+    pub async fn from_persistent(p: crate::app::PersistentPanel) -> anyhow::Result<Self> {
         let mut tabs = Vec::new();
         for pt in p.tabs {
-            match Tab::from_persistent(pt) {
+            match Tab::from_persistent(pt).await {
                 Ok(t) => tabs.push(t),
                 Err(_) => {
-                    // If a path no longer exists, we could skip it or use CWD
-                    if let Ok(t) = std::env::current_dir()
-                        .map_err(anyhow::Error::from)
-                        .and_then(|cwd| Tab::new(&cwd))
+                    // If a path no longer exists, fall back to a CWD tab
+                    if let Ok(cwd) = std::env::current_dir()
+                        && let Ok(t) = Tab::new(&cwd).await
                     {
                         tabs.push(t);
                     }
@@ -924,7 +923,7 @@ impl TabManager {
 
         if tabs.is_empty() {
             let cwd = std::env::current_dir()?;
-            tabs.push(Tab::new(&cwd)?);
+            tabs.push(Tab::new(&cwd).await?);
         }
 
         let active_tab_index = if p.active_tab_index < tabs.len() {
@@ -1002,8 +1001,9 @@ impl TabManager {
     /// # Errors
     ///
     /// Returns an error if the directory cannot be read.
-    pub fn new_tab(&mut self, path: &Path, cursor: Option<usize>) -> anyhow::Result<()> {
+    pub async fn new_tab(&mut self, path: &Path, cursor: Option<usize>) -> anyhow::Result<()> {
         self.new_tab_with_provider(path, Arc::new(LocalFs::new()), cursor)
+            .await
     }
 
     /// Creates a new tab with a custom filesystem provider.
@@ -1011,13 +1011,13 @@ impl TabManager {
     /// # Errors
     ///
     /// Returns an error if the directory cannot be listed.
-    pub fn new_tab_with_provider(
+    pub async fn new_tab_with_provider(
         &mut self,
         path: &Path,
         provider: Arc<dyn FileSystemProvider>,
         cursor: Option<usize>,
     ) -> anyhow::Result<()> {
-        let mut tab = Tab::with_provider(path, provider)?;
+        let mut tab = Tab::with_provider(path, provider).await?;
         // Inherit sort settings from current active tab
         {
             let active = self.active_tab();

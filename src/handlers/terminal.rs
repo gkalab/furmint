@@ -319,6 +319,13 @@ pub async fn handle_toggle_console(app: &mut AppState) -> anyhow::Result<()> {
 ///
 /// Returns an error if the shell command or terminal restoration fails.
 pub async fn execute_toggle_console(app: &mut AppState) -> anyhow::Result<()> {
+    async fn refresh_tab(tab: &mut crate::app::Tab) {
+        if let Ok(entries) = tab.provider.list_dir(&tab.current_dir).await {
+            tab.entries = entries;
+            tab.sort_entries();
+        }
+    }
+
     // 1. Abort input polling
     if let Some(handle) = app.input_polling_handle.take() {
         handle.abort();
@@ -374,18 +381,11 @@ pub async fn execute_toggle_console(app: &mut AppState) -> anyhow::Result<()> {
     }
 
     // 7. Refresh all tabs in both panels
-    let refresh_tab = |tab: &mut crate::app::Tab| {
-        if let Ok(entries) = tab.provider.list_dir(&tab.current_dir) {
-            tab.entries = entries;
-            tab.sort_entries();
-        }
-    };
-
     for tab in &mut app.left.tabs {
-        refresh_tab(tab);
+        refresh_tab(tab).await;
     }
     for tab in &mut app.right.tabs {
-        refresh_tab(tab);
+        refresh_tab(tab).await;
     }
 
     // 8. Return error if any
@@ -409,64 +409,72 @@ mod tests {
         fn is_local(&self) -> bool {
             false
         }
-        fn list_dir(
+        async fn list_dir(
             &self,
             _: &std::path::Path,
         ) -> anyhow::Result<Vec<crate::fs::utils::FileEntry>> {
             Ok(vec![])
         }
-        fn create_dir(&self, _: &std::path::Path) -> anyhow::Result<()> {
+        async fn create_dir(&self, _: &std::path::Path) -> anyhow::Result<()> {
             Ok(())
         }
-        fn create_file(&self, _: &std::path::Path) -> anyhow::Result<()> {
+        async fn create_dir_all(&self, _: &std::path::Path) -> anyhow::Result<()> {
             Ok(())
         }
-        fn delete(&self, _: &std::path::Path, _: bool) -> anyhow::Result<()> {
+        async fn create_file(&self, _: &std::path::Path) -> anyhow::Result<()> {
             Ok(())
         }
-        fn rename(&self, _: &std::path::Path, _: &std::path::Path) -> anyhow::Result<()> {
+        async fn delete(&self, _: &std::path::Path, _: bool) -> anyhow::Result<()> {
             Ok(())
         }
-        fn read_file(&self, _: &std::path::Path) -> anyhow::Result<Vec<u8>> {
+        async fn rename(&self, _: &std::path::Path, _: &std::path::Path) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn read_file(&self, _: &std::path::Path) -> anyhow::Result<Vec<u8>> {
             Ok(vec![])
         }
-        fn read_file_at(&self, _: &std::path::Path, _: u64, _: usize) -> anyhow::Result<Vec<u8>> {
+        async fn read_file_at(
+            &self,
+            _: &std::path::Path,
+            _: u64,
+            _: usize,
+        ) -> anyhow::Result<Vec<u8>> {
             Ok(vec![])
         }
-        fn write_file(&self, _: &std::path::Path, _: &[u8]) -> anyhow::Result<()> {
+        async fn write_file(&self, _: &std::path::Path, _: &[u8]) -> anyhow::Result<()> {
             Ok(())
         }
-        fn write_file_at(&self, _: &std::path::Path, _: u64, _: &[u8]) -> anyhow::Result<()> {
+        async fn write_file_at(&self, _: &std::path::Path, _: u64, _: &[u8]) -> anyhow::Result<()> {
             Ok(())
         }
         fn display_prefix(&self) -> &'static str {
             ""
         }
-        fn exists(&self, _: &std::path::Path) -> bool {
+        async fn exists(&self, _: &std::path::Path) -> bool {
             true
         }
-        fn is_dir(&self, _: &std::path::Path) -> bool {
+        async fn is_dir(&self, _: &std::path::Path) -> bool {
             true
         }
-        fn canonicalize(&self, path: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
+        async fn canonicalize(&self, path: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
             Ok(path.to_path_buf())
         }
-        fn get_file_info(
+        async fn get_file_info(
             &self,
             _: &std::path::Path,
         ) -> Option<crate::fs::fs_provider::FileMetadata> {
             None
         }
-        fn get_permissions(&self, _: &std::path::Path) -> Option<u32> {
+        async fn get_permissions(&self, _: &std::path::Path) -> Option<u32> {
             None
         }
-        fn set_permissions(&self, _: &std::path::Path, _: u32) -> bool {
+        async fn set_permissions(&self, _: &std::path::Path, _: u32) -> bool {
             false
         }
-        fn get_modified_time(&self, _: &std::path::Path) -> Option<std::time::SystemTime> {
+        async fn get_modified_time(&self, _: &std::path::Path) -> Option<std::time::SystemTime> {
             None
         }
-        fn set_modified_time(&self, _: &std::path::Path, _: std::time::SystemTime) -> bool {
+        async fn set_modified_time(&self, _: &std::path::Path, _: std::time::SystemTime) -> bool {
             false
         }
         fn context_key(&self) -> String {

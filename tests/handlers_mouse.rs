@@ -89,7 +89,7 @@ async fn test_mouse_click_on_panel_updates_viewer() {
     assert_eq!(app.file_viewer.path, PathBuf::new());
 
     // Trigger update for the initial selection (usually happens when viewer is opened)
-    fm::handlers::navigation::update_viewer_content(&mut app);
+    fm::handlers::navigation::update_viewer_content(&mut app).await;
     assert_eq!(app.file_viewer.path, PathBuf::from("/test/file1.txt"));
 
     // Simulate mouse click on the second file (file2.txt)
@@ -125,7 +125,7 @@ async fn test_mouse_scroll_updates_viewer() {
         });
     }
 
-    fm::handlers::navigation::update_viewer_content(&mut app);
+    fm::handlers::navigation::update_viewer_content(&mut app).await;
     assert_eq!(app.file_viewer.path, PathBuf::from("/test/file1.txt"));
 
     // Scroll down (moves cursor by 3)
@@ -163,7 +163,7 @@ async fn test_mouse_tab_switch_updates_viewer() {
     // Set tab areas (simple mock)
     app.left_tab_areas = vec![Rect::new(0, 0, 10, 1), Rect::new(10, 0, 10, 1)];
 
-    fm::handlers::navigation::update_viewer_content(&mut app);
+    fm::handlers::navigation::update_viewer_content(&mut app).await;
     assert_eq!(app.file_viewer.path, PathBuf::from("/test/file1.txt"));
 
     // Click on the second tab
@@ -321,8 +321,8 @@ async fn test_empty_trash_mouse_wheel_ignored() {
     assert!(app.popups.empty_trash.selected_no);
 }
 
-#[test]
-fn test_calculate_scroll_from_y() {
+#[tokio::test]
+async fn test_calculate_scroll_from_y() {
     assert_eq!(calculate_scroll_from_y(0, 0, 10, 100), 0);
     assert_eq!(calculate_scroll_from_y(9, 0, 10, 100), 99);
     assert_eq!(calculate_scroll_from_y(4, 0, 10, 10), 4);
@@ -330,8 +330,8 @@ fn test_calculate_scroll_from_y() {
     assert_eq!(calculate_scroll_from_y(5, 0, 10, 0), 0);
 }
 
-#[test]
-fn test_scrollbar_thumb_rows() {
+#[tokio::test]
+async fn test_scrollbar_thumb_rows() {
     // 50 items, viewport 17, offset 0 → thumb spans rows [0, 4) within a 17-row track
     assert_eq!(
         scrollbar_thumb_rows(Rect::new(0, 0, 1, 17), 50, 17, 0, false),

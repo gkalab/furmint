@@ -69,15 +69,10 @@ pub fn handle_confirm_delete(app: &mut AppState) {
                     return;
                 }
 
-                let path_buf = path.clone();
-                let provider_clone = provider.clone();
-
                 let result = if is_permanent {
-                    tokio::task::spawn_blocking(move || provider_clone.delete(&path_buf, true))
-                        .await
-                        .unwrap_or_else(|e| Err(anyhow::anyhow!("Task join error: {e}")))
-                        .map_err(|e| e.to_string())
+                    provider.delete(path, true).await.map_err(|e| e.to_string())
                 } else {
+                    let path_buf = path.clone();
                     tokio::task::spawn_blocking(move || {
                         trash::delete(&path_buf).map_err(|e| anyhow::anyhow!(e))
                     })

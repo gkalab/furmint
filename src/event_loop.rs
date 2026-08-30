@@ -98,7 +98,7 @@ where
         tokio::select! {
                             // Handle watcher events
                             Some(event) = sources.watcher_rx.recv() => {
-                                handle_watcher_event(event, app);
+                                handle_watcher_event(event, app).await;
                                 app.sync_watcher();
                                 draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
                             }
@@ -129,7 +129,7 @@ where
                             }
                             // Handle task events
                             Some(event) = sources.task_rx.recv() => {
-                                handle_task_event(event, app);
+                                handle_task_event(event, app).await;
                                 draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
                             }
                             _ = interval.tick() => {
@@ -185,10 +185,10 @@ where
     Ok(None)
 }
 
-fn handle_watcher_event(event: crate::fs::watcher::WatcherEvent, app: &mut AppState) {
+async fn handle_watcher_event(event: crate::fs::watcher::WatcherEvent, app: &mut AppState) {
     match event {
         crate::fs::watcher::WatcherEvent::FileSystemChange(paths) => {
-            let handle_tab = |tab: &mut crate::app::Tab| {
+            async fn handle_tab(tab: &mut crate::app::Tab, paths: &[std::path::PathBuf]) {
                 // Watcher only supports local filesystem
                 if !tab.provider.is_local() {
                     return;
@@ -199,7 +199,7 @@ fn handle_watcher_event(event: crate::fs::watcher::WatcherEvent, app: &mut AppSt
 
                 if !current_exists {
                     // Directory removed, try to go up
-                    let _ = tab.go_up();
+                    let _ = tab.go_up().await;
                 }
 
                 // Check if we need to reload
@@ -207,16 +207,16 @@ fn handle_watcher_event(event: crate::fs::watcher::WatcherEvent, app: &mut AppSt
                     .iter()
                     .any(|p| p == &tab.current_dir || p.parent() == Some(&tab.current_dir));
 
-                if needs_reload && let Ok(entries) = tab.provider.list_dir(&tab.current_dir) {
+                if needs_reload && let Ok(entries) = tab.provider.list_dir(&tab.current_dir).await {
                     tab.reload_preserving_state(entries);
                 }
-            };
+            }
 
             for tab in &mut app.left.tabs {
-                handle_tab(tab);
+                handle_tab(tab, &paths).await;
             }
             for tab in &mut app.right.tabs {
-                handle_tab(tab);
+                handle_tab(tab, &paths).await;
             }
         }
         crate::fs::watcher::WatcherEvent::RemoteReloadRequested => {
@@ -262,8 +262,8 @@ pub async fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConf
 #[cfg(test)]
 mod tests {
 
-    #[test]
-    fn test_handle_watcher_event_filesystem_change() {
+    #[tokio::test]
+    async fn test_handle_watcher_event_filesystem_change() {
         // Setup AppState mock: two tabs, stub current_dir, fake entries
         use crate::fs::watcher::WatcherEvent;
         let mut app = crate::app::AppState::test_default();
@@ -280,14 +280,14 @@ mod tests {
         app.right.active_tab_mut().current_dir = std::path::PathBuf::from("/mock");
         let paths = vec![std::path::PathBuf::from("/mock")];
         let event = WatcherEvent::FileSystemChange(paths);
-        super::handle_watcher_event(event, &mut app);
+        super::handle_watcher_event(event, &mut app).await;
         // Check cursor and error remain valid
         assert_eq!(app.left.active_tab().cursor, 0);
         assert!(app.left.active_tab().error.is_none());
     }
 
-    #[test]
-    fn test_handle_watcher_event_preserves_selection() {
+    #[tokio::test]
+    async fn test_handle_watcher_event_preserves_selection() {
         use crate::fs::utils::FileEntry;
         use crate::fs::watcher::WatcherEvent;
         let mut app = crate::app::AppState::test_default();
@@ -315,7 +315,7 @@ mod tests {
         let paths = vec![tmp_dir.path().to_path_buf()];
         let event = WatcherEvent::FileSystemChange(paths);
 
-        super::handle_watcher_event(event, &mut app);
+        super::handle_watcher_event(event, &mut app).await;
 
         // Check if selection is preserved
         assert!(
@@ -328,12 +328,12 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_handle_watcher_event_error() {
+    #[tokio::test]
+    async fn test_handle_watcher_event_error() {
         use crate::fs::watcher::WatcherEvent;
         let mut app = crate::app::AppState::test_default();
         let event = WatcherEvent::Error("test error".to_string());
-        super::handle_watcher_event(event, &mut app);
+        super::handle_watcher_event(event, &mut app).await;
         // Should not panic or change error field
         assert!(app.left.active_tab().error.is_none());
     }

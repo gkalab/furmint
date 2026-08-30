@@ -3,7 +3,12 @@ use crate::state::{ConfirmationAction, ConfirmationState};
 use std::time::Instant;
 use termina::event::{KeyCode, Modifiers};
 
-pub fn handle_bookmark_mouse_click(app: &mut AppState, x: u16, y: u16, is_double_click: bool) {
+pub async fn handle_bookmark_mouse_click(
+    app: &mut AppState,
+    x: u16,
+    y: u16,
+    is_double_click: bool,
+) {
     if app.popups.bookmark.confirmation.is_some() {
         return;
     }
@@ -23,7 +28,7 @@ pub fn handle_bookmark_mouse_click(app: &mut AppState, x: u16, y: u16, is_double
     state.selected_index = row;
 
     if is_double_click {
-        handle_bookmark_event(KeyCode::Enter, Modifiers::NONE, app);
+        handle_bookmark_event(KeyCode::Enter, Modifiers::NONE, app).await;
     }
 }
 
@@ -40,7 +45,11 @@ pub fn handle_bookmark_add(app: &mut AppState) {
     }
 }
 
-pub fn handle_bookmark_event(code: KeyCode, modifiers: Modifiers, app: &mut AppState) -> bool {
+pub async fn handle_bookmark_event(
+    code: KeyCode,
+    modifiers: Modifiers,
+    app: &mut AppState,
+) -> bool {
     // 1. Handle confirmation overlay if active
     if let Some(conf) = &mut app.popups.bookmark.confirmation {
         use crate::handlers::popup_utils::{ChoiceResult, get_choice_with_selection};
@@ -76,7 +85,7 @@ pub fn handle_bookmark_event(code: KeyCode, modifiers: Modifiers, app: &mut AppS
             app.popups.bookmark.reset();
         }
         KeyCode::Enter => {
-            handle_bookmark_enter(app);
+            handle_bookmark_enter(app).await;
         }
         KeyCode::Up => {
             app.popups.bookmark.list.move_selection_up();
@@ -128,12 +137,14 @@ pub fn handle_bookmark_event(code: KeyCode, modifiers: Modifiers, app: &mut AppS
     false
 }
 
-fn handle_bookmark_enter(app: &mut AppState) {
+async fn handle_bookmark_enter(app: &mut AppState) {
     if let Some(selected_path) = app.popups.bookmark.list.get_selected_item() {
         match crate::handlers::navigation::navigate_with_fallback(
             app.active_tab_mut(),
             &selected_path,
-        ) {
+        )
+        .await
+        {
             Ok(navigated_path) => {
                 if navigated_path != selected_path {
                     app.bookmark_store.remove_by_path(&selected_path);

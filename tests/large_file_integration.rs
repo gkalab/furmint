@@ -28,7 +28,9 @@ async fn test_large_file_no_duplication() {
     let limit = 5 * 1024 * 1024; // 5MB
     let file_size = std::fs::metadata(&test_file).unwrap().len();
 
-    state.load_content(&test_file, &provider, Some(file_size), limit);
+    state
+        .load_content(&test_file, &provider, Some(file_size), limit)
+        .await;
 
     assert!(state.large_file_reader.is_some());
     assert!(state.large_file_indexer.is_some());

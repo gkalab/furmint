@@ -53,17 +53,17 @@ pub async fn handle_main_panel_event(
     }
 
     // Tab management shortcuts
-    if handle_tab_shortcuts(app, keyboard, &shortcut) {
+    if handle_tab_shortcuts(app, keyboard, &shortcut).await {
         return false;
     }
 
     // Clipboard handlers
-    if handle_clipboard_shortcuts(app, code, modifiers) {
+    if handle_clipboard_shortcuts(app, code, modifiers).await {
         return false;
     }
 
     // Navigation (history, dir up/enter)
-    if handle_navigation_shortcuts(app, keyboard, &shortcut) {
+    if handle_navigation_shortcuts(app, keyboard, &shortcut).await {
         return false;
     }
 
@@ -141,7 +141,7 @@ pub async fn handle_main_panel_event(
     }
 
     // Sorting
-    if handle_sorting_shortcuts(app, keyboard, &shortcut) {
+    if handle_sorting_shortcuts(app, keyboard, &shortcut).await {
         return false;
     }
 
@@ -159,7 +159,7 @@ pub async fn handle_main_panel_event(
     }
 
     // Fallback to basic type/nav handling
-    handle_basic_nav(app, code, modifiers);
+    handle_basic_nav(app, code, modifiers).await;
 
     false
 }
@@ -174,29 +174,33 @@ fn handle_filter_shortcut(app: &mut AppState, keyboard: &KeyboardConfig, shortcu
     false
 }
 
-fn handle_tab_shortcuts(app: &mut AppState, keyboard: &KeyboardConfig, shortcut: &str) -> bool {
+async fn handle_tab_shortcuts(
+    app: &mut AppState,
+    keyboard: &KeyboardConfig,
+    shortcut: &str,
+) -> bool {
     if let Some(keys) = &keyboard.new_tab
         && keys.iter().any(|s| s == shortcut)
     {
-        handle_new_tab(app);
+        handle_new_tab(app).await;
         return true;
     }
     if let Some(keys) = &keyboard.tab_next
         && keys.iter().any(|s| s == shortcut)
     {
-        handle_next_tab(app);
+        handle_next_tab(app).await;
         return true;
     }
     if let Some(keys) = &keyboard.tab_prev
         && keys.iter().any(|s| s == shortcut)
     {
-        handle_prev_tab(app);
+        handle_prev_tab(app).await;
         return true;
     }
     if let Some(keys) = &keyboard.tab_close
         && keys.iter().any(|s| s == shortcut)
     {
-        handle_close_tab(app);
+        handle_close_tab(app).await;
         return true;
     }
     if let Some(keys) = &keyboard.rename_tab
@@ -208,19 +212,23 @@ fn handle_tab_shortcuts(app: &mut AppState, keyboard: &KeyboardConfig, shortcut:
     if let Some(keys) = &keyboard.tab_move_left
         && keys.iter().any(|s| s == shortcut)
     {
-        handle_move_tab(app, crate::app_state::tabs::PanelSide::Left);
+        handle_move_tab(app, crate::app_state::tabs::PanelSide::Left).await;
         return true;
     }
     if let Some(keys) = &keyboard.tab_move_right
         && keys.iter().any(|s| s == shortcut)
     {
-        handle_move_tab(app, crate::app_state::tabs::PanelSide::Right);
+        handle_move_tab(app, crate::app_state::tabs::PanelSide::Right).await;
         return true;
     }
     false
 }
 
-fn handle_clipboard_shortcuts(app: &mut AppState, code: KeyCode, modifiers: Modifiers) -> bool {
+async fn handle_clipboard_shortcuts(
+    app: &mut AppState,
+    code: KeyCode,
+    modifiers: Modifiers,
+) -> bool {
     if code == KeyCode::Char('c') && modifiers.contains(Modifiers::CONTROL) {
         handle_clipboard_copy(app);
         return true;
@@ -230,13 +238,13 @@ fn handle_clipboard_shortcuts(app: &mut AppState, code: KeyCode, modifiers: Modi
         return true;
     }
     if code == KeyCode::Char('v') && modifiers.contains(Modifiers::CONTROL) {
-        handle_paste(app);
+        handle_paste(app).await;
         return true;
     }
     false
 }
 
-fn handle_navigation_shortcuts(
+async fn handle_navigation_shortcuts(
     app: &mut AppState,
     keyboard: &KeyboardConfig,
     shortcut: &str,
@@ -244,13 +252,13 @@ fn handle_navigation_shortcuts(
     if let Some(keys) = &keyboard.enter_dir
         && keys.iter().any(|s| s == shortcut)
     {
-        handle_enter_directory(app);
+        handle_enter_directory(app).await;
         return true;
     }
     if let Some(keys) = &keyboard.up_dir
         && keys.iter().any(|s| s == shortcut)
     {
-        handle_directory_up(app);
+        handle_directory_up(app).await;
         return true;
     }
     false
@@ -425,37 +433,41 @@ fn handle_drive_selection(app: &mut AppState, keyboard: &KeyboardConfig, shortcu
     false
 }
 
-fn handle_sorting_shortcuts(app: &mut AppState, keyboard: &KeyboardConfig, shortcut: &str) -> bool {
+async fn handle_sorting_shortcuts(
+    app: &mut AppState,
+    keyboard: &KeyboardConfig,
+    shortcut: &str,
+) -> bool {
     if let Some(keys) = &keyboard.sort_name
         && keys.iter().any(|s| s == shortcut)
     {
-        handle_sort(app, SortColumn::Name);
+        handle_sort(app, SortColumn::Name).await;
         return true;
     }
     if let Some(keys) = &keyboard.sort_ext
         && keys.iter().any(|s| s == shortcut)
     {
-        handle_sort(app, SortColumn::Extension);
+        handle_sort(app, SortColumn::Extension).await;
         return true;
     }
     if let Some(keys) = &keyboard.sort_date
         && keys.iter().any(|s| s == shortcut)
     {
-        handle_sort(app, SortColumn::Date);
+        handle_sort(app, SortColumn::Date).await;
         return true;
     }
     if let Some(keys) = &keyboard.sort_size
         && keys.iter().any(|s| s == shortcut)
     {
-        handle_sort(app, SortColumn::Size);
+        handle_sort(app, SortColumn::Size).await;
         return true;
     }
     false
 }
 
-fn handle_basic_nav(app: &mut AppState, code: KeyCode, modifiers: Modifiers) {
+async fn handle_basic_nav(app: &mut AppState, code: KeyCode, modifiers: Modifiers) {
     if let (KeyCode::Char(c), Modifiers::NONE | Modifiers::SHIFT) = (code, modifiers) {
-        handle_type_char(app, c);
+        handle_type_char(app, c).await;
     } else {
         // Extract values needed from panel, then drop the borrow
         let (search_active, search_buffer_empty) = {
@@ -467,48 +479,48 @@ fn handle_basic_nav(app: &mut AppState, code: KeyCode, modifiers: Modifiers) {
             (KeyCode::Tab, Modifiers::NONE) => handle_tab(app),
             (KeyCode::Up, _) => {
                 if search_active {
-                    handle_up_search(app);
+                    handle_up_search(app).await;
                 } else {
                     if !search_buffer_empty {
                         reset_search(app);
                     }
-                    handle_up(app);
+                    handle_up(app).await;
                 }
             }
             (KeyCode::Down, _) => {
                 if search_active {
-                    handle_down_search(app);
+                    handle_down_search(app).await;
                 } else {
                     if !search_buffer_empty {
                         reset_search(app);
                     }
-                    handle_down(app);
+                    handle_down(app).await;
                 }
             }
             (KeyCode::PageUp, _) => {
                 reset_search(app);
-                handle_page_up(app);
+                handle_page_up(app).await;
             }
             (KeyCode::PageDown, _) => {
                 reset_search(app);
-                handle_page_down(app);
+                handle_page_down(app).await;
             }
             (KeyCode::Home, _) => {
                 reset_search(app);
-                handle_home(app);
+                handle_home(app).await;
             }
             (KeyCode::End, _) => {
                 reset_search(app);
-                handle_end(app);
+                handle_end(app).await;
             }
-            (KeyCode::Enter, _) => handle_open_item(app),
+            (KeyCode::Enter, _) => handle_open_item(app).await,
             (KeyCode::Escape, _) => {
                 reset_search(app);
             }
-            (KeyCode::Char(' '), Modifiers::NONE) => handle_toggle_selection(app),
+            (KeyCode::Char(' '), Modifiers::NONE) => handle_toggle_selection(app).await,
             (KeyCode::Insert, _) => {
-                handle_toggle_selection(app);
-                handle_down(app);
+                handle_toggle_selection(app).await;
+                handle_down(app).await;
             }
             _ => {}
         }

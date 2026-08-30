@@ -1,13 +1,12 @@
 use fm::fs::fs_archive::ArchiveFs;
 use fm::fs::fs_local::LocalFs;
 use fm::fs::fs_provider::FileSystemProvider;
-use fm::fs::provider::ProviderFileSystem;
 use sevenz_rust2::{ArchiveReader, ArchiveWriter, Password};
 use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
 
-fn make_progress() -> fm::fs::traits::TaskProgressContext {
-    fm::fs::traits::TaskProgressContext {
+fn make_progress() -> fm::fs::fs_provider::TaskProgressContext {
+    fm::fs::fs_provider::TaskProgressContext {
         id: 1,
         tx: tokio::sync::mpsc::unbounded_channel().0,
         cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -38,12 +37,12 @@ async fn test_7z_create_dir() {
 
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
 
-    archive_fs.create_dir(Path::new("new_dir")).unwrap();
+    archive_fs.create_dir(Path::new("new_dir")).await.unwrap();
     let entry = archive_fs.get_entry(Path::new("new_dir")).unwrap();
     assert!(entry.file_entry.is_dir);
     assert_eq!(entry.file_entry.name, "new_dir");
 
-    archive_fs.create_dir(Path::new("a/b/c")).unwrap();
+    archive_fs.create_dir(Path::new("a/b/c")).await.unwrap();
     let nested = archive_fs.get_entry(Path::new("a/b/c")).unwrap();
     assert!(nested.file_entry.is_dir);
 }
@@ -54,7 +53,7 @@ async fn test_local_fs_create_7z() {
     let path = temp_dir.path().join("new_archive.7z");
 
     let local_fs = LocalFs::new();
-    local_fs.create_file(&path).unwrap();
+    local_fs.create_file(&path).await.unwrap();
 
     // Verify it's a valid, empty 7z
     let reader = ArchiveReader::open(&path, Password::empty()).expect("open archive ok");
@@ -68,7 +67,7 @@ async fn test_7z_read_file() {
     create_7z_with_file(&archive_path, "hello.txt", b"Hello, 7z!");
 
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
-    let data = archive_fs.read_file(Path::new("hello.txt")).unwrap();
+    let data = archive_fs.read_file(Path::new("hello.txt")).await.unwrap();
     assert_eq!(data, b"Hello, 7z!");
 }
 
@@ -81,9 +80,10 @@ async fn test_7z_write_file() {
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
     archive_fs
         .write_file(Path::new("new.txt"), b"written content")
+        .await
         .unwrap();
 
-    let data = archive_fs.read_file(Path::new("new.txt")).unwrap();
+    let data = archive_fs.read_file(Path::new("new.txt")).await.unwrap();
     assert_eq!(data, b"written content");
 }
 
@@ -106,10 +106,13 @@ async fn test_7z_delete_file() {
     }
 
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
-    archive_fs.delete(Path::new("remove.txt"), false).unwrap();
+    archive_fs
+        .delete(Path::new("remove.txt"), false)
+        .await
+        .unwrap();
 
     assert!(archive_fs.get_entry(Path::new("remove.txt")).is_none());
-    let data = archive_fs.read_file(Path::new("keep.txt")).unwrap();
+    let data = archive_fs.read_file(Path::new("keep.txt")).await.unwrap();
     assert_eq!(data, b"keep");
 }
 
@@ -122,10 +125,14 @@ async fn test_7z_rename_file() {
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
     archive_fs
         .rename(Path::new("original.txt"), Path::new("renamed.txt"))
+        .await
         .unwrap();
 
     assert!(archive_fs.get_entry(Path::new("original.txt")).is_none());
-    let data = archive_fs.read_file(Path::new("renamed.txt")).unwrap();
+    let data = archive_fs
+        .read_file(Path::new("renamed.txt"))
+        .await
+        .unwrap();
     assert_eq!(data, b"rename me");
 }
 
@@ -137,7 +144,9 @@ async fn test_7z_set_modified_time() {
 
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
     let old_time = UNIX_EPOCH + Duration::from_secs(1_000_000_000);
-    let ok = archive_fs.set_modified_time(Path::new("file.txt"), old_time);
+    let ok = archive_fs
+        .set_modified_time(Path::new("file.txt"), old_time)
+        .await;
     assert!(ok, "set_modified_time should succeed");
 
     let entry = archive_fs.get_entry(Path::new("file.txt")).unwrap();
@@ -171,7 +180,7 @@ async fn test_7z_extract() {
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
     let extract_dir = temp_dir.path().join("extracted");
     std::fs::create_dir(&extract_dir).unwrap();
-    let dest_fs = ProviderFileSystem(std::sync::Arc::new(LocalFs::new()));
+    let dest_fs = LocalFs::new();
 
     let progress = make_progress();
 
@@ -209,7 +218,7 @@ async fn test_7z_list_dir() {
     }
 
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
-    let entries = archive_fs.list_dir(Path::new(".")).unwrap();
+    let entries = archive_fs.list_dir(Path::new(".")).await.unwrap();
 
     let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
     assert!(
@@ -221,7 +230,7 @@ async fn test_7z_list_dir() {
         "root should contain dir1, got {names:?}"
     );
 
-    let sub_entries = archive_fs.list_dir(Path::new("dir1")).unwrap();
+    let sub_entries = archive_fs.list_dir(Path::new("dir1")).await.unwrap();
     let sub_names: Vec<&str> = sub_entries.iter().map(|e| e.name.as_str()).collect();
     assert!(
         sub_names.contains(&"b.txt"),
@@ -242,7 +251,7 @@ async fn test_7z_copy_from_local() {
     let archive_path = temp_dir.path().join("test_copy.7z");
     create_empty_7z(&archive_path);
 
-    let src_fs = ProviderFileSystem(std::sync::Arc::new(LocalFs::new()));
+    let src_fs = LocalFs::new();
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
 
     let progress = make_progress();
@@ -264,7 +273,10 @@ async fn test_7z_copy_from_local() {
             .is_some()
     );
 
-    let data = archive_fs.read_file(Path::new("copied/file1.txt")).unwrap();
+    let data = archive_fs
+        .read_file(Path::new("copied/file1.txt"))
+        .await
+        .unwrap();
     assert_eq!(data, b"content1");
 }
 
@@ -282,7 +294,7 @@ async fn test_7z_add_files_batch() {
     let archive_path = temp_dir.path().join("test_batch.7z");
     create_empty_7z(&archive_path);
 
-    let src_fs = ProviderFileSystem(std::sync::Arc::new(LocalFs::new()));
+    let src_fs = LocalFs::new();
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
 
     let progress = make_progress();
@@ -311,10 +323,12 @@ async fn test_7z_add_files_batch() {
 
     let data1 = archive_fs
         .read_file(Path::new("batch_dir/file1.txt"))
+        .await
         .unwrap();
     assert_eq!(data1, b"content1");
     let data3 = archive_fs
         .read_file(Path::new("batch_dir/subdir/file3.txt"))
+        .await
         .unwrap();
     assert_eq!(data3, b"content3");
 }
@@ -338,7 +352,7 @@ async fn test_7z_copy_directory_tree_batch() {
     let archive_path = temp_dir.path().join("test_tree.7z");
     create_empty_7z(&archive_path);
 
-    let src_fs = ProviderFileSystem(std::sync::Arc::new(LocalFs::new()));
+    let src_fs = LocalFs::new();
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
 
     let progress = make_progress();
@@ -366,6 +380,7 @@ async fn test_7z_copy_directory_tree_batch() {
 
     let data = archive_fs
         .read_file(Path::new("tree/sub1/sub1a/b.txt"))
+        .await
         .unwrap();
     assert_eq!(data, b"b");
 }
@@ -391,6 +406,7 @@ async fn test_7z_rename_directory() {
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
     archive_fs
         .rename(Path::new("old_dir"), Path::new("new_dir"))
+        .await
         .unwrap();
 
     assert!(archive_fs.get_entry(Path::new("old_dir")).is_none());
@@ -408,6 +424,7 @@ async fn test_7z_rename_directory() {
     assert_eq!(
         archive_fs
             .read_file(Path::new("new_dir/inner.txt"))
+            .await
             .unwrap(),
         b"inner"
     );
@@ -509,7 +526,7 @@ async fn test_7z_add_preserves_executable_permission() {
     let archive_path = temp_dir.path().join("test_mode_add.7z");
     create_empty_7z(&archive_path);
 
-    let src_fs = ProviderFileSystem(std::sync::Arc::new(LocalFs::new()));
+    let src_fs = LocalFs::new();
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
     let progress = make_progress();
 
@@ -563,7 +580,7 @@ async fn test_7z_extract_restores_executable_permission() {
     let archive_path = temp_dir.path().join("test_mode_extract.7z");
     create_empty_7z(&archive_path);
 
-    let src_fs = ProviderFileSystem(std::sync::Arc::new(LocalFs::new()));
+    let src_fs = LocalFs::new();
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
     let progress = make_progress();
 
@@ -575,7 +592,7 @@ async fn test_7z_extract_restores_executable_permission() {
 
     let extract_dir = temp_dir.path().join("extracted");
     std::fs::create_dir(&extract_dir).unwrap();
-    let dest_fs = ProviderFileSystem(std::sync::Arc::new(LocalFs::new()));
+    let dest_fs = LocalFs::new();
 
     let result = archive_fs
         .extract(Path::new("."), &dest_fs, &extract_dir, &progress)

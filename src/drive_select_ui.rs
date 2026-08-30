@@ -35,7 +35,7 @@ pub fn get_available_drives() -> Vec<String> {
     }
 }
 
-pub fn handle_drive_select_event(code: KeyCode, app: &mut AppState) -> bool {
+pub async fn handle_drive_select_event(code: KeyCode, app: &mut AppState) -> bool {
     match code {
         KeyCode::Escape => {
             app.popups.drive_select.reset();
@@ -61,7 +61,7 @@ pub fn handle_drive_select_event(code: KeyCode, app: &mut AppState) -> bool {
                 .find(|d| d.to_ascii_uppercase() == target)
                 .cloned()
             {
-                perform_drive_navigation(app, drive.as_str());
+                perform_drive_navigation(app, drive.as_str()).await;
             }
         }
         KeyCode::Enter => {
@@ -72,7 +72,7 @@ pub fn handle_drive_select_event(code: KeyCode, app: &mut AppState) -> bool {
                 .get(app.popups.drive_select.selected_index)
                 .cloned()
             {
-                perform_drive_navigation(app, &drive);
+                perform_drive_navigation(app, &drive).await;
             }
         }
         _ => {}
@@ -80,7 +80,7 @@ pub fn handle_drive_select_event(code: KeyCode, app: &mut AppState) -> bool {
     false
 }
 
-fn perform_drive_navigation(app: &mut AppState, drive: &str) {
+async fn perform_drive_navigation(app: &mut AppState, drive: &str) {
     let side = app.popups.drive_select.side;
     let mut path = std::path::PathBuf::from(drive);
 
@@ -125,7 +125,11 @@ fn perform_drive_navigation(app: &mut AppState, drive: &str) {
             PanelSide::Left => &mut app.left,
             PanelSide::Right => &mut app.right,
         };
-        tab_manager.active_tab_mut().navigate_to(&path).is_ok()
+        tab_manager
+            .active_tab_mut()
+            .navigate_to(&path)
+            .await
+            .is_ok()
     };
 
     if success {

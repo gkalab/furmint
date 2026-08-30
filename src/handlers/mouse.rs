@@ -21,7 +21,7 @@ pub async fn handle_mouse_event(app: &mut AppState, event: MouseEvent) {
     };
 
     if app.fuzzy_search.list.is_visible {
-        handle_fuzzy_search_mouse(app, event, is_double_click);
+        handle_fuzzy_search_mouse(app, event, is_double_click).await;
         return;
     }
 
@@ -32,16 +32,16 @@ pub async fn handle_mouse_event(app: &mut AppState, event: MouseEvent) {
 
     match event.kind {
         MouseEventKind::Down(MouseButton::Left) => {
-            if check_and_start_scrollbar_drag(app, event.column, event.row) {
+            if check_and_start_scrollbar_drag(app, event.column, event.row).await {
                 return;
             }
-            handle_left_click(app, event.column, event.row, is_double_click);
+            handle_left_click(app, event.column, event.row, is_double_click).await;
         }
         MouseEventKind::Down(MouseButton::Right) => {
-            handle_right_click(app, event.column, event.row);
+            handle_right_click(app, event.column, event.row).await;
         }
         MouseEventKind::Drag(MouseButton::Left) => {
-            handle_drag(app, event.column, event.row);
+            handle_drag(app, event.column, event.row).await;
         }
         MouseEventKind::Up(MouseButton::Left) => {
             app.active_drag = None;
@@ -49,20 +49,20 @@ pub async fn handle_mouse_event(app: &mut AppState, event: MouseEvent) {
         }
         MouseEventKind::ScrollUp => {
             let ctrl = event.modifiers.contains(Modifiers::CONTROL);
-            handle_scroll_event(app, (event.column, event.row), true, ctrl);
+            handle_scroll_event(app, (event.column, event.row), true, ctrl).await;
         }
         MouseEventKind::ScrollDown => {
             let ctrl = event.modifiers.contains(Modifiers::CONTROL);
-            handle_scroll_event(app, (event.column, event.row), false, ctrl);
+            handle_scroll_event(app, (event.column, event.row), false, ctrl).await;
         }
         _ => {}
     }
 }
 
-fn handle_fuzzy_search_mouse(app: &mut AppState, event: MouseEvent, is_double_click: bool) {
+async fn handle_fuzzy_search_mouse(app: &mut AppState, event: MouseEvent, is_double_click: bool) {
     match event.kind {
         MouseEventKind::Down(MouseButton::Left) => {
-            if check_and_start_scrollbar_drag(app, event.column, event.row) {
+            if check_and_start_scrollbar_drag(app, event.column, event.row).await {
                 return;
             }
             crate::handlers::popup_fuzzy::handle_fuzzy_search_mouse_click(
@@ -70,13 +70,14 @@ fn handle_fuzzy_search_mouse(app: &mut AppState, event: MouseEvent, is_double_cl
                 event.column,
                 event.row,
                 is_double_click,
-            );
+            )
+            .await;
         }
         MouseEventKind::Up(MouseButton::Left) => {
             app.active_drag = None;
         }
         MouseEventKind::Drag(MouseButton::Left) if app.active_drag.is_some() => {
-            update_drag_scroll(app, event.column, event.row);
+            update_drag_scroll(app, event.column, event.row).await;
         }
         MouseEventKind::ScrollUp => {
             app.fuzzy_search.move_selection_up();
@@ -91,7 +92,7 @@ fn handle_fuzzy_search_mouse(app: &mut AppState, event: MouseEvent, is_double_cl
 async fn handle_popup_mouse(app: &mut AppState, event: MouseEvent, is_double_click: bool) {
     match event.kind {
         MouseEventKind::Down(MouseButton::Left) => {
-            if check_and_start_scrollbar_drag(app, event.column, event.row) {
+            if check_and_start_scrollbar_drag(app, event.column, event.row).await {
                 return;
             }
             if app.popups.ssh_connection.is_visible {
@@ -106,7 +107,8 @@ async fn handle_popup_mouse(app: &mut AppState, event: MouseEvent, is_double_cli
                     event.column,
                     event.row,
                     is_double_click,
-                );
+                )
+                .await;
             } else {
                 handle_popup_down(app, event.column, event.row);
             }
@@ -116,7 +118,7 @@ async fn handle_popup_mouse(app: &mut AppState, event: MouseEvent, is_double_cli
             handle_popup_up(app, event.column, event.row).await;
         }
         MouseEventKind::Drag(MouseButton::Left) if app.active_drag.is_some() => {
-            update_drag_scroll(app, event.column, event.row);
+            update_drag_scroll(app, event.column, event.row).await;
         }
         MouseEventKind::ScrollUp if app.popups.help.is_visible => {
             crate::ui::help_ui::handle_help_popup_event(KeyCode::Up, app);
@@ -252,7 +254,8 @@ async fn handle_popup_up(app: &mut AppState, x: u16, y: u16) {
             KeyCode::Enter,
             termina::event::Modifiers::NONE,
             app,
-        );
+        )
+        .await;
     } else if app.popups.remote_edit.is_visible {
         app.popups.remote_edit.focused_button = down_index;
         crate::handlers::editor::handle_remote_edit_event(KeyCode::Enter, app).await;
@@ -271,7 +274,7 @@ async fn handle_popup_up(app: &mut AppState, x: u16, y: u16) {
     }
 }
 
-fn handle_left_click(app: &mut AppState, x: u16, y: u16, is_double_click: bool) {
+async fn handle_left_click(app: &mut AppState, x: u16, y: u16, is_double_click: bool) {
     let click_pos = (x, y);
 
     // Check file viewer
@@ -309,29 +312,29 @@ fn handle_left_click(app: &mut AppState, x: u16, y: u16, is_double_click: bool) 
     // Check tab bars
     if is_in_rect(click_pos, app.left_tab_bar_area) {
         app.active = PanelSide::Left;
-        handle_tab_bar_click(app, PanelSide::Left, x, y);
+        handle_tab_bar_click(app, PanelSide::Left, x, y).await;
         return;
     }
     if is_in_rect(click_pos, app.right_tab_bar_area) {
         app.active = PanelSide::Right;
-        handle_tab_bar_click(app, PanelSide::Right, x, y);
+        handle_tab_bar_click(app, PanelSide::Right, x, y).await;
         return;
     }
 
     // Check panels
     if is_in_rect(click_pos, app.left_panel_area) {
         app.active = PanelSide::Left;
-        handle_panel_click(app, PanelSide::Left, x, y, is_double_click);
+        handle_panel_click(app, PanelSide::Left, x, y, is_double_click).await;
         return;
     }
     if is_in_rect(click_pos, app.right_panel_area) {
         app.active = PanelSide::Right;
-        handle_panel_click(app, PanelSide::Right, x, y, is_double_click);
+        handle_panel_click(app, PanelSide::Right, x, y, is_double_click).await;
     }
 }
 
 #[cfg(windows)]
-fn handle_right_click(app: &mut AppState, x: u16, y: u16) {
+async fn handle_right_click(app: &mut AppState, x: u16, y: u16) {
     let click_pos = (x, y);
 
     // Determine which panel was clicked and set it active.
@@ -380,16 +383,16 @@ fn handle_right_click(app: &mut AppState, x: u16, y: u16) {
     let full_path = tab.current_dir.join(&tab.entries[row_idx].name);
 
     // Refresh the panel in case the context menu action changed files.
-    crate::handlers::navigation::update_viewer_content(app);
+    crate::handlers::navigation::update_viewer_content(app).await;
 
     // Store the path to be processed on the next event loop iteration.
     app.pending_action = Some(crate::app::PendingAction::WindowsContextMenu(full_path));
 }
 
 #[cfg(not(windows))]
-fn handle_right_click(_app: &mut AppState, _x: u16, _y: u16) {}
+async fn handle_right_click(_app: &mut AppState, _x: u16, _y: u16) {}
 
-fn handle_tab_bar_click(app: &mut AppState, side: PanelSide, x: u16, y: u16) {
+async fn handle_tab_bar_click(app: &mut AppState, side: PanelSide, x: u16, y: u16) {
     let (tab_manager, tab_areas) = match side {
         PanelSide::Left => (&mut app.left, &app.left_tab_areas),
         PanelSide::Right => (&mut app.right, &app.right_tab_areas),
@@ -398,13 +401,19 @@ fn handle_tab_bar_click(app: &mut AppState, side: PanelSide, x: u16, y: u16) {
     for (idx, rect) in tab_areas.iter().enumerate() {
         if is_in_rect((x, y), *rect) {
             tab_manager.active_tab_index = idx;
-            crate::handlers::navigation::update_viewer_content(app);
+            crate::handlers::navigation::update_viewer_content(app).await;
             break;
         }
     }
 }
 
-fn handle_panel_click(app: &mut AppState, side: PanelSide, x: u16, y: u16, is_double_click: bool) {
+async fn handle_panel_click(
+    app: &mut AppState,
+    side: PanelSide,
+    x: u16,
+    y: u16,
+    is_double_click: bool,
+) {
     let (tab, area) = match side {
         PanelSide::Left => (app.left.active_tab_mut(), app.left_panel_area),
         PanelSide::Right => (app.right.active_tab_mut(), app.right_panel_area),
@@ -423,7 +432,7 @@ fn handle_panel_click(app: &mut AppState, side: PanelSide, x: u16, y: u16, is_do
 
     if y < content_start_y {
         if y == header_row_y {
-            crate::handlers::navigation::handle_header_click(app, x, area, borders);
+            crate::handlers::navigation::handle_header_click(app, x, area, borders).await;
         }
         return; // Clicked on header
     }
@@ -432,14 +441,14 @@ fn handle_panel_click(app: &mut AppState, side: PanelSide, x: u16, y: u16, is_do
     if let Some(row_idx) = tab.visible_row_to_entry_index(row) {
         tab.cursor = row_idx;
         if is_double_click {
-            crate::handlers::navigation::handle_enter(app);
+            crate::handlers::navigation::handle_enter(app).await;
         } else {
-            crate::handlers::navigation::update_viewer_content(app);
+            crate::handlers::navigation::update_viewer_content(app).await;
         }
     }
 }
 
-fn handle_drag(app: &mut AppState, x: u16, y: u16) {
+async fn handle_drag(app: &mut AppState, x: u16, y: u16) {
     if let Some(active_drag) = app.active_drag
         && active_drag != crate::app::DragTarget::FileViewerSelection
     {
@@ -452,7 +461,7 @@ fn handle_drag(app: &mut AppState, x: u16, y: u16) {
             }
             app.last_drag_pos = Some((x, y));
         } else {
-            update_drag_scroll(app, x, y);
+            update_drag_scroll(app, x, y).await;
         }
         return;
     }
@@ -584,7 +593,7 @@ pub fn scrollbar_thumb_rows(
 /// Returns `false` when the scrollbar is not rendered (content fits within the viewport),
 /// in which case no drag is started and the click can be handled normally.
 #[allow(clippy::too_many_arguments)] // all parameters are scrollbar geometry required for the drag
-fn start_scrollbar_drag(
+async fn start_scrollbar_drag(
     app: &mut AppState,
     y: u16,
     target: crate::app::DragTarget,
@@ -605,7 +614,7 @@ fn start_scrollbar_drag(
     };
     app.active_drag = Some(target);
     if y < start || y >= end {
-        update_drag_scroll(app, 0, y);
+        update_drag_scroll(app, 0, y).await;
     }
     true
 }
@@ -632,7 +641,7 @@ fn panel_scrollbar_metrics(app: &AppState, side: PanelSide) -> (usize, usize) {
 /// Scrollbar hit regions are computed from the same layout data used during rendering,
 /// ensuring consistency between hit detection and visual layout.
 #[allow(clippy::too_many_lines)] // one sequential block per scrollbar target
-pub fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) -> bool {
+pub async fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) -> bool {
     // 1. Fuzzy search popup list scrollbar
     // The filterable list popup renders its scrollbar one column right of the inner
     // area (in the list block's right border column), so the hit region must match.
@@ -656,6 +665,7 @@ pub fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) -> boo
                 app.fuzzy_search.list.selected_index,
                 false,
             )
+            .await
         {
             return true;
         }
@@ -682,6 +692,7 @@ pub fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) -> boo
                 app.popups.bookmark.list.selected_index,
                 false,
             )
+            .await
         {
             return true;
         }
@@ -703,6 +714,7 @@ pub fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) -> boo
                 app.popups.help.scroll_offset,
                 true,
             )
+            .await
         {
             return true;
         }
@@ -724,6 +736,7 @@ pub fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) -> boo
                 app.popups.ssh_connection.selected_history_idx.unwrap_or(0),
                 false,
             )
+            .await
         {
             return true;
         }
@@ -756,7 +769,9 @@ pub fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) -> boo
                 region.height as usize,
                 app.file_viewer.scroll_offset,
                 true,
-            ) {
+            )
+            .await
+            {
                 return true;
             }
         }
@@ -779,7 +794,9 @@ pub fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) -> boo
                 visible_rows,
                 offset,
                 false,
-            ) {
+            )
+            .await
+            {
                 return true;
             }
         }
@@ -802,7 +819,9 @@ pub fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) -> boo
                 visible_rows,
                 offset,
                 false,
-            ) {
+            )
+            .await
+            {
                 return true;
             }
         }
@@ -811,7 +830,7 @@ pub fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) -> boo
     false
 }
 
-pub fn update_drag_scroll(app: &mut AppState, _x: u16, y: u16) {
+pub async fn update_drag_scroll(app: &mut AppState, _x: u16, y: u16) {
     let Some(target) = app.active_drag else {
         return;
     };
@@ -879,7 +898,7 @@ pub fn update_drag_scroll(app: &mut AppState, _x: u16, y: u16) {
                 if tab.cursor != idx {
                     tab.cursor = idx;
                     tab.scroll_to_cursor(visible_rows);
-                    crate::handlers::navigation::update_viewer_content(app);
+                    crate::handlers::navigation::update_viewer_content(app).await;
                 }
             }
         }
@@ -889,7 +908,7 @@ pub fn update_drag_scroll(app: &mut AppState, _x: u16, y: u16) {
     }
 }
 
-fn handle_scroll_event(app: &mut AppState, pos: (u16, u16), up: bool, ctrl: bool) {
+async fn handle_scroll_event(app: &mut AppState, pos: (u16, u16), up: bool, ctrl: bool) {
     if ctrl
         && app.file_viewer.is_visible
         && is_in_rect(pos, app.file_viewer.area)
@@ -905,7 +924,7 @@ fn handle_scroll_event(app: &mut AppState, pos: (u16, u16), up: bool, ctrl: bool
     if app.file_viewer.is_visible && is_in_rect(pos, app.file_viewer.area) {
         handle_file_viewer_scroll(app, up);
     } else {
-        handle_scroll(app, up);
+        handle_scroll(app, up).await;
     }
 }
 
@@ -918,7 +937,7 @@ fn handle_file_viewer_scroll(app: &mut AppState, up: bool) {
     }
 }
 
-fn handle_scroll(app: &mut AppState, up: bool) {
+async fn handle_scroll(app: &mut AppState, up: bool) {
     let tab = match app.active {
         PanelSide::Left => app.left.active_tab_mut(),
         PanelSide::Right => app.right.active_tab_mut(),
@@ -929,7 +948,7 @@ fn handle_scroll(app: &mut AppState, up: bool) {
     } else {
         tab.cursor = (tab.cursor + 3).min(tab.entries.len().saturating_sub(1));
     }
-    crate::handlers::navigation::update_viewer_content(app);
+    crate::handlers::navigation::update_viewer_content(app).await;
 }
 
 pub(crate) fn is_in_rect(pos: (u16, u16), rect: Rect) -> bool {

@@ -1,7 +1,6 @@
 use fm::fs::fs_archive::ArchiveFs;
 use fm::fs::fs_local::LocalFs;
 use fm::fs::fs_provider::FileSystemProvider;
-use fm::fs::provider::ProviderFileSystem;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
@@ -25,7 +24,7 @@ async fn test_zip_create_dir() {
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
 
     // 3. Create a directory
-    archive_fs.create_dir(Path::new("new_dir")).unwrap();
+    archive_fs.create_dir(Path::new("new_dir")).await.unwrap();
 
     // 4. Verify directory exists in archive
     let entry = archive_fs.get_entry(Path::new("new_dir")).unwrap();
@@ -33,7 +32,7 @@ async fn test_zip_create_dir() {
     assert_eq!(entry.file_entry.name, "new_dir");
 
     // 5. Create a nested directory
-    archive_fs.create_dir(Path::new("a/b/c")).unwrap();
+    archive_fs.create_dir(Path::new("a/b/c")).await.unwrap();
     let entry_nested = archive_fs.get_entry(Path::new("a/b/c")).unwrap();
     assert!(entry_nested.file_entry.is_dir);
 }
@@ -44,7 +43,7 @@ async fn test_local_fs_create_zip() {
     let zip_path = temp_dir.path().join("new_archive.zip");
 
     let local_fs = LocalFs::new();
-    local_fs.create_file(&zip_path).unwrap();
+    local_fs.create_file(&zip_path).await.unwrap();
 
     // Verify it's a valid zip
     let file = File::open(&zip_path).unwrap();
@@ -69,7 +68,7 @@ async fn test_zip_create_dir_timestamp() {
 
     // 3. Create a directory
     let before = SystemTime::now();
-    archive_fs.create_dir(Path::new("new_dir")).unwrap();
+    archive_fs.create_dir(Path::new("new_dir")).await.unwrap();
     let after = SystemTime::now();
 
     // 4. Verify directory timestamp is close to now
@@ -105,10 +104,10 @@ async fn test_zip_copy_dir_preserves_timestamp() {
         zip.finish().unwrap();
     }
 
-    let src_fs = ProviderFileSystem(std::sync::Arc::new(LocalFs::new()));
-    let dest_fs = ProviderFileSystem(std::sync::Arc::new(ArchiveFs::new(&archive_path).unwrap()));
+    let src_fs = LocalFs::new();
+    let dest_fs = ArchiveFs::new(&archive_path).unwrap();
 
-    let progress = fm::fs::traits::TaskProgressContext {
+    let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 1,
         tx: tokio::sync::mpsc::unbounded_channel().0,
         cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -174,7 +173,7 @@ async fn test_zip_timestamps() {
     }
 
     let archive_fs = ArchiveFs::new(&zip_path).unwrap();
-    let entries = archive_fs.list_dir(Path::new(".")).unwrap();
+    let entries = archive_fs.list_dir(Path::new(".")).await.unwrap();
 
     let entry = entries
         .iter()
@@ -213,16 +212,16 @@ async fn test_zip_dot_dot_resolves_to_directory() {
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
 
     // "folder/.." is the parent (root), so it must be treated as a directory.
-    assert!(archive_fs.is_dir(Path::new("folder")));
-    assert!(archive_fs.is_dir(Path::new("folder/..")));
-    assert!(archive_fs.is_dir(Path::new("/folder/..")));
-    assert!(archive_fs.exists(Path::new("folder/..")));
-    assert!(archive_fs.is_dir(Path::new("..")));
+    assert!(archive_fs.is_dir(Path::new("folder")).await);
+    assert!(archive_fs.is_dir(Path::new("folder/..")).await);
+    assert!(archive_fs.is_dir(Path::new("/folder/..")).await);
+    assert!(archive_fs.exists(Path::new("folder/..")).await);
+    assert!(archive_fs.is_dir(Path::new("..")).await);
 
     // Nested resolution: "a/b/.." == "a"
-    assert!(archive_fs.is_dir(Path::new("folder/../folder")));
-    assert!(!archive_fs.is_dir(Path::new("folder/../file.txt")));
-    assert!(!archive_fs.exists(Path::new("folder/../file.txt")));
+    assert!(archive_fs.is_dir(Path::new("folder/../folder")).await);
+    assert!(!archive_fs.is_dir(Path::new("folder/../file.txt")).await);
+    assert!(!archive_fs.exists(Path::new("folder/../file.txt")).await);
 }
 
 #[tokio::test]
@@ -243,11 +242,10 @@ async fn test_zip_add_files_batch() {
         zip.finish().unwrap();
     }
 
-    let src_fs = ProviderFileSystem(std::sync::Arc::new(LocalFs::new()));
+    let src_fs = LocalFs::new();
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
-    let _dest_fs = ProviderFileSystem(std::sync::Arc::new(archive_fs.clone()));
 
-    let progress = fm::fs::traits::TaskProgressContext {
+    let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 1,
         tx: tokio::sync::mpsc::unbounded_channel().0,
         cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -282,10 +280,12 @@ async fn test_zip_add_files_batch() {
     // Verify data
     let data1 = archive_fs
         .read_file(Path::new("batch_dir/file1.txt"))
+        .await
         .unwrap();
     assert_eq!(data1, b"content1");
     let data3 = archive_fs
         .read_file(Path::new("batch_dir/subdir/file3.txt"))
+        .await
         .unwrap();
     assert_eq!(data3, b"content3");
 }

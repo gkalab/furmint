@@ -372,10 +372,10 @@ impl AppState {
         });
     }
 
-    pub fn refresh_active_tabs(&mut self) {
+    pub async fn refresh_active_tabs(&mut self) {
         // Reload both active tabs to show changes
-        let _ = self.left.active_tab_mut().reload();
-        let _ = self.right.active_tab_mut().reload();
+        let _ = self.left.active_tab_mut().reload().await;
+        let _ = self.right.active_tab_mut().reload().await;
     }
 
     pub fn reload_remote(&mut self) {
@@ -389,8 +389,11 @@ impl AppState {
                     let current_dir = tab.current_dir.clone();
                     let tx = tx.clone();
 
-                    tokio::task::spawn_blocking(move || {
-                        let result = provider.list_dir(&current_dir).map_err(|e| e.to_string());
+                    tokio::spawn(async move {
+                        let result = provider
+                            .list_dir(&current_dir)
+                            .await
+                            .map_err(|e| e.to_string());
                         let _ = tx.send(crate::tasks::TaskEvent::RemoteReloadCompleted {
                             side,
                             tab_index,
@@ -587,10 +590,10 @@ impl AppState {
         self.active = self.active.opposite();
     }
 
-    pub fn handle_ssh_connected(&mut self, ctx: crate::tasks::SshContext) {
+    pub async fn handle_ssh_connected(&mut self, ctx: crate::tasks::SshContext) {
         let path = ctx.path.unwrap_or_else(|| std::path::PathBuf::from("/"));
         let connection_name = ctx.name;
-        match Tab::with_provider(&path, ctx.provider) {
+        match Tab::with_provider(&path, ctx.provider).await {
             Ok(mut tab) => {
                 // Restore sort settings from history
                 let context_key = tab.provider.context_key();
@@ -624,7 +627,7 @@ impl AppState {
         self.sync_watcher();
     }
 
-    pub fn handle_ssh_reconnected(&mut self, ctx: crate::tasks::SshContext) {
+    pub async fn handle_ssh_reconnected(&mut self, ctx: crate::tasks::SshContext) {
         let path = ctx.path.unwrap_or_else(|| std::path::PathBuf::from("/"));
 
         // Restore sort settings from history FIRST before borrowing tab mutably
@@ -653,7 +656,7 @@ impl AppState {
         }
 
         // Navigate to the preserved directory
-        if let Err(e) = tab.navigate_to(&path) {
+        if let Err(e) = tab.navigate_to(&path).await {
             tab.error = Some(format!("Failed to navigate to {}: {e}", path.display()));
         }
 

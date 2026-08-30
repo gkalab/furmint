@@ -303,7 +303,7 @@ mod tests {
         writeln!(tmp, "[example.com]:2222 {key2}").unwrap();
         writeln!(tmp, "|1|salt|hash {key1}").unwrap(); // should be skipped
         writeln!(tmp, "hosta,hostb {key1}").unwrap();
-        writeln!(tmp, "").unwrap();
+        writeln!(tmp).unwrap();
         tmp.flush().unwrap();
         let kh = KnownHosts::with_path(tmp.path().to_path_buf());
         assert_eq!(kh.find("example.com", 22), Some(key1.clone()));

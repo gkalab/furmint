@@ -33,7 +33,7 @@ pub fn handle_init_rename(app: &mut AppState) {
     }
 }
 
-pub fn handle_rename_event(code: KeyCode, modifiers: Modifiers, app: &mut AppState) -> bool {
+pub async fn handle_rename_event(code: KeyCode, modifiers: Modifiers, app: &mut AppState) -> bool {
     if app.popups.rename.show_overwrite_confirm {
         use crate::handlers::popup_utils::handle_button_nav;
 
@@ -43,11 +43,11 @@ pub fn handle_rename_event(code: KeyCode, modifiers: Modifiers, app: &mut AppSta
 
         match code {
             KeyCode::Enter if app.popups.rename.focused_button == 1 => {
-                perform_rename(app, true);
+                perform_rename(app, true).await;
                 app.popups.rename.reset();
             }
             KeyCode::Char('y' | 'Y') => {
-                perform_rename(app, true);
+                perform_rename(app, true).await;
                 app.popups.rename.reset();
             }
             KeyCode::Enter | KeyCode::Char('n' | 'N') | KeyCode::Escape => {
@@ -72,7 +72,7 @@ pub fn handle_rename_event(code: KeyCode, modifiers: Modifiers, app: &mut AppSta
                     .rename
                     .parent_dir
                     .join(&app.popups.rename.new_name);
-                if app.active_tab().provider.exists(&new_path) {
+                if app.active_tab().provider.exists(&new_path).await {
                     if app.popups.rename.is_dir {
                         app.popups.rename.error =
                             Some("Error: Target directory exists".to_string());
@@ -80,7 +80,7 @@ pub fn handle_rename_event(code: KeyCode, modifiers: Modifiers, app: &mut AppSta
                         app.popups.rename.show_overwrite_confirm = true;
                     }
                 } else {
-                    perform_rename(app, false);
+                    perform_rename(app, false).await;
                     app.popups.rename.reset();
                 }
             }
@@ -101,7 +101,7 @@ pub fn handle_rename_event(code: KeyCode, modifiers: Modifiers, app: &mut AppSta
     false
 }
 
-pub(crate) fn perform_rename(app: &mut AppState, _overwrite: bool) {
+pub(crate) async fn perform_rename(app: &mut AppState, _overwrite: bool) {
     let old_path = app
         .popups
         .rename
@@ -115,12 +115,12 @@ pub(crate) fn perform_rename(app: &mut AppState, _overwrite: bool) {
 
     let new_name = app.popups.rename.new_name.clone();
     let panel = app.active_tab_mut();
-    let result = panel.provider.rename(&old_path, &new_path);
+    let result = panel.provider.rename(&old_path, &new_path).await;
 
     match result {
         Ok(()) => {
             // panel is already borrowed mutably
-            match panel.provider.list_dir(&panel.current_dir) {
+            match panel.provider.list_dir(&panel.current_dir).await {
                 Ok(entries) => {
                     panel.entries = entries;
                     panel.sort_entries();
@@ -128,7 +128,7 @@ pub(crate) fn perform_rename(app: &mut AppState, _overwrite: bool) {
                         panel.cursor = idx;
                     }
                     if app.is_any_tab_on_network_share() {
-                        app.refresh_active_tabs();
+                        app.refresh_active_tabs().await;
                     }
                 }
                 Err(e) => {

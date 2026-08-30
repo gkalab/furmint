@@ -2,18 +2,18 @@ use fm::app::{Tab, TabManager};
 use std::path::Path;
 use std::sync::Arc;
 
-#[test]
-fn test_local_tab_count() {
-    let mut manager = TabManager::new(Path::new(".")).unwrap();
+#[tokio::test]
+async fn test_local_tab_count() {
+    let mut manager = TabManager::new(Path::new(".")).await.unwrap();
     assert_eq!(manager.local_tab_count(), 1);
 
-    manager.new_tab(Path::new(".."), None).unwrap();
+    manager.new_tab(Path::new(".."), None).await.unwrap();
     assert_eq!(manager.local_tab_count(), 2);
 }
 
-#[test]
-fn test_close_tab_last_tab() {
-    let mut manager = TabManager::new(Path::new(".")).unwrap();
+#[tokio::test]
+async fn test_close_tab_last_tab() {
+    let mut manager = TabManager::new(Path::new(".")).await.unwrap();
     assert_eq!(manager.tabs.len(), 1);
 
     // Cannot close the very last tab
@@ -21,8 +21,8 @@ fn test_close_tab_last_tab() {
     assert_eq!(manager.tabs.len(), 1);
 }
 
-#[test]
-fn test_reload_preserves_selection() {
+#[tokio::test]
+async fn test_reload_preserves_selection() {
     use std::env;
 
     let test_dir = env::temp_dir().join("fm_test_reload_preserves");
@@ -38,6 +38,7 @@ fn test_reload_preserves_selection() {
         &test_dir,
         std::sync::Arc::new(fm::fs::fs_local::LocalFs::new()),
     )
+    .await
     .unwrap();
 
     // Select some files
@@ -51,7 +52,7 @@ fn test_reload_preserves_selection() {
     std::fs::write(&file1_path, "modified").unwrap();
 
     // Reload should preserve selection and cursor
-    let reloaded = tab.reload().unwrap();
+    let reloaded = tab.reload().await.unwrap();
     assert!(reloaded, "Reload should return true when entries change");
 
     // Verify selection is preserved
@@ -78,8 +79,8 @@ fn test_reload_preserves_selection() {
     std::fs::remove_dir_all(&test_dir).unwrap();
 }
 
-#[test]
-fn test_reload_and_focus() {
+#[tokio::test]
+async fn test_reload_and_focus() {
     let temp_dir = std::env::temp_dir();
     let test_dir = temp_dir.join("fm_test_reload_focus");
     if test_dir.exists() {
@@ -87,14 +88,14 @@ fn test_reload_and_focus() {
     }
     std::fs::create_dir_all(&test_dir).unwrap();
 
-    let mut tab = Tab::new(&test_dir).unwrap();
+    let mut tab = Tab::new(&test_dir).await.unwrap();
     assert_eq!(tab.entries.len(), 1); // just ".."
 
     // Create a new child
     let child_dir = test_dir.join("new_child");
     std::fs::create_dir(&child_dir).unwrap();
 
-    tab.reload_and_focus("new_child").unwrap();
+    tab.reload_and_focus("new_child").await.unwrap();
     // Index 0 is "..", Index 1 should be "new_child"
     assert_eq!(tab.entries.len(), 2);
     assert_eq!(tab.entries[1].name, "new_child");
@@ -105,41 +106,44 @@ fn test_reload_and_focus() {
     std::fs::remove_dir_all(&test_dir).ok();
 }
 
-#[test]
-fn test_persistent_tab_custom_title() {
-    let mut tab = Tab::new(Path::new(".")).unwrap();
+#[tokio::test]
+async fn test_persistent_tab_custom_title() {
+    let mut tab = Tab::new(Path::new(".")).await.unwrap();
     tab.custom_title = Some("Custom Tab Name".to_string());
 
     let persistent = tab.to_persistent();
     assert_eq!(persistent.custom_title, Some("Custom Tab Name".to_string()));
 
-    let restored = Tab::from_persistent(persistent).unwrap();
+    let restored = Tab::from_persistent(persistent).await.unwrap();
     assert_eq!(restored.custom_title, Some("Custom Tab Name".to_string()));
 }
 
-#[test]
-fn test_new_tab_with_provider() {
-    let mut manager = TabManager::new(Path::new(".")).unwrap();
+#[tokio::test]
+async fn test_new_tab_with_provider() {
+    let mut manager = TabManager::new(Path::new(".")).await.unwrap();
     let provider = Arc::new(fm::fs::fs_local::LocalFs::new());
     let test_path = Path::new("..");
     manager
         .new_tab_with_provider(test_path, provider, None)
+        .await
         .unwrap();
     assert_eq!(manager.tabs.len(), 2);
     assert_eq!(manager.active_tab().current_dir, test_path.to_path_buf());
 }
 
-#[test]
-fn test_new_tab_inserts_after_active_tab() {
-    let mut manager = TabManager::new(Path::new(".")).unwrap();
+#[tokio::test]
+async fn test_new_tab_inserts_after_active_tab() {
+    let mut manager = TabManager::new(Path::new(".")).await.unwrap();
     let provider = Arc::new(fm::fs::fs_local::LocalFs::new());
 
     // Create two more tabs -> tabs: [0, 1, 2], active: 2
     manager
         .new_tab_with_provider(Path::new(".."), provider.clone(), None)
+        .await
         .unwrap();
     manager
         .new_tab_with_provider(Path::new(".."), provider.clone(), None)
+        .await
         .unwrap();
     assert_eq!(manager.tabs.len(), 3);
     assert_eq!(manager.active_tab_index, 2);
@@ -148,6 +152,7 @@ fn test_new_tab_inserts_after_active_tab() {
     manager.active_tab_index = 0;
     manager
         .new_tab_with_provider(Path::new(".."), provider, None)
+        .await
         .unwrap();
 
     assert_eq!(manager.tabs.len(), 4);
@@ -156,16 +161,18 @@ fn test_new_tab_inserts_after_active_tab() {
     assert_eq!(manager.tabs[1].current_dir, Path::new("..").to_path_buf());
 }
 
-#[test]
-fn test_close_tab_activates_previous_tab() {
-    let mut manager = TabManager::new(Path::new(".")).unwrap();
+#[tokio::test]
+async fn test_close_tab_activates_previous_tab() {
+    let mut manager = TabManager::new(Path::new(".")).await.unwrap();
     let provider = Arc::new(fm::fs::fs_local::LocalFs::new());
 
     manager
         .new_tab_with_provider(Path::new(".."), provider.clone(), None)
+        .await
         .unwrap();
     manager
         .new_tab_with_provider(Path::new(".."), provider.clone(), None)
+        .await
         .unwrap();
     assert_eq!(manager.tabs.len(), 3);
 
@@ -184,9 +191,11 @@ fn test_close_tab_activates_previous_tab() {
     // Close a non-active tab before the active one
     manager
         .new_tab_with_provider(Path::new(".."), provider.clone(), None)
+        .await
         .unwrap();
     manager
         .new_tab_with_provider(Path::new(".."), provider.clone(), None)
+        .await
         .unwrap();
     manager.active_tab_index = 2;
     assert!(manager.close_tab(0));

@@ -4,8 +4,7 @@ use fm::app::{AppState, TabManager};
 use fm::fs::fs_archive::ArchiveFs;
 use fm::fs::fs_local::LocalFs;
 use fm::fs::fs_provider::FileSystemProvider;
-use fm::fs::provider::ProviderFileSystem;
-use fm::fs::traits::TaskProgressContext;
+use fm::fs::fs_provider::TaskProgressContext;
 use fm::fs::utils::FileEntry;
 use fm::handlers::navigation::handle_enter;
 use fm::opener::FileOpener;
@@ -117,14 +116,14 @@ async fn test_zip_extract_attributes() {
     std::fs::create_dir_all(&dest_dir).unwrap();
 
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
-    let progress = fm::fs::traits::TaskProgressContext {
+    let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 0,
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
     };
-    let local_fs = fm::fs::provider::ProviderFileSystem(Arc::new(LocalFs::new()));
+    let local_fs = LocalFs::new();
 
     // Extract everything
     archive_fs
@@ -187,7 +186,7 @@ async fn test_open_supported_archive_tar_gz() {
     app.left.active_tab_mut().cursor = 0; // Select the archive
 
     // 3. Trigger enter
-    handle_enter(&mut app);
+    handle_enter(&mut app).await;
 
     // 4. Verification: Should receive ArchiveLoaded event
     let event = rx.recv().await;
@@ -220,7 +219,7 @@ async fn test_open_unsupported_archive_fallback() {
     app.left.active_tab_mut().cursor = 0;
 
     // 3. Trigger enter
-    handle_enter(&mut app);
+    handle_enter(&mut app).await;
 
     // 4. Verification: Should NOT receive ArchiveLoaded event.
     // Instead it should fall back to opening the file (handle_open_item).
@@ -261,7 +260,7 @@ async fn test_open_corrupt_7z_shows_error() {
 
     // 3. Trigger enter — 7z is now a supported extension, so it goes through
     //    handle_open_archive. The corrupt content will cause an error event.
-    handle_enter(&mut app);
+    handle_enter(&mut app).await;
 
     // 4. Verify: we get an error event (not ArchiveLoaded, not fallback to opener)
     let event = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
@@ -306,10 +305,13 @@ async fn test_archive_fs_read_and_download_zip() {
     let archive_fs = fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap();
 
     // 3. Test read_file
-    let content = archive_fs.read_file(Path::new("hello.txt")).unwrap();
+    let content = archive_fs.read_file(Path::new("hello.txt")).await.unwrap();
     assert_eq!(content, b"world");
 
-    let sub_content = archive_fs.read_file(Path::new("dir/sub.txt")).unwrap();
+    let sub_content = archive_fs
+        .read_file(Path::new("dir/sub.txt"))
+        .await
+        .unwrap();
     assert_eq!(sub_content, b"subordinate");
 
     // 4. Test download (optimized extraction)
@@ -317,14 +319,14 @@ async fn test_archive_fs_read_and_download_zip() {
     std::fs::create_dir_all(&dest_dir).unwrap();
 
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
-    let progress = fm::fs::traits::TaskProgressContext {
+    let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 0,
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
     };
-    let local_fs = fm::fs::provider::ProviderFileSystem(Arc::new(LocalFs::new()));
+    let local_fs = LocalFs::new();
 
     // Extract everything
     archive_fs
@@ -373,7 +375,7 @@ async fn test_archive_fs_read_and_download_tar_gz() {
     let archive_fs = fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap();
 
     // 3. Test read_file
-    let content = archive_fs.read_file(Path::new("hello.txt")).unwrap();
+    let content = archive_fs.read_file(Path::new("hello.txt")).await.unwrap();
     assert_eq!(content, b"world");
 
     // 4. Test download
@@ -381,14 +383,14 @@ async fn test_archive_fs_read_and_download_tar_gz() {
     std::fs::create_dir_all(&dest_dir).unwrap();
 
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
-    let progress = fm::fs::traits::TaskProgressContext {
+    let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 0,
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
     };
-    let local_fs = fm::fs::provider::ProviderFileSystem(Arc::new(LocalFs::new()));
+    let local_fs = LocalFs::new();
 
     archive_fs
         .extract(Path::new("."), &local_fs, &dest_dir, &progress)
@@ -424,21 +426,21 @@ async fn test_archive_fs_read_and_download_plain_gz() {
 
     let archive_fs = fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap();
 
-    let content = archive_fs.read_file(Path::new("test")).unwrap();
+    let content = archive_fs.read_file(Path::new("test")).await.unwrap();
     assert_eq!(content, b"hello world");
 
     let dest_dir = temp_dir.path().join("extracted_gz");
     std::fs::create_dir_all(&dest_dir).unwrap();
 
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
-    let progress = fm::fs::traits::TaskProgressContext {
+    let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 0,
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
     };
-    let local_fs = fm::fs::provider::ProviderFileSystem(Arc::new(LocalFs::new()));
+    let local_fs = LocalFs::new();
 
     archive_fs
         .extract(Path::new("."), &local_fs, &dest_dir, &progress)
@@ -504,14 +506,14 @@ async fn test_archive_download_empty_dir_and_nesting() {
     std::fs::create_dir_all(&dest_dir).unwrap();
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
-    let progress = fm::fs::traits::TaskProgressContext {
+    let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 123,
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
     };
-    let local_fs = fm::fs::provider::ProviderFileSystem(Arc::new(LocalFs::new()));
+    let local_fs = LocalFs::new();
 
     archive_fs
         .extract(Path::new("."), &local_fs, &dest_dir, &progress)
@@ -564,14 +566,14 @@ async fn test_archive_download_cancellation() {
 
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
     let cancel_flag = Arc::new(AtomicBool::new(false));
-    let progress = fm::fs::traits::TaskProgressContext {
+    let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 789,
         tx,
         cancel: cancel_flag.clone(),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
     };
-    let local_fs = fm::fs::provider::ProviderFileSystem(Arc::new(LocalFs::new()));
+    let local_fs = LocalFs::new();
 
     // Cancel after a short delay
     let cancel_flag_clone = cancel_flag.clone();
@@ -613,7 +615,7 @@ async fn test_zip_timestamp_preservation() {
     }
 
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
-    let local_fs = ProviderFileSystem(Arc::new(LocalFs::new()));
+    let local_fs = LocalFs::new();
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
     let progress = TaskProgressContext {
         id: 0,
@@ -705,7 +707,7 @@ async fn test_tar_timestamp_preservation() {
     }
 
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
-    let local_fs = ProviderFileSystem(Arc::new(LocalFs::new()));
+    let local_fs = LocalFs::new();
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
     let progress = TaskProgressContext {
         id: 1,
@@ -793,14 +795,14 @@ async fn test_archive_fs_download_tar_gz_optimized() {
     let dest_file = temp_dir.path().join("extracted_hello.txt");
 
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
-    let progress = fm::fs::traits::TaskProgressContext {
+    let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 0,
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
     };
-    let local_fs = fm::fs::provider::ProviderFileSystem(Arc::new(LocalFs::new()));
+    let local_fs = LocalFs::new();
 
     // Extract single file
     archive_fs
@@ -838,7 +840,10 @@ async fn test_archive_fs_read_and_download_xz() {
     let archive_fs = fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap();
 
     // 3. Test read_file
-    let content = archive_fs.read_file(Path::new("hello_xz.txt")).unwrap();
+    let content = archive_fs
+        .read_file(Path::new("hello_xz.txt"))
+        .await
+        .unwrap();
     assert_eq!(content, b"world of xz");
 
     // 4. Test extraction
@@ -846,14 +851,14 @@ async fn test_archive_fs_read_and_download_xz() {
     std::fs::create_dir_all(&dest_dir).unwrap();
 
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
-    let progress = fm::fs::traits::TaskProgressContext {
+    let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 0,
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
     };
-    let local_fs = fm::fs::provider::ProviderFileSystem(Arc::new(LocalFs::new()));
+    let local_fs = LocalFs::new();
 
     archive_fs
         .extract(Path::new("."), &local_fs, &dest_dir, &progress)
@@ -968,11 +973,11 @@ async fn test_archive_fs_read_and_download_rpm() {
 
     // Test scanning
     let archive_fs = fm::fs::fs_archive::ArchiveFs::new(&rpm_path).unwrap();
-    let entries = archive_fs.list_dir(Path::new("/")).unwrap();
+    let entries = archive_fs.list_dir(Path::new("/")).await.unwrap();
     assert!(entries.iter().any(|e| e.name == "file1.txt"));
 
     // Test reading
-    let content = archive_fs.read_file(Path::new("file1.txt")).unwrap();
+    let content = archive_fs.read_file(Path::new("file1.txt")).await.unwrap();
     assert_eq!(content, b"hello rpm");
 
     // Test extraction
@@ -980,14 +985,14 @@ async fn test_archive_fs_read_and_download_rpm() {
     std::fs::create_dir_all(&dest_dir).unwrap();
 
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
-    let progress = fm::fs::traits::TaskProgressContext {
+    let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 0,
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
     };
-    let local_fs = fm::fs::provider::ProviderFileSystem(Arc::new(LocalFs::new()));
+    let local_fs = LocalFs::new();
 
     archive_fs
         .extract(Path::new("."), &local_fs, &dest_dir, &progress)
@@ -1022,13 +1027,16 @@ async fn test_zip_delete_and_add() {
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
 
     // 2. Delete file1.txt
-    archive_fs.delete(Path::new("file1.txt"), false).unwrap();
+    archive_fs
+        .delete(Path::new("file1.txt"), false)
+        .await
+        .unwrap();
 
     // Verify file1.txt is gone and file2.txt remains
-    assert!(!archive_fs.exists(Path::new("file1.txt")));
-    assert!(archive_fs.exists(Path::new("file2.txt")));
+    assert!(!archive_fs.exists(Path::new("file1.txt")).await);
+    assert!(archive_fs.exists(Path::new("file2.txt")).await);
     assert_eq!(
-        archive_fs.read_file(Path::new("file2.txt")).unwrap(),
+        archive_fs.read_file(Path::new("file2.txt")).await.unwrap(),
         b"content2"
     );
 
@@ -1045,7 +1053,7 @@ async fn test_zip_delete_and_add() {
         std::fs::set_permissions(&extra_file, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
 
-    let local_fs = fm::fs::provider::ProviderFileSystem(Arc::new(fm::fs::fs_local::LocalFs::new()));
+    let local_fs = fm::fs::fs_local::LocalFs::new();
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
     let progress = TaskProgressContext {
         id: 99,
@@ -1062,9 +1070,9 @@ async fn test_zip_delete_and_add() {
         .unwrap();
 
     // Verify extra.txt exists with correct content and metadata
-    assert!(archive_fs.exists(Path::new("extra.txt")));
+    assert!(archive_fs.exists(Path::new("extra.txt")).await);
     assert_eq!(
-        archive_fs.read_file(Path::new("extra.txt")).unwrap(),
+        archive_fs.read_file(Path::new("extra.txt")).await.unwrap(),
         b"extra content"
     );
 
@@ -1106,25 +1114,31 @@ async fn test_zip_rename() {
     // 2. Rename file
     archive_fs
         .rename(Path::new("old_name.txt"), Path::new("new_name.txt"))
+        .await
         .unwrap();
-    assert!(!archive_fs.exists(Path::new("old_name.txt")));
-    assert!(archive_fs.exists(Path::new("new_name.txt")));
+    assert!(!archive_fs.exists(Path::new("old_name.txt")).await);
+    assert!(archive_fs.exists(Path::new("new_name.txt")).await);
     assert_eq!(
-        archive_fs.read_file(Path::new("new_name.txt")).unwrap(),
+        archive_fs
+            .read_file(Path::new("new_name.txt"))
+            .await
+            .unwrap(),
         b"rename me"
     );
 
     // 3. Rename directory
     archive_fs
         .rename(Path::new("old_dir"), Path::new("new_dir"))
+        .await
         .unwrap();
-    assert!(!archive_fs.exists(Path::new("old_dir")));
-    assert!(!archive_fs.exists(Path::new("old_dir/inner.txt")));
-    assert!(archive_fs.exists(Path::new("new_dir")));
-    assert!(archive_fs.exists(Path::new("new_dir/inner.txt")));
+    assert!(!archive_fs.exists(Path::new("old_dir")).await);
+    assert!(!archive_fs.exists(Path::new("old_dir/inner.txt")).await);
+    assert!(archive_fs.exists(Path::new("new_dir")).await);
+    assert!(archive_fs.exists(Path::new("new_dir/inner.txt")).await);
     assert_eq!(
         archive_fs
             .read_file(Path::new("new_dir/inner.txt"))
+            .await
             .unwrap(),
         b"inner content"
     );
@@ -1145,9 +1159,9 @@ async fn test_zip_copy_directory_batch() {
 
     let archive_path = temp_dir.path().join("tree_batch.zip");
     let local_fs = fm::fs::fs_local::LocalFs::new();
-    local_fs.create_file(&archive_path).unwrap();
+    local_fs.create_file(&archive_path).await.unwrap();
 
-    let src_fs = ProviderFileSystem(Arc::new(LocalFs::new()));
+    let src_fs = LocalFs::new();
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
 
     let (tx, _rx) = mpsc::unbounded_channel();
@@ -1178,7 +1192,10 @@ async fn test_zip_copy_directory_batch() {
         );
     }
     assert_eq!(
-        archive_fs.read_file(Path::new("tree/sub1/a.txt")).unwrap(),
+        archive_fs
+            .read_file(Path::new("tree/sub1/a.txt"))
+            .await
+            .unwrap(),
         b"a"
     );
 }
@@ -1198,10 +1215,10 @@ async fn test_recursive_op_copies_directory_tree_to_7z() {
 
     let archive_path = temp_dir.path().join("ops_tree.7z");
     let local_provider = LocalFs::new();
-    local_provider.create_file(&archive_path).unwrap();
+    local_provider.create_file(&archive_path).await.unwrap();
 
-    let src_fs = ProviderFileSystem(Arc::new(LocalFs::new()));
-    let dest_fs = ProviderFileSystem(Arc::new(ArchiveFs::new(&archive_path).unwrap()));
+    let src_fs = LocalFs::new();
+    let dest_fs = ArchiveFs::new(&archive_path).unwrap();
 
     let (tx, _rx) = mpsc::unbounded_channel();
     let cancel = Arc::new(AtomicBool::new(false));
@@ -1239,7 +1256,10 @@ async fn test_recursive_op_copies_directory_tree_to_7z() {
         );
     }
     assert_eq!(
-        archive_fs.read_file(Path::new("tree/sub1/a.txt")).unwrap(),
+        archive_fs
+            .read_file(Path::new("tree/sub1/a.txt"))
+            .await
+            .unwrap(),
         b"a"
     );
     assert_eq!(processed.load(Ordering::Relaxed), total);

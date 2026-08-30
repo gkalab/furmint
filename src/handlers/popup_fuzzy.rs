@@ -4,7 +4,7 @@ use crate::app::AppState;
 use crate::ui::fuzzy_search_ui::FuzzySearchState;
 use termina::event::{KeyCode, Modifiers};
 
-pub(crate) fn handle_fuzzy_search_mouse_click(
+pub(crate) async fn handle_fuzzy_search_mouse_click(
     app: &mut AppState,
     x: u16,
     y: u16,
@@ -26,7 +26,7 @@ pub(crate) fn handle_fuzzy_search_mouse_click(
     state.selected_index = row;
 
     if is_double_click {
-        handle_fuzzy_search_event(KeyCode::Enter, Modifiers::NONE, app);
+        handle_fuzzy_search_event(KeyCode::Enter, Modifiers::NONE, app).await;
     }
 }
 
@@ -41,7 +41,7 @@ fn update_fuzzy_search_results(
     state.list.scroll_offset = 0;
 }
 
-pub(crate) fn handle_fuzzy_search_event(
+pub(crate) async fn handle_fuzzy_search_event(
     code: KeyCode,
     modifiers: Modifiers,
     app: &mut AppState,
@@ -58,7 +58,9 @@ pub(crate) fn handle_fuzzy_search_event(
                 match crate::handlers::navigation::navigate_with_fallback(
                     app.active_tab_mut(),
                     &selected_dir,
-                ) {
+                )
+                .await
+                {
                     Ok(navigated_path) => {
                         app.dir_history.record_visit(&context_key, &navigated_path);
                         if navigated_path != selected_dir {

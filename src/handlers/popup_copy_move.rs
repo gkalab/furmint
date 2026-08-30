@@ -3,7 +3,6 @@
 use crate::app::AppState;
 use crate::clipboard::FileClipboardData;
 use crate::fs::fs_provider::FileSystemProvider;
-use crate::fs::traits::FileSystem;
 use crate::state::CopyMoveAction;
 use anyhow::{Result, anyhow};
 use std::path::PathBuf;
@@ -114,7 +113,7 @@ fn handle_clipboard_action(app: &mut AppState, action: crate::clipboard::FileCli
     let _ = app.clipboard.set(data);
 }
 
-pub fn handle_paste(app: &mut AppState) {
+pub async fn handle_paste(app: &mut AppState) {
     if let Ok(Some(data)) = app.clipboard.get() {
         let action = match data.action {
             crate::clipboard::FileClipboardAction::Copy => CopyMoveAction::Copy,
@@ -129,7 +128,9 @@ pub fn handle_paste(app: &mut AppState) {
             &data.source_provider,
             &dest_path,
             &dest_provider,
-        ) {
+        )
+        .await
+        {
             app.active_tab_mut().error = Some(err.to_string());
             return;
         }
@@ -152,7 +153,7 @@ pub fn handle_paste(app: &mut AppState) {
 
 /// Validates that source paths are not being copied/moved into themselves or subdirectories of themselves.
 /// Returns `Err(error_message)` if validation fails, Ok(()) otherwise.
-fn validate_copy_move(
+async fn validate_copy_move(
     src_paths: &[PathBuf],
     src_provider: &Arc<dyn FileSystemProvider>,
     dest_path: &std::path::Path,
@@ -162,7 +163,7 @@ fn validate_copy_move(
         return Ok(());
     }
 
-    let dest_abs = if let Ok(p) = dest_provider.canonicalize(dest_path) {
+    let dest_abs = if let Ok(p) = dest_provider.canonicalize(dest_path).await {
         p
     } else if dest_path.is_absolute() {
         dest_path.to_path_buf()
@@ -172,7 +173,7 @@ fn validate_copy_move(
     };
 
     for src in src_paths {
-        if let Ok(src_abs) = src_provider.canonicalize(src) {
+        if let Ok(src_abs) = src_provider.canonicalize(src).await {
             let s_src = src_abs.to_string_lossy();
             let s_dest = dest_abs.to_string_lossy();
 
@@ -254,15 +255,15 @@ fn compute_target_path(
 }
 
 /// Ensure destination directory exists
-async fn ensure_dest_directory<F: crate::fs::traits::FileSystem>(
-    dest_fs: &F,
+async fn ensure_dest_directory(
+    dest_fs: &dyn FileSystemProvider,
     dest_path: &std::path::Path,
     treat_as_dir: bool,
     tx: &tokio::sync::mpsc::UnboundedSender<crate::tasks::TaskEvent>,
     id: usize,
 ) -> bool {
     if treat_as_dir {
-        if !dest_fs.try_exists(dest_path).await.unwrap_or(false)
+        if !dest_fs.exists(dest_path).await
             && let Err(e) = dest_fs.create_dir_all(dest_path).await
         {
             let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
@@ -274,7 +275,7 @@ async fn ensure_dest_directory<F: crate::fs::traits::FileSystem>(
             return false;
         }
     } else if let Some(parent) = dest_path.parent()
-        && !dest_fs.try_exists(parent).await.unwrap_or(false)
+        && !dest_fs.exists(parent).await
     {
         let _ = dest_fs.create_dir_all(parent).await;
     }
@@ -283,8 +284,8 @@ async fn ensure_dest_directory<F: crate::fs::traits::FileSystem>(
 
 /// Handle conflict resolution for rsync directory transfers
 /// Returns: Some(true) to proceed, Some(false) to skip, None to cancel
-async fn handle_rsync_conflict<F: crate::fs::traits::FileSystem>(
-    dest_fs: &F,
+async fn handle_rsync_conflict(
+    dest_fs: &dyn FileSystemProvider,
     target: &std::path::Path,
     decision_state: &mut crate::fs::ops::DecisionState,
     decision_rx: &std::sync::Arc<
@@ -294,7 +295,7 @@ async fn handle_rsync_conflict<F: crate::fs::traits::FileSystem>(
     cancel: &std::sync::Arc<std::sync::atomic::AtomicBool>,
     id: usize,
 ) -> Option<bool> {
-    let target_exists = dest_fs.try_exists(target).await.unwrap_or(false);
+    let target_exists = dest_fs.exists(target).await;
     if !target_exists {
         return Some(true);
     }
@@ -340,8 +341,8 @@ async fn handle_rsync_conflict<F: crate::fs::traits::FileSystem>(
 
 /// Try rsync for directory transfer
 /// Returns: Some(true) if rsync succeeded, Some(false) if skipped, None if should fall through to `recursive_op`
-async fn try_rsync_directory<F: crate::fs::traits::FileSystem>(
-    ctx: &RsyncContext<'_, F>,
+async fn try_rsync_directory(
+    ctx: &RsyncContext<'_>,
     decision_state: &mut crate::fs::ops::DecisionState,
 ) -> Option<bool> {
     // Check for conflicts before rsync transfer
@@ -374,7 +375,7 @@ async fn try_rsync_directory<F: crate::fs::traits::FileSystem>(
         }
         Some(true) => {
             // Proceed with rsync
-            let progress = crate::fs::traits::TaskProgressContext {
+            let progress = crate::fs::fs_provider::TaskProgressContext {
                 id: ctx.task.id,
                 tx: ctx.task.tx.clone(),
                 cancel: ctx.task.cancel.clone(),
@@ -411,7 +412,11 @@ async fn try_rsync_directory<F: crate::fs::traits::FileSystem>(
     }
 }
 
-pub fn handle_copy_move_event(code: KeyCode, modifiers: Modifiers, app: &mut AppState) -> bool {
+pub async fn handle_copy_move_event(
+    code: KeyCode,
+    modifiers: Modifiers,
+    app: &mut AppState,
+) -> bool {
     match code {
         KeyCode::Escape => {
             app.popups.copy_move.reset();
@@ -451,7 +456,9 @@ pub fn handle_copy_move_event(code: KeyCode, modifiers: Modifiers, app: &mut App
                 &src_provider,
                 &dest_abs,
                 &dest_provider,
-            ) {
+            )
+            .await
+            {
                 app.popups.copy_move.error = Some(err.to_string());
                 return false;
             }
@@ -488,8 +495,8 @@ pub fn handle_copy_move_event(code: KeyCode, modifiers: Modifiers, app: &mut App
 }
 
 struct ProcessPathContext<'a> {
-    src_fs: &'a crate::fs::provider::ProviderFileSystem,
-    dest_fs: &'a crate::fs::provider::ProviderFileSystem,
+    src_fs: &'a dyn FileSystemProvider,
+    dest_fs: &'a dyn FileSystemProvider,
     dest_path: &'a std::path::PathBuf,
     dest_str: &'a str,
     treat_as_dir: bool,
@@ -507,9 +514,9 @@ struct ProcessPathContext<'a> {
     processed_bytes: &'a Arc<std::sync::atomic::AtomicU64>,
 }
 
-struct RsyncFsContext<'a, F: crate::fs::traits::FileSystem> {
-    src_fs: &'a F,
-    dest_fs: &'a F,
+struct RsyncFsContext<'a> {
+    src_fs: &'a dyn FileSystemProvider,
+    dest_fs: &'a dyn FileSystemProvider,
     src: &'a std::path::Path,
     target: &'a std::path::Path,
 }
@@ -526,10 +533,10 @@ struct RsyncTaskContext<'a> {
     total_items: usize,
 }
 
-impl<'a, F: crate::fs::traits::FileSystem> RsyncFsContext<'a, F> {
+impl<'a> RsyncFsContext<'a> {
     pub fn new(
-        src_fs: &'a F,
-        dest_fs: &'a F,
+        src_fs: &'a dyn FileSystemProvider,
+        dest_fs: &'a dyn FileSystemProvider,
         src: &'a std::path::Path,
         target: &'a std::path::Path,
     ) -> Self {
@@ -566,8 +573,8 @@ impl<'a> RsyncTaskContext<'a> {
     }
 }
 
-struct RsyncContext<'a, F: crate::fs::traits::FileSystem> {
-    fs: RsyncFsContext<'a, F>,
+struct RsyncContext<'a> {
+    fs: RsyncFsContext<'a>,
     task: RsyncTaskContext<'a>,
 }
 
@@ -587,11 +594,11 @@ async fn process_single_path(
         file_name,
         ctx.treat_as_dir,
         ctx.dest_is_dir,
-        ctx.dest_fs.0.is_local(),
+        ctx.dest_fs.is_local(),
     );
 
     // Try rsync for directories when applicable
-    let src_is_dir = ctx.src_fs.is_dir(src).await.unwrap_or(false);
+    let src_is_dir = ctx.src_fs.is_dir(src).await;
     if ctx.use_rsync && src_is_dir {
         let fs_ctx = RsyncFsContext::new(ctx.src_fs, ctx.dest_fs, src, &target);
         let task_ctx = RsyncTaskContext::new(
@@ -671,12 +678,14 @@ pub fn spawn_copy_move_task(
     let id = app
         .task_manager
         .spawn_task(&task_name, move |cancel, tx, id| async move {
-            let src_fs = crate::fs::provider::ProviderFileSystem(src_provider);
-            let dest_fs = crate::fs::provider::ProviderFileSystem(dest_provider);
             let dest_path = std::path::PathBuf::from(&dest_str);
 
             // Check if rsync can be used for this transfer
-            let use_rsync = crate::fs::fs_rsync::should_use_rsync(&src_fs, &dest_fs, action);
+            let use_rsync = crate::fs::fs_rsync::should_use_rsync(
+                src_provider.as_ref(),
+                dest_provider.as_ref(),
+                action,
+            );
 
             // Pre-calculation of total items using the source filesystem
             // Skip this for rsync-eligible transfers to avoid slow remote directory traversal
@@ -685,7 +694,7 @@ pub fn spawn_copy_move_task(
                 // For rsync, just count top-level items - rsync handles progress internally
                 (paths.len(), 0)
             } else {
-                crate::fs::ops::count_items_and_size(&src_fs, &paths).await
+                crate::fs::ops::count_items_and_size(src_provider.as_ref(), &paths).await
             };
             let processed_items = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
             let processed_bytes = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
@@ -703,19 +712,21 @@ pub fn spawn_copy_move_task(
             let decision_rx = std::sync::Arc::new(tokio::sync::Mutex::new(decision_rx));
 
             // Ensure dest dir exists if multiple items or if treated as dir
-            let dest_is_dir = dest_fs.is_dir(&dest_path).await.unwrap_or(false);
+            let dest_is_dir = dest_provider.is_dir(&dest_path).await;
             let dest_ends_with_slash = dest_str.ends_with(std::path::MAIN_SEPARATOR);
             let treat_as_dir = paths.len() > 1 || dest_is_dir || dest_ends_with_slash;
 
-            if !ensure_dest_directory(&dest_fs, &dest_path, treat_as_dir, &tx, id).await {
+            if !ensure_dest_directory(dest_provider.as_ref(), &dest_path, treat_as_dir, &tx, id)
+                .await
+            {
                 return;
             }
 
             let mut failures = Vec::new();
 
             let ctx = ProcessPathContext {
-                src_fs: &src_fs,
-                dest_fs: &dest_fs,
+                src_fs: src_provider.as_ref(),
+                dest_fs: dest_provider.as_ref(),
                 dest_path: &dest_path,
                 dest_str: &dest_str,
                 treat_as_dir,

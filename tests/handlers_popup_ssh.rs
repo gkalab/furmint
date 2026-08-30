@@ -9,12 +9,20 @@ use secrecy::ExposeSecret;
 use termina::event::{KeyCode, Modifiers};
 use tokio::sync::mpsc;
 
-fn basic_app_state() -> AppState {
+async fn basic_app_state() -> AppState {
     let (task_tx, _task_rx) = mpsc::unbounded_channel::<TaskEvent>();
 
     fm::test_utils::TestAppBuilder::new()
-        .left(fm::app::TabManager::new(&std::env::temp_dir()).unwrap())
-        .right(fm::app::TabManager::new(&std::env::temp_dir()).unwrap())
+        .left(
+            fm::app::TabManager::new(&std::env::temp_dir())
+                .await
+                .unwrap(),
+        )
+        .right(
+            fm::app::TabManager::new(&std::env::temp_dir())
+                .await
+                .unwrap(),
+        )
         .task_tx(task_tx)
         .build()
 }
@@ -58,9 +66,9 @@ fn test_parse_connection_string() {
     assert!(parse_connection_string("").is_none());
 }
 
-#[test]
-fn test_ssh_field_cycling() {
-    let mut app = basic_app_state();
+#[tokio::test]
+async fn test_ssh_field_cycling() {
+    let mut app = basic_app_state().await;
     handle_ssh_connection_init(&mut app);
 
     assert_eq!(
@@ -87,9 +95,9 @@ fn test_ssh_field_cycling() {
     assert_eq!(app.popups.ssh_connection.active_field, SshField::History);
 }
 
-#[test]
-fn test_ssh_editing_cursor_movement() {
-    let mut app = basic_app_state();
+#[tokio::test]
+async fn test_ssh_editing_cursor_movement() {
+    let mut app = basic_app_state().await;
     handle_ssh_connection_init(&mut app);
     app.popups.ssh_connection.connection_string = "root@host".to_string();
     app.popups.ssh_connection.cursor_position = 9;
@@ -104,9 +112,9 @@ fn test_ssh_editing_cursor_movement() {
     assert_eq!(app.popups.ssh_connection.cursor_position, 9);
 }
 
-#[test]
-fn test_ssh_insert_delete() {
-    let mut app = basic_app_state();
+#[tokio::test]
+async fn test_ssh_insert_delete() {
+    let mut app = basic_app_state().await;
     handle_ssh_connection_init(&mut app);
     app.popups.ssh_connection.connection_string = "host".to_string();
     app.popups.ssh_connection.cursor_position = 0;
@@ -127,11 +135,11 @@ fn test_ssh_insert_delete() {
     assert_eq!(app.popups.ssh_connection.cursor_position, 0);
 }
 
-#[test]
-fn test_history_search_reset() {
+#[tokio::test]
+async fn test_history_search_reset() {
     use fm::ssh_history::SshConnectionInfo;
     use std::time::Instant;
-    let mut app = basic_app_state();
+    let mut app = basic_app_state().await;
     handle_ssh_connection_init(&mut app);
 
     app.ssh_history.connections.push(SshConnectionInfo {
@@ -163,9 +171,9 @@ fn test_history_search_reset() {
     assert_eq!(app.popups.ssh_connection.search_query, "z");
 }
 
-#[test]
-fn test_handle_reconnect_ssh_no_op_for_local() {
-    let mut app = basic_app_state();
+#[tokio::test]
+async fn test_handle_reconnect_ssh_no_op_for_local() {
+    let mut app = basic_app_state().await;
     handle_reconnect_ssh(&mut app);
     assert!(!app.popups.ssh_password.is_visible);
 }
@@ -186,31 +194,38 @@ impl MockSftpProvider {
 
 #[async_trait::async_trait]
 impl fm::fs::fs_provider::FileSystemProvider for MockSftpProvider {
-    fn list_dir(&self, _path: &std::path::Path) -> anyhow::Result<Vec<fm::fs::utils::FileEntry>> {
+    async fn list_dir(
+        &self,
+        _path: &std::path::Path,
+    ) -> anyhow::Result<Vec<fm::fs::utils::FileEntry>> {
         unreachable!("not used by tests")
     }
 
-    fn create_dir(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+    async fn create_dir(&self, _path: &std::path::Path) -> anyhow::Result<()> {
         unreachable!("not used by tests")
     }
 
-    fn create_file(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+    async fn create_dir_all(&self, _path: &std::path::Path) -> anyhow::Result<()> {
         unreachable!("not used by tests")
     }
 
-    fn delete(&self, _path: &std::path::Path, _recursive: bool) -> anyhow::Result<()> {
+    async fn create_file(&self, _path: &std::path::Path) -> anyhow::Result<()> {
         unreachable!("not used by tests")
     }
 
-    fn rename(&self, _from: &std::path::Path, _to: &std::path::Path) -> anyhow::Result<()> {
+    async fn delete(&self, _path: &std::path::Path, _recursive: bool) -> anyhow::Result<()> {
         unreachable!("not used by tests")
     }
 
-    fn read_file(&self, _path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
+    async fn rename(&self, _from: &std::path::Path, _to: &std::path::Path) -> anyhow::Result<()> {
         unreachable!("not used by tests")
     }
 
-    fn read_file_at(
+    async fn read_file(&self, _path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
+        unreachable!("not used by tests")
+    }
+
+    async fn read_file_at(
         &self,
         _path: &std::path::Path,
         _offset: u64,
@@ -219,11 +234,11 @@ impl fm::fs::fs_provider::FileSystemProvider for MockSftpProvider {
         unreachable!("not used by tests")
     }
 
-    fn write_file(&self, _path: &std::path::Path, _data: &[u8]) -> anyhow::Result<()> {
+    async fn write_file(&self, _path: &std::path::Path, _data: &[u8]) -> anyhow::Result<()> {
         unreachable!("not used by tests")
     }
 
-    fn write_file_at(
+    async fn write_file_at(
         &self,
         _path: &std::path::Path,
         _offset: u64,
@@ -240,35 +255,42 @@ impl fm::fs::fs_provider::FileSystemProvider for MockSftpProvider {
         false
     }
 
-    fn exists(&self, _path: &std::path::Path) -> bool {
+    async fn exists(&self, _path: &std::path::Path) -> bool {
         unreachable!("not used by tests")
     }
 
-    fn is_dir(&self, _path: &std::path::Path) -> bool {
+    async fn is_dir(&self, _path: &std::path::Path) -> bool {
         unreachable!("not used by tests")
     }
 
-    fn canonicalize(&self, _path: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
+    async fn canonicalize(&self, _path: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
         unreachable!("not used by tests")
     }
 
-    fn get_file_info(&self, _path: &std::path::Path) -> Option<fm::fs::fs_provider::FileMetadata> {
+    async fn get_file_info(
+        &self,
+        _path: &std::path::Path,
+    ) -> Option<fm::fs::fs_provider::FileMetadata> {
         unreachable!("not used by tests")
     }
 
-    fn get_permissions(&self, _path: &std::path::Path) -> Option<u32> {
+    async fn get_permissions(&self, _path: &std::path::Path) -> Option<u32> {
         unreachable!("not used by tests")
     }
 
-    fn set_permissions(&self, _path: &std::path::Path, _mode: u32) -> bool {
+    async fn set_permissions(&self, _path: &std::path::Path, _mode: u32) -> bool {
         unreachable!("not used by tests")
     }
 
-    fn get_modified_time(&self, _path: &std::path::Path) -> Option<std::time::SystemTime> {
+    async fn get_modified_time(&self, _path: &std::path::Path) -> Option<std::time::SystemTime> {
         unreachable!("not used by tests")
     }
 
-    fn set_modified_time(&self, _path: &std::path::Path, _mtime: std::time::SystemTime) -> bool {
+    async fn set_modified_time(
+        &self,
+        _path: &std::path::Path,
+        _mtime: std::time::SystemTime,
+    ) -> bool {
         unreachable!("not used by tests")
     }
 
@@ -285,9 +307,9 @@ impl fm::fs::fs_provider::FileSystemProvider for MockSftpProvider {
     }
 }
 
-#[test]
-fn test_handle_reconnect_ssh_sets_up_password_prompt() {
-    let mut app = basic_app_state();
+#[tokio::test]
+async fn test_handle_reconnect_ssh_sets_up_password_prompt() {
+    let mut app = basic_app_state().await;
 
     // Create a mock remote provider BEFORE registering the session because
     // handle_reconnect_ssh uses active_tab() at the start.

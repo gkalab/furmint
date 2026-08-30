@@ -1,8 +1,8 @@
 use async_trait::async_trait;
+use fm::fs::fs_provider::{FileMetadata, FileSystemProvider, TaskProgressContext};
 use fm::fs::ops::DecisionState;
 use fm::fs::ops::{RecursiveOpContext, recursive_op};
-use fm::fs::traits::FileSystem;
-use fm::fs::traits::TaskProgressContext;
+use fm::fs::utils::FileEntry;
 use fm::state::CopyMoveAction;
 use fm::tasks::{TaskDecision, TaskEvent};
 use std::collections::{HashMap, HashSet};
@@ -71,13 +71,45 @@ struct MockFileSystem {
 }
 
 #[async_trait]
-impl FileSystem for MockFileSystem {
-    async fn try_exists(&self, path: &Path) -> anyhow::Result<bool> {
-        Ok(self.files.lock().await.contains_key(path)
-            && !self.removed_files.lock().await.contains(path))
+impl FileSystemProvider for MockFileSystem {
+    async fn list_dir(&self, path: &Path) -> anyhow::Result<Vec<FileEntry>> {
+        if *self.fail_next_read_dir.lock().await {
+            return Err(anyhow::anyhow!("Mock error reading directory"));
+        }
+        let files = self.files.lock().await;
+        let mut children = Vec::new();
+        for (k, e) in files.iter() {
+            if k.parent() == Some(path) {
+                let name = k
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                children.push((name, e.is_dir));
+            }
+        }
+        drop(files);
+        let removed = self.removed_files.lock().await;
+        Ok(children
+            .into_iter()
+            .filter(|(name, _)| !removed.contains(&path.join(name)))
+            .map(|(name, is_dir)| FileEntry {
+                name,
+                is_dir,
+                is_symlink: false,
+                size: Some(0),
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            })
+            .collect())
     }
-    async fn is_dir(&self, path: &Path) -> anyhow::Result<bool> {
-        Ok(self.files.lock().await.get(path).is_some_and(|e| e.is_dir))
+    async fn create_dir(&self, path: &Path) -> anyhow::Result<()> {
+        self.files
+            .lock()
+            .await
+            .insert(path.to_path_buf(), FakeEntry { is_dir: true });
+        Ok(())
     }
     async fn create_dir_all(&self, path: &Path) -> anyhow::Result<()> {
         let mut fail = self.fail_next_create_dir.lock().await;
@@ -91,18 +123,16 @@ impl FileSystem for MockFileSystem {
             .insert(path.to_path_buf(), FakeEntry { is_dir: true });
         Ok(())
     }
-    async fn read_dir(&self, path: &Path) -> anyhow::Result<Vec<PathBuf>> {
-        if *self.fail_next_read_dir.lock().await {
-            return Err(anyhow::anyhow!("Mock error reading directory"));
-        }
-        let files = self.files.lock().await;
-        let mut out = Vec::new();
-        for k in files.keys() {
-            if k.parent() == Some(path) && !self.removed_files.lock().await.contains(k) {
-                out.push(k.clone());
-            }
-        }
-        Ok(out)
+    async fn create_file(&self, path: &Path) -> anyhow::Result<()> {
+        self.files
+            .lock()
+            .await
+            .insert(path.to_path_buf(), FakeEntry { is_dir: false });
+        Ok(())
+    }
+    async fn delete(&self, path: &Path, _recursive: bool) -> anyhow::Result<()> {
+        self.removed_files.lock().await.insert(path.to_path_buf());
+        Ok(())
     }
     async fn rename(&self, src: &Path, dst: &Path) -> anyhow::Result<()> {
         let mut files = self.files.lock().await;
@@ -130,10 +160,84 @@ impl FileSystem for MockFileSystem {
         }
         Ok(())
     }
-    async fn remove_file(&self, path: &Path) -> anyhow::Result<()> {
-        self.removed_files.lock().await.insert(path.to_path_buf());
+    async fn read_file(&self, path: &Path) -> anyhow::Result<Vec<u8>> {
+        if self.files.lock().await.contains_key(path) {
+            Ok(vec![]) // Fake empty content
+        } else {
+            Err(anyhow::anyhow!("File not found"))
+        }
+    }
+    async fn read_file_at(
+        &self,
+        path: &Path,
+        _offset: u64,
+        _len: usize,
+    ) -> anyhow::Result<Vec<u8>> {
+        self.read_file(path).await
+    }
+    async fn write_file(&self, path: &Path, _data: &[u8]) -> anyhow::Result<()> {
+        self.files
+            .lock()
+            .await
+            .insert(path.to_path_buf(), FakeEntry { is_dir: false });
         Ok(())
     }
+    async fn write_file_at(&self, path: &Path, _offset: u64, data: &[u8]) -> anyhow::Result<()> {
+        self.write_file(path, data).await
+    }
+
+    fn display_prefix(&self) -> &'static str {
+        ""
+    }
+
+    fn is_local(&self) -> bool {
+        false
+    }
+
+    async fn exists(&self, path: &Path) -> bool {
+        self.files.lock().await.contains_key(path)
+            && !self.removed_files.lock().await.contains(path)
+    }
+    async fn is_dir(&self, path: &Path) -> bool {
+        self.files.lock().await.get(path).is_some_and(|e| e.is_dir)
+            && !self.removed_files.lock().await.contains(path)
+    }
+    async fn canonicalize(&self, path: &Path) -> anyhow::Result<PathBuf> {
+        Ok(path.to_path_buf())
+    }
+    async fn get_file_info(&self, path: &Path) -> Option<FileMetadata> {
+        if self.exists(path).await {
+            Some(FileMetadata {
+                size: 0,
+                modified: None,
+                permissions: None,
+            })
+        } else {
+            None
+        }
+    }
+    async fn get_permissions(&self, _path: &Path) -> Option<u32> {
+        Some(0o644) // Mock permissions
+    }
+    async fn set_permissions(&self, _path: &Path, _mode: u32) -> bool {
+        true
+    }
+    async fn get_modified_time(&self, _path: &Path) -> Option<std::time::SystemTime> {
+        Some(std::time::SystemTime::UNIX_EPOCH)
+    }
+    async fn set_modified_time(&self, _path: &Path, _mtime: std::time::SystemTime) -> bool {
+        true
+    }
+    fn context_key(&self) -> String {
+        "mock".to_string()
+    }
+    fn display_path(&self, path: &Path) -> String {
+        path.display().to_string()
+    }
+    async fn calc_dir_size(&self, _path: &Path) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+
     async fn copy(&self, src: &Path, dst: &Path) -> anyhow::Result<()> {
         let mut fail = self.fail_next_copy.lock().await;
         if *fail > 0 {
@@ -166,74 +270,11 @@ impl FileSystem for MockFileSystem {
     ) -> anyhow::Result<()> {
         self.copy(src, dst).await
     }
-    async fn get_size(&self, _path: &Path) -> anyhow::Result<u64> {
-        Ok(0)
-    }
-    async fn read_file(&self, path: &Path) -> anyhow::Result<Vec<u8>> {
-        if self.files.lock().await.contains_key(path) {
-            Ok(vec![]) // Fake empty content
-        } else {
-            Err(anyhow::anyhow!("File not found"))
-        }
-    }
-    async fn read_chunk(&self, path: &Path, _offset: u64, _len: usize) -> anyhow::Result<Vec<u8>> {
-        self.read_file(path).await
-    }
-    async fn write_file(&self, path: &Path, _data: &[u8]) -> anyhow::Result<()> {
-        self.files
-            .lock()
-            .await
-            .insert(path.to_path_buf(), FakeEntry { is_dir: false });
-        Ok(())
-    }
-    async fn write_chunk(&self, path: &Path, _offset: u64, _data: &[u8]) -> anyhow::Result<()> {
-        self.write_file(path, _data).await
-    }
-
-    async fn get_permissions(&self, _path: &Path) -> Option<u32> {
-        Some(0o644) // Mock permissions
-    }
-    async fn set_permissions(&self, _path: &Path, _mode: u32) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    async fn get_modified_time(&self, _path: &Path) -> Option<std::time::SystemTime> {
-        Some(std::time::SystemTime::UNIX_EPOCH)
-    }
-
-    async fn set_modified_time(
-        &self,
-        _path: &Path,
-        _mtime: std::time::SystemTime,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    async fn write_file_with_permissions(
-        &self,
-        path: &Path,
-        _data: &[u8],
-        _mode: Option<u32>,
-    ) -> anyhow::Result<()> {
-        self.files
-            .lock()
-            .await
-            .insert(path.to_path_buf(), FakeEntry { is_dir: false });
-        Ok(())
-    }
-
-    fn context_key(&self) -> String {
-        "mock".to_string()
-    }
-
-    fn is_local(&self) -> bool {
-        false
-    }
 
     async fn copy_to_local(
         &self,
         _src: &Path,
-        dest_fs: &dyn FileSystem,
+        dest_fs: &dyn FileSystemProvider,
         dest: &Path,
         _progress: &TaskProgressContext,
     ) -> Option<anyhow::Result<()>> {
@@ -242,16 +283,6 @@ impl FileSystem for MockFileSystem {
             let _ = dest_fs.create_dir_all(dest).await;
         }
         result
-    }
-
-    async fn copy_from_local(
-        &self,
-        _src_fs: &dyn FileSystem,
-        _src: &Path,
-        _dest: &Path,
-        _progress: &TaskProgressContext,
-    ) -> Option<anyhow::Result<()>> {
-        None
     }
 }
 
@@ -309,14 +340,10 @@ async fn test_recursive_copy_nested() {
     assert!(res.is_ok(), "Recursive copy failed: {:?}", res.err());
 
     // Verify destination structure
-    assert!(fs.try_exists(&dest_root).await.unwrap());
-    assert!(fs.try_exists(&dest_root.join("file1.txt")).await.unwrap());
-    assert!(fs.try_exists(&dest_root.join("subdir")).await.unwrap());
-    assert!(
-        fs.try_exists(&dest_root.join("subdir").join("file2.txt"))
-            .await
-            .unwrap()
-    );
+    assert!(fs.exists(&dest_root).await);
+    assert!(fs.exists(&dest_root.join("file1.txt")).await);
+    assert!(fs.exists(&dest_root.join("subdir")).await);
+    assert!(fs.exists(&dest_root.join("subdir").join("file2.txt")).await);
 }
 
 #[tokio::test]
@@ -885,8 +912,8 @@ async fn test_move_rename_optimization_no_conflict() {
         panic!("Operation timed out - likely waiting for conflict resolution!");
     }
 
-    assert!(!fs.try_exists(&src).await.unwrap());
-    assert!(fs.try_exists(&dst).await.unwrap());
+    assert!(!fs.exists(&src).await);
+    assert!(fs.exists(&dst).await);
 }
 
 #[tokio::test]
@@ -946,10 +973,10 @@ async fn test_move_rename_optimization_directory() {
     assert_eq!(last_p, 2); // With increment = count - 1 = 2, and total = 3, last_p ends at 2 because the first update sets it to 2 and subsequent updates don't happen (p != total)
     assert!(progress_events >= 1);
 
-    assert!(!fs.try_exists(&src_dir).await.unwrap());
-    assert!(fs.try_exists(&dest_dir).await.unwrap());
-    assert!(fs.try_exists(&dest_dir.join("file1.txt")).await.unwrap());
-    assert!(fs.try_exists(&dest_dir.join("file2.txt")).await.unwrap());
+    assert!(!fs.exists(&src_dir).await);
+    assert!(fs.exists(&dest_dir).await);
+    assert!(fs.exists(&dest_dir.join("file1.txt")).await);
+    assert!(fs.exists(&dest_dir.join("file2.txt")).await);
 }
 
 #[tokio::test]
@@ -993,12 +1020,8 @@ async fn test_handle_directory_dest_exists_as_dir_merge() {
     let res = recursive_op(ctx, &mut decision_state).await;
 
     assert!(res.is_ok());
-    assert!(fs.try_exists(&dest_root.join("file1.txt")).await.unwrap());
-    assert!(
-        fs.try_exists(&dest_root.join("existing.txt"))
-            .await
-            .unwrap()
-    );
+    assert!(fs.exists(&dest_root.join("file1.txt")).await);
+    assert!(fs.exists(&dest_root.join("existing.txt")).await);
 }
 
 #[tokio::test]
@@ -1042,7 +1065,7 @@ async fn test_handle_directory_download_success() {
     let res = recursive_op(ctx, &mut decision_state).await;
 
     assert!(res.is_ok());
-    assert!(fs.try_exists(&dest_root).await.unwrap());
+    assert!(fs.exists(&dest_root).await);
 }
 
 #[tokio::test]
@@ -1327,12 +1350,9 @@ async fn test_handle_directory_download_fallback() {
     let res = recursive_op(ctx, &mut decision_state).await;
 
     assert!(res.is_ok(), "Fallback logic failed: {:?}", res.err());
+    assert!(fs.exists(&dest_root).await, "Dest root was not created");
     assert!(
-        fs.try_exists(&dest_root).await.unwrap(),
-        "Dest root was not created"
-    );
-    assert!(
-        fs.try_exists(&dest_root.join("file1.txt")).await.unwrap(),
+        fs.exists(&dest_root.join("file1.txt")).await,
         "Child file was not copied"
     );
 }

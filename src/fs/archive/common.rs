@@ -199,7 +199,7 @@ pub struct ExtractOptions<'a> {
     pub src_str: &'a str,
     pub dest: &'a Path,
     pub is_dir: bool,
-    pub progress: &'a crate::fs::traits::TaskProgressContext,
+    pub progress: &'a crate::fs::fs_provider::TaskProgressContext,
 }
 
 /// Metadata for extraction of a single entry.
@@ -304,7 +304,7 @@ fn extract_file_entry<R: std::io::Read>(
     dest: &Path,
     name: &str,
     meta: &ExtractionEntryMetadata<'_>,
-    progress: &crate::fs::traits::TaskProgressContext,
+    progress: &crate::fs::fs_provider::TaskProgressContext,
 ) -> anyhow::Result<()> {
     ensure_parent_safe(target, dest, name)?;
     {
@@ -458,7 +458,7 @@ pub fn handle_extraction_entry<R: std::io::Read>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fs::traits::TaskProgressContext;
+    use crate::fs::fs_provider::TaskProgressContext;
     use crate::tasks::TaskEvent;
     use std::io::Cursor;
     use std::sync::Arc;

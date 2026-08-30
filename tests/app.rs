@@ -12,8 +12,95 @@ fn create_test_tab() -> Tab {
     fm::test_utils::create_test_tab_with_entries()
 }
 
-#[test]
-fn test_create_file_state_reset() {
+struct MockProvider {
+    local: bool,
+}
+
+#[async_trait::async_trait]
+impl FileSystemProvider for MockProvider {
+    async fn list_dir(&self, _path: &Path) -> anyhow::Result<Vec<FileEntry>> {
+        Ok(vec![])
+    }
+    async fn create_dir(&self, _path: &Path) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn create_dir_all(&self, _path: &Path) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn create_file(&self, _path: &Path) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn delete(&self, _path: &Path, _recursive: bool) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn rename(&self, _from: &Path, _to: &Path) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn read_file(&self, _path: &Path) -> anyhow::Result<Vec<u8>> {
+        Ok(vec![])
+    }
+    async fn read_file_at(
+        &self,
+        _path: &Path,
+        _offset: u64,
+        _len: usize,
+    ) -> anyhow::Result<Vec<u8>> {
+        Ok(vec![])
+    }
+    async fn write_file(&self, _path: &Path, _data: &[u8]) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn write_file_at(&self, _path: &Path, _offset: u64, _data: &[u8]) -> anyhow::Result<()> {
+        Ok(())
+    }
+    fn display_prefix(&self) -> &'static str {
+        ""
+    }
+    fn is_local(&self) -> bool {
+        self.local
+    }
+    async fn exists(&self, _path: &Path) -> bool {
+        true
+    }
+    async fn is_dir(&self, _path: &Path) -> bool {
+        true
+    }
+    async fn canonicalize(&self, path: &Path) -> anyhow::Result<PathBuf> {
+        Ok(path.to_path_buf())
+    }
+    async fn get_file_info(&self, _path: &Path) -> Option<FileMetadata> {
+        None
+    }
+    async fn get_permissions(&self, _path: &Path) -> Option<u32> {
+        None
+    }
+    async fn set_permissions(&self, _path: &Path, _mode: u32) -> bool {
+        false
+    }
+    async fn get_modified_time(&self, _path: &Path) -> Option<std::time::SystemTime> {
+        None
+    }
+    async fn set_modified_time(&self, _path: &Path, _mtime: std::time::SystemTime) -> bool {
+        false
+    }
+    fn context_key(&self) -> String {
+        if self.local {
+            "local".to_string()
+        } else {
+            "remote".to_string()
+        }
+    }
+    fn display_path(&self, path: &Path) -> String {
+        path.to_string_lossy().to_string()
+    }
+    #[allow(clippy::unused_async)]
+    async fn calc_dir_size(&self, _path: &Path) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+}
+
+#[tokio::test]
+async fn test_create_file_state_reset() {
     let mut s = CreateFileState::new();
     s.input_value = "test".to_string();
     s.cursor_position = 5;
@@ -27,22 +114,22 @@ fn test_create_file_state_reset() {
     assert_eq!(s.parent_dir, std::path::PathBuf::new());
 }
 
-#[test]
-fn test_help_state_reset() {
+#[tokio::test]
+async fn test_help_state_reset() {
     let mut s = HelpState::new();
     s.is_visible = true;
     s.reset();
     assert!(!s.is_visible);
 }
 
-#[test]
-fn test_current_entry() {
+#[tokio::test]
+async fn test_current_entry() {
     let panel = create_test_tab();
     assert_eq!(panel.current_entry().map(|e| e.name.as_str()), Some(".."));
 }
 
-#[test]
-fn test_move_cursor_up() {
+#[tokio::test]
+async fn test_move_cursor_up() {
     let mut panel = create_test_tab();
     panel.cursor = 2;
     panel.move_cursor_up();
@@ -53,8 +140,8 @@ fn test_move_cursor_up() {
     assert_eq!(panel.cursor, 0); // Should not go negative
 }
 
-#[test]
-fn test_move_cursor_down() {
+#[tokio::test]
+async fn test_move_cursor_down() {
     let mut panel = create_test_tab();
     panel.move_cursor_down();
     assert_eq!(panel.cursor, 1);
@@ -64,8 +151,8 @@ fn test_move_cursor_down() {
     assert_eq!(panel.cursor, 3); // Should not exceed entries
 }
 
-#[test]
-fn test_move_cursor_page_up() {
+#[tokio::test]
+async fn test_move_cursor_page_up() {
     let mut panel = create_test_tab();
     panel.cursor = 3;
     panel.move_cursor_page_up(2);
@@ -75,8 +162,8 @@ fn test_move_cursor_page_up() {
     assert_eq!(panel.cursor, 0);
 }
 
-#[test]
-fn test_move_cursor_page_down() {
+#[tokio::test]
+async fn test_move_cursor_page_down() {
     let mut panel = create_test_tab();
     panel.move_cursor_page_down(2);
     assert_eq!(panel.cursor, 2);
@@ -85,23 +172,23 @@ fn test_move_cursor_page_down() {
     assert_eq!(panel.cursor, 3);
 }
 
-#[test]
-fn test_move_cursor_home() {
+#[tokio::test]
+async fn test_move_cursor_home() {
     let mut panel = create_test_tab();
     panel.cursor = 3;
     panel.move_cursor_home();
     assert_eq!(panel.cursor, 0);
 }
 
-#[test]
-fn test_move_cursor_end() {
+#[tokio::test]
+async fn test_move_cursor_end() {
     let mut panel = create_test_tab();
     panel.move_cursor_end();
     assert_eq!(panel.cursor, 3);
 }
 
-#[test]
-fn test_toggle_selection() {
+#[tokio::test]
+async fn test_toggle_selection() {
     let mut panel = create_test_tab();
     panel.cursor = 2;
     assert!(!panel.entries[2].selected);
@@ -113,8 +200,8 @@ fn test_toggle_selection() {
     assert!(!panel.entries[2].selected);
 }
 
-#[test]
-fn test_get_selected_entries() {
+#[tokio::test]
+async fn test_get_selected_entries() {
     let mut panel = create_test_tab();
     assert_eq!(panel.get_selected_entries().len(), 0);
 
@@ -126,8 +213,8 @@ fn test_get_selected_entries() {
     assert_eq!(selected[1].name, "file2.txt");
 }
 
-#[test]
-fn test_sort_entries() {
+#[tokio::test]
+async fn test_sort_entries() {
     let mut panel = create_test_tab();
 
     // Initial state: Name Ascending
@@ -190,8 +277,8 @@ fn test_sort_entries() {
     assert_eq!(panel.entries[1].name, "dir1");
 }
 
-#[test]
-fn test_sort_defaults() {
+#[tokio::test]
+async fn test_sort_defaults() {
     let mut panel = create_test_tab();
 
     // Initial state: Name Ascending
@@ -209,16 +296,16 @@ fn test_sort_defaults() {
     assert_eq!(panel.sort.direction, SortDirection::Descending);
 }
 
-#[test]
-fn test_new_tab_inherits_sort() {
-    let mut manager = TabManager::new(&std::env::temp_dir()).unwrap();
+#[tokio::test]
+async fn test_new_tab_inherits_sort() {
+    let mut manager = TabManager::new(&std::env::temp_dir()).await.unwrap();
 
     // Change sort on active tab
     manager.active_tab_mut().sort.column = SortColumn::Size;
     manager.active_tab_mut().sort.direction = SortDirection::Descending;
 
     // Create new tab
-    manager.new_tab(&std::env::temp_dir(), None).unwrap();
+    manager.new_tab(&std::env::temp_dir(), None).await.unwrap();
 
     // Check new tab (which is now active)
     let new_tab = manager.active_tab();
@@ -226,86 +313,12 @@ fn test_new_tab_inherits_sort() {
     assert_eq!(new_tab.sort.direction, SortDirection::Descending);
 }
 
-#[test]
-fn test_can_swap_active_tabs() {
-    // Simple mock provider that is NOT "local"
-    struct RemoteProvider;
-    #[async_trait::async_trait]
-    impl FileSystemProvider for RemoteProvider {
-        fn list_dir(&self, _path: &Path) -> anyhow::Result<Vec<FileEntry>> {
-            Ok(vec![])
-        }
-        fn create_dir(&self, _path: &Path) -> anyhow::Result<()> {
-            Ok(())
-        }
-        fn create_file(&self, _path: &Path) -> anyhow::Result<()> {
-            Ok(())
-        }
-        fn delete(&self, _path: &Path, _recursive: bool) -> anyhow::Result<()> {
-            Ok(())
-        }
-        fn rename(&self, _from: &Path, _to: &Path) -> anyhow::Result<()> {
-            Ok(())
-        }
-        fn read_file(&self, _path: &Path) -> anyhow::Result<Vec<u8>> {
-            Ok(vec![])
-        }
-        fn read_file_at(&self, _path: &Path, _offset: u64, _len: usize) -> anyhow::Result<Vec<u8>> {
-            Ok(vec![])
-        }
-        fn write_file(&self, _path: &Path, _data: &[u8]) -> anyhow::Result<()> {
-            Ok(())
-        }
-        fn write_file_at(&self, _path: &Path, _offset: u64, _data: &[u8]) -> anyhow::Result<()> {
-            Ok(())
-        }
-        fn display_prefix(&self) -> &'static str {
-            ""
-        }
-        fn is_local(&self) -> bool {
-            false
-        }
-        fn exists(&self, _path: &Path) -> bool {
-            true
-        }
-        fn is_dir(&self, _path: &Path) -> bool {
-            true
-        }
-        fn canonicalize(&self, path: &Path) -> anyhow::Result<std::path::PathBuf> {
-            Ok(path.to_path_buf())
-        }
-        fn get_file_info(&self, _path: &Path) -> Option<FileMetadata> {
-            None
-        }
-        fn get_permissions(&self, _path: &Path) -> Option<u32> {
-            None
-        }
-        fn set_permissions(&self, _path: &Path, _mode: u32) -> bool {
-            false
-        }
-        fn get_modified_time(&self, _path: &Path) -> Option<std::time::SystemTime> {
-            None
-        }
-        fn set_modified_time(&self, _path: &Path, _mtime: std::time::SystemTime) -> bool {
-            false
-        }
-        fn context_key(&self) -> String {
-            "remote".to_string()
-        }
-        fn display_path(&self, path: &Path) -> String {
-            path.to_string_lossy().to_string()
-        }
-
-        #[allow(clippy::unused_async)]
-        async fn calc_dir_size(&self, _path: &Path) -> anyhow::Result<u64> {
-            Ok(0)
-        }
-    }
-
+#[tokio::test]
+async fn test_can_swap_active_tabs() {
     let local_tab = create_test_tab();
     let remote_tab = Tab {
         area: ratatui::layout::Rect::default(),
-        provider: Arc::new(RemoteProvider) as Arc<dyn FileSystemProvider>,
+        provider: Arc::new(MockProvider { local: false }),
         current_dir: PathBuf::from("/remote"),
         entries: vec![],
         cursor: 0,
@@ -339,81 +352,11 @@ fn test_can_swap_active_tabs() {
     assert!(app.can_swap_active_tabs().is_ok());
 }
 
-#[test]
+#[tokio::test]
 #[cfg(windows)]
-fn test_drive_navigation_matches_opposite_pane() {
-    struct MockLocalProvider;
-    #[async_trait::async_trait]
-    impl FileSystemProvider for MockLocalProvider {
-        fn list_dir(&self, _path: &Path) -> anyhow::Result<Vec<FileEntry>> {
-            Ok(vec![])
-        }
-        fn create_dir(&self, _path: &Path) -> anyhow::Result<()> {
-            Ok(())
-        }
-        fn create_file(&self, _path: &Path) -> anyhow::Result<()> {
-            Ok(())
-        }
-        fn delete(&self, _path: &Path, _recursive: bool) -> anyhow::Result<()> {
-            Ok(())
-        }
-        fn rename(&self, _from: &Path, _to: &Path) -> anyhow::Result<()> {
-            Ok(())
-        }
-        fn read_file(&self, _path: &Path) -> anyhow::Result<Vec<u8>> {
-            Ok(vec![])
-        }
-        fn read_file_at(&self, _path: &Path, _offset: u64, _len: usize) -> anyhow::Result<Vec<u8>> {
-            Ok(vec![])
-        }
-        fn write_file(&self, _path: &Path, _data: &[u8]) -> anyhow::Result<()> {
-            Ok(())
-        }
-        fn write_file_at(&self, _path: &Path, _offset: u64, _data: &[u8]) -> anyhow::Result<()> {
-            Ok(())
-        }
-        fn display_prefix(&self) -> &'static str {
-            ""
-        }
-        fn is_local(&self) -> bool {
-            true
-        }
-        fn exists(&self, _path: &Path) -> bool {
-            true
-        }
-        fn is_dir(&self, _path: &Path) -> bool {
-            true
-        }
-        fn canonicalize(&self, path: &Path) -> anyhow::Result<std::path::PathBuf> {
-            Ok(path.to_path_buf())
-        }
-        fn get_file_info(&self, _path: &Path) -> Option<FileMetadata> {
-            None
-        }
-        fn get_permissions(&self, _path: &Path) -> Option<u32> {
-            None
-        }
-        fn set_permissions(&self, _path: &Path, _mode: u32) -> bool {
-            false
-        }
-        fn get_modified_time(&self, _path: &Path) -> Option<std::time::SystemTime> {
-            None
-        }
-        fn set_modified_time(&self, _path: &Path, _mtime: std::time::SystemTime) -> bool {
-            false
-        }
-        fn context_key(&self) -> String {
-            "local".to_string()
-        }
-        fn display_path(&self, path: &Path) -> String {
-            path.to_string_lossy().to_string()
-        }
-        async fn calc_dir_size(&self, _path: &Path) -> anyhow::Result<u64> {
-            Ok(0)
-        }
-    }
-
-    let provider = Arc::new(MockLocalProvider);
+#[allow(clippy::too_many_lines)]
+async fn test_drive_navigation_matches_opposite_pane() {
+    let provider = Arc::new(MockProvider { local: true });
 
     // Test Case 1: Switching to drive D: on Left (active) while Right is on D:\RightDir.
     // Since selected drive is different from Left's C:\LeftDir but same as Right's drive,
@@ -467,7 +410,8 @@ fn test_drive_navigation_matches_opposite_pane() {
         app.popups.drive_select.side = PanelSide::Left;
         app.popups.drive_select.selected_index = 1; // "D:\"
 
-        fm::drive_select_ui::handle_drive_select_event(termina::event::KeyCode::Enter, &mut app);
+        fm::drive_select_ui::handle_drive_select_event(termina::event::KeyCode::Enter, &mut app)
+            .await;
 
         assert_eq!(
             app.left.active_tab().current_dir,
@@ -527,7 +471,8 @@ fn test_drive_navigation_matches_opposite_pane() {
         app.popups.drive_select.side = PanelSide::Left;
         app.popups.drive_select.selected_index = 1; // "D:\"
 
-        fm::drive_select_ui::handle_drive_select_event(termina::event::KeyCode::Enter, &mut app);
+        fm::drive_select_ui::handle_drive_select_event(termina::event::KeyCode::Enter, &mut app)
+            .await;
 
         assert_eq!(app.left.active_tab().current_dir, PathBuf::from("D:\\"));
     }
@@ -584,7 +529,8 @@ fn test_drive_navigation_matches_opposite_pane() {
         app.popups.drive_select.side = PanelSide::Left;
         app.popups.drive_select.selected_index = 0; // "C:\"
 
-        fm::drive_select_ui::handle_drive_select_event(termina::event::KeyCode::Enter, &mut app);
+        fm::drive_select_ui::handle_drive_select_event(termina::event::KeyCode::Enter, &mut app)
+            .await;
 
         assert_eq!(
             app.left.active_tab().current_dir,
@@ -593,8 +539,8 @@ fn test_drive_navigation_matches_opposite_pane() {
     }
 }
 
-#[test]
-fn test_move_active_tab_to_other_side() {
+#[tokio::test]
+async fn test_move_active_tab_to_other_side() {
     let mut app = AppState::test_default();
 
     assert_eq!(app.left.tabs.len(), 1);

@@ -7,7 +7,7 @@ use crate::handlers::navigation::update_viewer_content;
 use directories::UserDirs;
 use std::sync::Arc;
 
-pub(crate) fn handle_new_tab(app: &mut AppState) {
+pub(crate) async fn handle_new_tab(app: &mut AppState) {
     let (target_dir, provider, cursor, ssh_session_id) = {
         let tab = app.active_tab();
         if tab.is_archive() {
@@ -37,28 +37,31 @@ pub(crate) fn handle_new_tab(app: &mut AppState) {
     };
 
     let tab_manager = app.active_tab_manager_mut();
-    if let Err(e) = tab_manager.new_tab_with_provider(&target_dir, provider, cursor) {
+    if let Err(e) = tab_manager
+        .new_tab_with_provider(&target_dir, provider, cursor)
+        .await
+    {
         tab_manager.active_tab_mut().error = Some(format!("Error creating tab: {e}"));
     } else {
         tab_manager.active_tab_mut().ssh_session_id = ssh_session_id;
     }
 }
 
-pub(crate) fn handle_next_tab(app: &mut AppState) {
+pub(crate) async fn handle_next_tab(app: &mut AppState) {
     let tab_manager = app.active_tab_manager_mut();
     tab_manager.next_tab();
-    let _ = tab_manager.active_tab_mut().reload();
-    update_viewer_content(app);
+    let _ = tab_manager.active_tab_mut().reload().await;
+    update_viewer_content(app).await;
 }
 
-pub(crate) fn handle_prev_tab(app: &mut AppState) {
+pub(crate) async fn handle_prev_tab(app: &mut AppState) {
     let tab_manager = app.active_tab_manager_mut();
     tab_manager.prev_tab();
-    let _ = tab_manager.active_tab_mut().reload();
-    update_viewer_content(app);
+    let _ = tab_manager.active_tab_mut().reload().await;
+    update_viewer_content(app).await;
 }
 
-pub(crate) fn handle_close_tab(app: &mut AppState) {
+pub(crate) async fn handle_close_tab(app: &mut AppState) {
     let current_index = app.active_tab_manager().active_tab_index;
     let is_local = app.active_tab().provider.context_key() == "local";
 
@@ -75,7 +78,7 @@ pub(crate) fn handle_close_tab(app: &mut AppState) {
     if app.active_tab_manager_mut().close_tab(current_index) {
         cleanup_closed_ssh_tab(app, session_id, &provider);
     }
-    update_viewer_content(app);
+    update_viewer_content(app).await;
 }
 
 /// Unregisters the SSH session and drops the cached password of a closed tab,
@@ -101,11 +104,14 @@ pub(crate) fn cleanup_closed_ssh_tab(
     app.ssh_manager.clear_password(&session_id);
 }
 
-pub(crate) fn handle_move_tab(app: &mut AppState, target_side: crate::app_state::tabs::PanelSide) {
+pub(crate) async fn handle_move_tab(
+    app: &mut AppState,
+    target_side: crate::app_state::tabs::PanelSide,
+) {
     if let Err(e) = app.move_active_tab_to_other_side(target_side) {
         app.active_tab_mut().error = Some(e.to_string());
     } else {
-        update_viewer_content(app);
+        update_viewer_content(app).await;
     }
 }
 
@@ -116,18 +122,18 @@ mod tests {
     use secrecy::SecretString;
     use std::path::Path;
 
-    fn test_app() -> AppState {
+    async fn test_app() -> AppState {
         crate::test_utils::TestAppBuilder::new()
-            .left(TabManager::new(Path::new(".")).unwrap())
-            .right(TabManager::new(Path::new(".")).unwrap())
+            .left(TabManager::new(Path::new(".")).await.unwrap())
+            .right(TabManager::new(Path::new(".")).await.unwrap())
             .build()
     }
 
-    #[test]
-    fn test_close_tab_cleans_up_ssh_session() {
-        let mut app = test_app();
+    #[tokio::test]
+    async fn test_close_tab_cleans_up_ssh_session() {
+        let mut app = test_app().await;
 
-        app.left.new_tab(Path::new("."), None).unwrap();
+        app.left.new_tab(Path::new("."), None).await.unwrap();
         let session_id = "ssh_testhost_22_1".to_string();
         app.left.active_tab_mut().ssh_session_id = Some(session_id.clone());
         app.ssh_manager.register_session(
@@ -144,20 +150,21 @@ mod tests {
         assert!(app.ssh_manager.get_session(&session_id).is_some());
         assert!(app.ssh_manager.get_cached_password(&session_id).is_some());
 
-        handle_close_tab(&mut app);
+        handle_close_tab(&mut app).await;
 
         assert_eq!(app.left.tabs.len(), 1);
         assert!(app.ssh_manager.get_session(&session_id).is_none());
         assert!(app.ssh_manager.get_cached_password(&session_id).is_none());
     }
 
-    #[test]
-    fn test_close_tab_keeps_session_when_provider_shared() {
-        let mut app = test_app();
+    #[tokio::test]
+    async fn test_close_tab_keeps_session_when_provider_shared() {
+        let mut app = test_app().await;
 
         let provider = app.left.tabs[0].provider.clone();
         app.left
             .new_tab_with_provider(Path::new("."), provider, None)
+            .await
             .unwrap();
         let session_id = "ssh_testhost_22_1".to_string();
         app.left.active_tab_mut().ssh_session_id = Some(session_id.clone());
@@ -171,31 +178,31 @@ mod tests {
             crate::ssh_manager::AuthMethod::Password,
         );
 
-        handle_close_tab(&mut app);
+        handle_close_tab(&mut app).await;
 
         assert_eq!(app.left.tabs.len(), 1);
         assert!(app.ssh_manager.get_session(&session_id).is_some());
     }
 
-    #[test]
-    fn test_close_tab_without_session_id_is_noop() {
-        let mut app = test_app();
+    #[tokio::test]
+    async fn test_close_tab_without_session_id_is_noop() {
+        let mut app = test_app().await;
 
-        app.left.new_tab(Path::new("."), None).unwrap();
+        app.left.new_tab(Path::new("."), None).await.unwrap();
         assert!(app.left.active_tab_mut().ssh_session_id.is_none());
 
-        handle_close_tab(&mut app);
+        handle_close_tab(&mut app).await;
 
         assert_eq!(app.left.tabs.len(), 1);
     }
 
-    #[test]
-    fn test_new_tab_inherits_ssh_session_id() {
-        let mut app = test_app();
+    #[tokio::test]
+    async fn test_new_tab_inherits_ssh_session_id() {
+        let mut app = test_app().await;
 
         app.left.active_tab_mut().ssh_session_id = Some("ssh_testhost_22_1".to_string());
 
-        handle_new_tab(&mut app);
+        handle_new_tab(&mut app).await;
 
         assert_eq!(app.left.tabs.len(), 2);
         assert_eq!(

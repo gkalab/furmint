@@ -1,6 +1,6 @@
 use crate::fs::archive::{ArchiveFormat, ScanResult, common};
 use crate::fs::fs_archive::ArchiveEntry;
-use crate::fs::traits::TaskProgressContext;
+use crate::fs::fs_provider::TaskProgressContext;
 use crate::fs::utils::FileEntry;
 use anyhow::{Result, anyhow};
 use cpio::NewcReader;

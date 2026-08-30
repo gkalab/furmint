@@ -49,7 +49,7 @@ pub async fn route_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConfi
 
             // Handle Enter key specifically before default main panel
             if code == KeyCode::Enter {
-                crate::handlers::navigation::handle_enter(app);
+                crate::handlers::navigation::handle_enter(app).await;
                 return false; // Return false as Enter key is handled
             }
 
@@ -129,10 +129,10 @@ async fn handle_popup_events(
         return Some(handle_quit_popup_event(code, app));
     }
     if app.fuzzy_search.list.is_visible {
-        return Some(handle_fuzzy_search_event(code, modifiers, app));
+        return Some(handle_fuzzy_search_event(code, modifiers, app).await);
     }
     if app.popups.rename.is_visible {
-        return Some(handle_rename_event(code, modifiers, app));
+        return Some(handle_rename_event(code, modifiers, app).await);
     }
     if app.popups.rename_tab.is_visible {
         return Some(handle_rename_tab_event(code, modifiers, app));
@@ -143,7 +143,7 @@ async fn handle_popup_events(
         ));
     }
     if app.popups.create_directory.is_visible {
-        return Some(handle_create_directory_event(code, modifiers, app));
+        return Some(handle_create_directory_event(code, modifiers, app).await);
     }
     if app.popups.create_file.is_visible {
         return Some(handle_create_file_event(code, modifiers, app).await);
@@ -152,10 +152,10 @@ async fn handle_popup_events(
         return Some(handle_delete_event(code, app));
     }
     if app.popups.copy_move.is_visible {
-        return Some(handle_copy_move_event(code, modifiers, app));
+        return Some(handle_copy_move_event(code, modifiers, app).await);
     }
     if app.popups.drive_select.is_visible {
-        return Some(crate::drive_select_ui::handle_drive_select_event(code, app));
+        return Some(crate::drive_select_ui::handle_drive_select_event(code, app).await);
     }
     if app.popups.conflict.is_visible {
         return Some(handle_conflict_event(code, app).await);
@@ -165,7 +165,7 @@ async fn handle_popup_events(
         return Some(false);
     }
     if app.popups.bookmark.list.is_visible {
-        handle_bookmark_event(code, modifiers, app);
+        handle_bookmark_event(code, modifiers, app).await;
         return Some(false);
     }
     if app.popups.ssh_password.is_visible {
@@ -207,7 +207,7 @@ async fn handle_global_interceptors(
         }
         app.file_viewer.is_visible = !app.file_viewer.is_visible;
         if app.file_viewer.is_visible {
-            update_viewer_content(app);
+            update_viewer_content(app).await;
         } else {
             app.file_viewer.focused = false;
             app.file_viewer.release_image();

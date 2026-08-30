@@ -368,37 +368,32 @@ impl FileViewerState {
 
             tokio::spawn(async move {
                 let path_for_result = path_clone.clone();
+                let p = picker.unwrap_or_else(|| {
+                    ratatui_image::picker::Picker::from_query_stdio()
+                        .unwrap_or_else(|_| ratatui_image::picker::Picker::halfblocks())
+                });
+
                 let (result, image): (
                     Result<StatefulProtocol, String>,
                     Option<image::DynamicImage>,
-                ) = tokio::task::spawn_blocking(move || {
-                    let p = picker.unwrap_or_else(|| {
-                        ratatui_image::picker::Picker::from_query_stdio()
-                            .unwrap_or_else(|_| ratatui_image::picker::Picker::halfblocks())
-                    });
-
-                    let decode_result = provider_clone
-                        .read_file(&path_clone)
-                        .map_err(|e| e.to_string())
-                        .and_then(|data| {
-                            use image::ImageReader;
-                            use std::io::Cursor;
-                            ImageReader::new(Cursor::new(data))
-                                .with_guessed_format()
-                                .map_err(|e| e.to_string())
-                                .and_then(|r| r.decode().map_err(|e| e.to_string()))
-                        });
-
-                    match decode_result {
-                        Ok(dyn_image) => (
-                            Ok(p.new_resize_protocol(dyn_image.clone())),
-                            Some(dyn_image),
-                        ),
-                        Err(e) => (Err(e), None),
+                ) = match provider_clone.read_file(&path_clone).await {
+                    Ok(data) => {
+                        use image::ImageReader;
+                        use std::io::Cursor;
+                        let decode_result = ImageReader::new(Cursor::new(data))
+                            .with_guessed_format()
+                            .map_err(|e| e.to_string())
+                            .and_then(|r| r.decode().map_err(|e| e.to_string()));
+                        match decode_result {
+                            Ok(dyn_image) => (
+                                Ok(p.new_resize_protocol(dyn_image.clone())),
+                                Some(dyn_image),
+                            ),
+                            Err(e) => (Err(e), None),
+                        }
                     }
-                })
-                .await
-                .unwrap_or_else(|e| (Err(e.to_string()), None));
+                    Err(e) => (Err(e.to_string()), None),
+                };
 
                 if cancel_flag.load(Ordering::Relaxed) {
                     return;
@@ -414,7 +409,7 @@ impl FileViewerState {
         }
     }
 
-    pub fn load_content(
+    pub async fn load_content(
         &mut self,
         path: &std::path::Path,
         provider: &std::sync::Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
@@ -424,7 +419,7 @@ impl FileViewerState {
         self.cancel_background_load();
         self.reset();
         self.path.clone_from(&path.to_path_buf());
-        if provider.is_dir(path) {
+        if provider.is_dir(path).await {
             self.content = vec!["Directory".to_string()];
             return;
         }
@@ -469,7 +464,7 @@ impl FileViewerState {
         let limit_u64 = limit_bytes;
 
         // Read small chunk to check for binary and encoding
-        let chunk = match provider.read_file_at(&self.path, 0u64, 8192usize) {
+        let chunk = match provider.read_file_at(&self.path, 0u64, 8192usize).await {
             Ok(buf) => buf,
             Err(e) => {
                 self.content = vec![format!("Error reading file: {e}")];
@@ -509,7 +504,7 @@ impl FileViewerState {
         }
 
         // Now safe to read content up to limit
-        match provider.read_file_content(&self.path, limit) {
+        match provider.read_file_content(&self.path, limit).await {
             Ok(content) => {
                 self.content = content.lines().map(String::from).collect();
             }

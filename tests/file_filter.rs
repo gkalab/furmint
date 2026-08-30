@@ -56,8 +56,8 @@ fn mixed_entries() -> Vec<FileEntry> {
 // Basic filter operations
 // ---------------------------------------------------------------------------
 
-#[test]
-fn test_set_file_filter_matches_files() {
+#[tokio::test]
+async fn test_set_file_filter_matches_files() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut()
         .set_file_filter(Some("\\.rs$"))
@@ -79,8 +79,8 @@ fn test_set_file_filter_matches_files() {
     assert_eq!(tab.visible_count(), 5);
 }
 
-#[test]
-fn test_set_file_filter_case_insensitive_regex() {
+#[tokio::test]
+async fn test_set_file_filter_case_insensitive_regex() {
     let mut app = test_app(mixed_entries());
     // (?i) makes the regex case-insensitive
     app.active_tab_mut()
@@ -99,8 +99,8 @@ fn test_set_file_filter_case_insensitive_regex() {
     assert!(!tab.visible_set.contains(&6)); // lib.rs
 }
 
-#[test]
-fn test_clear_file_filter_restores_all() {
+#[tokio::test]
+async fn test_clear_file_filter_restores_all() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut()
         .set_file_filter(Some("\\.rs$"))
@@ -114,8 +114,8 @@ fn test_clear_file_filter_restores_all() {
     assert_eq!(tab.visible_count(), 7);
 }
 
-#[test]
-fn test_invalid_regex_sets_error() {
+#[tokio::test]
+async fn test_invalid_regex_sets_error() {
     let mut app = test_app(mixed_entries());
     let result = app.active_tab_mut().set_file_filter(Some("[invalid"));
     assert!(result.is_err());
@@ -123,8 +123,8 @@ fn test_invalid_regex_sets_error() {
     assert!(!app.active_tab().has_file_filter());
 }
 
-#[test]
-fn test_empty_pattern_clears_filter() {
+#[tokio::test]
+async fn test_empty_pattern_clears_filter() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut()
         .set_file_filter(Some("\\.rs$"))
@@ -136,8 +136,8 @@ fn test_empty_pattern_clears_filter() {
     assert_eq!(app.active_tab().visible_count(), 7);
 }
 
-#[test]
-fn test_none_pattern_clears_filter() {
+#[tokio::test]
+async fn test_none_pattern_clears_filter() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut()
         .set_file_filter(Some("\\.rs$"))
@@ -151,8 +151,8 @@ fn test_none_pattern_clears_filter() {
 // Cursor behavior
 // ---------------------------------------------------------------------------
 
-#[test]
-fn test_cursor_adjusts_to_visible_on_filter() {
+#[tokio::test]
+async fn test_cursor_adjusts_to_visible_on_filter() {
     let mut app = test_app(mixed_entries());
     // Cursor is on "Cargo.toml" (index 3) which will be filtered out
     app.active_tab_mut().cursor = 3;
@@ -165,8 +165,8 @@ fn test_cursor_adjusts_to_visible_on_filter() {
     assert!(tab.visible_set.contains(&tab.cursor));
 }
 
-#[test]
-fn test_cursor_stays_on_visible_entry() {
+#[tokio::test]
+async fn test_cursor_stays_on_visible_entry() {
     let mut app = test_app(mixed_entries());
     // Cursor is on "src" (index 2, a dir) which stays visible
     app.active_tab_mut().cursor = 2;
@@ -177,8 +177,8 @@ fn test_cursor_stays_on_visible_entry() {
     assert_eq!(app.active_tab().cursor, 2);
 }
 
-#[test]
-fn test_cursor_adjusts_to_nearest_above() {
+#[tokio::test]
+async fn test_cursor_adjusts_to_nearest_above() {
     let mut app = test_app(mixed_entries());
     // Entries: 0="..", 1=docs, 2=src, 3=Cargo.toml, 4=README.md, 5=main.rs, 6=lib.rs
     // Cursor on index 4 (README.md) - filtered out.
@@ -195,8 +195,8 @@ fn test_cursor_adjusts_to_nearest_above() {
 // Navigation with filter
 // ---------------------------------------------------------------------------
 
-#[test]
-fn test_up_filtered_skips_hidden() {
+#[tokio::test]
+async fn test_up_filtered_skips_hidden() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut()
         .set_file_filter(Some("\\.rs$"))
@@ -204,13 +204,13 @@ fn test_up_filtered_skips_hidden() {
     // visible_indices: [0, 1, 2, 5, 6]
     // Cursor on lib.rs (index 6, visible_pos=4)
     app.active_tab_mut().cursor = 6;
-    handle_up(&mut app);
+    handle_up(&mut app).await;
     // Should go to main.rs (index 5, visible_pos=3), skipping hidden entries
     assert_eq!(app.active_tab().cursor, 5);
 }
 
-#[test]
-fn test_down_filtered_skips_hidden() {
+#[tokio::test]
+async fn test_down_filtered_skips_hidden() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut()
         .set_file_filter(Some("\\.rs$"))
@@ -218,37 +218,37 @@ fn test_down_filtered_skips_hidden() {
     // visible_indices: [0, 1, 2, 5, 6]
     // Cursor on src (index 2, visible_pos=2)
     app.active_tab_mut().cursor = 2;
-    handle_down(&mut app);
+    handle_down(&mut app).await;
     // Should skip Cargo.toml and README.md, go to main.rs (index 5)
     assert_eq!(app.active_tab().cursor, 5);
 }
 
-#[test]
-fn test_home_filtered_goes_to_first_visible() {
+#[tokio::test]
+async fn test_home_filtered_goes_to_first_visible() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut()
         .set_file_filter(Some("\\.rs$"))
         .unwrap();
     app.active_tab_mut().cursor = 6;
-    handle_home(&mut app);
+    handle_home(&mut app).await;
     // First visible is ".." (index 0)
     assert_eq!(app.active_tab().cursor, 0);
 }
 
-#[test]
-fn test_end_filtered_goes_to_last_visible() {
+#[tokio::test]
+async fn test_end_filtered_goes_to_last_visible() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut()
         .set_file_filter(Some("\\.rs$"))
         .unwrap();
     app.active_tab_mut().cursor = 0;
-    handle_end(&mut app);
+    handle_end(&mut app).await;
     // Last visible is lib.rs (index 6)
     assert_eq!(app.active_tab().cursor, 6);
 }
 
-#[test]
-fn test_page_up_filtered() {
+#[tokio::test]
+async fn test_page_up_filtered() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut()
         .set_file_filter(Some("\\.rs$"))
@@ -256,20 +256,20 @@ fn test_page_up_filtered() {
     // visible_indices: [0, 1, 2, 5, 6] (5 entries)
     // Cursor on lib.rs (index 6, visible_pos=4)
     app.active_tab_mut().cursor = 6;
-    handle_page_up(&mut app);
+    handle_page_up(&mut app).await;
     // Page size is 20, but only 5 visible, so should go to first visible
     assert_eq!(app.active_tab().cursor, 0);
 }
 
-#[test]
-fn test_page_down_filtered() {
+#[tokio::test]
+async fn test_page_down_filtered() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut()
         .set_file_filter(Some("\\.rs$"))
         .unwrap();
     // Cursor on ".." (index 0, visible_pos=0)
     app.active_tab_mut().cursor = 0;
-    handle_page_down(&mut app);
+    handle_page_down(&mut app).await;
     // Page size 20 > 5 visible, should clamp to last visible
     assert_eq!(app.active_tab().cursor, 6);
 }
@@ -278,8 +278,8 @@ fn test_page_down_filtered() {
 // Select all with filter
 // ---------------------------------------------------------------------------
 
-#[test]
-fn test_select_all_with_filter_selects_only_visible() {
+#[tokio::test]
+async fn test_select_all_with_filter_selects_only_visible() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut()
         .set_file_filter(Some("\\.rs$"))
@@ -300,8 +300,8 @@ fn test_select_all_with_filter_selects_only_visible() {
     assert!(!tab.entries[4].selected); // README.md
 }
 
-#[test]
-fn test_select_all_without_filter_selects_everything() {
+#[tokio::test]
+async fn test_select_all_without_filter_selects_everything() {
     let mut app = test_app(mixed_entries());
     // No filter set
     app.active_tab_mut().select_all();
@@ -320,8 +320,8 @@ fn test_select_all_without_filter_selects_everything() {
 // Visible counts
 // ---------------------------------------------------------------------------
 
-#[test]
-fn test_visible_count_matches_indices() {
+#[tokio::test]
+async fn test_visible_count_matches_indices() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut().set_file_filter(Some("^C")).unwrap();
 
@@ -331,8 +331,8 @@ fn test_visible_count_matches_indices() {
     assert_eq!(tab.visible_indices.len(), 4);
 }
 
-#[test]
-fn test_visible_file_count_excludes_dirs() {
+#[tokio::test]
+async fn test_visible_file_count_excludes_dirs() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut()
         .set_file_filter(Some("\\.rs$"))
@@ -343,8 +343,8 @@ fn test_visible_file_count_excludes_dirs() {
     assert_eq!(tab.visible_file_count(), 2);
 }
 
-#[test]
-fn test_visible_file_count_no_filter() {
+#[tokio::test]
+async fn test_visible_file_count_no_filter() {
     let app = test_app(mixed_entries());
     let tab = app.active_tab();
     // All files (non-dir, non-..): Cargo.toml, README.md, main.rs, lib.rs = 4
@@ -355,8 +355,8 @@ fn test_visible_file_count_no_filter() {
 // visible_row_to_entry_index
 // ---------------------------------------------------------------------------
 
-#[test]
-fn test_visible_row_to_entry_index_with_filter() {
+#[tokio::test]
+async fn test_visible_row_to_entry_index_with_filter() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut()
         .set_file_filter(Some("\\.rs$"))
@@ -376,8 +376,8 @@ fn test_visible_row_to_entry_index_with_filter() {
     assert_eq!(tab.visible_row_to_entry_index(5), None);
 }
 
-#[test]
-fn test_visible_row_to_entry_index_without_filter() {
+#[tokio::test]
+async fn test_visible_row_to_entry_index_without_filter() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut().scroll_offset = 0;
 
@@ -392,8 +392,8 @@ fn test_visible_row_to_entry_index_without_filter() {
 // Search interaction with filter
 // ---------------------------------------------------------------------------
 
-#[test]
-fn test_search_respects_file_filter() {
+#[tokio::test]
+async fn test_search_respects_file_filter() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut()
         .set_file_filter(Some("\\.rs$"))
@@ -401,7 +401,7 @@ fn test_search_respects_file_filter() {
 
     // Type "Z" — should NOT match any visible entry (dirs don't contain 'z',
     // and Cargo.toml/README.md are filtered out anyway)
-    handle_type_char(&mut app, 'Z');
+    handle_type_char(&mut app, 'Z').await;
     let tab = app.active_tab();
     // No visible entry fuzzy-matches "z", so matching_indices should be empty
     assert!(
@@ -411,22 +411,22 @@ fn test_search_respects_file_filter() {
     );
 }
 
-#[test]
-fn test_search_finds_only_visible_files() {
+#[tokio::test]
+async fn test_search_finds_only_visible_files() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut()
         .set_file_filter(Some("\\.rs$"))
         .unwrap();
 
     // Type "main" — should match main.rs (index 5) via prefix match
-    handle_type_char(&mut app, 'm');
+    handle_type_char(&mut app, 'm').await;
     let tab = app.active_tab();
     assert_eq!(tab.search.matching_indices, vec![5]);
     assert_eq!(tab.cursor, 5);
 }
 
-#[test]
-fn test_search_navigation_with_filter() {
+#[tokio::test]
+async fn test_search_navigation_with_filter() {
     // Use distinct names so search is unambiguous
     let entries = vec![
         entry("..", true),
@@ -445,19 +445,19 @@ fn test_search_navigation_with_filter() {
     // visible: [0="..", 1=alpha(dir), 2=beta(dir), 5=alpha.rs, 6=beta.rs]
 
     // Type "a" — prefix-matches alpha (dir, index 1) and alpha.rs (index 5)
-    handle_type_char(&mut app, 'a');
+    handle_type_char(&mut app, 'a').await;
     assert_eq!(app.active_tab().cursor, 1); // first match: alpha (dir)
 
     // Down search — should go to alpha.rs (index 5)
-    handle_down_search(&mut app);
+    handle_down_search(&mut app).await;
     assert_eq!(app.active_tab().cursor, 5);
 
     // Down search wraps — back to alpha (index 1)
-    handle_down_search(&mut app);
+    handle_down_search(&mut app).await;
     assert_eq!(app.active_tab().cursor, 1);
 
     // Up search — wraps to alpha.rs (index 5)
-    handle_up_search(&mut app);
+    handle_up_search(&mut app).await;
     assert_eq!(app.active_tab().cursor, 5);
 }
 
@@ -465,8 +465,8 @@ fn test_search_navigation_with_filter() {
 // Edge cases
 // ---------------------------------------------------------------------------
 
-#[test]
-fn test_filter_allows_only_directories() {
+#[tokio::test]
+async fn test_filter_allows_only_directories() {
     let mut app = test_app(mixed_entries());
     // Regex that matches nothing
     app.active_tab_mut().set_file_filter(Some("^$")).unwrap();
@@ -477,8 +477,8 @@ fn test_filter_allows_only_directories() {
     assert_eq!(tab.visible_file_count(), 0);
 }
 
-#[test]
-fn test_filter_match_all_files() {
+#[tokio::test]
+async fn test_filter_match_all_files() {
     let mut app = test_app(mixed_entries());
     // .* matches everything
     app.active_tab_mut().set_file_filter(Some(".*")).unwrap();
@@ -487,8 +487,8 @@ fn test_filter_match_all_files() {
     assert_eq!(tab.visible_count(), 7); // all entries
 }
 
-#[test]
-fn test_filter_on_directory_names() {
+#[tokio::test]
+async fn test_filter_on_directory_names() {
     let mut app = test_app(mixed_entries());
     // Filter that matches directory names
     app.active_tab_mut().set_file_filter(Some("^src")).unwrap();
@@ -506,8 +506,8 @@ fn test_filter_on_directory_names() {
     assert_eq!(tab.visible_count(), 3);
 }
 
-#[test]
-fn test_filter_toggle_on_off() {
+#[tokio::test]
+async fn test_filter_toggle_on_off() {
     let mut app = test_app(mixed_entries());
 
     // Apply filter
@@ -525,8 +525,8 @@ fn test_filter_toggle_on_off() {
     assert_eq!(app.active_tab().visible_count(), 4); // [.., docs, src, Cargo.toml]
 }
 
-#[test]
-fn test_cursor_visible_pos() {
+#[tokio::test]
+async fn test_cursor_visible_pos() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut()
         .set_file_filter(Some("\\.rs$"))

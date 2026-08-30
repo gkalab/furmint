@@ -58,107 +58,320 @@ pub fn is_network_path(path: &Path) -> bool {
     }
 }
 
+fn create_file_sync(path: &Path) -> Result<()> {
+    let ext = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    match ext.as_str() {
+        "zip" => {
+            let file = std::fs::File::create(path)?;
+            let zip_writer = zip::ZipWriter::new(file);
+            zip_writer.finish()?;
+        }
+        "7z" => {
+            let writer = sevenz_rust2::ArchiveWriter::create(path)
+                .map_err(|e| anyhow::anyhow!("Failed to create 7z archive: {e}"))?;
+            writer.finish()?;
+        }
+        _ => {
+            std::fs::File::create(path)?;
+        }
+    }
+    Ok(())
+}
+
+fn delete_sync(path: &Path, recursive: bool) -> Result<()> {
+    if path.is_dir() {
+        if recursive {
+            fs::remove_dir_all(path)?;
+        } else {
+            fs::remove_dir(path)?;
+        }
+    } else {
+        fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
+fn rename_sync(from: &Path, to: &Path) -> Result<()> {
+    #[cfg(target_os = "windows")]
+    {
+        if to.exists() && to.is_file() {
+            std::fs::remove_file(to)?;
+        }
+    }
+    fs::rename(from, to)?;
+    Ok(())
+}
+
+fn read_file_at_sync(path: &Path, offset: u64, len: usize) -> Result<Vec<u8>> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = fs::File::open(path)?;
+    file.seek(SeekFrom::Start(offset))?;
+    let mut buffer = vec![0; len];
+    let n = file.read(&mut buffer)?;
+    buffer.truncate(n);
+    Ok(buffer)
+}
+
+fn write_file_at_sync(path: &Path, offset: u64, data: &[u8]) -> Result<()> {
+    use std::io::{Seek, SeekFrom, Write};
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)?;
+    file.seek(SeekFrom::Start(offset))?;
+    file.write_all(data)?;
+    Ok(())
+}
+
+fn get_file_info_sync(path: &Path) -> Option<FileMetadata> {
+    let meta = fs::metadata(path).ok()?;
+    #[cfg(unix)]
+    let permissions: Option<u32> = {
+        use std::os::unix::fs::PermissionsExt;
+        Some(meta.permissions().mode() & 0o777)
+    };
+    #[cfg(not(unix))]
+    let permissions: Option<u32> = None;
+    Some(FileMetadata {
+        size: meta.len(),
+        modified: meta.modified().ok(),
+        permissions,
+    })
+}
+
+fn get_permissions_sync(path: &Path) -> Option<u32> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::metadata(path)
+            .ok()
+            .map(|m| m.permissions().mode() & 0o777)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        // On non-Unix systems, permissions are not represented as Unix-style modes
+        // Return None to indicate not supported
+        None
+    }
+}
+
+fn set_permissions_sync(path: &Path, mode: u32) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = fs::metadata(path) {
+            let current_mode = metadata.permissions().mode();
+            let new_mode = (current_mode & !0o777) | (mode & 0o777);
+            let mut perms = metadata.permissions();
+            perms.set_mode(new_mode);
+            fs::set_permissions(path, perms).is_ok()
+        } else {
+            false
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        let _ = mode;
+        false
+    }
+}
+
+fn get_modified_time_sync(path: &Path) -> Option<std::time::SystemTime> {
+    fs::metadata(path).ok().and_then(|m| m.modified().ok())
+}
+
+fn set_modified_time_sync(path: &Path, mtime: std::time::SystemTime) -> bool {
+    #[cfg(unix)]
+    {
+        let Ok(duration) = mtime.duration_since(std::time::UNIX_EPOCH) else {
+            return false;
+        };
+        let sec = duration.as_secs();
+        let sec = i64::try_from(sec).unwrap_or(i64::MAX);
+        let sec = sec as libc::time_t;
+        let nsec = libc::c_long::from(duration.subsec_nanos());
+        let Ok(path_cstr) = std::ffi::CString::new(path.to_string_lossy().as_bytes()) else {
+            return false;
+        };
+        unsafe {
+            let result = libc::utimensat(
+                libc::AT_FDCWD,
+                path_cstr.as_ptr(),
+                [
+                    libc::timespec {
+                        tv_sec: 0,
+                        tv_nsec: libc::UTIME_OMIT,
+                    },
+                    libc::timespec {
+                        tv_sec: sec,
+                        tv_nsec: nsec,
+                    },
+                ]
+                .as_ptr(),
+                0,
+            );
+            result == 0
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        #[cfg(windows)]
+        {
+            use filetime::FileTime;
+            let ft = FileTime::from_system_time(mtime);
+            filetime::set_file_mtime(path, ft).is_ok()
+        }
+        #[cfg(not(windows))]
+        {
+            false
+        }
+    }
+}
+
 #[async_trait]
 impl FileSystemProvider for LocalFs {
-    fn list_dir(&self, path: &Path) -> Result<Vec<FileEntry>> {
-        fs_ops::list_dir(path)
+    async fn list_dir(&self, path: &Path) -> Result<Vec<FileEntry>> {
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || fs_ops::list_dir(&path))
+            .await
+            .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
     }
 
-    fn create_dir(&self, path: &Path) -> Result<()> {
-        fs_ops::create_directory(path)
+    async fn create_dir(&self, path: &Path) -> Result<()> {
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || fs_ops::create_directory(&path))
+            .await
+            .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
     }
 
-    fn create_file(&self, path: &Path) -> Result<()> {
-        let ext = path
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-
-        match ext.as_str() {
-            "zip" => {
-                let file = std::fs::File::create(path)?;
-                let zip_writer = zip::ZipWriter::new(file);
-                zip_writer.finish()?;
-            }
-            "7z" => {
-                let writer = sevenz_rust2::ArchiveWriter::create(path)
-                    .map_err(|e| anyhow::anyhow!("Failed to create 7z archive: {e}"))?;
-                writer.finish()?;
-            }
-            _ => {
-                std::fs::File::create(path)?;
-            }
-        }
-        Ok(())
+    async fn create_dir_all(&self, path: &Path) -> Result<()> {
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || {
+            std::fs::create_dir_all(&path).map_err(anyhow::Error::from)
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
     }
 
-    fn delete(&self, path: &Path, recursive: bool) -> Result<()> {
-        if path.is_dir() {
-            if recursive {
-                fs::remove_dir_all(path)?;
-            } else {
-                fs::remove_dir(path)?;
-            }
-        } else {
-            fs::remove_file(path)?;
-        }
-        Ok(())
+    async fn create_file(&self, path: &Path) -> Result<()> {
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || create_file_sync(&path))
+            .await
+            .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
     }
 
-    fn rename(&self, from: &Path, to: &Path) -> Result<()> {
-        #[cfg(target_os = "windows")]
-        {
-            if to.exists() && to.is_file() {
-                std::fs::remove_file(to)?;
-            }
-        }
-        fs::rename(from, to)?;
-        Ok(())
+    async fn delete(&self, path: &Path, recursive: bool) -> Result<()> {
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || delete_sync(&path, recursive))
+            .await
+            .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
     }
 
-    fn read_file(&self, path: &Path) -> Result<Vec<u8>> {
-        Ok(fs::read(path)?)
+    async fn rename(&self, from: &Path, to: &Path) -> Result<()> {
+        let from = from.to_path_buf();
+        let to = to.to_path_buf();
+        tokio::task::spawn_blocking(move || rename_sync(&from, &to))
+            .await
+            .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
     }
 
-    fn read_file_at(&self, path: &Path, offset: u64, len: usize) -> Result<Vec<u8>> {
-        use std::io::{Read, Seek, SeekFrom};
-        let mut file = fs::File::open(path)?;
-        file.seek(SeekFrom::Start(offset))?;
-        let mut buffer = vec![0; len];
-        let n = file.read(&mut buffer)?;
-        buffer.truncate(n);
-        Ok(buffer)
+    async fn read_file(&self, path: &Path) -> Result<Vec<u8>> {
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || fs::read(&path).map_err(anyhow::Error::from))
+            .await
+            .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
     }
 
-    fn write_file(&self, path: &Path, data: &[u8]) -> Result<()> {
-        fs::write(path, data)?;
-        Ok(())
+    async fn read_file_at(&self, path: &Path, offset: u64, len: usize) -> Result<Vec<u8>> {
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || read_file_at_sync(&path, offset, len))
+            .await
+            .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
     }
 
-    fn write_file_at(&self, path: &Path, offset: u64, data: &[u8]) -> Result<()> {
-        use std::io::{Seek, SeekFrom, Write};
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(path)?;
-        file.seek(SeekFrom::Start(offset))?;
-        file.write_all(data)?;
-        Ok(())
+    async fn write_file(&self, path: &Path, data: &[u8]) -> Result<()> {
+        let path = path.to_path_buf();
+        let data = data.to_vec();
+        tokio::task::spawn_blocking(move || fs::write(&path, &data).map_err(anyhow::Error::from))
+            .await
+            .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
     }
 
-    fn write_file_with_permissions(
-        &self,
-        path: &Path,
-        data: &[u8],
-        mode: Option<u32>,
-    ) -> Result<()> {
-        fs::write(path, data)?;
-        if let Some(mode) = mode {
-            let _ = self.set_permissions(path, mode);
-        }
-        Ok(())
+    async fn write_file_at(&self, path: &Path, offset: u64, data: &[u8]) -> Result<()> {
+        let path = path.to_path_buf();
+        let data = data.to_vec();
+        tokio::task::spawn_blocking(move || write_file_at_sync(&path, offset, &data))
+            .await
+            .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
+    }
+
+    async fn exists(&self, path: &Path) -> bool {
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || path.exists())
+            .await
+            .unwrap_or(false)
+    }
+
+    async fn is_dir(&self, path: &Path) -> bool {
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || path.is_dir())
+            .await
+            .unwrap_or(false)
+    }
+
+    async fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || {
+            Ok::<PathBuf, anyhow::Error>(fs_ops::strip_extended_prefix(fs::canonicalize(&path)?))
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
+    }
+
+    async fn get_file_info(&self, path: &Path) -> Option<FileMetadata> {
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || get_file_info_sync(&path))
+            .await
+            .ok()
+            .flatten()
+    }
+
+    async fn get_permissions(&self, path: &Path) -> Option<u32> {
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || get_permissions_sync(&path))
+            .await
+            .ok()
+            .flatten()
+    }
+
+    async fn set_permissions(&self, path: &Path, mode: u32) -> bool {
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || set_permissions_sync(&path, mode))
+            .await
+            .unwrap_or(false)
+    }
+
+    async fn get_modified_time(&self, path: &Path) -> Option<std::time::SystemTime> {
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || get_modified_time_sync(&path))
+            .await
+            .ok()
+            .flatten()
+    }
+
+    async fn set_modified_time(&self, path: &Path, mtime: std::time::SystemTime) -> bool {
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || set_modified_time_sync(&path, mtime))
+            .await
+            .unwrap_or(false)
     }
 
     fn display_prefix(&self) -> &'static str {
@@ -167,125 +380,6 @@ impl FileSystemProvider for LocalFs {
 
     fn is_local(&self) -> bool {
         true
-    }
-
-    fn exists(&self, path: &Path) -> bool {
-        path.exists()
-    }
-
-    fn is_dir(&self, path: &Path) -> bool {
-        path.is_dir()
-    }
-
-    fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
-        Ok(fs_ops::strip_extended_prefix(fs::canonicalize(path)?))
-    }
-
-    fn get_file_info(&self, path: &Path) -> Option<FileMetadata> {
-        let meta = fs::metadata(path).ok()?;
-        #[cfg(unix)]
-        let permissions: Option<u32> = {
-            use std::os::unix::fs::PermissionsExt;
-            Some(meta.permissions().mode() & 0o777)
-        };
-        #[cfg(not(unix))]
-        let permissions: Option<u32> = None;
-        Some(FileMetadata {
-            size: meta.len(),
-            modified: meta.modified().ok(),
-            permissions,
-        })
-    }
-
-    fn get_permissions(&self, path: &Path) -> Option<u32> {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::metadata(path)
-                .ok()
-                .map(|m| m.permissions().mode() & 0o777)
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = path;
-            // On non-Unix systems, permissions are not represented as Unix-style modes
-            // Return None to indicate not supported
-            None
-        }
-    }
-
-    fn set_permissions(&self, path: &Path, mode: u32) -> bool {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if let Ok(metadata) = fs::metadata(path) {
-                let current_mode = metadata.permissions().mode();
-                let new_mode = (current_mode & !0o777) | (mode & 0o777);
-                let mut perms = metadata.permissions();
-                perms.set_mode(new_mode);
-                fs::set_permissions(path, perms).is_ok()
-            } else {
-                false
-            }
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = path;
-            let _ = mode;
-            false
-        }
-    }
-
-    fn get_modified_time(&self, path: &Path) -> Option<std::time::SystemTime> {
-        fs::metadata(path).ok().and_then(|m| m.modified().ok())
-    }
-
-    fn set_modified_time(&self, path: &Path, mtime: std::time::SystemTime) -> bool {
-        #[cfg(unix)]
-        {
-            let Ok(duration) = mtime.duration_since(std::time::UNIX_EPOCH) else {
-                return false;
-            };
-            let sec = duration.as_secs();
-            let sec = i64::try_from(sec).unwrap_or(i64::MAX);
-            let sec = sec as libc::time_t;
-            let nsec = libc::c_long::from(duration.subsec_nanos());
-            let Ok(path_cstr) = std::ffi::CString::new(path.to_string_lossy().as_bytes()) else {
-                return false;
-            };
-            unsafe {
-                let result = libc::utimensat(
-                    libc::AT_FDCWD,
-                    path_cstr.as_ptr(),
-                    [
-                        libc::timespec {
-                            tv_sec: 0,
-                            tv_nsec: libc::UTIME_OMIT,
-                        },
-                        libc::timespec {
-                            tv_sec: sec,
-                            tv_nsec: nsec,
-                        },
-                    ]
-                    .as_ptr(),
-                    0,
-                );
-                result == 0
-            }
-        }
-        #[cfg(not(unix))]
-        {
-            #[cfg(windows)]
-            {
-                use filetime::FileTime;
-                let ft = FileTime::from_system_time(mtime);
-                filetime::set_file_mtime(path, ft).is_ok()
-            }
-            #[cfg(not(windows))]
-            {
-                false
-            }
-        }
     }
 
     fn context_key(&self) -> String {
@@ -323,18 +417,18 @@ impl FileSystemProvider for LocalFs {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_local_fs_list_dir() {
+    #[tokio::test]
+    async fn test_local_fs_list_dir() {
         let fs = LocalFs::new();
         let temp_dir = std::env::temp_dir();
-        let entries = fs.list_dir(&temp_dir).unwrap();
+        let entries = fs.list_dir(&temp_dir).await.unwrap();
         // Should always have ".." entry
         assert!(!entries.is_empty());
         assert_eq!(entries[0].name, "..");
     }
 
-    #[test]
-    fn test_local_fs_get_permissions() {
+    #[tokio::test]
+    async fn test_local_fs_get_permissions() {
         use std::fs::File;
         use std::io::Write;
 
@@ -351,7 +445,7 @@ mod tests {
         #[cfg(unix)]
         {
             // Just check that we can get some permissions (should not be None)
-            let perms = fs.get_permissions(&test_file);
+            let perms = fs.get_permissions(&test_file).await;
             assert!(perms.is_some());
             // Permissions should be valid Unix permission bits (0-0o777)
             let mode = perms.unwrap();
@@ -360,7 +454,7 @@ mod tests {
 
         #[cfg(not(unix))]
         {
-            let perms = fs.get_permissions(&test_file);
+            let perms = fs.get_permissions(&test_file).await;
             assert_eq!(perms, None);
         }
 
@@ -368,8 +462,8 @@ mod tests {
         std::fs::remove_file(&test_file).unwrap();
     }
 
-    #[test]
-    fn test_local_fs_get_file_info() {
+    #[tokio::test]
+    async fn test_local_fs_get_file_info() {
         use std::fs::File;
         use std::io::Write;
 
@@ -382,7 +476,10 @@ mod tests {
             file.write_all(b"hello").unwrap();
         }
 
-        let info = fs.get_file_info(&test_file).expect("file should exist");
+        let info = fs
+            .get_file_info(&test_file)
+            .await
+            .expect("file should exist");
         assert_eq!(info.size, 5);
         assert!(info.modified.is_some());
 
@@ -397,15 +494,16 @@ mod tests {
         }
 
         assert_eq!(
-            fs.get_file_info(&temp_dir.join("definitely_missing_42")),
+            fs.get_file_info(&temp_dir.join("definitely_missing_42"))
+                .await,
             None
         );
 
         std::fs::remove_file(&test_file).unwrap();
     }
 
-    #[test]
-    fn test_local_fs_set_permissions() {
+    #[tokio::test]
+    async fn test_local_fs_set_permissions() {
         use std::fs::File;
         use std::io::Write;
 
@@ -433,7 +531,7 @@ mod tests {
             } else {
                 0o644
             };
-            let success = fs.set_permissions(&test_file, new_perms);
+            let success = fs.set_permissions(&test_file, new_perms).await;
             assert!(success);
 
             // Verify the permissions were set (may be affected by umask)
@@ -445,7 +543,7 @@ mod tests {
 
         #[cfg(not(unix))]
         {
-            let success = fs.set_permissions(&test_file, 0o755);
+            let success = fs.set_permissions(&test_file, 0o755).await;
             assert!(!success);
         }
 
@@ -453,8 +551,8 @@ mod tests {
         std::fs::remove_file(&test_file).unwrap();
     }
 
-    #[test]
-    fn test_local_fs_create_and_delete_dir() {
+    #[tokio::test]
+    async fn test_local_fs_create_and_delete_dir() {
         let fs = LocalFs::new();
         let temp_dir = std::env::temp_dir();
         let test_dir = temp_dir.join("fm_test_local_fs_dir");
@@ -465,27 +563,49 @@ mod tests {
         }
 
         // Create
-        assert!(fs.create_dir(&test_dir).is_ok());
+        assert!(fs.create_dir(&test_dir).await.is_ok());
         assert!(test_dir.exists());
 
         // Delete
-        assert!(fs.delete(&test_dir, false).is_ok());
+        assert!(fs.delete(&test_dir, false).await.is_ok());
         assert!(!test_dir.exists());
     }
 
-    #[test]
-    fn test_local_fs_read_write_file() {
+    #[tokio::test]
+    async fn test_local_fs_create_dir_all() {
+        let fs = LocalFs::new();
+        let temp_dir = std::env::temp_dir();
+        let test_dir = temp_dir.join("fm_test_local_fs_dir_all");
+
+        // Clean up if exists
+        if test_dir.exists() {
+            std::fs::remove_dir_all(&test_dir).ok();
+        }
+
+        // Create nested directories that don't exist yet
+        let nested = test_dir.join("a").join("b").join("c");
+        assert!(fs.create_dir_all(&nested).await.is_ok());
+        assert!(nested.exists());
+
+        // Creating again must succeed (idempotent)
+        assert!(fs.create_dir_all(&nested).await.is_ok());
+
+        std::fs::remove_dir_all(&test_dir).ok();
+    }
+
+    #[tokio::test]
+    async fn test_local_fs_read_write_file() {
         let fs = LocalFs::new();
         let temp_dir = std::env::temp_dir();
         let test_file = temp_dir.join("fm_test_local_fs_file.txt");
 
         // Write
         let data = b"Hello, FileSystemProvider!";
-        assert!(fs.write_file(&test_file, data).is_ok());
+        assert!(fs.write_file(&test_file, data).await.is_ok());
         assert!(test_file.exists());
 
         // Read
-        let read_data = fs.read_file(&test_file).unwrap();
+        let read_data = fs.read_file(&test_file).await.unwrap();
         assert_eq!(read_data, data);
 
         // Clean up
@@ -499,13 +619,13 @@ mod tests {
         assert_eq!(fs.display_prefix(), "");
     }
 
-    #[test]
-    fn test_local_fs_exists_and_is_dir() {
+    #[tokio::test]
+    async fn test_local_fs_exists_and_is_dir() {
         let fs = LocalFs::new();
         let temp_dir = std::env::temp_dir();
 
-        assert!(fs.exists(&temp_dir));
-        assert!(fs.is_dir(&temp_dir));
+        assert!(fs.exists(&temp_dir).await);
+        assert!(fs.is_dir(&temp_dir).await);
     }
 
     #[tokio::test]

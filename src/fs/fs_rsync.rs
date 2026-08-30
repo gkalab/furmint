@@ -12,8 +12,8 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 #[cfg(unix)]
 #[must_use]
 pub fn should_use_rsync(
-    src_fs: &dyn crate::fs::traits::FileSystem,
-    dest_fs: &dyn crate::fs::traits::FileSystem,
+    src_fs: &dyn crate::fs::fs_provider::FileSystemProvider,
+    dest_fs: &dyn crate::fs::fs_provider::FileSystemProvider,
     action: crate::app::CopyMoveAction,
 ) -> bool {
     // Only use rsync for copy operations
@@ -42,8 +42,8 @@ pub fn should_use_rsync(
 
 #[cfg(not(unix))]
 pub fn should_use_rsync(
-    _src_fs: &dyn crate::fs::traits::FileSystem,
-    _dest_fs: &dyn crate::fs::traits::FileSystem,
+    _src_fs: &dyn crate::fs::fs_provider::FileSystemProvider,
+    _dest_fs: &dyn crate::fs::fs_provider::FileSystemProvider,
     _action: crate::app::CopyMoveAction,
 ) -> bool {
     false
@@ -58,11 +58,11 @@ pub fn should_use_rsync(
 /// Returns an error if the rsync transfer fails.
 #[cfg(unix)]
 pub async fn rsync_transfer(
-    src_fs: &dyn crate::fs::traits::FileSystem,
-    dest_fs: &dyn crate::fs::traits::FileSystem,
+    src_fs: &dyn crate::fs::fs_provider::FileSystemProvider,
+    dest_fs: &dyn crate::fs::fs_provider::FileSystemProvider,
     src: &Path,
     dest: &Path,
-    progress_ctx: &crate::fs::traits::TaskProgressContext,
+    progress_ctx: &crate::fs::fs_provider::TaskProgressContext,
 ) -> Result<()> {
     let mut cmd = build_rsync_command(src_fs, dest_fs, src, dest).await?;
 
@@ -150,11 +150,11 @@ pub async fn rsync_transfer(
 /// Not supported on this platform
 #[allow(clippy::unused_async)]
 pub async fn rsync_transfer(
-    _src_fs: &dyn crate::fs::traits::FileSystem,
-    _dest_fs: &dyn crate::fs::traits::FileSystem,
+    _src_fs: &dyn crate::fs::fs_provider::FileSystemProvider,
+    _dest_fs: &dyn crate::fs::fs_provider::FileSystemProvider,
     _src: &std::path::Path,
     _dest: &std::path::Path,
-    _progress_ctx: &crate::fs::traits::TaskProgressContext,
+    _progress_ctx: &crate::fs::fs_provider::TaskProgressContext,
 ) -> anyhow::Result<()> {
     anyhow::bail!("rsync is not supported on this platform")
 }
@@ -162,7 +162,10 @@ pub async fn rsync_transfer(
 /// Get SSH options for rsync to use existing SSH authentication
 /// This tells rsync to use SSH agent or available keys without prompting for passwords
 #[cfg(unix)]
-fn get_ssh_options(_fs: &dyn crate::fs::traits::FileSystem, has_password: bool) -> String {
+fn get_ssh_options(
+    _fs: &dyn crate::fs::fs_provider::FileSystemProvider,
+    has_password: bool,
+) -> String {
     // Use SSH with the following options:
     // - BatchMode=yes: Never prompt for password (fail instead) - ONLY if no password provided
     // - StrictHostKeyChecking=no: Auto-accept host keys (for convenience)
@@ -180,7 +183,7 @@ fn get_ssh_options(_fs: &dyn crate::fs::traits::FileSystem, has_password: bool) 
 /// Format remote path for rsync (e.g., "user@host:/path/to/file")
 #[cfg(unix)]
 fn format_remote_path(
-    fs: &dyn crate::fs::traits::FileSystem,
+    fs: &dyn crate::fs::fs_provider::FileSystemProvider,
     path: &std::path::Path,
 ) -> Result<String> {
     // Extract user@host from fs.context_key() which is formatted as "[user@host]"
@@ -242,8 +245,8 @@ fn parse_rsync_progress(line: &str) -> Option<RsyncProgress> {
 
 #[cfg(unix)]
 async fn build_rsync_command(
-    src_fs: &dyn crate::fs::traits::FileSystem,
-    dest_fs: &dyn crate::fs::traits::FileSystem,
+    src_fs: &dyn crate::fs::fs_provider::FileSystemProvider,
+    dest_fs: &dyn crate::fs::fs_provider::FileSystemProvider,
     src: &Path,
     dest: &Path,
 ) -> Result<tokio::process::Command> {
@@ -251,7 +254,7 @@ async fn build_rsync_command(
     let dest_is_local = dest_fs.is_local();
 
     // Determine rsync source and destination arguments
-    let is_dir = src_fs.is_dir(src).await.unwrap_or(false);
+    let is_dir = src_fs.is_dir(src).await;
     let src_str = if is_dir {
         let mut s = src.to_string_lossy().to_string();
         if !s.ends_with('/') {
@@ -321,82 +324,75 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl crate::fs::traits::FileSystem for MockFs {
-        async fn try_exists(&self, _: &Path) -> anyhow::Result<bool> {
-            Ok(true)
+    impl crate::fs::fs_provider::FileSystemProvider for MockFs {
+        async fn list_dir(&self, _: &Path) -> anyhow::Result<Vec<crate::fs::utils::FileEntry>> {
+            Ok(vec![])
         }
-        async fn is_dir(&self, _: &Path) -> anyhow::Result<bool> {
-            Ok(false)
+        async fn create_dir(&self, _: &Path) -> anyhow::Result<()> {
+            Ok(())
         }
         async fn create_dir_all(&self, _: &Path) -> anyhow::Result<()> {
             Ok(())
         }
-        async fn read_dir(&self, _: &Path) -> anyhow::Result<Vec<PathBuf>> {
-            Ok(vec![])
+        async fn create_file(&self, _: &Path) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn delete(&self, _: &Path, _: bool) -> anyhow::Result<()> {
+            Ok(())
         }
         async fn rename(&self, _: &Path, _: &Path) -> anyhow::Result<()> {
             Ok(())
         }
-        async fn remove_file(&self, _: &Path) -> anyhow::Result<()> {
-            Ok(())
-        }
-        async fn copy(&self, _: &Path, _: &Path) -> anyhow::Result<()> {
-            Ok(())
-        }
-        async fn copy_with_progress(
-            &self,
-            _: &Path,
-            _: &Path,
-            _: usize,
-            _: &tokio::sync::mpsc::UnboundedSender<crate::tasks::TaskEvent>,
-            _: &std::sync::Arc<std::sync::atomic::AtomicBool>,
-        ) -> anyhow::Result<()> {
-            Ok(())
-        }
-        async fn get_size(&self, _: &Path) -> anyhow::Result<u64> {
-            Ok(0)
-        }
         async fn read_file(&self, _: &Path) -> anyhow::Result<Vec<u8>> {
             Ok(vec![])
         }
-        async fn read_chunk(&self, _: &Path, _: u64, _: usize) -> anyhow::Result<Vec<u8>> {
+        async fn read_file_at(&self, _: &Path, _: u64, _: usize) -> anyhow::Result<Vec<u8>> {
             Ok(vec![])
         }
         async fn write_file(&self, _: &Path, _: &[u8]) -> anyhow::Result<()> {
             Ok(())
         }
-        async fn write_chunk(&self, _: &Path, _: u64, _: &[u8]) -> anyhow::Result<()> {
+        async fn write_file_at(&self, _: &Path, _: u64, _: &[u8]) -> anyhow::Result<()> {
             Ok(())
+        }
+        async fn exists(&self, _: &Path) -> bool {
+            true
+        }
+        async fn is_dir(&self, _: &Path) -> bool {
+            false
+        }
+        async fn canonicalize(&self, path: &Path) -> anyhow::Result<PathBuf> {
+            Ok(path.to_path_buf())
+        }
+        async fn get_file_info(&self, _: &Path) -> Option<crate::fs::fs_provider::FileMetadata> {
+            None
         }
         async fn get_permissions(&self, _: &Path) -> Option<u32> {
             None
         }
-        async fn set_permissions(&self, _: &Path, _: u32) -> anyhow::Result<()> {
-            Ok(())
+        async fn set_permissions(&self, _: &Path, _: u32) -> bool {
+            false
         }
         async fn get_modified_time(&self, _: &Path) -> Option<std::time::SystemTime> {
             None
         }
-        async fn set_modified_time(
-            &self,
-            _: &Path,
-            _: std::time::SystemTime,
-        ) -> anyhow::Result<()> {
-            Ok(())
+        async fn set_modified_time(&self, _: &Path, _: std::time::SystemTime) -> bool {
+            false
         }
-        async fn write_file_with_permissions(
-            &self,
-            _: &Path,
-            _: &[u8],
-            _: Option<u32>,
-        ) -> anyhow::Result<()> {
-            Ok(())
+        fn display_prefix(&self) -> &'static str {
+            ""
+        }
+        fn is_local(&self) -> bool {
+            self.local
         }
         fn context_key(&self) -> String {
             self.ctx.clone()
         }
-        fn is_local(&self) -> bool {
-            self.local
+        fn display_path(&self, path: &Path) -> String {
+            path.to_string_lossy().to_string()
+        }
+        async fn calc_dir_size(&self, _: &Path) -> anyhow::Result<u64> {
+            Ok(0)
         }
     }
 

@@ -20,7 +20,7 @@ pub fn handle_init_create_directory(app: &mut AppState) {
     app.popups.create_directory.error = None;
 }
 
-pub fn handle_create_directory_event(
+pub async fn handle_create_directory_event(
     code: KeyCode,
     modifiers: Modifiers,
     app: &mut AppState,
@@ -38,14 +38,14 @@ pub fn handle_create_directory_event(
             let current_dir = app.active_tab().current_dir.clone();
             let new_path = current_dir.join(&new_name);
 
-            let result = app.active_tab_mut().provider.create_dir(&new_path);
+            let result = app.active_tab_mut().provider.create_dir(&new_path).await;
             match result {
                 Ok(()) => {
                     app.popups.create_directory.reset();
                     // Reload active tab and focus on the new directory
-                    let _ = app.active_tab_mut().reload_and_focus(&new_name);
+                    let _ = app.active_tab_mut().reload_and_focus(&new_name).await;
                     if app.is_any_tab_on_network_share() {
-                        app.refresh_active_tabs();
+                        app.refresh_active_tabs().await;
                     }
                 }
                 Err(e) => {
@@ -117,19 +117,19 @@ pub async fn handle_create_file_event(
             if path_buf.as_os_str().is_empty()
                 || input.ends_with('/')
                 || input.ends_with(std::path::MAIN_SEPARATOR)
-                || provider.is_dir(&path_buf)
+                || provider.is_dir(&path_buf).await
             {
                 app.popups.create_file.error = Some("Invalid file name".to_string());
                 return false;
             }
             // File must not already exist
-            if provider.exists(&path_buf) {
+            if provider.exists(&path_buf).await {
                 app.popups.create_file.error =
                     Some("A file with that name already exists".to_string());
                 return false;
             }
             // Try to create empty file
-            if let Err(e) = provider.create_file(&path_buf) {
+            if let Err(e) = provider.create_file(&path_buf).await {
                 app.popups.create_file.error = Some(format!("Failed to create file: {e}"));
                 return false;
             }
@@ -163,23 +163,23 @@ async fn handle_post_create_actions(app: &mut AppState, path_buf: std::path::Pat
     if is_zip {
         // Focus the file first so handle_enter can find it
         if let Some(name) = path_buf.file_name().and_then(|n| n.to_str()) {
-            let _ = app.active_tab_mut().reload_and_focus(name);
+            let _ = app.active_tab_mut().reload_and_focus(name).await;
         }
         if app.is_any_tab_on_network_share() {
-            app.refresh_active_tabs();
+            app.refresh_active_tabs().await;
         }
         app.popups.create_file.reset();
-        crate::handlers::navigation::handle_enter(app);
+        crate::handlers::navigation::handle_enter(app).await;
         return false;
     }
 
     // Reload entries and focus on the new file BEFORE opening editor
     // so if it's an external editor, the UI is already updated.
     if let Some(name) = path_buf.file_name().and_then(|n| n.to_str()) {
-        let _ = app.active_tab_mut().reload_and_focus(name);
+        let _ = app.active_tab_mut().reload_and_focus(name).await;
     }
     if app.is_any_tab_on_network_share() {
-        app.refresh_active_tabs();
+        app.refresh_active_tabs().await;
     }
 
     let provider = app.active_tab().provider.clone();

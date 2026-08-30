@@ -76,8 +76,8 @@ fn minimal_state_with_entries(
     app
 }
 
-#[test]
-fn test_init_copy_and_move_selects_correct_paths() {
+#[tokio::test]
+async fn test_init_copy_and_move_selects_correct_paths() {
     // Left panel active, selected entry (not '..'), should populate paths
     let left_entries = vec![
         make_fileentry("A.txt", true, false),
@@ -101,8 +101,8 @@ fn test_init_copy_and_move_selects_correct_paths() {
     assert_eq!(app.popups.copy_move.action, CopyMoveAction::Move);
 }
 
-#[test]
-fn test_init_copy_for_no_selection_uses_current_if_not_parent() {
+#[tokio::test]
+async fn test_init_copy_for_no_selection_uses_current_if_not_parent() {
     let left_entries = vec![
         make_fileentry("foo", false, false),
         make_fileentry("..", false, true),
@@ -113,8 +113,8 @@ fn test_init_copy_for_no_selection_uses_current_if_not_parent() {
     assert!(app.popups.copy_move.source_paths[0].ends_with("foo"));
 }
 
-#[test]
-fn test_init_copy_for_parent_dir_does_nothing() {
+#[tokio::test]
+async fn test_init_copy_for_parent_dir_does_nothing() {
     let left_entries = vec![make_fileentry("..", false, true)];
     // Cursor points to ".."
     let mut app = minimal_state_with_entries(PanelSide::Left, left_entries, vec![], 0, 0);
@@ -123,60 +123,60 @@ fn test_init_copy_for_parent_dir_does_nothing() {
     assert_eq!(app.popups.copy_move.source_paths.len(), 0);
 }
 
-#[test]
-fn test_handle_copy_move_event_char_and_edit() {
+#[tokio::test]
+async fn test_handle_copy_move_event_char_and_edit() {
     let left_entries = vec![make_fileentry("a", true, false)];
     let mut app = minimal_state_with_entries(PanelSide::Left, left_entries, vec![], 0, 0);
     handle_init_copy(&mut app);
     app.popups.copy_move.destination_input.clear();
     app.popups.copy_move.cursor_position = 0;
     // Insert 'x'
-    handle_copy_move_event(KeyCode::Char('x'), Modifiers::NONE, &mut app);
+    handle_copy_move_event(KeyCode::Char('x'), Modifiers::NONE, &mut app).await;
     assert_eq!(app.popups.copy_move.destination_input, "x");
     assert_eq!(app.popups.copy_move.cursor_position, 1);
     // Insert 'y' at position 1
-    handle_copy_move_event(KeyCode::Char('y'), Modifiers::NONE, &mut app);
+    handle_copy_move_event(KeyCode::Char('y'), Modifiers::NONE, &mut app).await;
     assert_eq!(app.popups.copy_move.destination_input, "xy");
     assert_eq!(app.popups.copy_move.cursor_position, 2);
     // Backspace
-    handle_copy_move_event(KeyCode::Backspace, Modifiers::NONE, &mut app);
+    handle_copy_move_event(KeyCode::Backspace, Modifiers::NONE, &mut app).await;
     assert_eq!(app.popups.copy_move.destination_input, "x");
     assert_eq!(app.popups.copy_move.cursor_position, 1);
     // Left
-    handle_copy_move_event(KeyCode::Left, Modifiers::NONE, &mut app);
+    handle_copy_move_event(KeyCode::Left, Modifiers::NONE, &mut app).await;
     assert_eq!(app.popups.copy_move.cursor_position, 0);
     // Delete (removes 'x')
-    handle_copy_move_event(KeyCode::Delete, Modifiers::NONE, &mut app);
+    handle_copy_move_event(KeyCode::Delete, Modifiers::NONE, &mut app).await;
     assert_eq!(app.popups.copy_move.destination_input, "");
     assert_eq!(app.popups.copy_move.cursor_position, 0);
 }
 
-#[test]
-fn test_handle_copy_move_event_navigation_keys() {
+#[tokio::test]
+async fn test_handle_copy_move_event_navigation_keys() {
     let left_entries = vec![make_fileentry("a", true, false)];
     let mut app = minimal_state_with_entries(PanelSide::Left, left_entries, vec![], 0, 0);
     handle_init_copy(&mut app);
     app.popups.copy_move.destination_input = "abcdef".to_string();
     app.popups.copy_move.cursor_position = 3;
     // Home
-    handle_copy_move_event(KeyCode::Home, Modifiers::NONE, &mut app);
+    handle_copy_move_event(KeyCode::Home, Modifiers::NONE, &mut app).await;
     assert_eq!(app.popups.copy_move.cursor_position, 0);
     // End
-    handle_copy_move_event(KeyCode::End, Modifiers::NONE, &mut app);
+    handle_copy_move_event(KeyCode::End, Modifiers::NONE, &mut app).await;
     assert_eq!(app.popups.copy_move.cursor_position, 6);
     // Right at end (should stay)
-    handle_copy_move_event(KeyCode::Right, Modifiers::NONE, &mut app);
+    handle_copy_move_event(KeyCode::Right, Modifiers::NONE, &mut app).await;
     assert_eq!(app.popups.copy_move.cursor_position, 6);
 }
 
-#[test]
-fn test_handle_copy_move_event_escape_resets_popup() {
+#[tokio::test]
+async fn test_handle_copy_move_event_escape_resets_popup() {
     let left_entries = vec![make_fileentry("a", true, false)];
     let mut app = minimal_state_with_entries(PanelSide::Left, left_entries, vec![], 0, 0);
     handle_init_copy(&mut app);
     app.popups.copy_move.error = Some("some error".to_string());
     assert!(app.popups.copy_move.is_visible);
-    handle_copy_move_event(KeyCode::Escape, Modifiers::NONE, &mut app);
+    handle_copy_move_event(KeyCode::Escape, Modifiers::NONE, &mut app).await;
     assert!(!app.popups.copy_move.is_visible);
     assert!(app.popups.copy_move.error.is_none());
 }
@@ -187,7 +187,7 @@ async fn test_handle_copy_move_event_home_dir_expansion() {
     app.popups.copy_move.is_visible = true;
     app.popups.copy_move.destination_input = "~".to_string();
 
-    handle_copy_move_event(KeyCode::Enter, Modifiers::NONE, &mut app);
+    handle_copy_move_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
 
     if let Some(base_dirs) = directories::BaseDirs::new() {
         let home = base_dirs
@@ -211,7 +211,7 @@ async fn test_handle_copy_move_validation_same_path() {
     app.popups.copy_move.source_paths = vec![file_path.clone()];
     app.popups.copy_move.destination_input = temp_dir.to_string_lossy().to_string();
 
-    handle_copy_move_event(KeyCode::Enter, Modifiers::NONE, &mut app);
+    handle_copy_move_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
 
     assert!(app.popups.copy_move.error.is_some());
     assert!(
@@ -238,7 +238,7 @@ async fn test_handle_copy_move_validation_into_itself() {
     app.popups.copy_move.source_paths = vec![src_dir.clone()];
     app.popups.copy_move.destination_input = dest_dir.to_string_lossy().to_string();
 
-    handle_copy_move_event(KeyCode::Enter, Modifiers::NONE, &mut app);
+    handle_copy_move_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
 
     assert!(app.popups.copy_move.error.is_some());
     assert!(
@@ -269,7 +269,7 @@ async fn test_handle_paste_validation_same_path() {
     };
     app.clipboard.set(data).unwrap();
 
-    handle_paste(&mut app);
+    handle_paste(&mut app).await;
 
     assert!(app.left.active_tab().error.is_some());
     assert!(
@@ -303,7 +303,7 @@ async fn test_handle_paste_clears_clipboard_on_move() {
     };
     app.clipboard.set(data).unwrap();
 
-    handle_paste(&mut app);
+    handle_paste(&mut app).await;
 
     // Clipboard should be empty now
     assert!(app.clipboard.get().unwrap().is_none());
@@ -312,8 +312,8 @@ async fn test_handle_paste_clears_clipboard_on_move() {
     std::fs::remove_dir_all(&dest_dir).ok();
 }
 
-#[test]
-fn test_handle_clipboard_action_sets_message() {
+#[tokio::test]
+async fn test_handle_clipboard_action_sets_message() {
     let entries = vec![FileEntry {
         name: "test.txt".to_string(),
         is_dir: false,

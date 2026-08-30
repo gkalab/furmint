@@ -621,8 +621,8 @@ mod tests {
         assert_eq!(format_modified(None), "                   "); // 19 spaces for UI alignment
     }
 
-    #[test]
-    fn test_read_file_content() {
+    #[tokio::test]
+    async fn test_read_file_content() {
         use crate::fs::fs_local::LocalFs;
         use crate::fs::fs_provider::FileSystemProvider;
         use std::io::Write;
@@ -632,7 +632,7 @@ mod tests {
         file.write_all(b"Hello, World!").unwrap();
 
         let provider = LocalFs::new();
-        let result = provider.read_file_content(&test_file, 1024);
+        let result = provider.read_file_content(&test_file, 1024).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "Hello, World!");
 

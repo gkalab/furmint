@@ -21,10 +21,10 @@ pub(crate) fn handle_quit_popup_event(code: KeyCode, app: &mut AppState) -> bool
     }
 }
 
-pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::AppState) {
+pub async fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::AppState) {
     match event {
         crate::tasks::TaskEvent::UpdateStatus(id, status) => {
-            handle_update_status(app, id, &status);
+            handle_update_status(app, id, &status).await;
         }
         crate::tasks::TaskEvent::UpdateProgress(id, p, t) => {
             handle_update_progress(app, id, p, t);
@@ -45,10 +45,10 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
             handle_task_error(app, id, path, msg);
         }
         crate::tasks::TaskEvent::SshConnected(ctx) => {
-            app.handle_ssh_connected(ctx);
+            app.handle_ssh_connected(ctx).await;
         }
         crate::tasks::TaskEvent::SshReconnected(ctx) => {
-            app.handle_ssh_reconnected(ctx);
+            app.handle_ssh_reconnected(ctx).await;
         }
         crate::tasks::TaskEvent::SshReconnectFailed(session_id, error) => {
             handle_ssh_reconnect_failed(app, &session_id, error);
@@ -88,7 +88,7 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
             handle_dir_size_calculated(app, &path, size);
         }
         crate::tasks::TaskEvent::ArchiveLoaded(side_index, wrapper, filename, path) => {
-            handle_archive_loaded(app, side_index, wrapper, filename, path);
+            handle_archive_loaded(app, side_index, wrapper, filename, path).await;
         }
         crate::tasks::TaskEvent::RemoteReloadCompleted {
             side,
@@ -101,7 +101,7 @@ pub fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::A
     }
 }
 
-fn handle_update_status(
+async fn handle_update_status(
     app: &mut crate::app::AppState,
     id: usize,
     status: &crate::tasks::TaskStatus,
@@ -109,7 +109,7 @@ fn handle_update_status(
     app.task_manager.update_task_status(id, status);
     if let crate::tasks::TaskStatus::Completed = status {
         if app.watcher.is_none() || app.is_any_tab_on_network_share() {
-            app.refresh_active_tabs();
+            app.refresh_active_tabs().await;
         } else {
             app.reload_remote();
         }
@@ -264,7 +264,7 @@ fn handle_remote_reload_completed(
     }
 }
 
-fn handle_archive_loaded(
+async fn handle_archive_loaded(
     app: &mut crate::app::AppState,
     side_index: usize,
     wrapper: crate::tasks::ProviderWrapper,
@@ -296,7 +296,7 @@ fn handle_archive_loaded(
     };
 
     // Create a new tab for the archive
-    match crate::app::Tab::with_provider(&std::path::PathBuf::from("/"), provider) {
+    match crate::app::Tab::with_provider(&std::path::PathBuf::from("/"), provider).await {
         Ok(mut tab) => {
             tab.custom_title = Some(filename);
             manager.insert_tab_after_active(tab);

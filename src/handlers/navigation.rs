@@ -8,19 +8,19 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 // Moves the cursor up in the active panel.
-pub fn handle_up(app: &mut AppState) {
+pub async fn handle_up(app: &mut AppState) {
     app.active_tab_mut().move_cursor_up_filtered();
-    update_viewer_content(app);
+    update_viewer_content(app).await;
 }
 
 // Moves the cursor down in the active panel.
-pub fn handle_down(app: &mut AppState) {
+pub async fn handle_down(app: &mut AppState) {
     app.active_tab_mut().move_cursor_down_filtered();
-    update_viewer_content(app);
+    update_viewer_content(app).await;
 }
 
 // Moves the cursor a page up.
-pub fn handle_page_up(app: &mut AppState) {
+pub async fn handle_page_up(app: &mut AppState) {
     let tab = app.active_tab_mut();
     if tab.has_file_filter() {
         let page = 20.min(tab.visible_count().saturating_sub(1));
@@ -28,11 +28,11 @@ pub fn handle_page_up(app: &mut AppState) {
     } else {
         tab.move_cursor_page_up(20);
     }
-    update_viewer_content(app);
+    update_viewer_content(app).await;
 }
 
 // Moves the cursor a page down.
-pub fn handle_page_down(app: &mut AppState) {
+pub async fn handle_page_down(app: &mut AppState) {
     let tab = app.active_tab_mut();
     if tab.has_file_filter() {
         let page = 20.min(tab.visible_count().saturating_sub(1));
@@ -40,17 +40,17 @@ pub fn handle_page_down(app: &mut AppState) {
     } else {
         tab.move_cursor_page_down(20);
     }
-    update_viewer_content(app);
+    update_viewer_content(app).await;
 }
 
 // Enters the selected directory or opens the file.
-pub fn handle_enter(app: &mut AppState) {
+pub async fn handle_enter(app: &mut AppState) {
     if let Some((path, _, filename)) = archive_path_and_ext(app) {
-        handle_open_archive(app, &path, filename);
+        handle_open_archive(app, &path, filename).await;
         return;
     }
 
-    handle_open_item(app);
+    handle_open_item(app).await;
 }
 
 fn archive_path_and_ext(app: &mut AppState) -> Option<(PathBuf, String, String)> {
@@ -82,38 +82,38 @@ fn archive_path_and_ext(app: &mut AppState) -> Option<(PathBuf, String, String)>
 }
 
 // Moves up to the parent directory.
-pub fn handle_left(app: &mut AppState) {
+pub async fn handle_left(app: &mut AppState) {
     let panel = app.active_tab_mut();
     // If we are at the root of an archive, we might want to exit it?
     // Current go_up implementation handles ".." logic typically.
     // But if we are at "/" of an archive, go_up might do nothing or we might want to "leave" the provider.
     // However, the standard `enter_dir` on ".." handles going up.
     // If we want Left Arrow to go to parent:
-    if let Err(e) = panel.go_up() {
+    if let Err(e) = panel.go_up().await {
         panel.error = Some(e.to_string());
     }
-    update_viewer_content(app);
+    update_viewer_content(app).await;
 }
 
 // Enters the selected directory (same as Enter for now).
-pub fn handle_right(app: &mut AppState) {
-    handle_enter(app);
+pub async fn handle_right(app: &mut AppState) {
+    handle_enter(app).await;
 }
 
 // Moves the cursor to the home position.
-pub fn handle_home(app: &mut AppState) {
+pub async fn handle_home(app: &mut AppState) {
     app.active_tab_mut().move_cursor_home_filtered();
-    update_viewer_content(app);
+    update_viewer_content(app).await;
 }
 
-// Moves the cursor to the end.
-pub fn handle_end(app: &mut AppState) {
+// Moves the cursor to the end position.
+pub async fn handle_end(app: &mut AppState) {
     app.active_tab_mut().move_cursor_end_filtered();
-    update_viewer_content(app);
+    update_viewer_content(app).await;
 }
 
 // Handles quick type-to-select in the active panel.
-pub fn handle_type_char(app: &mut AppState, c: char) {
+pub async fn handle_type_char(app: &mut AppState, c: char) {
     let panel = app.active_tab_mut();
 
     // If search is not active (timed out or not started), clear buffer
@@ -131,11 +131,11 @@ pub fn handle_type_char(app: &mut AppState, c: char) {
         panel.cursor = idx;
         panel.search.position = 0;
     }
-    update_viewer_content(app);
+    update_viewer_content(app).await;
 }
 
 /// Handle Up arrow during active search - move to previous match (wraps)
-pub fn handle_up_search(app: &mut AppState) {
+pub async fn handle_up_search(app: &mut AppState) {
     let panel = app.active_tab_mut();
     // Restart timer
     panel.search.last_type_time = Some(std::time::Instant::now());
@@ -151,11 +151,11 @@ pub fn handle_up_search(app: &mut AppState) {
     }
     // Move cursor to the matched index
     panel.cursor = panel.search.matching_indices[panel.search.position];
-    update_viewer_content(app);
+    update_viewer_content(app).await;
 }
 
 /// Handle Down arrow during active search - move to next match (wraps)
-pub fn handle_down_search(app: &mut AppState) {
+pub async fn handle_down_search(app: &mut AppState) {
     let panel = app.active_tab_mut();
     // Restart timer
     panel.search.last_type_time = Some(std::time::Instant::now());
@@ -167,7 +167,7 @@ pub fn handle_down_search(app: &mut AppState) {
     panel.search.position = (panel.search.position + 1) % panel.search.matching_indices.len();
     // Move cursor to the matched index
     panel.cursor = panel.search.matching_indices[panel.search.position];
-    update_viewer_content(app);
+    update_viewer_content(app).await;
 }
 
 /// Reset search state (called on Esc or timeout)
@@ -199,7 +199,7 @@ pub fn handle_tab(app: &mut AppState) {
 }
 
 /// Update content in external file viewer based on cursor.
-pub fn update_viewer_content(app: &mut AppState) {
+pub async fn update_viewer_content(app: &mut AppState) {
     if !app.file_viewer.is_visible {
         return;
     }
@@ -213,10 +213,11 @@ pub fn update_viewer_content(app: &mut AppState) {
     let size = entry.size;
     let max_file_size = 10 * 1024 * 1024;
     app.file_viewer
-        .load_content(&full_path, &provider, size, max_file_size);
+        .load_content(&full_path, &provider, size, max_file_size)
+        .await;
 }
 
-pub fn handle_enter_directory(app: &mut AppState) {
+pub async fn handle_enter_directory(app: &mut AppState) {
     let entry_opt = app.active_tab().current_entry().cloned();
 
     if let Some(entry) = entry_opt
@@ -226,30 +227,30 @@ pub fn handle_enter_directory(app: &mut AppState) {
             let context_key = app.active_tab().provider.context_key();
             let current_dir = app.active_tab().current_dir.clone();
 
-            if let Err(e) = app.active_tab_mut().go_up() {
+            if let Err(e) = app.active_tab_mut().go_up().await {
                 app.active_tab_mut().error = Some(format!("Error: {e}"));
             } else {
                 app.dir_history.record_visit(&context_key, &current_dir);
-                update_viewer_content(app);
+                update_viewer_content(app).await;
             }
         } else {
             let path = app.active_tab().current_dir.join(&entry.name);
-            if let Err(e) = app.active_tab_mut().navigate_to(&path) {
+            if let Err(e) = app.active_tab_mut().navigate_to(&path).await {
                 app.active_tab_mut().error = Some(format!("Error: {e}"));
             } else {
                 let context_key = app.active_tab().provider.context_key();
                 app.dir_history.record_visit(&context_key, &path);
-                update_viewer_content(app);
+                update_viewer_content(app).await;
             }
         }
     }
 }
 
-fn handle_open_archive(app: &mut AppState, path: &PathBuf, filename: String) {
+async fn handle_open_archive(app: &mut AppState, path: &PathBuf, filename: String) {
     let panel = app.active_tab_mut();
     if !panel.provider.is_local() {
         panel.error = Some("Opening archives from remote connections is not supported".to_string());
-        update_viewer_content(app);
+        update_viewer_content(app).await;
         return;
     }
 
@@ -276,7 +277,7 @@ fn handle_open_archive(app: &mut AppState, path: &PathBuf, filename: String) {
                 &mut app.right
             };
 
-            match crate::app::Tab::with_provider(&std::path::PathBuf::from("/"), provider) {
+            match crate::app::Tab::with_provider(&std::path::PathBuf::from("/"), provider).await {
                 Ok(mut tab) => {
                     tab.custom_title = Some(filename);
                     manager.insert_tab_after_active(tab);
@@ -347,12 +348,12 @@ fn handle_open_archive(app: &mut AppState, path: &PathBuf, filename: String) {
         });
 }
 
-pub fn handle_open_item(app: &mut AppState) {
+pub async fn handle_open_item(app: &mut AppState) {
     let entry_opt = app.active_tab().current_entry().cloned();
 
     if let Some(entry) = entry_opt {
         if entry.is_dir {
-            handle_enter_directory(app);
+            handle_enter_directory(app).await;
         } else if app.active_tab().provider.is_local() {
             let (full_path, current_dir) = {
                 let panel = app.active_tab();
@@ -380,7 +381,7 @@ pub fn handle_open_item(app: &mut AppState) {
     }
 }
 
-pub fn handle_directory_up(app: &mut AppState) {
+pub async fn handle_directory_up(app: &mut AppState) {
     let parent_path = app
         .active_tab()
         .current_dir
@@ -390,13 +391,13 @@ pub fn handle_directory_up(app: &mut AppState) {
     let context_key = app.active_tab().provider.context_key();
 
     if let Some(path) = parent_path {
-        if let Err(e) = app.active_tab_mut().go_up() {
+        if let Err(e) = app.active_tab_mut().go_up().await {
             app.active_tab_mut().error = Some(format!("Error: {e}"));
         } else {
             if !context_key.starts_with("archive:") {
                 app.dir_history.record_visit(&context_key, &path);
             }
-            update_viewer_content(app);
+            update_viewer_content(app).await;
         }
     }
 }
@@ -404,7 +405,7 @@ pub fn handle_directory_up(app: &mut AppState) {
 /// Map a mouse click on a panel's column header to a sort action.
 /// `area` is the panel's outer area (including borders) and `borders`
 /// indicates whether the panel has visible borders.
-pub fn handle_header_click(app: &mut AppState, x: u16, area: Rect, borders: bool) {
+pub async fn handle_header_click(app: &mut AppState, x: u16, area: Rect, borders: bool) {
     let border_offset = u16::from(borders);
     let inner_x = area.x + border_offset;
     let inner_width = area.width.saturating_sub(border_offset * 2);
@@ -427,10 +428,10 @@ pub fn handle_header_click(app: &mut AppState, x: u16, area: Rect, borders: bool
         return;
     };
 
-    handle_sort(app, column);
+    handle_sort(app, column).await;
 }
 
-pub fn handle_sort(app: &mut AppState, column: crate::app::SortColumn) {
+pub async fn handle_sort(app: &mut AppState, column: crate::app::SortColumn) {
     let (col, dir, context_key) = {
         let tab = app.active_tab_mut();
         tab.handle_sort(column);
@@ -455,12 +456,12 @@ pub fn handle_sort(app: &mut AppState, column: crate::app::SortColumn) {
         }
     }
 
-    update_viewer_content(app);
+    update_viewer_content(app).await;
 }
 
-pub fn handle_toggle_selection(app: &mut AppState) {
+pub async fn handle_toggle_selection(app: &mut AppState) {
     app.active_tab_mut().toggle_selection();
-    update_viewer_content(app);
+    update_viewer_content(app).await;
 }
 
 /// Navigate to `target`, walking up ancestors if it no longer exists.
@@ -470,9 +471,12 @@ pub fn handle_toggle_selection(app: &mut AppState) {
 /// # Errors
 ///
 /// Returns the original error if neither the target nor any ancestor can be listed.
-pub fn navigate_with_fallback(tab: &mut Tab, target: &Path) -> Result<PathBuf, anyhow::Error> {
+pub async fn navigate_with_fallback(
+    tab: &mut Tab,
+    target: &Path,
+) -> Result<PathBuf, anyhow::Error> {
     // Try the target path first
-    let original_error = match tab.navigate_to(target) {
+    let original_error = match tab.navigate_to(target).await {
         Ok(()) => return Ok(target.to_path_buf()),
         Err(e) => e,
     };
@@ -484,7 +488,7 @@ pub fn navigate_with_fallback(tab: &mut Tab, target: &Path) -> Result<PathBuf, a
             break;
         }
         current = parent.to_path_buf();
-        if tab.navigate_to(current.as_path()).is_ok() {
+        if tab.navigate_to(current.as_path()).await.is_ok() {
             return Ok(current);
         }
     }

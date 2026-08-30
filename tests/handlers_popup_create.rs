@@ -8,19 +8,27 @@ use termina::event::KeyCode;
 use termina::event::Modifiers;
 use tokio::sync::mpsc;
 
-fn basic_app_state() -> AppState {
+async fn basic_app_state() -> AppState {
     let (task_tx, _task_rx) = mpsc::unbounded_channel::<TaskEvent>();
 
     fm::test_utils::TestAppBuilder::new()
-        .left(fm::app::TabManager::new(&std::env::temp_dir()).unwrap())
-        .right(fm::app::TabManager::new(&std::env::temp_dir()).unwrap())
+        .left(
+            fm::app::TabManager::new(&std::env::temp_dir())
+                .await
+                .unwrap(),
+        )
+        .right(
+            fm::app::TabManager::new(&std::env::temp_dir())
+                .await
+                .unwrap(),
+        )
         .task_tx(task_tx)
         .build()
 }
 
-#[test]
-fn test_handle_init_create_file_and_directory() {
-    let mut app = basic_app_state();
+#[tokio::test]
+async fn test_handle_init_create_file_and_directory() {
+    let mut app = basic_app_state().await;
     app.active = PanelSide::Right;
     handle_init_create_file(&mut app);
     assert!(app.popups.create_file.is_visible);
@@ -35,27 +43,27 @@ fn test_handle_init_create_file_and_directory() {
     assert!(app.popups.create_directory.error.is_none());
 }
 
-#[test]
-fn test_handle_create_directory_event_typing_backspace() {
-    let mut app = basic_app_state();
+#[tokio::test]
+async fn test_handle_create_directory_event_typing_backspace() {
+    let mut app = basic_app_state().await;
     handle_init_create_directory(&mut app);
     // A typical typing workflow
     for c in "abc".chars() {
-        handle_create_directory_event(KeyCode::Char(c), Modifiers::NONE, &mut app);
+        handle_create_directory_event(KeyCode::Char(c), Modifiers::NONE, &mut app).await;
     }
     assert_eq!(app.popups.create_directory.new_name, "abc");
     assert_eq!(app.popups.create_directory.cursor_position, 3);
     // Backspace -- removes one char
-    handle_create_directory_event(KeyCode::Backspace, Modifiers::NONE, &mut app);
+    handle_create_directory_event(KeyCode::Backspace, Modifiers::NONE, &mut app).await;
     assert_eq!(app.popups.create_directory.new_name, "ab");
     assert_eq!(app.popups.create_directory.cursor_position, 2);
 }
 
-#[test]
-fn test_handle_create_directory_enter_empty_fails() {
-    let mut app = basic_app_state();
+#[tokio::test]
+async fn test_handle_create_directory_enter_empty_fails() {
+    let mut app = basic_app_state().await;
     handle_init_create_directory(&mut app);
-    let ret = handle_create_directory_event(KeyCode::Enter, Modifiers::NONE, &mut app);
+    let ret = handle_create_directory_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
     // Should not accept empty name
     assert!(!ret);
     assert!(
@@ -64,36 +72,36 @@ fn test_handle_create_directory_enter_empty_fails() {
     );
 }
 
-#[test]
-fn test_handle_create_directory_navigation() {
-    let mut app = basic_app_state();
+#[tokio::test]
+async fn test_handle_create_directory_navigation() {
+    let mut app = basic_app_state().await;
     handle_init_create_directory(&mut app);
     for c in "abcd".chars() {
-        handle_create_directory_event(KeyCode::Char(c), Modifiers::NONE, &mut app);
+        handle_create_directory_event(KeyCode::Char(c), Modifiers::NONE, &mut app).await;
     }
     assert_eq!(app.popups.create_directory.cursor_position, 4);
 
-    handle_create_directory_event(KeyCode::Left, Modifiers::NONE, &mut app);
+    handle_create_directory_event(KeyCode::Left, Modifiers::NONE, &mut app).await;
     assert_eq!(app.popups.create_directory.cursor_position, 3);
 
-    handle_create_directory_event(KeyCode::Right, Modifiers::NONE, &mut app);
+    handle_create_directory_event(KeyCode::Right, Modifiers::NONE, &mut app).await;
     assert_eq!(app.popups.create_directory.cursor_position, 4);
 
-    handle_create_directory_event(KeyCode::Home, Modifiers::NONE, &mut app);
+    handle_create_directory_event(KeyCode::Home, Modifiers::NONE, &mut app).await;
     assert_eq!(app.popups.create_directory.cursor_position, 0);
 
-    handle_create_directory_event(KeyCode::End, Modifiers::NONE, &mut app);
+    handle_create_directory_event(KeyCode::End, Modifiers::NONE, &mut app).await;
     assert_eq!(app.popups.create_directory.cursor_position, 4);
 
-    handle_create_directory_event(KeyCode::Left, Modifiers::NONE, &mut app); // at pos 3
-    handle_create_directory_event(KeyCode::Left, Modifiers::NONE, &mut app); // at pos 2
-    handle_create_directory_event(KeyCode::Delete, Modifiers::NONE, &mut app); // delete 'c'
+    handle_create_directory_event(KeyCode::Left, Modifiers::NONE, &mut app).await; // at pos 3
+    handle_create_directory_event(KeyCode::Left, Modifiers::NONE, &mut app).await; // at pos 2
+    handle_create_directory_event(KeyCode::Delete, Modifiers::NONE, &mut app).await; // delete 'c'
     assert_eq!(app.popups.create_directory.new_name, "abd");
 }
 
 #[tokio::test]
 async fn test_handle_create_file_event() {
-    let mut app = basic_app_state();
+    let mut app = basic_app_state().await;
     let (_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
     handle_init_create_file(&mut app);
 
@@ -109,7 +117,7 @@ async fn test_handle_create_file_event() {
 
 #[tokio::test]
 async fn test_handle_create_file_errors() {
-    let mut app = basic_app_state();
+    let mut app = basic_app_state().await;
     let (_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
     handle_init_create_file(&mut app);
 
@@ -164,7 +172,7 @@ async fn test_handle_create_file_errors() {
 
 #[tokio::test]
 async fn test_handle_create_file_tilde_expansion() {
-    let mut app = basic_app_state();
+    let mut app = basic_app_state().await;
     let (_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
     handle_init_create_file(&mut app);
 
@@ -203,16 +211,16 @@ async fn test_handle_create_file_remote_uses_remote_edit_workflow() {
         fn display_prefix(&self) -> &'static str {
             "mock://"
         }
-        fn list_dir(
+        async fn list_dir(
             &self,
             _path: &std::path::Path,
         ) -> anyhow::Result<Vec<fm::fs::utils::FileEntry>> {
             Ok(vec![])
         }
-        fn read_file(&self, _path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
+        async fn read_file(&self, _path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
             Ok(b"".to_vec())
         }
-        fn read_file_at(
+        async fn read_file_at(
             &self,
             _path: &std::path::Path,
             _offset: u64,
@@ -220,10 +228,10 @@ async fn test_handle_create_file_remote_uses_remote_edit_workflow() {
         ) -> anyhow::Result<Vec<u8>> {
             Ok(b"".to_vec())
         }
-        fn write_file(&self, _path: &std::path::Path, _data: &[u8]) -> anyhow::Result<()> {
+        async fn write_file(&self, _path: &std::path::Path, _data: &[u8]) -> anyhow::Result<()> {
             Ok(())
         }
-        fn write_file_at(
+        async fn write_file_at(
             &self,
             _path: &std::path::Path,
             _offset: u64,
@@ -231,47 +239,57 @@ async fn test_handle_create_file_remote_uses_remote_edit_workflow() {
         ) -> anyhow::Result<()> {
             Ok(())
         }
-        fn create_dir(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+        async fn create_dir(&self, _path: &std::path::Path) -> anyhow::Result<()> {
             Ok(())
         }
-        fn create_file(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+        async fn create_dir_all(&self, _path: &std::path::Path) -> anyhow::Result<()> {
             Ok(())
         }
-        fn delete(&self, _path: &std::path::Path, _recursive: bool) -> anyhow::Result<()> {
+        async fn create_file(&self, _path: &std::path::Path) -> anyhow::Result<()> {
             Ok(())
         }
-        fn rename(&self, _from: &std::path::Path, _to: &std::path::Path) -> anyhow::Result<()> {
+        async fn delete(&self, _path: &std::path::Path, _recursive: bool) -> anyhow::Result<()> {
             Ok(())
         }
-        fn exists(&self, _path: &std::path::Path) -> bool {
+        async fn rename(
+            &self,
+            _from: &std::path::Path,
+            _to: &std::path::Path,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn exists(&self, _path: &std::path::Path) -> bool {
             false
         }
-        fn is_dir(&self, _path: &std::path::Path) -> bool {
+        async fn is_dir(&self, _path: &std::path::Path) -> bool {
             false
         }
-        fn canonicalize(&self, path: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
+        async fn canonicalize(&self, path: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
             Ok(path.to_path_buf())
         }
-        fn get_modified_time(&self, _path: &std::path::Path) -> Option<std::time::SystemTime> {
+        async fn get_modified_time(
+            &self,
+            _path: &std::path::Path,
+        ) -> Option<std::time::SystemTime> {
             None
         }
-        fn set_modified_time(
+        async fn set_modified_time(
             &self,
             _path: &std::path::Path,
             _mtime: std::time::SystemTime,
         ) -> bool {
             true
         }
-        fn get_file_info(
+        async fn get_file_info(
             &self,
             _path: &std::path::Path,
         ) -> Option<fm::fs::fs_provider::FileMetadata> {
             None
         }
-        fn get_permissions(&self, _path: &std::path::Path) -> Option<u32> {
+        async fn get_permissions(&self, _path: &std::path::Path) -> Option<u32> {
             None
         }
-        fn set_permissions(&self, _path: &std::path::Path, _mode: u32) -> bool {
+        async fn set_permissions(&self, _path: &std::path::Path, _mode: u32) -> bool {
             true
         }
         fn context_key(&self) -> String {
@@ -285,7 +303,7 @@ async fn test_handle_create_file_remote_uses_remote_edit_workflow() {
         }
     }
 
-    let mut app = basic_app_state();
+    let mut app = basic_app_state().await;
     let (_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
 
     // Replace the active tab's provider with a mock remote provider
@@ -334,36 +352,31 @@ async fn test_handle_create_file_remote_uses_remote_edit_workflow() {
     assert!(!temp_path.exists(), "Temp file should be cleaned up");
 }
 
-#[test]
-fn test_handle_create_file_navigation() {
-    let mut app = basic_app_state();
+#[tokio::test]
+async fn test_handle_create_file_navigation() {
+    let mut app = basic_app_state().await;
     handle_init_create_file(&mut app);
     app.popups.create_file.input_value = "test.txt".to_string();
     app.popups.create_file.cursor_position = 8;
 
     let (_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .build()
-        .unwrap();
 
-    rt.block_on(async {
-        handle_create_file_event(KeyCode::Left, Modifiers::NONE, &mut app).await;
-        assert_eq!(app.popups.create_file.cursor_position, 7);
+    handle_create_file_event(KeyCode::Left, Modifiers::NONE, &mut app).await;
+    assert_eq!(app.popups.create_file.cursor_position, 7);
 
-        handle_create_file_event(KeyCode::Right, Modifiers::NONE, &mut app).await;
-        assert_eq!(app.popups.create_file.cursor_position, 8);
+    handle_create_file_event(KeyCode::Right, Modifiers::NONE, &mut app).await;
+    assert_eq!(app.popups.create_file.cursor_position, 8);
 
-        handle_create_file_event(KeyCode::Home, Modifiers::NONE, &mut app).await;
-        assert_eq!(app.popups.create_file.cursor_position, 0);
+    handle_create_file_event(KeyCode::Home, Modifiers::NONE, &mut app).await;
+    assert_eq!(app.popups.create_file.cursor_position, 0);
 
-        handle_create_file_event(KeyCode::End, Modifiers::NONE, &mut app).await;
-        assert_eq!(app.popups.create_file.cursor_position, 8);
+    handle_create_file_event(KeyCode::End, Modifiers::NONE, &mut app).await;
+    assert_eq!(app.popups.create_file.cursor_position, 8);
 
-        handle_create_file_event(KeyCode::Delete, Modifiers::NONE, &mut app).await; // nothing to delete at end
-        assert_eq!(app.popups.create_file.input_value, "test.txt");
+    handle_create_file_event(KeyCode::Delete, Modifiers::NONE, &mut app).await; // nothing to delete at end
+    assert_eq!(app.popups.create_file.input_value, "test.txt");
 
-        app.popups.create_file.cursor_position = 0;
-        handle_create_file_event(KeyCode::Delete, Modifiers::NONE, &mut app).await;
-        assert_eq!(app.popups.create_file.input_value, "est.txt");
-    });
+    app.popups.create_file.cursor_position = 0;
+    handle_create_file_event(KeyCode::Delete, Modifiers::NONE, &mut app).await;
+    assert_eq!(app.popups.create_file.input_value, "est.txt");
 }

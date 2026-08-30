@@ -55,12 +55,8 @@ pub(crate) async fn edit_file_remote(
         )
     };
     let remote_path_buf = remote_path.to_path_buf();
-    let remote_path_for_read = remote_path_buf.clone();
-    let provider_for_read = provider.clone();
 
-    let data =
-        tokio::task::spawn_blocking(move || provider_for_read.read_file(&remote_path_for_read))
-            .await??;
+    let data = provider.read_file(remote_path).await?;
 
     // Compute MD5 checksum of original content
     let original_checksum = md5::compute(&data);
@@ -280,29 +276,11 @@ async fn upload_edited_file(
     provider: Arc<dyn FileSystemProvider>,
     edited_data: &[u8],
 ) -> anyhow::Result<()> {
-    use tokio::task::spawn_blocking;
+    let original_perms = provider.get_permissions(remote_path).await;
 
-    let remote_path_buf = remote_path.to_path_buf();
-    let remote_path_for_write = remote_path_buf.clone();
-    let provider_for_write = provider.clone();
-    let edited_data = edited_data.to_vec();
-
-    let original_perms = (spawn_blocking(move || provider.get_permissions(&remote_path_buf)).await)
-        .unwrap_or_default();
-
-    spawn_blocking(move || {
-        if let Some(mode) = original_perms {
-            provider_for_write.write_file_with_permissions(
-                &remote_path_for_write,
-                &edited_data,
-                Some(mode),
-            )?;
-        } else {
-            provider_for_write.write_file(&remote_path_for_write, &edited_data)?;
-        }
-        Ok::<(), anyhow::Error>(())
-    })
-    .await??;
+    provider
+        .write_file_with_permissions(remote_path, edited_data, original_perms)
+        .await?;
 
     let _ = tokio::fs::remove_file(temp_path).await;
 
@@ -402,7 +380,7 @@ pub async fn open_file_in_editor_with_env_handling(
     }
     app.sync_watcher();
     let panel = app.active_tab_mut();
-    if let Ok(entries) = panel.provider.list_dir(&panel_current_dir) {
+    if let Ok(entries) = panel.provider.list_dir(&panel_current_dir).await {
         panel.entries = entries;
         panel.sort_entries();
         if let Some(name) = filename_to_select {
@@ -458,7 +436,7 @@ async fn do_remote_edit_upload(app: &mut AppState) {
         Err(e) => {
             app.popups.remote_edit.reset();
             app.active_tab_mut().error = Some(format!("Error reading edited file: {e}"));
-            app.refresh_active_tabs();
+            app.refresh_active_tabs().await;
             return;
         }
     };
@@ -476,7 +454,7 @@ async fn do_remote_edit_upload(app: &mut AppState) {
     if let Some(Err(e)) = result {
         app.active_tab_mut().error = Some(e.to_string());
     }
-    app.refresh_active_tabs();
+    app.refresh_active_tabs().await;
 }
 
 #[cfg(test)]
@@ -543,15 +521,39 @@ mod tests {
             "mock://"
         }
 
-        fn list_dir(&self, _path: &std::path::Path) -> anyhow::Result<Vec<FileEntry>> {
+        async fn list_dir(&self, _path: &std::path::Path) -> anyhow::Result<Vec<FileEntry>> {
             Ok(vec![])
         }
 
-        fn read_file(&self, _path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
+        async fn create_dir(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn create_dir_all(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn create_file(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn delete(&self, _path: &std::path::Path, _recursive: bool) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn rename(
+            &self,
+            _from: &std::path::Path,
+            _to: &std::path::Path,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn read_file(&self, _path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
             Ok(b"original content".to_vec())
         }
 
-        fn read_file_at(
+        async fn read_file_at(
             &self,
             _path: &std::path::Path,
             _offset: u64,
@@ -560,7 +562,7 @@ mod tests {
             Ok(b"original content".to_vec())
         }
 
-        fn write_file(&self, _path: &std::path::Path, data: &[u8]) -> anyhow::Result<()> {
+        async fn write_file(&self, _path: &std::path::Path, data: &[u8]) -> anyhow::Result<()> {
             self.write_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             *self.write_data.lock().unwrap() = Some(data.to_vec());
@@ -570,7 +572,7 @@ mod tests {
             Ok(())
         }
 
-        fn write_file_at(
+        async fn write_file_at(
             &self,
             _path: &std::path::Path,
             _offset: u64,
@@ -579,37 +581,21 @@ mod tests {
             Ok(())
         }
 
-        fn write_file_with_permissions(
+        async fn write_file_with_permissions(
             &self,
             path: &std::path::Path,
             data: &[u8],
             _mode: Option<u32>,
         ) -> anyhow::Result<()> {
-            self.write_file(path, data)
+            self.write_file(path, data).await
         }
 
-        fn create_dir(&self, _path: &std::path::Path) -> anyhow::Result<()> {
-            Ok(())
-        }
-
-        fn create_file(&self, _path: &std::path::Path) -> anyhow::Result<()> {
-            Ok(())
-        }
-
-        fn delete(&self, _path: &std::path::Path, _recursive: bool) -> anyhow::Result<()> {
-            Ok(())
-        }
-
-        fn rename(&self, _from: &std::path::Path, _to: &std::path::Path) -> anyhow::Result<()> {
-            Ok(())
-        }
-
-        fn read_file_content(
+        async fn read_file_content(
             &self,
             path: &std::path::Path,
             limit: usize,
         ) -> anyhow::Result<String> {
-            let buffer = self.read_file(path)?;
+            let buffer = self.read_file(path).await?;
             if buffer.len() > limit {
                 return Ok(format!(
                     "File too large to display (size: {}, limit: {})",
@@ -623,42 +609,45 @@ mod tests {
             Ok(String::from_utf8_lossy(&buffer).to_string())
         }
 
-        fn exists(&self, _path: &std::path::Path) -> bool {
+        async fn exists(&self, _path: &std::path::Path) -> bool {
             true
         }
 
-        fn is_dir(&self, _path: &std::path::Path) -> bool {
+        async fn is_dir(&self, _path: &std::path::Path) -> bool {
             false
         }
 
-        fn canonicalize(&self, path: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
+        async fn canonicalize(&self, path: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
             Ok(path.to_path_buf())
         }
 
-        fn get_modified_time(&self, _path: &std::path::Path) -> Option<std::time::SystemTime> {
-            None
-        }
-
-        fn set_modified_time(
-            &self,
-            _path: &std::path::Path,
-            _mtime: std::time::SystemTime,
-        ) -> bool {
-            true
-        }
-
-        fn get_file_info(
+        async fn get_file_info(
             &self,
             _path: &std::path::Path,
         ) -> Option<crate::fs::fs_provider::FileMetadata> {
             None
         }
 
-        fn get_permissions(&self, _path: &std::path::Path) -> Option<u32> {
+        async fn get_permissions(&self, _path: &std::path::Path) -> Option<u32> {
             *self.permissions_result.lock().unwrap()
         }
 
-        fn set_permissions(&self, _path: &std::path::Path, _mode: u32) -> bool {
+        async fn set_permissions(&self, _path: &std::path::Path, _mode: u32) -> bool {
+            true
+        }
+
+        async fn get_modified_time(
+            &self,
+            _path: &std::path::Path,
+        ) -> Option<std::time::SystemTime> {
+            None
+        }
+
+        async fn set_modified_time(
+            &self,
+            _path: &std::path::Path,
+            _mtime: std::time::SystemTime,
+        ) -> bool {
             true
         }
 

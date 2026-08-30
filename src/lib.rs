@@ -54,7 +54,7 @@ struct InitializedApp {
     content_load_rx: tokio::sync::mpsc::UnboundedReceiver<crate::state::ContentLoadResult>,
 }
 
-fn initialize_app() -> Result<InitializedApp> {
+async fn initialize_app() -> Result<InitializedApp> {
     let (keyboard, global_config, editor_cfg, viewer_cfg, ssh_cfg) =
         load_config().map_err(anyhow::Error::msg)?;
 
@@ -102,14 +102,14 @@ fn initialize_app() -> Result<InitializedApp> {
     };
 
     let mut app = if let Some(state) = persistent_state {
-        let left = crate::app::TabManager::from_persistent(state.left)?;
-        let right = crate::app::TabManager::from_persistent(state.right)?;
+        let left = crate::app::TabManager::from_persistent(state.left).await?;
+        let right = crate::app::TabManager::from_persistent(state.right).await?;
 
         crate::app::AppState::new(left, right, state.active_side, ctx)
     } else {
         crate::app::AppState::new(
-            crate::app::TabManager::new(&cwd)?,
-            crate::app::TabManager::new(&cwd)?,
+            crate::app::TabManager::new(&cwd).await?,
+            crate::app::TabManager::new(&cwd).await?,
             crate::app::PanelSide::Left,
             ctx,
         )
@@ -156,7 +156,7 @@ pub async fn run() -> Result<()> {
         mut task_rx,
         mut image_load_rx,
         mut content_load_rx,
-    } = initialize_app()?;
+    } = initialize_app().await?;
 
     app.file_viewer.init_picker().await;
     let (mut terminal, mut reader) = setup_terminal()?;

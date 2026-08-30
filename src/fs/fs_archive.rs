@@ -1,6 +1,5 @@
 use crate::fs::archive::{ArchiveFormat, get_archive_handler};
-use crate::fs::fs_provider::{FileMetadata, FileSystemProvider};
-use crate::fs::traits::{FileSystem, TaskProgressContext};
+use crate::fs::fs_provider::{FileMetadata, FileSystemProvider, TaskProgressContext};
 use crate::fs::utils::FileEntry;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -111,17 +110,14 @@ impl ArchiveFs {
     pub async fn extract(
         &self,
         src: &Path,
-        dest_fs: &dyn FileSystem,
+        dest_fs: &dyn FileSystemProvider,
         dest: &Path,
         progress: &TaskProgressContext,
     ) -> Option<anyhow::Result<()>> {
         self.copy_to_local(src, dest_fs, dest, progress).await
     }
-}
 
-#[async_trait]
-impl FileSystemProvider for ArchiveFs {
-    fn list_dir(&self, path: &Path) -> Result<Vec<FileEntry>> {
+    fn list_dir_sync(&self, path: &Path) -> Vec<FileEntry> {
         let rel_path = if path.has_root() {
             path.strip_prefix("/").unwrap_or(path)
         } else {
@@ -160,10 +156,10 @@ impl FileSystemProvider for ArchiveFs {
             }
         }
 
-        Ok(result)
+        result
     }
 
-    fn create_dir(&self, path: &Path) -> Result<()> {
+    fn create_dir_sync(&self, path: &Path) -> Result<()> {
         let rel_path = if path.has_root() {
             path.strip_prefix("/").unwrap_or(path)
         } else {
@@ -177,11 +173,22 @@ impl FileSystemProvider for ArchiveFs {
         Ok(())
     }
 
-    fn create_file(&self, _path: &Path) -> Result<()> {
+    fn create_dir_all_sync(&self, path: &Path) {
+        // Archives cannot create parent entries dynamically; if the path does
+        // not exist yet, try to create the entry but never fail the operation.
+        let resolved = Self::resolve_internal_path(path);
+        if self.entries.lock().unwrap().contains_key(&resolved) || resolved == Path::new(".") {
+            return;
+        }
+        let _ = self.create_dir_sync(path);
+    }
+
+    #[allow(clippy::unused_self)]
+    fn create_file_sync(&self, _path: &Path) -> Result<()> {
         Err(anyhow::anyhow!("ArchiveFileSystem is read-only"))
     }
 
-    fn delete(&self, path: &Path, _recursive: bool) -> Result<()> {
+    fn delete_sync(&self, path: &Path, _recursive: bool) -> Result<()> {
         let rel_path = if path.has_root() {
             path.strip_prefix("/").unwrap_or(path)
         } else {
@@ -195,7 +202,7 @@ impl FileSystemProvider for ArchiveFs {
         Ok(())
     }
 
-    fn rename(&self, from: &Path, to: &Path) -> Result<()> {
+    fn rename_sync(&self, from: &Path, to: &Path) -> Result<()> {
         let rel_from = if from.has_root() {
             from.strip_prefix("/").unwrap_or(from)
         } else {
@@ -217,7 +224,7 @@ impl FileSystemProvider for ArchiveFs {
         Ok(())
     }
 
-    fn read_file(&self, path: &Path) -> Result<Vec<u8>> {
+    fn read_file_sync(&self, path: &Path) -> Result<Vec<u8>> {
         let rel_path = if path.has_root() {
             path.strip_prefix("/").unwrap_or(path)
         } else {
@@ -229,8 +236,8 @@ impl FileSystemProvider for ArchiveFs {
         self.handler.read_file(path_str)
     }
 
-    fn read_file_at(&self, path: &Path, offset: u64, len: usize) -> Result<Vec<u8>> {
-        let data = self.read_file(path)?;
+    fn read_file_at_sync(&self, path: &Path, offset: u64, len: usize) -> Result<Vec<u8>> {
+        let data = self.read_file_sync(path)?;
         let start = usize::try_from(offset).unwrap_or(data.len());
         if start >= data.len() {
             return Ok(Vec::new());
@@ -239,7 +246,7 @@ impl FileSystemProvider for ArchiveFs {
         Ok(data[start..end].to_vec())
     }
 
-    fn write_file(&self, path: &Path, data: &[u8]) -> Result<()> {
+    fn write_file_sync(&self, path: &Path, data: &[u8]) -> Result<()> {
         let rel_path = if path.has_root() {
             path.strip_prefix("/").unwrap_or(path)
         } else {
@@ -257,34 +264,19 @@ impl FileSystemProvider for ArchiveFs {
         Ok(())
     }
 
-    fn write_file_at(&self, _path: &Path, _offset: u64, _data: &[u8]) -> Result<()> {
+    #[allow(clippy::unused_self)]
+    fn write_file_at_sync(&self, _path: &Path, _offset: u64, _data: &[u8]) -> Result<()> {
         Err(anyhow::anyhow!(
             "ArchiveFileSystem write_file_at is not supported"
         ))
     }
 
-    fn display_prefix(&self) -> &'static str {
-        ""
-    }
-
-    fn is_local(&self) -> bool {
-        false
-    }
-
-    fn is_archive(&self) -> bool {
-        true
-    }
-
-    fn archive_path(&self) -> Option<PathBuf> {
-        Some(self.archive_path.clone())
-    }
-
-    fn exists(&self, path: &Path) -> bool {
+    fn exists_sync(&self, path: &Path) -> bool {
         let p = Self::resolve_internal_path(path);
         self.entries.lock().unwrap().contains_key(&p) || p == Path::new(".")
     }
 
-    fn is_dir(&self, path: &Path) -> bool {
+    fn is_dir_sync(&self, path: &Path) -> bool {
         let p = Self::resolve_internal_path(path);
 
         if p == Path::new(".") {
@@ -298,11 +290,12 @@ impl FileSystemProvider for ArchiveFs {
         }
     }
 
-    fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
-        Ok(path.to_path_buf())
+    #[allow(clippy::unused_self)]
+    fn canonicalize_sync(&self, path: &Path) -> PathBuf {
+        path.to_path_buf()
     }
 
-    fn get_file_info(&self, path: &Path) -> Option<FileMetadata> {
+    fn get_file_info_sync(&self, path: &Path) -> Option<FileMetadata> {
         let rel_path = if path.has_root() {
             path.strip_prefix("/").unwrap_or(path)
         } else {
@@ -328,15 +321,17 @@ impl FileSystemProvider for ArchiveFs {
         })
     }
 
-    fn get_permissions(&self, _path: &Path) -> Option<u32> {
-        Some(0o444) // Read only
+    #[allow(clippy::unused_self)]
+    fn get_permissions_sync(&self, _path: &Path) -> u32 {
+        0o444 // Read only
     }
 
-    fn set_permissions(&self, _path: &Path, _mode: u32) -> bool {
+    #[allow(clippy::unused_self)]
+    fn set_permissions_sync(&self, _path: &Path, _mode: u32) -> bool {
         false
     }
 
-    fn get_modified_time(&self, path: &Path) -> Option<std::time::SystemTime> {
+    fn get_modified_time_sync(&self, path: &Path) -> Option<std::time::SystemTime> {
         let rel_path = if path.has_root() {
             path.strip_prefix("/").unwrap_or(path)
         } else {
@@ -360,7 +355,7 @@ impl FileSystemProvider for ArchiveFs {
             .and_then(|e| e.file_entry.modified)
     }
 
-    fn set_modified_time(&self, path: &Path, mtime: std::time::SystemTime) -> bool {
+    fn set_modified_time_sync(&self, path: &Path, mtime: std::time::SystemTime) -> bool {
         let rel_path = if path.has_root() {
             path.strip_prefix("/").unwrap_or(path)
         } else {
@@ -375,6 +370,177 @@ impl FileSystemProvider for ArchiveFs {
         } else {
             false
         }
+    }
+}
+
+#[async_trait]
+impl FileSystemProvider for ArchiveFs {
+    async fn list_dir(&self, path: &Path) -> Result<Vec<FileEntry>> {
+        let fs = self.clone();
+        let path = path.to_path_buf();
+        Ok(tokio::task::spawn_blocking(move || fs.list_dir_sync(&path))
+            .await
+            .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?)
+    }
+
+    async fn create_dir(&self, path: &Path) -> Result<()> {
+        let fs = self.clone();
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || fs.create_dir_sync(&path))
+            .await
+            .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
+    }
+
+    async fn create_dir_all(&self, path: &Path) -> Result<()> {
+        let fs = self.clone();
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || fs.create_dir_all_sync(&path))
+            .await
+            .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?;
+        Ok(())
+    }
+
+    async fn create_file(&self, path: &Path) -> Result<()> {
+        let fs = self.clone();
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || fs.create_file_sync(&path))
+            .await
+            .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
+    }
+
+    async fn delete(&self, path: &Path, recursive: bool) -> Result<()> {
+        let fs = self.clone();
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || fs.delete_sync(&path, recursive))
+            .await
+            .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
+    }
+
+    async fn rename(&self, from: &Path, to: &Path) -> Result<()> {
+        let fs = self.clone();
+        let from = from.to_path_buf();
+        let to = to.to_path_buf();
+        tokio::task::spawn_blocking(move || fs.rename_sync(&from, &to))
+            .await
+            .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
+    }
+
+    async fn read_file(&self, path: &Path) -> Result<Vec<u8>> {
+        let fs = self.clone();
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || fs.read_file_sync(&path))
+            .await
+            .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
+    }
+
+    async fn read_file_at(&self, path: &Path, offset: u64, len: usize) -> Result<Vec<u8>> {
+        let fs = self.clone();
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || fs.read_file_at_sync(&path, offset, len))
+            .await
+            .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
+    }
+
+    async fn write_file(&self, path: &Path, data: &[u8]) -> Result<()> {
+        let fs = self.clone();
+        let path = path.to_path_buf();
+        let data = data.to_vec();
+        tokio::task::spawn_blocking(move || fs.write_file_sync(&path, &data))
+            .await
+            .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
+    }
+
+    async fn write_file_at(&self, path: &Path, offset: u64, data: &[u8]) -> Result<()> {
+        let fs = self.clone();
+        let path = path.to_path_buf();
+        let data = data.to_vec();
+        tokio::task::spawn_blocking(move || fs.write_file_at_sync(&path, offset, &data))
+            .await
+            .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
+    }
+
+    fn display_prefix(&self) -> &'static str {
+        ""
+    }
+
+    fn is_local(&self) -> bool {
+        false
+    }
+
+    fn is_archive(&self) -> bool {
+        true
+    }
+
+    fn archive_path(&self) -> Option<PathBuf> {
+        Some(self.archive_path.clone())
+    }
+
+    async fn exists(&self, path: &Path) -> bool {
+        let fs = self.clone();
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || fs.exists_sync(&path))
+            .await
+            .unwrap_or(false)
+    }
+
+    async fn is_dir(&self, path: &Path) -> bool {
+        let fs = self.clone();
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || fs.is_dir_sync(&path))
+            .await
+            .unwrap_or(false)
+    }
+
+    async fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
+        let fs = self.clone();
+        let path = path.to_path_buf();
+        Ok(
+            tokio::task::spawn_blocking(move || fs.canonicalize_sync(&path))
+                .await
+                .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?,
+        )
+    }
+
+    async fn get_file_info(&self, path: &Path) -> Option<FileMetadata> {
+        let fs = self.clone();
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || fs.get_file_info_sync(&path))
+            .await
+            .ok()
+            .flatten()
+    }
+
+    async fn get_permissions(&self, path: &Path) -> Option<u32> {
+        let fs = self.clone();
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || fs.get_permissions_sync(&path))
+            .await
+            .ok()
+    }
+
+    async fn set_permissions(&self, path: &Path, mode: u32) -> bool {
+        let fs = self.clone();
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || fs.set_permissions_sync(&path, mode))
+            .await
+            .unwrap_or(false)
+    }
+
+    async fn get_modified_time(&self, path: &Path) -> Option<std::time::SystemTime> {
+        let fs = self.clone();
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || fs.get_modified_time_sync(&path))
+            .await
+            .ok()
+            .flatten()
+    }
+
+    async fn set_modified_time(&self, path: &Path, mtime: std::time::SystemTime) -> bool {
+        let fs = self.clone();
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || fs.set_modified_time_sync(&path, mtime))
+            .await
+            .unwrap_or(false)
     }
 
     fn context_key(&self) -> String {
@@ -395,10 +561,10 @@ impl FileSystemProvider for ArchiveFs {
 
     async fn copy_from_local(
         &self,
-        src_fs: &dyn crate::fs::traits::FileSystem,
+        src_fs: &dyn FileSystemProvider,
         src: &Path,
         dest: &Path,
-        _progress: &crate::fs::traits::TaskProgressContext,
+        _progress: &TaskProgressContext,
     ) -> Option<anyhow::Result<()>> {
         if !src_fs.is_local() {
             return None;
@@ -473,7 +639,7 @@ impl FileSystemProvider for ArchiveFs {
     async fn copy_to_local(
         &self,
         src: &Path,
-        dest_fs: &dyn FileSystem,
+        dest_fs: &dyn FileSystemProvider,
         dest: &Path,
         progress: &TaskProgressContext,
     ) -> Option<anyhow::Result<()>> {
@@ -484,7 +650,7 @@ impl FileSystemProvider for ArchiveFs {
         let src = src.to_path_buf();
         let dest = dest.to_path_buf();
         let progress = progress.clone();
-        let is_dir = self.is_dir(&src);
+        let is_dir = self.is_dir_sync(&src);
         let handler = self.handler.clone();
 
         Some(

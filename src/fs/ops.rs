@@ -1,19 +1,19 @@
 // use async_trait::async_trait; // Unused
 // use std::path::Path; // Unused
 
-use crate::fs::traits::FileSystem;
+use crate::fs::fs_provider::{FileSystemProvider, TaskProgressContext};
 use anyhow::{Result, anyhow};
 
 // Helper to count items and total size recursively
 pub async fn count_items_and_size(
-    fs: &dyn FileSystem,
+    fs: &dyn FileSystemProvider,
     paths: &[std::path::PathBuf],
 ) -> (usize, u64) {
     let mut count = 0;
     let mut total_size = 0;
     for path in paths {
         count += 1; // Count the item itself
-        if let Ok(true) = fs.is_dir(path).await {
+        if fs.is_dir(path).await {
             if let Ok(children) = fs.read_dir(path).await {
                 let (c, s) = Box::pin(count_items_and_size(fs, &children)).await;
                 count += c;
@@ -27,7 +27,7 @@ pub async fn count_items_and_size(
 }
 
 // Helper to count items recursively
-pub async fn count_items(fs: &dyn FileSystem, paths: &[std::path::PathBuf]) -> usize {
+pub async fn count_items(fs: &dyn FileSystemProvider, paths: &[std::path::PathBuf]) -> usize {
     count_items_and_size(fs, paths).await.0
 }
 
@@ -69,8 +69,8 @@ impl DecisionState {
 // Iterative operation to avoid stack overflow
 // Returns Result<(), String>
 pub struct RecursiveOpContext<'a> {
-    pub src_fs: &'a dyn FileSystem,
-    pub dest_fs: &'a dyn FileSystem,
+    pub src_fs: &'a dyn FileSystemProvider,
+    pub dest_fs: &'a dyn FileSystemProvider,
     pub src: &'a std::path::Path,
     pub dest: &'a std::path::Path,
     pub action: crate::app::CopyMoveAction,
@@ -104,7 +104,7 @@ async fn try_rename_move_optimization(
 ) -> Result<bool> {
     let same_fs = ctx.src_fs.context_key() == ctx.dest_fs.context_key();
     if ctx.action == crate::app::CopyMoveAction::Move && same_fs {
-        let dest_exists = ctx.dest_fs.try_exists(dest).await.unwrap_or(false);
+        let dest_exists = ctx.dest_fs.exists(dest).await;
         if !dest_exists && ctx.src_fs.rename(src, dest).await.is_ok() {
             // Successfully moved! Update progress.
             // count_items includes the root, but we've already counted it.
@@ -131,7 +131,7 @@ async fn handle_file(
     dest: &std::path::Path,
 ) -> Result<bool> {
     let mut perform = true;
-    let dest_exists = ctx.dest_fs.try_exists(dest).await.unwrap_or(false);
+    let dest_exists = ctx.dest_fs.exists(dest).await;
 
     if dest_exists {
         match resolve_conflict(ctx, decision_state, dest).await? {
@@ -157,7 +157,7 @@ async fn handle_file(
     }
 
     if ctx.action == crate::app::CopyMoveAction::Move && perform {
-        let _ = ctx.src_fs.remove_file(src).await;
+        let _ = ctx.src_fs.delete(src, false).await;
     }
 
     // Update progress
@@ -195,7 +195,7 @@ pub fn recursive_op<'a>(
             match item {
                 WorkItem::PostProcessDir { src } => {
                     // Remove empty directory after move
-                    let _ = ctx.src_fs.remove_file(&src).await;
+                    let _ = ctx.src_fs.delete(&src, false).await;
                 }
                 WorkItem::Process { src, dest } => {
                     // Move optimization: Try rename first if it's a move operation and same FS
@@ -203,7 +203,7 @@ pub fn recursive_op<'a>(
                         continue;
                     }
 
-                    if ctx.src_fs.is_dir(&src).await.unwrap_or(false) {
+                    if ctx.src_fs.is_dir(&src).await {
                         handle_directory(&ctx, decision_state, &src, &dest, &mut stack).await?;
                     } else if !handle_file(&ctx, decision_state, &src, &dest).await? {
                         return Ok(()); // Cancelled
@@ -228,7 +228,7 @@ async fn handle_directory(
     dest: &std::path::Path,
     stack: &mut Vec<WorkItem>,
 ) -> Result<()> {
-    let progress = crate::fs::traits::TaskProgressContext {
+    let progress = TaskProgressContext {
         id: ctx.id,
         tx: ctx.tx.clone(),
         cancel: ctx.cancel.clone(),
@@ -236,8 +236,8 @@ async fn handle_directory(
         processed_items: ctx.processed.clone(),
     };
 
-    let dest_exists = ctx.dest_fs.try_exists(dest).await.unwrap_or(false);
-    let dest_is_dir = dest_exists && ctx.dest_fs.is_dir(dest).await.unwrap_or(false);
+    let dest_exists = ctx.dest_fs.exists(dest).await;
+    let dest_is_dir = dest_exists && ctx.dest_fs.is_dir(dest).await;
 
     // For archive destinations, hand off the whole directory at once so the
     // entire tree is added in a single batched rewrite (archives cannot append).
@@ -279,7 +279,7 @@ async fn handle_archive_directory(
     src: &std::path::Path,
     dest: &std::path::Path,
     dest_exists: bool,
-    progress: &crate::fs::traits::TaskProgressContext,
+    progress: &TaskProgressContext,
 ) -> Result<()> {
     let tree_count = count_items(ctx.src_fs, &[src.to_path_buf()]).await;
     let mark_processed = |ctx: &RecursiveOpContext<'_>| {
@@ -324,7 +324,7 @@ async fn handle_copy_to_local_with_existing_dir(
     decision_state: &mut DecisionState,
     src: &std::path::Path,
     dest: &std::path::Path,
-    progress: &crate::fs::traits::TaskProgressContext,
+    progress: &TaskProgressContext,
 ) -> Result<Option<Result<()>>> {
     if let Some(_res) = ctx
         .src_fs
@@ -368,7 +368,7 @@ async fn handle_copy_to_local_direct(
     ctx: &RecursiveOpContext<'_>,
     src: &std::path::Path,
     dest: &std::path::Path,
-    progress: &crate::fs::traits::TaskProgressContext,
+    progress: &TaskProgressContext,
 ) -> Result<Option<Result<()>>> {
     // Destination doesn't exist yet — copy directly, no conflict.
     if let Some(res) = ctx
@@ -412,7 +412,7 @@ async fn ensure_dest_directory(
         match resolve_conflict(ctx, decision_state, dest).await? {
             ConflictResult::Perform => {
                 // Remove the blocking file and create the directory.
-                let _ = ctx.dest_fs.remove_file(dest).await;
+                let _ = ctx.dest_fs.delete(dest, false).await;
                 if let Err(e) = ctx.dest_fs.create_dir_all(dest).await {
                     return Err(anyhow!(
                         "Failed to create directory {}: {e}",
@@ -529,7 +529,7 @@ async fn perform_sftp_copy(
     dest: &std::path::Path,
 ) -> Option<anyhow::Result<()>> {
     const RSYNC_MIN_SIZE: u64 = 1024 * 1024; // 1 MB threshold
-    let progress = crate::fs::traits::TaskProgressContext {
+    let progress = TaskProgressContext {
         id: ctx.id,
         tx: ctx.tx.clone(),
         cancel: ctx.cancel.clone(),
@@ -740,10 +740,7 @@ mod tests {
         std::fs::write(&src_file, b"test content").unwrap();
 
         let past_time = std::time::UNIX_EPOCH + std::time::Duration::from_hours(447_072);
-        StdFileSystem
-            .set_modified_time(&src_file, past_time)
-            .await
-            .unwrap();
+        assert!(StdFileSystem.set_modified_time(&src_file, past_time).await);
 
         let src_mtime = StdFileSystem.get_modified_time(&src_file).await;
         assert!(src_mtime.is_some());
@@ -770,8 +767,7 @@ mod tests {
         std::fs::write(&test_file, b"test").unwrap();
 
         let past_time = std::time::UNIX_EPOCH + std::time::Duration::from_hours(447_072);
-        let result = StdFileSystem.set_modified_time(&test_file, past_time).await;
-        assert!(result.is_ok());
+        assert!(StdFileSystem.set_modified_time(&test_file, past_time).await);
 
         let mtime = StdFileSystem.get_modified_time(&test_file).await;
         assert!(mtime.is_some());
@@ -798,10 +794,7 @@ mod tests {
         std::fs::write(&src_file, original_content).unwrap();
 
         let past_time = std::time::UNIX_EPOCH + std::time::Duration::from_hours(447_072);
-        StdFileSystem
-            .set_modified_time(&src_file, past_time)
-            .await
-            .unwrap();
+        assert!(StdFileSystem.set_modified_time(&src_file, past_time).await);
 
         StdFileSystem.copy(&src_file, &dst_file).await.unwrap();
 
