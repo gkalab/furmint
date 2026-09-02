@@ -371,6 +371,7 @@ pub async fn handle_open_item(app: &mut AppState) {
                     configured_terminal,
                     &[full_path.to_string_lossy().to_string()],
                     false,
+                    None,
                 ) {
                     app.active_tab_mut().error = Some(format!("Error launching in terminal: {e}"));
                 }

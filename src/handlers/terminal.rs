@@ -36,6 +36,7 @@ fn spawn_terminal_linux(
     configured_terminal: Option<String>,
     args: &[String],
     wrap_shell: bool,
+    sshpass: Option<secrecy::SecretString>,
 ) -> anyhow::Result<()> {
     let shell_trap = |cmdline: String| {
         format!("{cmdline} || (echo; echo 'Command failed. Press Enter to close...'; read)")
@@ -125,6 +126,10 @@ fn spawn_terminal_linux(
         if Command::new(terminal).arg("--version").output().is_ok()
             || terminal == "x-terminal-emulator"
         {
+            if let Some(pw) = &sshpass {
+                use secrecy::ExposeSecret;
+                cmd.env("SSHPASS", pw.expose_secret());
+            }
             match cmd.spawn() {
                 Ok(_) => return Ok(()),
                 Err(e) => {
@@ -147,7 +152,14 @@ fn spawn_terminal_macos(
     configured_terminal: Option<String>,
     args: &[String],
     wrap_shell: bool,
+    sshpass: Option<secrecy::SecretString>,
 ) -> anyhow::Result<()> {
+    let add_env = |cmd: &mut Command| {
+        if let Some(pw) = &sshpass {
+            use secrecy::ExposeSecret;
+            cmd.env("SSHPASS", pw.expose_secret());
+        }
+    };
     if !args.is_empty() {
         let mut cmd = Command::new("open");
         cmd.arg("-a").arg("Terminal").arg("-e");
@@ -167,6 +179,7 @@ fn spawn_terminal_macos(
                 cmd.arg(arg);
             }
         }
+        add_env(&mut cmd);
         cmd.current_dir(dir).spawn()?;
     } else if let Some(term) = configured_terminal {
         Command::new("open").arg("-a").arg(term).arg(dir).spawn()?;
@@ -186,6 +199,7 @@ fn spawn_terminal_windows(
     configured_terminal: Option<String>,
     args: &[String],
     wrap_shell: bool,
+    _sshpass: Option<secrecy::SecretString>,
 ) -> anyhow::Result<()> {
     let mut cmd = if !args.is_empty() {
         // Detect if the target is a GUI application to avoid background terminals
@@ -260,6 +274,9 @@ fn spawn_terminal_windows(
 
 /// Spawns a terminal in the given directory.
 ///
+/// `sshpass` is an optional `SSHPASS` environment value to set on the spawned
+/// terminal's environment (used for `sshpass -e` password authentication).
+///
 /// # Errors
 ///
 /// Returns an error if the terminal cannot be spawned.
@@ -268,15 +285,16 @@ pub fn spawn_terminal(
     configured_terminal: Option<String>,
     args: &[String],
     wrap_shell: bool,
+    sshpass: Option<secrecy::SecretString>,
 ) -> anyhow::Result<()> {
     #[cfg(target_os = "linux")]
-    return spawn_terminal_linux(dir, configured_terminal, args, wrap_shell);
+    return spawn_terminal_linux(dir, configured_terminal, args, wrap_shell, sshpass);
 
     #[cfg(target_os = "macos")]
-    return spawn_terminal_macos(dir, configured_terminal, args, wrap_shell);
+    return spawn_terminal_macos(dir, configured_terminal, args, wrap_shell, sshpass);
 
     #[cfg(target_os = "windows")]
-    return spawn_terminal_windows(dir, configured_terminal, args, wrap_shell);
+    return spawn_terminal_windows(dir, configured_terminal, args, wrap_shell, sshpass);
 
     #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     Err(anyhow::anyhow!("Unsupported OS"))
@@ -294,11 +312,122 @@ fn get_terminal_working_dir(app: &AppState) -> std::path::PathBuf {
     }
 }
 
+/// Returns `true` if the given command is available on the system PATH.
+fn is_command_available(command: &str) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("where")
+            .arg(command)
+            .output()
+            .is_ok_and(|o| o.status.success())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Command::new("sh")
+            .arg("-c")
+            .arg(format!("command -v {command} >/dev/null 2>&1"))
+            .output()
+            .is_ok_and(|o| o.status.success())
+    }
+}
+
+/// Adds the `sshpass` prefix to `args` and returns the `SSHPASS` secret.
+///
+/// On Unix, when a cached password is available for the provider and `sshpass`
+/// is installed, prepends `sshpass -e` to `args` and returns the password to be
+/// exported as `SSHPASS` (kept out of the process list).
+/// On Windows no password is injected; the user authenticates interactively.
+#[cfg(not(target_os = "windows"))]
+fn sshpass_args(
+    args: &mut Vec<String>,
+    provider: &dyn crate::fs::fs_provider::FileSystemProvider,
+) -> Option<secrecy::SecretString> {
+    if let Some(pw) = provider.get_password()
+        && is_command_available("sshpass")
+    {
+        args.push("sshpass".to_string());
+        args.push("-e".to_string());
+        Some(pw)
+    } else {
+        None
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn sshpass_args(
+    _args: &mut Vec<String>,
+    _provider: &dyn crate::fs::fs_provider::FileSystemProvider,
+) -> Option<secrecy::SecretString> {
+    None
+}
+
+/// Builds an SSH command for opening a terminal on the remote host of the
+/// active tab. Returns `None` if the tab is not a remote connection, `ssh` is
+/// not available, or the connection lacks host/user info.
+///
+/// On Unix, when a cached password is available and `sshpass` is installed,
+/// the password is passed via the `SSHPASS` environment variable (rather than a
+/// file or the process list) so `sshpass -e` can read it. On Windows or without
+/// `sshpass`, no password is injected and the user authenticates interactively.
+struct SshTerminalPlan {
+    args: Vec<String>,
+    /// SSHPASS value to set on the child process environment.
+    sshpass: Option<secrecy::SecretString>,
+}
+
+fn build_ssh_terminal_plan(app: &AppState) -> Option<SshTerminalPlan> {
+    let tab = app.active_tab();
+    if tab.provider.is_local() {
+        return None;
+    }
+
+    let host = tab.provider.get_host()?.to_string();
+    let user = tab.provider.get_user()?.to_string();
+    let port = tab.provider.get_port();
+
+    if !is_command_available("ssh") {
+        return None;
+    }
+
+    let mut args: Vec<String> = Vec::new();
+    let sshpass = sshpass_args(&mut args, tab.provider.as_ref());
+
+    args.push("ssh".to_string());
+    // Allocate a TTY since we run a command on the remote side.
+    args.push("-t".to_string());
+    if port != 22 {
+        args.push("-p".to_string());
+        args.push(port.to_string());
+    }
+    args.push(format!("{user}@{host}"));
+
+    // Remote command to start an interactive shell in the current directory.
+    let dir_str = crate::fs::utils::normalize_sftp_path(&tab.current_dir);
+    let quoted_dir = format!("'{}'", dir_str.replace('\'', "'\\''"));
+    let remote_cmd = format!("cd {quoted_dir} && exec \"${{SHELL:-/bin/sh}}\"");
+    args.push(remote_cmd);
+
+    Some(SshTerminalPlan { args, sshpass })
+}
+
 pub fn handle_open_terminal(app: &mut AppState) {
     let current_dir = get_terminal_working_dir(app);
     let configured_terminal = app.global.terminal.clone();
 
-    if let Err(e) = spawn_terminal(&current_dir, configured_terminal, &[], false) {
+    if let Some(plan) = build_ssh_terminal_plan(app) {
+        let sshpass = plan.sshpass;
+        #[cfg(target_os = "windows")]
+        let wrap = false;
+        #[cfg(not(target_os = "windows"))]
+        let wrap = true;
+        if let Err(e) = spawn_terminal(&current_dir, configured_terminal, &plan.args, wrap, sshpass)
+        {
+            app.active_tab_mut().error = Some(format!("Error opening terminal: {e}"));
+        }
+        return;
+    }
+
+    if let Err(e) = spawn_terminal(&current_dir, configured_terminal, &[], false, None) {
         app.active_tab_mut().error = Some(format!("Error opening terminal: {e}"));
     }
 }

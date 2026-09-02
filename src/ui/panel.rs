@@ -4,7 +4,7 @@ use crate::fs::utils::{FileEntry, format_modified, format_size};
 use crate::theme::ThemePalette;
 use crate::ui::ui_utils::{
     TabScrollbarContext, draw_tab_scrollbar, is_root_user, lighten_red, panel_bg_color,
-    truncate_middle_with_ellipsis,
+    truncate_middle_with_ellipsis, truncate_path_str,
 };
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Cell, Row, Table, TableState};
@@ -293,7 +293,17 @@ fn build_panel_block(
     let panel_bg = panel_bg_color(palette, active, is_root, borders);
 
     let prefix = panel.provider.display_prefix();
-    let tilde_path = crate::ui::ui_utils::replace_home_with_tilde(&panel.current_dir);
+
+    let display_path = if panel.provider.is_local() {
+        None
+    } else {
+        Some(panel.provider.display_path(&panel.current_dir))
+    };
+
+    let tilde_path = match &display_path {
+        Some(p) => p.clone(),
+        None => crate::ui::ui_utils::replace_home_with_tilde(&panel.current_dir),
+    };
     let full_title = if prefix.is_empty() {
         format!(" {tilde_path} ")
     } else {
@@ -301,7 +311,12 @@ fn build_panel_block(
     };
     let title_width = area.width.saturating_sub(4) as usize;
     let panel_title = if full_title.len() > title_width {
-        crate::ui::ui_utils::truncate_path_with_ellipsis(&panel.current_dir, title_width)
+        match &display_path {
+            Some(p) => format!(" {prefix}:{} ", truncate_path_str(p, title_width)),
+            None => {
+                crate::ui::ui_utils::truncate_path_with_ellipsis(&panel.current_dir, title_width)
+            }
+        }
     } else {
         full_title
     };

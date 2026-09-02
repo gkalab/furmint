@@ -322,6 +322,21 @@ pub trait FileSystemProvider: Send + Sync {
         None
     }
 
+    /// Host of the remote connection, if this is a remote (SSH) provider.
+    fn get_host(&self) -> Option<&str> {
+        None
+    }
+
+    /// User of the remote connection, if this is a remote (SSH) provider.
+    fn get_user(&self) -> Option<&str> {
+        None
+    }
+
+    /// Port of the remote connection (defaults to 22 if not a remote provider).
+    fn get_port(&self) -> u16 {
+        22
+    }
+
     /// Get a display-friendly path string.
     /// For local filesystems: uses native separators.
     /// For remote filesystems (SFTP): normalizes to forward slashes.

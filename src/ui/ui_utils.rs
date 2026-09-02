@@ -229,6 +229,19 @@ pub fn truncate_path_with_ellipsis(path: &std::path::Path, max_width: usize) -> 
     last_result
 }
 
+/// Truncates a `/`-separated path string to fit `max_width` characters, keeping
+/// the first and last path segments and inserting an ellipsis in the middle.
+/// This is used for remote paths, which are plain strings (forward-slash) rather
+/// than `Path` values, so the platform's `Path`/`PathBuf` separator handling is
+/// avoided.
+#[must_use]
+pub fn truncate_path_str(path: &str, max_width: usize) -> String {
+    if path.chars().count() <= max_width {
+        return path.to_string();
+    }
+    truncate_middle_with_ellipsis(path, max_width)
+}
+
 /// Helper function to create a lighter shade of red for inactive borders
 #[must_use]
 pub fn lighten_red(red: crate::theme::Rgb) -> crate::theme::Rgb {

@@ -30,8 +30,14 @@ pub fn launch_external_program(
     if in_terminal {
         let mut t_args = vec![program.clone()];
         t_args.extend(args);
-        spawn_terminal(&current_dir, app.global.terminal.clone(), &t_args, true)
-            .map_err(|e| format!("Error launching {program_name} in terminal: {e}"))
+        spawn_terminal(
+            &current_dir,
+            app.global.terminal.clone(),
+            &t_args,
+            true,
+            None,
+        )
+        .map_err(|e| format!("Error launching {program_name} in terminal: {e}"))
     } else {
         // Launch directly (background)
         match std::process::Command::new(program)

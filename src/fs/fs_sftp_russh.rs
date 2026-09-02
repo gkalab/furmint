@@ -220,8 +220,9 @@ impl std::error::Error for PubkeyAuthError {}
 pub struct SftpFs {
     session: Arc<client::Handle<SshClientHandler>>,
     sftp: Arc<SftpSession>,
-    _host: String,
-    _user: String,
+    host: String,
+    user: String,
+    port: u16,
     password: Option<SecretString>,
     prefix: String,
 }
@@ -300,6 +301,7 @@ impl SftpFs {
         Self::from_handle(
             guard.into_inner(),
             host.to_string(),
+            port,
             user.to_string(),
             Some(password),
         )
@@ -364,6 +366,7 @@ impl SftpFs {
                 return Self::from_handle(
                     guard.into_inner(),
                     host.to_string(),
+                    port,
                     user.to_string(),
                     None,
                 )
@@ -399,6 +402,7 @@ impl SftpFs {
                     return Self::from_handle(
                         guard.into_inner(),
                         host.to_string(),
+                        port,
                         user.to_string(),
                         None,
                     )
@@ -509,6 +513,7 @@ impl SftpFs {
     async fn from_handle(
         handle: client::Handle<SshClientHandler>,
         host: String,
+        port: u16,
         user: String,
         password: Option<SecretString>,
     ) -> Result<Self> {
@@ -530,8 +535,9 @@ impl SftpFs {
         Ok(Self {
             session: Arc::new(handle),
             sftp: Arc::new(sftp),
-            _host: host,
-            _user: user,
+            host,
+            user,
+            port,
             password,
             prefix,
         })
@@ -876,6 +882,18 @@ impl FileSystemProvider for SftpFs {
 
     fn get_password(&self) -> Option<SecretString> {
         self.password.clone()
+    }
+
+    fn get_host(&self) -> Option<&str> {
+        Some(&self.host)
+    }
+
+    fn get_user(&self) -> Option<&str> {
+        Some(&self.user)
+    }
+
+    fn get_port(&self) -> u16 {
+        self.port
     }
 
     fn display_path(&self, path: &Path) -> String {
