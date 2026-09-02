@@ -36,7 +36,7 @@ fn spawn_terminal_linux(
     configured_terminal: Option<String>,
     args: &[String],
     wrap_shell: bool,
-    sshpass: Option<secrecy::SecretString>,
+    sshpass: Option<&secrecy::SecretString>,
 ) -> anyhow::Result<()> {
     let shell_trap = |cmdline: String| {
         format!("{cmdline} || (echo; echo 'Command failed. Press Enter to close...'; read)")
@@ -152,7 +152,7 @@ fn spawn_terminal_macos(
     configured_terminal: Option<String>,
     args: &[String],
     wrap_shell: bool,
-    sshpass: Option<secrecy::SecretString>,
+    sshpass: Option<&secrecy::SecretString>,
 ) -> anyhow::Result<()> {
     let add_env = |cmd: &mut Command| {
         if let Some(pw) = &sshpass {
@@ -199,7 +199,7 @@ fn spawn_terminal_windows(
     configured_terminal: Option<String>,
     args: &[String],
     wrap_shell: bool,
-    _sshpass: Option<secrecy::SecretString>,
+    _sshpass: Option<&secrecy::SecretString>,
 ) -> anyhow::Result<()> {
     let mut cmd = if !args.is_empty() {
         // Detect if the target is a GUI application to avoid background terminals
@@ -285,7 +285,7 @@ pub fn spawn_terminal(
     configured_terminal: Option<String>,
     args: &[String],
     wrap_shell: bool,
-    sshpass: Option<secrecy::SecretString>,
+    sshpass: Option<&secrecy::SecretString>,
 ) -> anyhow::Result<()> {
     #[cfg(target_os = "linux")]
     return spawn_terminal_linux(dir, configured_terminal, args, wrap_shell, sshpass);
@@ -420,8 +420,13 @@ pub fn handle_open_terminal(app: &mut AppState) {
         let wrap = false;
         #[cfg(not(target_os = "windows"))]
         let wrap = true;
-        if let Err(e) = spawn_terminal(&current_dir, configured_terminal, &plan.args, wrap, sshpass)
-        {
+        if let Err(e) = spawn_terminal(
+            &current_dir,
+            configured_terminal,
+            &plan.args,
+            wrap,
+            sshpass.as_ref(),
+        ) {
             app.active_tab_mut().error = Some(format!("Error opening terminal: {e}"));
         }
         return;

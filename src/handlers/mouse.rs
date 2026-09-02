@@ -390,6 +390,7 @@ async fn handle_right_click(app: &mut AppState, x: u16, y: u16) {
 }
 
 #[cfg(not(windows))]
+#[allow(clippy::unused_async)]
 async fn handle_right_click(_app: &mut AppState, _x: u16, _y: u16) {}
 
 async fn handle_tab_bar_click(app: &mut AppState, side: PanelSide, x: u16, y: u16) {
