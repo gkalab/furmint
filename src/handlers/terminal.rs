@@ -152,34 +152,26 @@ fn spawn_terminal_macos(
     configured_terminal: Option<String>,
     args: &[String],
     wrap_shell: bool,
-    sshpass: Option<&secrecy::SecretString>,
+    _sshpass: Option<&secrecy::SecretString>,
 ) -> anyhow::Result<()> {
-    let add_env = |cmd: &mut Command| {
-        if let Some(pw) = &sshpass {
-            use secrecy::ExposeSecret;
-            cmd.env("SSHPASS", pw.expose_secret());
-        }
-    };
     if !args.is_empty() {
         let mut cmd = Command::new("open");
         cmd.arg("-a").arg("Terminal").arg("-e");
         if wrap_shell {
-            let mut shell_cmd = args
+            let joined = args
                 .iter()
-                .map(|a| format!("\"{}\"", a.replace("\"", "\\\"")))
+                .map(|a| shell_escape::escape(a.into()))
                 .collect::<Vec<_>>()
                 .join(" ");
-            shell_cmd = format!(
-                "{} || (echo; echo 'Command failed. Press Enter to close...'; read)",
-                shell_cmd
-            );
+            let trap = " || (echo; echo 'Command failed. Press Enter to close...'; read)";
+            let esc = |s: &str| s.replace('\'', "'\\''");
+            let shell_cmd = format!("'{}{}'", esc(joined), esc(trap));
             cmd.arg("bash").arg("-c").arg(shell_cmd);
         } else {
             for arg in args {
                 cmd.arg(arg);
             }
         }
-        add_env(&mut cmd);
         cmd.current_dir(dir).spawn()?;
     } else if let Some(term) = configured_terminal {
         Command::new("open").arg("-a").arg(term).arg(dir).spawn()?;
@@ -276,6 +268,7 @@ fn spawn_terminal_windows(
 ///
 /// `sshpass` is an optional `SSHPASS` environment value to set on the spawned
 /// terminal's environment (used for `sshpass -e` password authentication).
+/// Only applied on Linux; on macOS and Windows authentication is interactive.
 ///
 /// # Errors
 ///
@@ -333,11 +326,10 @@ fn is_command_available(command: &str) -> bool {
 
 /// Adds the `sshpass` prefix to `args` and returns the `SSHPASS` secret.
 ///
-/// On Unix, when a cached password is available for the provider and `sshpass`
+/// On Linux, when a cached password is available for the provider and `sshpass`
 /// is installed, prepends `sshpass -e` to `args` and returns the password to be
 /// exported as `SSHPASS` (kept out of the process list).
-/// On Windows no password is injected; the user authenticates interactively.
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
 fn sshpass_args(
     args: &mut Vec<String>,
     provider: &dyn crate::fs::fs_provider::FileSystemProvider,
@@ -353,7 +345,7 @@ fn sshpass_args(
     }
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_os = "linux"))]
 fn sshpass_args(
     _args: &mut Vec<String>,
     _provider: &dyn crate::fs::fs_provider::FileSystemProvider,
@@ -361,14 +353,34 @@ fn sshpass_args(
     None
 }
 
+/// Builds the argument list for an `ssh` command that opens an interactive
+/// shell on `user@host` in the remote directory `dir`.
+#[must_use]
+fn build_ssh_args(user: &str, host: &str, port: u16, dir: &std::path::Path) -> Vec<String> {
+    let mut args: Vec<String> = Vec::new();
+    args.push("ssh".to_string());
+    // Allocate a TTY since we run a command on the remote side.
+    args.push("-t".to_string());
+    if port != 22 {
+        args.push("-p".to_string());
+        args.push(port.to_string());
+    }
+    args.push(format!("{user}@{host}"));
+
+    // Remote command to start an interactive shell in the current directory.
+    let dir_str = crate::fs::utils::normalize_sftp_path(dir);
+    let quoted_dir = format!("'{}'", dir_str.replace('\'', "'\\''"));
+    let remote_cmd = format!("cd {quoted_dir} && exec \"${{SHELL:-/bin/sh}}\"");
+    args.push(remote_cmd);
+    args
+}
+
 /// Builds an SSH command for opening a terminal on the remote host of the
 /// active tab. Returns `None` if the tab is not a remote connection, `ssh` is
 /// not available, or the connection lacks host/user info.
 ///
-/// On Unix, when a cached password is available and `sshpass` is installed,
-/// the password is passed via the `SSHPASS` environment variable (rather than a
-/// file or the process list) so `sshpass -e` can read it. On Windows or without
-/// `sshpass`, no password is injected and the user authenticates interactively.
+/// On Linux, when a cached password is available and `sshpass` is installed,
+/// the password is passed via the `SSHPASS` environment variable.
 struct SshTerminalPlan {
     args: Vec<String>,
     /// SSHPASS value to set on the child process environment.
@@ -391,21 +403,7 @@ fn build_ssh_terminal_plan(app: &AppState) -> Option<SshTerminalPlan> {
 
     let mut args: Vec<String> = Vec::new();
     let sshpass = sshpass_args(&mut args, tab.provider.as_ref());
-
-    args.push("ssh".to_string());
-    // Allocate a TTY since we run a command on the remote side.
-    args.push("-t".to_string());
-    if port != 22 {
-        args.push("-p".to_string());
-        args.push(port.to_string());
-    }
-    args.push(format!("{user}@{host}"));
-
-    // Remote command to start an interactive shell in the current directory.
-    let dir_str = crate::fs::utils::normalize_sftp_path(&tab.current_dir);
-    let quoted_dir = format!("'{}'", dir_str.replace('\'', "'\\''"));
-    let remote_cmd = format!("cd {quoted_dir} && exec \"${{SHELL:-/bin/sh}}\"");
-    args.push(remote_cmd);
+    args.extend(build_ssh_args(&user, &host, port, &tab.current_dir));
 
     Some(SshTerminalPlan { args, sshpass })
 }
@@ -536,12 +534,28 @@ mod tests {
     use crate::test_utils::create_test_app;
     use async_trait::async_trait;
 
-    struct MockRemoteFs;
+    struct MockRemoteFs {
+        host: Option<String>,
+        user: Option<String>,
+        port: u16,
+    }
 
     #[async_trait]
     impl crate::fs::fs_provider::FileSystemProvider for MockRemoteFs {
         fn is_local(&self) -> bool {
             false
+        }
+
+        fn get_host(&self) -> Option<&str> {
+            self.host.as_deref()
+        }
+
+        fn get_user(&self) -> Option<&str> {
+            self.user.as_deref()
+        }
+
+        fn get_port(&self) -> u16 {
+            self.port
         }
         async fn list_dir(
             &self,
@@ -633,9 +647,78 @@ mod tests {
     #[test]
     fn test_get_terminal_working_dir_remote() {
         let mut app = create_test_app();
-        app.active_tab_mut().provider = std::sync::Arc::new(MockRemoteFs);
+        app.active_tab_mut().provider = std::sync::Arc::new(MockRemoteFs {
+            host: None,
+            user: None,
+            port: 22,
+        });
         let dir = get_terminal_working_dir(&app);
         let home = UserDirs::new().unwrap().home_dir().to_path_buf();
         assert_eq!(dir, home);
+    }
+
+    #[test]
+    fn test_build_ssh_args_default_port() {
+        let args = build_ssh_args("user", "example.com", 22, std::path::Path::new("/home/g"));
+        assert_eq!(
+            args,
+            vec![
+                "ssh",
+                "-t",
+                "user@example.com",
+                "cd '/home/g' && exec \"${SHELL:-/bin/sh}\"",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_build_ssh_args_custom_port() {
+        let args = build_ssh_args("g", "h", 2222, std::path::Path::new("/tmp"));
+        assert_eq!(
+            args,
+            vec![
+                "ssh",
+                "-t",
+                "-p",
+                "2222",
+                "g@h",
+                "cd '/tmp' && exec \"${SHELL:-/bin/sh}\""
+            ]
+        );
+    }
+
+    #[test]
+    fn test_build_ssh_args_dir_with_space() {
+        let args = build_ssh_args("g", "h", 22, std::path::Path::new("/home/user/my docs"));
+        assert_eq!(
+            args.last().unwrap(),
+            "cd '/home/user/my docs' && exec \"${SHELL:-/bin/sh}\""
+        );
+    }
+
+    #[test]
+    fn test_build_ssh_args_dir_with_single_quote() {
+        let args = build_ssh_args("g", "h", 22, std::path::Path::new("/home/user/it's dir"));
+        assert_eq!(
+            args.last().unwrap(),
+            "cd '/home/user/it'\\''s dir' && exec \"${SHELL:-/bin/sh}\""
+        );
+    }
+
+    #[test]
+    fn test_build_ssh_terminal_plan_local() {
+        let app = create_test_app();
+        assert!(build_ssh_terminal_plan(&app).is_none());
+    }
+
+    #[test]
+    fn test_build_ssh_terminal_plan_missing_host_info() {
+        let mut app = create_test_app();
+        app.active_tab_mut().provider = std::sync::Arc::new(MockRemoteFs {
+            host: None,
+            user: Some("g".to_string()),
+            port: 22,
+        });
+        assert!(build_ssh_terminal_plan(&app).is_none());
     }
 }

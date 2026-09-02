@@ -101,3 +101,15 @@ fn test_replace_home_with_tilde_relative() {
     let s = ui_utils::replace_home_with_tilde(p);
     assert_eq!(s, "relative/path");
 }
+
+#[test]
+fn test_truncate_path_str_fits() {
+    assert_eq!(ui_utils::truncate_path_str("/home/user", 20), "/home/user");
+}
+
+#[test]
+fn test_truncate_path_str_truncated() {
+    let s = ui_utils::truncate_path_str("/very/long/path/to/a/deeply/nested/remote/dir", 20);
+    assert!(s.contains("…"), "expected ellipsis, got {s}");
+    assert!(s.chars().count() <= 20, "got {s}");
+}
