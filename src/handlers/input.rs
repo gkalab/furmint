@@ -36,9 +36,9 @@ pub async fn handle_main_panel_event(
     if let Some(keys) = &keyboard.empty_trash
         && keys.contains(&shortcut)
     {
-        let trash = &mut app.popups.empty_trash;
-        trash.is_visible = true;
-        trash.selected_no = true;
+        app.popups
+            .set_popup_visible(crate::app::PopupKind::EmptyTrash, true);
+        app.popups.empty_trash.selected_no = true;
         return false;
     }
 
@@ -107,7 +107,8 @@ pub async fn handle_main_panel_event(
     if let Some(keys) = &keyboard.help
         && keys.contains(&shortcut)
     {
-        app.popups.help.is_visible = true;
+        app.popups
+            .set_popup_visible(crate::app::PopupKind::Help, true);
         return false;
     }
 
@@ -410,7 +411,8 @@ fn handle_drive_selection(app: &mut AppState, keyboard: &KeyboardConfig, shortcu
     {
         let drives = crate::drive_select_ui::get_available_drives();
         if !drives.is_empty() {
-            app.popups.drive_select.is_visible = true;
+            app.popups
+                .set_popup_visible(crate::app::PopupKind::DriveSelect, true);
             app.popups.drive_select.drives = drives;
             app.popups.drive_select.side = crate::app::PanelSide::Left;
             app.popups.drive_select.selected_index = 0;
@@ -423,7 +425,8 @@ fn handle_drive_selection(app: &mut AppState, keyboard: &KeyboardConfig, shortcu
     {
         let drives = crate::drive_select_ui::get_available_drives();
         if !drives.is_empty() {
-            app.popups.drive_select.is_visible = true;
+            app.popups
+                .set_popup_visible(crate::app::PopupKind::DriveSelect, true);
             app.popups.drive_select.drives = drives;
             app.popups.drive_select.side = crate::app::PanelSide::Right;
             app.popups.drive_select.selected_index = 0;
@@ -541,7 +544,8 @@ fn handle_bookmark_shortcuts(
     if let Some(keys) = &keyboard.open_bookmarks
         && keys.iter().any(|s| s == shortcut)
     {
-        app.popups.bookmark.list.is_visible = true;
+        app.popups
+            .set_popup_visible(crate::app::PopupKind::Bookmark, true);
         // Search all bookmarks on open
         app.popups.bookmark.list.items = app.bookmark_store.fuzzy_search("");
         return true;

@@ -14,7 +14,8 @@ pub(crate) fn handle_quit_popup_event(code: KeyCode, app: &mut AppState) -> bool
             true
         }
         ChoiceResult::Cancelled => {
-            app.popups.quit_confirmation.reset();
+            app.popups
+                .reset_popup(crate::app::PopupKind::QuitConfirmation);
             false
         }
         ChoiceResult::None => false,
@@ -141,14 +142,16 @@ fn handle_conflict(
     app.popups.conflict.task_id = id;
     app.popups.conflict.conflict_path = path;
     app.popups.conflict.conflict_type = conflict_type;
-    app.popups.conflict.is_visible = true;
+    app.popups
+        .set_popup_visible(crate::app::PopupKind::Conflict, true);
 }
 
 fn handle_task_error(app: &mut crate::app::AppState, id: usize, path: String, msg: String) {
     app.popups.error.task_id = id;
     app.popups.error.error_path = path;
     app.popups.error.error_message = msg;
-    app.popups.error.is_visible = true;
+    app.popups
+        .set_popup_visible(crate::app::PopupKind::Error, true);
 }
 
 fn handle_ssh_host_key(
@@ -156,6 +159,8 @@ fn handle_ssh_host_key(
     prompt: crate::state::host_key::HostKeyPrompt,
 ) {
     app.popups.host_key.show(prompt);
+    app.popups
+        .set_popup_visible(crate::app::PopupKind::HostKey, true);
 }
 
 fn handle_dir_size_calculated(app: &mut crate::app::AppState, path: &std::path::Path, size: u64) {
@@ -174,7 +179,8 @@ fn handle_ssh_error(
 ) {
     match error {
         crate::ssh_manager::SshError::Network(_) | crate::ssh_manager::SshError::Connection(_) => {
-            app.popups.ssh_connection.is_visible = true;
+            app.popups
+                .set_popup_visible(crate::app::PopupKind::SshConnection, true);
             app.popups.ssh_connection.error = Some(error.to_string());
             app.popups.ssh_connection.active_field = crate::state::ssh::SshField::ConnectionString;
         }
@@ -200,11 +206,14 @@ fn handle_ssh_error(
                     key_auth: true,
                     connection_name: None,
                 });
+            app.popups
+                .set_popup_visible(crate::app::PopupKind::HostKey, true);
             // Keep host/user for reference
             let _ = (host,);
         }
         crate::ssh_manager::SshError::Auth(_) => {
-            app.popups.ssh_password.is_visible = true;
+            app.popups
+                .set_popup_visible(crate::app::PopupKind::SshPassword, true);
             app.popups.ssh_password.session_id.clear();
             app.popups.ssh_password.host = host;
             app.popups.ssh_password.user = user;
@@ -214,7 +223,8 @@ fn handle_ssh_error(
         }
         crate::ssh_manager::SshError::InvalidInput(msg)
         | crate::ssh_manager::SshError::Internal(msg) => {
-            app.popups.ssh_connection.is_visible = true;
+            app.popups
+                .set_popup_visible(crate::app::PopupKind::SshConnection, true);
             app.popups.ssh_connection.error = Some(msg);
             app.popups.ssh_connection.active_field = crate::state::ssh::SshField::ConnectionString;
         }
@@ -224,7 +234,8 @@ fn handle_ssh_error(
 fn handle_ssh_reconnect_failed(app: &mut crate::app::AppState, session_id: &str, error: String) {
     let sessions = app.ssh_manager.get_all_sessions();
     if let Some(session) = sessions.iter().find(|s| s.session_id == session_id) {
-        app.popups.ssh_password.is_visible = true;
+        app.popups
+            .set_popup_visible(crate::app::PopupKind::SshPassword, true);
         app.popups
             .ssh_password
             .session_id

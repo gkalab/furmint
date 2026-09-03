@@ -83,7 +83,7 @@ pub(crate) async fn edit_file_remote(
 
         // Show popup NOW while editor is running
         app.popups.remote_edit = crate::app::RemoteEditState {
-            is_visible: true,
+            is_visible: false,
             temp_path: temp_path.clone(),
             remote_path: remote_path_buf,
             filename,
@@ -93,6 +93,8 @@ pub(crate) async fn edit_file_remote(
             popup_area: ratatui::layout::Rect::default(),
             button_areas: Vec::new(),
         };
+        app.popups
+            .set_popup_visible(crate::app::PopupKind::RemoteEdit, true);
 
         // Spawn the wait in a blocking task so the TUI can redraw
         // We don't actually need to wait here - the popup will handle the upload
@@ -418,7 +420,7 @@ pub async fn handle_remote_edit_event(code: termina::event::KeyCode, app: &mut A
         KeyCode::Enter | KeyCode::Char('c' | 'C') | KeyCode::Escape => {
             let temp_path = app.popups.remote_edit.temp_path.clone();
             let _ = tokio::fs::remove_file(&temp_path).await;
-            app.popups.remote_edit.reset();
+            app.popups.reset_popup(crate::app::PopupKind::RemoteEdit);
             false
         }
         _ => false,
@@ -434,7 +436,7 @@ async fn do_remote_edit_upload(app: &mut AppState) {
     let edited_data = match tokio::fs::read(&temp_path).await {
         Ok(c) => c,
         Err(e) => {
-            app.popups.remote_edit.reset();
+            app.popups.reset_popup(crate::app::PopupKind::RemoteEdit);
             app.active_tab_mut().error = Some(format!("Error reading edited file: {e}"));
             app.refresh_active_tabs().await;
             return;
@@ -449,7 +451,7 @@ async fn do_remote_edit_upload(app: &mut AppState) {
         Some(upload_edited_file(&temp_path, &remote_path, provider, &edited_data).await)
     };
 
-    app.popups.remote_edit.reset();
+    app.popups.reset_popup(crate::app::PopupKind::RemoteEdit);
 
     if let Some(Err(e)) = result {
         app.active_tab_mut().error = Some(e.to_string());

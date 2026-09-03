@@ -8,10 +8,10 @@ pub fn handle_delete_event(code: KeyCode, app: &mut AppState) -> bool {
     match get_choice_with_selection(code, &mut app.popups.delete.selected_no) {
         ChoiceResult::Confirmed => {
             handle_confirm_delete(app);
-            app.popups.delete.reset();
+            app.popups.reset_popup(crate::app::PopupKind::Delete);
         }
         ChoiceResult::Cancelled => {
-            app.popups.delete.reset();
+            app.popups.reset_popup(crate::app::PopupKind::Delete);
         }
         ChoiceResult::None => {}
     }
@@ -41,7 +41,8 @@ pub fn handle_init_delete(app: &mut AppState, permanent: bool) {
 
     app.popups.delete.selected_paths = selected;
     app.popups.delete.is_permanent = permanent || is_remote;
-    app.popups.delete.is_visible = true;
+    app.popups
+        .set_popup_visible(crate::app::PopupKind::Delete, true);
 }
 
 pub fn handle_confirm_delete(app: &mut AppState) {

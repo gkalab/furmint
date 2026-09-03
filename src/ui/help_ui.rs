@@ -133,7 +133,7 @@ pub fn handle_help_popup_event(code: CrosstermKeyCode, app: &mut crate::app::App
 
     match code {
         CrosstermKeyCode::Escape => {
-            app.popups.help.reset();
+            app.popups.reset_popup(crate::app::PopupKind::Help);
         }
         CrosstermKeyCode::Up => {
             app.popups.help.scroll_offset = app.popups.help.scroll_offset.saturating_sub(1);

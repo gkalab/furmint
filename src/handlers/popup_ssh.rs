@@ -7,7 +7,8 @@ use std::time::{Duration, Instant};
 use termina::event::{KeyCode, Modifiers};
 
 pub fn handle_ssh_connection_init(app: &mut AppState) {
-    app.popups.ssh_connection.is_visible = true;
+    app.popups
+        .set_popup_visible(crate::app::PopupKind::SshConnection, true);
     app.popups.ssh_connection.error = None;
     app.popups.ssh_connection.active_field = crate::state::ssh::SshField::ConnectionString;
 
@@ -235,7 +236,8 @@ pub fn handle_ssh_connection_event(app: &mut AppState, code: KeyCode, modifiers:
 
     match code {
         KeyCode::Escape => {
-            app.popups.ssh_connection.is_visible = false;
+            app.popups
+                .set_popup_visible(crate::app::PopupKind::SshConnection, false);
         }
         KeyCode::Tab | KeyCode::BackTab => {
             handle_ssh_field_navigation(app, code);
@@ -393,7 +395,8 @@ fn start_ssh_auth(app: &mut AppState) {
             sort_direction: None,
         });
 
-        app.popups.ssh_connection.is_visible = false;
+        app.popups
+            .set_popup_visible(crate::app::PopupKind::SshConnection, false);
 
         spawn_ssh_connect_with_keys(app, parsed.host, port, parsed.user, parsed.path, name_opt);
     } else {
@@ -539,16 +542,19 @@ pub fn spawn_ssh_connect_with_password(
 pub fn handle_ssh_password_event(app: &mut AppState, code: KeyCode, modifiers: Modifiers) -> bool {
     match code {
         KeyCode::Escape => {
-            app.popups.ssh_password.is_visible = false;
+            app.popups
+                .set_popup_visible(crate::app::PopupKind::SshPassword, false);
             if !app.popups.ssh_connection.connection_string.is_empty() {
-                app.popups.ssh_connection.is_visible = true;
+                app.popups
+                    .set_popup_visible(crate::app::PopupKind::SshConnection, true);
             }
         }
         KeyCode::Enter => {
             let password = std::mem::take(&mut app.popups.ssh_password.password);
             let session_id = app.popups.ssh_password.session_id.clone();
 
-            app.popups.ssh_password.is_visible = false;
+            app.popups
+                .set_popup_visible(crate::app::PopupKind::SshPassword, false);
 
             if session_id.is_empty() {
                 let host = app.popups.ssh_password.host.clone();
@@ -682,7 +688,8 @@ fn show_password_popup_for_reconnect(
     session: &crate::ssh_manager::SessionState,
     error: Option<String>,
 ) {
-    app.popups.ssh_password.is_visible = true;
+    app.popups
+        .set_popup_visible(crate::app::PopupKind::SshPassword, true);
     app.popups
         .ssh_password
         .session_id

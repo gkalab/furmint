@@ -409,7 +409,8 @@ async fn test_drive_navigation_matches_opposite_pane() {
         app.right.tabs = vec![right_tab];
         app.active = PanelSide::Left;
 
-        app.popups.drive_select.is_visible = true;
+        app.popups
+            .set_popup_visible(fm::app::PopupKind::DriveSelect, true);
         app.popups.drive_select.drives = vec!["C:\\".to_string(), "D:\\".to_string()];
         app.popups.drive_select.side = PanelSide::Left;
         app.popups.drive_select.selected_index = 1; // "D:\"
@@ -470,7 +471,8 @@ async fn test_drive_navigation_matches_opposite_pane() {
         app.right.tabs = vec![right_tab];
         app.active = PanelSide::Left;
 
-        app.popups.drive_select.is_visible = true;
+        app.popups
+            .set_popup_visible(fm::app::PopupKind::DriveSelect, true);
         app.popups.drive_select.drives = vec!["C:\\".to_string(), "D:\\".to_string()];
         app.popups.drive_select.side = PanelSide::Left;
         app.popups.drive_select.selected_index = 1; // "D:\"
@@ -528,7 +530,8 @@ async fn test_drive_navigation_matches_opposite_pane() {
         app.right.tabs = vec![right_tab];
         app.active = PanelSide::Left;
 
-        app.popups.drive_select.is_visible = true;
+        app.popups
+            .set_popup_visible(fm::app::PopupKind::DriveSelect, true);
         app.popups.drive_select.drives = vec!["C:\\".to_string(), "D:\\".to_string()];
         app.popups.drive_select.side = PanelSide::Left;
         app.popups.drive_select.selected_index = 0; // "C:\"

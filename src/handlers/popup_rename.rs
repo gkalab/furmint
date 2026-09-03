@@ -14,7 +14,8 @@ pub fn handle_init_rename(app: &mut AppState) {
         if entry.name == ".." {
             return;
         }
-        app.popups.rename.is_visible = true;
+        app.popups
+            .set_popup_visible(crate::app::PopupKind::Rename, true);
         app.popups.rename.original_name.clone_from(&entry.name);
         app.popups.rename.new_name.clone_from(&entry.name);
         app.popups.rename.parent_dir = current_dir;
@@ -44,15 +45,15 @@ pub async fn handle_rename_event(code: KeyCode, modifiers: Modifiers, app: &mut 
         match code {
             KeyCode::Enter if app.popups.rename.focused_button == 1 => {
                 perform_rename(app, true).await;
-                app.popups.rename.reset();
+                app.popups.reset_popup(crate::app::PopupKind::Rename);
             }
             KeyCode::Char('y' | 'Y') => {
                 perform_rename(app, true).await;
-                app.popups.rename.reset();
+                app.popups.reset_popup(crate::app::PopupKind::Rename);
             }
             KeyCode::Enter | KeyCode::Char('n' | 'N') | KeyCode::Escape => {
                 app.popups.rename.show_overwrite_confirm = false;
-                app.popups.rename.reset();
+                app.popups.reset_popup(crate::app::PopupKind::Rename);
             }
             _ => {}
         }
@@ -61,11 +62,11 @@ pub async fn handle_rename_event(code: KeyCode, modifiers: Modifiers, app: &mut 
 
     match code {
         KeyCode::Escape => {
-            app.popups.rename.reset();
+            app.popups.reset_popup(crate::app::PopupKind::Rename);
         }
         KeyCode::Enter => {
             if app.popups.rename.new_name == app.popups.rename.original_name {
-                app.popups.rename.reset();
+                app.popups.reset_popup(crate::app::PopupKind::Rename);
             } else {
                 let new_path = app
                     .popups
@@ -81,7 +82,7 @@ pub async fn handle_rename_event(code: KeyCode, modifiers: Modifiers, app: &mut 
                     }
                 } else {
                     perform_rename(app, false).await;
-                    app.popups.rename.reset();
+                    app.popups.reset_popup(crate::app::PopupKind::Rename);
                 }
             }
         }

@@ -184,7 +184,8 @@ async fn test_handle_copy_move_event_escape_resets_popup() {
 #[tokio::test]
 async fn test_handle_copy_move_event_home_dir_expansion() {
     let mut app = minimal_state_with_entries(PanelSide::Left, vec![], vec![], 0, 0);
-    app.popups.copy_move.is_visible = true;
+    app.popups
+        .set_popup_visible(fm::app::PopupKind::CopyMove, true);
     app.popups.copy_move.destination_input = "~".to_string();
 
     handle_copy_move_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
@@ -207,7 +208,8 @@ async fn test_handle_copy_move_validation_same_path() {
     std::fs::File::create(&file_path).unwrap();
 
     let mut app = minimal_state_with_entries(PanelSide::Left, vec![], vec![], 0, 0);
-    app.popups.copy_move.is_visible = true;
+    app.popups
+        .set_popup_visible(fm::app::PopupKind::CopyMove, true);
     app.popups.copy_move.source_paths = vec![file_path.clone()];
     app.popups.copy_move.destination_input = temp_dir.to_string_lossy().to_string();
 
@@ -234,7 +236,8 @@ async fn test_handle_copy_move_validation_into_itself() {
     let dest_dir = src_dir.join("test_dest_dir");
 
     let mut app = minimal_state_with_entries(PanelSide::Left, vec![], vec![], 0, 0);
-    app.popups.copy_move.is_visible = true;
+    app.popups
+        .set_popup_visible(fm::app::PopupKind::CopyMove, true);
     app.popups.copy_move.source_paths = vec![src_dir.clone()];
     app.popups.copy_move.destination_input = dest_dir.to_string_lossy().to_string();
 

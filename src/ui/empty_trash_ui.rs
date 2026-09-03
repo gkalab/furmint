@@ -52,15 +52,20 @@ pub fn draw_empty_trash_popup(
 
 pub fn handle_empty_trash_popup_event(code: KeyCode, app: &mut crate::app::AppState) -> bool {
     use crate::handlers::popup_utils::{ChoiceResult, get_choice_with_selection};
-    let state = &mut app.popups.empty_trash;
-    match get_choice_with_selection(code, &mut state.selected_no) {
+    let choice = {
+        let state = &mut app.popups.empty_trash;
+        get_choice_with_selection(code, &mut state.selected_no)
+    };
+    match choice {
         ChoiceResult::Confirmed => {
-            state.is_visible = false;
+            app.popups
+                .set_popup_visible(crate::app::PopupKind::EmptyTrash, false);
             app.spawn_empty_trash_task();
             true
         }
         ChoiceResult::Cancelled => {
-            state.is_visible = false;
+            app.popups
+                .set_popup_visible(crate::app::PopupKind::EmptyTrash, false);
             false
         }
         ChoiceResult::None => false,

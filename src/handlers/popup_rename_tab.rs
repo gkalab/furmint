@@ -18,7 +18,7 @@ pub fn handle_init_rename_tab(app: &mut AppState) {
 pub fn handle_rename_tab_event(code: KeyCode, modifiers: Modifiers, app: &mut AppState) -> bool {
     match code {
         KeyCode::Escape => {
-            app.popups.rename_tab.reset();
+            app.popups.reset_popup(crate::app::PopupKind::RenameTab);
         }
         KeyCode::Enter => {
             let new_name = app.popups.rename_tab.new_name.trim();
@@ -27,7 +27,7 @@ pub fn handle_rename_tab_event(code: KeyCode, modifiers: Modifiers, app: &mut Ap
             } else {
                 app.active_tab_mut().custom_title = Some(new_name.to_string());
             }
-            app.popups.rename_tab.reset();
+            app.popups.reset_popup(crate::app::PopupKind::RenameTab);
         }
         _ => {
             handle_text_input(

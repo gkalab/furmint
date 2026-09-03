@@ -71,7 +71,8 @@ pub fn init_copy_move(app: &mut AppState, action: crate::app::CopyMoveAction) {
     app.popups.copy_move.destination_input = dest;
     app.popups.copy_move.cursor_position = app.popups.copy_move.destination_input.chars().count();
     app.popups.copy_move.input_selected = false;
-    app.popups.copy_move.is_visible = true;
+    app.popups
+        .set_popup_visible(crate::app::PopupKind::CopyMove, true);
 }
 
 pub fn handle_clipboard_copy(app: &mut AppState) {
@@ -419,7 +420,7 @@ pub async fn handle_copy_move_event(
 ) -> bool {
     match code {
         KeyCode::Escape => {
-            app.popups.copy_move.reset();
+            app.popups.reset_popup(crate::app::PopupKind::CopyMove);
         }
         KeyCode::Enter => {
             let dest_input = app.popups.copy_move.destination_input.clone();
@@ -475,7 +476,7 @@ pub async fn handle_copy_move_event(
                 app.popups.copy_move.destination_input.clone(),
                 app.popups.copy_move.action,
             );
-            app.popups.copy_move.reset();
+            app.popups.reset_popup(crate::app::PopupKind::CopyMove);
         }
         _ => {
             crate::handlers::input_utils::handle_text_input(

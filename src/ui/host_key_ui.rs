@@ -102,7 +102,8 @@ pub fn handle_host_key_popup_event(
             let key_auth = state.key_auth;
             let password = state.password.take();
             let connection_name = state.connection_name.clone();
-            state.is_visible = false;
+            app.popups
+                .set_popup_visible(crate::app::PopupKind::HostKey, false);
 
             // Append to known_hosts
             let _ = app.ssh_manager.known_hosts().append(&host, port, &key_line);
@@ -141,9 +142,12 @@ pub fn handle_host_key_popup_event(
             false
         }
         ChoiceResult::Cancelled => {
-            state.is_visible = false;
+            let host_str = state.host.clone();
+            let port_val = state.port;
+            app.popups
+                .set_popup_visible(crate::app::PopupKind::HostKey, false);
             // Show a status hint: host key rejected
-            let msg = format!("Host key rejected for {}:{}", state.host, state.port);
+            let msg = format!("Host key rejected for {host_str}:{port_val}");
             app.active_tab_mut().error = Some(msg);
             false
         }

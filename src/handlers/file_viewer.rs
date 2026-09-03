@@ -122,7 +122,8 @@ fn handle_viewer_shortcuts(code: KeyCode, modifiers: Modifiers, app: &mut AppSta
         .as_ref()
         .is_some_and(|keys| keys.contains(&shortcut))
     {
-        app.popups.viewer_search.is_visible = true;
+        app.popups
+            .set_popup_visible(crate::app::PopupKind::ViewerSearch, true);
         app.popups.viewer_search.query = app.file_viewer.search_query.clone();
         app.popups.viewer_search.cursor_position = app.popups.viewer_search.query.chars().count();
         app.popups.viewer_search.error = None;
@@ -132,7 +133,8 @@ fn handle_viewer_shortcuts(code: KeyCode, modifiers: Modifiers, app: &mut AppSta
         .as_ref()
         .is_some_and(|keys| keys.contains(&shortcut))
     {
-        app.popups.help.is_visible = true;
+        app.popups
+            .set_popup_visible(crate::app::PopupKind::Help, true);
     } else if app
         .keyboard
         .viewer_search_next
@@ -180,7 +182,8 @@ pub fn handle_viewer_search_event(
 ) -> bool {
     match code {
         KeyCode::Escape => {
-            app.popups.viewer_search.is_visible = false;
+            app.popups
+                .set_popup_visible(crate::app::PopupKind::ViewerSearch, false);
         }
         KeyCode::Enter => {
             let query = app.popups.viewer_search.query.clone();
@@ -190,7 +193,8 @@ pub fn handle_viewer_search_event(
                     std::time::Instant::now(),
                 ));
             }
-            app.popups.viewer_search.is_visible = false;
+            app.popups
+                .set_popup_visible(crate::app::PopupKind::ViewerSearch, false);
         }
         KeyCode::Char(c) => {
             app.popups

@@ -38,7 +38,7 @@ pub fn get_available_drives() -> Vec<String> {
 pub async fn handle_drive_select_event(code: KeyCode, app: &mut AppState) -> bool {
     match code {
         KeyCode::Escape => {
-            app.popups.drive_select.reset();
+            app.popups.reset_popup(crate::app::PopupKind::DriveSelect);
         }
         KeyCode::Down if !app.popups.drive_select.drives.is_empty() => {
             app.popups.drive_select.selected_index =
@@ -133,7 +133,7 @@ async fn perform_drive_navigation(app: &mut AppState, drive: &str) {
     };
 
     if success {
-        app.popups.drive_select.reset();
+        app.popups.reset_popup(crate::app::PopupKind::DriveSelect);
         app.sync_watcher();
     }
 }

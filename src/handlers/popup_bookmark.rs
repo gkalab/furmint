@@ -81,8 +81,9 @@ pub async fn handle_bookmark_event(
     // 2. Main bookmark list events
     match code {
         KeyCode::Escape => {
-            app.popups.bookmark.list.is_visible = false;
-            app.popups.bookmark.reset();
+            app.popups
+                .set_popup_visible(crate::app::PopupKind::Bookmark, false);
+            app.popups.reset_popup(crate::app::PopupKind::Bookmark);
         }
         KeyCode::Enter => {
             handle_bookmark_enter(app).await;
@@ -164,6 +165,7 @@ async fn handle_bookmark_enter(app: &mut AppState) {
             }
         }
     }
-    app.popups.bookmark.list.is_visible = false;
-    app.popups.bookmark.reset();
+    app.popups
+        .set_popup_visible(crate::app::PopupKind::Bookmark, false);
+    app.popups.reset_popup(crate::app::PopupKind::Bookmark);
 }

@@ -44,6 +44,37 @@ pub struct Popups {
     pub remote_edit: RemoteEditState,
     pub bookmark: BookmarkState,
     pub viewer_search: FileViewerSearchState,
+    /// Bitmask of currently-visible popups.
+    visible: u32,
+}
+
+/// Identifies a single popup in the [`Popups`] struct for visibility tracking.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PopupKind {
+    Rename,
+    RenameTab,
+    CreateDirectory,
+    Delete,
+    EmptyTrash,
+    CopyMove,
+    Conflict,
+    Error,
+    QuitConfirmation,
+    CreateFile,
+    Help,
+    DriveSelect,
+    SshConnection,
+    SshPassword,
+    HostKey,
+    RemoteEdit,
+    Bookmark,
+    ViewerSearch,
+}
+
+impl PopupKind {
+    const fn bit(self) -> u32 {
+        1 << (self as u32)
+    }
 }
 
 impl Popups {
@@ -68,29 +99,70 @@ impl Popups {
             remote_edit: RemoteEditState::new(),
             bookmark: BookmarkState::new(),
             viewer_search: FileViewerSearchState::new(),
+            visible: 0,
         }
     }
 
+    /// Sets the visibility of a popup, mirroring the change into both the
+    /// `visible` bitmask and the popup's own `is_visible` flag. This is
+    /// the single entry point for changing popup visibility.
+    pub fn set_popup_visible(&mut self, popup: PopupKind, visible: bool) {
+        if visible {
+            self.visible |= popup.bit();
+        } else {
+            self.visible &= !popup.bit();
+        }
+        match popup {
+            PopupKind::Rename => self.rename.is_visible = visible,
+            PopupKind::RenameTab => self.rename_tab.is_visible = visible,
+            PopupKind::CreateDirectory => self.create_directory.is_visible = visible,
+            PopupKind::Delete => self.delete.is_visible = visible,
+            PopupKind::EmptyTrash => self.empty_trash.is_visible = visible,
+            PopupKind::CopyMove => self.copy_move.is_visible = visible,
+            PopupKind::Conflict => self.conflict.is_visible = visible,
+            PopupKind::Error => self.error.is_visible = visible,
+            PopupKind::QuitConfirmation => self.quit_confirmation.is_visible = visible,
+            PopupKind::CreateFile => self.create_file.is_visible = visible,
+            PopupKind::Help => self.help.is_visible = visible,
+            PopupKind::DriveSelect => self.drive_select.is_visible = visible,
+            PopupKind::SshConnection => self.ssh_connection.is_visible = visible,
+            PopupKind::SshPassword => self.ssh_password.is_visible = visible,
+            PopupKind::HostKey => self.host_key.is_visible = visible,
+            PopupKind::RemoteEdit => self.remote_edit.is_visible = visible,
+            PopupKind::Bookmark => self.bookmark.list.is_visible = visible,
+            PopupKind::ViewerSearch => self.viewer_search.is_visible = visible,
+        }
+    }
+
+    /// Hides a popup and, if it has dedicated reset logic, clears its contents.
+    pub fn reset_popup(&mut self, popup: PopupKind) {
+        self.set_popup_visible(popup, false);
+        match popup {
+            PopupKind::Rename => self.rename.reset(),
+            PopupKind::RenameTab => self.rename_tab.reset(),
+            PopupKind::CreateDirectory => self.create_directory.reset(),
+            PopupKind::Delete => self.delete.reset(),
+            PopupKind::CopyMove => self.copy_move.reset(),
+            PopupKind::Conflict => self.conflict.reset(),
+            PopupKind::Error => self.error.reset(),
+            PopupKind::QuitConfirmation => self.quit_confirmation.reset(),
+            PopupKind::CreateFile => self.create_file.reset(),
+            PopupKind::Help => self.help.reset(),
+            PopupKind::DriveSelect => self.drive_select.reset(),
+            PopupKind::RemoteEdit => self.remote_edit.reset(),
+            PopupKind::Bookmark => self.bookmark.reset(),
+            PopupKind::EmptyTrash
+            | PopupKind::SshConnection
+            | PopupKind::SshPassword
+            | PopupKind::HostKey
+            | PopupKind::ViewerSearch => {}
+        }
+    }
+
+    /// Returns `true` if any popup is currently visible.
     #[must_use]
     pub fn any_visible(&self) -> bool {
-        self.rename.is_visible
-            || self.rename_tab.is_visible
-            || self.create_directory.is_visible
-            || self.delete.is_visible
-            || self.empty_trash.is_visible
-            || self.copy_move.is_visible
-            || self.conflict.is_visible
-            || self.error.is_visible
-            || self.quit_confirmation.is_visible
-            || self.create_file.is_visible
-            || self.help.is_visible
-            || self.drive_select.is_visible
-            || self.ssh_connection.is_visible
-            || self.ssh_password.is_visible
-            || self.host_key.is_visible
-            || self.remote_edit.is_visible
-            || self.bookmark.list.is_visible
-            || self.viewer_search.is_visible
+        self.visible != 0
     }
 }
 

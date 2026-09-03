@@ -80,28 +80,12 @@ fn handle_quit_and_interceptors(
         || (quit_match
             && !app.file_viewer.is_visible
             && !app.fuzzy_search.list.is_visible
-            && !app.popups.rename.is_visible
-            && !app.popups.rename_tab.is_visible
-            && !app.popups.create_directory.is_visible
-            && !app.popups.delete.is_visible
-            && !app.popups.copy_move.is_visible
-            && !app.popups.conflict.is_visible
-            && !app.popups.quit_confirmation.is_visible
-            && !app.popups.error.is_visible
-            && !app.popups.help.is_visible
-            && !app.popups.drive_select.is_visible
-            && !app.popups.host_key.is_visible
-            && !app.popups.empty_trash.is_visible
-            && !app.popups.create_file.is_visible
-            && !app.popups.ssh_connection.is_visible
-            && !app.popups.ssh_password.is_visible
-            && !app.popups.bookmark.list.is_visible
-            && !app.popups.viewer_search.is_visible
-            && !app.popups.remote_edit.is_visible
+            && !app.popups.any_visible()
             && !app.show_task_manager)
     {
         if app.task_manager.has_running_tasks() {
-            app.popups.quit_confirmation.is_visible = true;
+            app.popups
+                .set_popup_visible(crate::app::PopupKind::QuitConfirmation, true);
             return Some(false);
         }
         return Some(true);

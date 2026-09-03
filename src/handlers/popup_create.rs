@@ -6,7 +6,8 @@ use termina::event::{KeyCode, Modifiers};
 
 pub fn handle_init_create_file(app: &mut AppState) {
     let parent_dir = app.active_tab().current_dir.clone();
-    app.popups.create_file.is_visible = true;
+    app.popups
+        .set_popup_visible(crate::app::PopupKind::CreateFile, true);
     app.popups.create_file.input_value.clear();
     app.popups.create_file.cursor_position = 0;
     app.popups.create_file.error = None;
@@ -14,7 +15,8 @@ pub fn handle_init_create_file(app: &mut AppState) {
 }
 
 pub fn handle_init_create_directory(app: &mut AppState) {
-    app.popups.create_directory.is_visible = true;
+    app.popups
+        .set_popup_visible(crate::app::PopupKind::CreateDirectory, true);
     app.popups.create_directory.new_name.clear();
     app.popups.create_directory.cursor_position = 0;
     app.popups.create_directory.error = None;
@@ -27,7 +29,8 @@ pub async fn handle_create_directory_event(
 ) -> bool {
     match code {
         KeyCode::Escape => {
-            app.popups.create_directory.reset();
+            app.popups
+                .reset_popup(crate::app::PopupKind::CreateDirectory);
         }
         KeyCode::Enter => {
             let new_name = app.popups.create_directory.new_name.trim().to_string();
@@ -41,7 +44,8 @@ pub async fn handle_create_directory_event(
             let result = app.active_tab_mut().provider.create_dir(&new_path).await;
             match result {
                 Ok(()) => {
-                    app.popups.create_directory.reset();
+                    app.popups
+                        .reset_popup(crate::app::PopupKind::CreateDirectory);
                     // Reload active tab and focus on the new directory
                     let _ = app.active_tab_mut().reload_and_focus(&new_name).await;
                     if app.is_any_tab_on_network_share() {
@@ -78,7 +82,7 @@ pub async fn handle_create_file_event(
     use std::path::Path;
     match code {
         KeyCode::Escape => {
-            app.popups.create_file.reset();
+            app.popups.reset_popup(crate::app::PopupKind::CreateFile);
         }
         KeyCode::Enter => {
             app.popups.create_file.error = None;
@@ -168,7 +172,7 @@ async fn handle_post_create_actions(app: &mut AppState, path_buf: std::path::Pat
         if app.is_any_tab_on_network_share() {
             app.refresh_active_tabs().await;
         }
-        app.popups.create_file.reset();
+        app.popups.reset_popup(crate::app::PopupKind::CreateFile);
         crate::handlers::navigation::handle_enter(app).await;
         return false;
     }
@@ -183,7 +187,7 @@ async fn handle_post_create_actions(app: &mut AppState, path_buf: std::path::Pat
     }
 
     let provider = app.active_tab().provider.clone();
-    app.popups.create_file.reset();
+    app.popups.reset_popup(crate::app::PopupKind::CreateFile);
     if provider.is_local() {
         let file_name_opt = path_buf
             .file_name()

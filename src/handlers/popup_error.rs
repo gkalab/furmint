@@ -29,7 +29,7 @@ pub(crate) async fn handle_error_event(code: KeyCode, app: &mut AppState) -> boo
         if let Some(tx) = app.task_decision_txs.get(&task_id) {
             let _ = tx.send(d).await;
         }
-        app.popups.error.reset();
+        app.popups.reset_popup(crate::app::PopupKind::Error);
     }
     false
 }

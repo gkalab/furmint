@@ -187,11 +187,13 @@ async fn test_empty_trash_mouse_click() {
 
     // Open the empty-trash popup and simulate a draw having completed
     app.popups.empty_trash = EmptyTrashState {
-        is_visible: true,
+        is_visible: false,
         selected_no: true, // "No" is initially focused
         popup_area: Rect::default(),
         button_areas: button_areas.clone(),
     };
+    app.popups
+        .set_popup_visible(fm::app::PopupKind::EmptyTrash, true);
 
     // The "(Y)es" button is the second one (index 1)
     let yes_btn = button_areas[1];
@@ -245,11 +247,13 @@ async fn test_empty_trash_mouse_click_released_outside() {
     let button_areas = empty_trash_button_areas();
 
     app.popups.empty_trash = EmptyTrashState {
-        is_visible: true,
+        is_visible: false,
         selected_no: true,
         popup_area: Rect::default(),
         button_areas: button_areas.clone(),
     };
+    app.popups
+        .set_popup_visible(fm::app::PopupKind::EmptyTrash, true);
 
     let yes_btn = button_areas[1];
     let click_x = yes_btn.x + 2;
@@ -295,11 +299,13 @@ async fn test_empty_trash_mouse_click_released_outside() {
 async fn test_empty_trash_mouse_wheel_ignored() {
     let mut app = AppState::test_default();
     app.popups.empty_trash = EmptyTrashState {
-        is_visible: true,
+        is_visible: false,
         selected_no: true,
         popup_area: Rect::default(),
         button_areas: vec![Rect::new(10, 10, 12, 3)],
     };
+    app.popups
+        .set_popup_visible(fm::app::PopupKind::EmptyTrash, true);
 
     let scroll_x = 5u16;
     let scroll_y = 5u16;
