@@ -38,9 +38,9 @@ async fn test_handle_up_moves_cursor() {
         selected: false,
     };
     let mut app = test_app(vec![entry.clone(); 3]);
-    app.left.active_tab_mut().cursor = 2;
+    app.panels.left.active_tab_mut().cursor = 2;
     handle_up(&mut app).await;
-    assert_eq!(app.left.active_tab().cursor, 1);
+    assert_eq!(app.panels.left.active_tab().cursor, 1);
 }
 
 #[tokio::test]
@@ -56,7 +56,7 @@ async fn test_handle_down_moves_cursor() {
     };
     let mut app = test_app(vec![entry.clone(); 3]);
     handle_down(&mut app).await;
-    assert_eq!(app.left.active_tab().cursor, 1);
+    assert_eq!(app.panels.left.active_tab().cursor, 1);
 }
 
 #[tokio::test]
@@ -74,11 +74,11 @@ async fn test_handle_page_up_down() {
         50
     ];
     let mut app = test_app(entries);
-    app.left.active_tab_mut().cursor = 45;
+    app.panels.left.active_tab_mut().cursor = 45;
     handle_page_up(&mut app).await;
-    assert!(app.left.active_tab().cursor < 45);
+    assert!(app.panels.left.active_tab().cursor < 45);
     handle_page_down(&mut app).await;
-    assert!(app.left.active_tab().cursor > 0);
+    assert!(app.panels.left.active_tab().cursor > 0);
 }
 
 #[tokio::test]
@@ -96,11 +96,11 @@ async fn test_handle_home_end() {
         10
     ];
     let mut app = test_app(entries);
-    app.left.active_tab_mut().cursor = 4;
+    app.panels.left.active_tab_mut().cursor = 4;
     handle_home(&mut app).await;
-    assert_eq!(app.left.active_tab().cursor, 0);
+    assert_eq!(app.panels.left.active_tab().cursor, 0);
     handle_end(&mut app).await;
-    assert_eq!(app.left.active_tab().cursor, 9);
+    assert_eq!(app.panels.left.active_tab().cursor, 9);
 }
 
 #[tokio::test]
@@ -113,12 +113,18 @@ async fn test_handle_enter_directory_only_enters_dirs() {
     std::fs::write(&file_path, "test").unwrap();
 
     let mut app = test_app(vec![]);
-    app.left.active_tab_mut().current_dir = path.to_path_buf();
+    app.panels.left.active_tab_mut().current_dir = path.to_path_buf();
     // Manually list to populate entries
-    app.left.active_tab_mut().navigate_to(path).await.unwrap();
+    app.panels
+        .left
+        .active_tab_mut()
+        .navigate_to(path)
+        .await
+        .unwrap();
 
     // Find file and dir indices
     let file_idx = app
+        .panels
         .left
         .active_tab()
         .entries
@@ -126,6 +132,7 @@ async fn test_handle_enter_directory_only_enters_dirs() {
         .position(|e| e.name == "test_file")
         .unwrap();
     let dir_idx = app
+        .panels
         .left
         .active_tab()
         .entries
@@ -134,48 +141,65 @@ async fn test_handle_enter_directory_only_enters_dirs() {
         .unwrap();
 
     // Try to enter a file
-    app.left.active_tab_mut().cursor = file_idx;
-    let original_dir = app.left.active_tab().current_dir.clone();
+    app.panels.left.active_tab_mut().cursor = file_idx;
+    let original_dir = app.panels.left.active_tab().current_dir.clone();
     handle_enter_directory(&mut app).await;
     assert_eq!(
-        app.left.active_tab().current_dir,
+        app.panels.left.active_tab().current_dir,
         original_dir,
         "Should NOT enter a file"
     );
 
     // Try to enter a directory
-    app.left.active_tab_mut().cursor = dir_idx;
+    app.panels.left.active_tab_mut().cursor = dir_idx;
     handle_enter_directory(&mut app).await;
     assert_ne!(
-        app.left.active_tab().current_dir,
+        app.panels.left.active_tab().current_dir,
         original_dir,
         "Should enter a directory"
     );
-    assert!(app.left.active_tab().current_dir.ends_with("test_dir"));
+    assert!(
+        app.panels
+            .left
+            .active_tab()
+            .current_dir
+            .ends_with("test_dir")
+    );
 
     // Test handle_open_item on file (should stay in same dir as it spawns process)
     #[cfg(not(windows))]
     {
-        app.left.active_tab_mut().navigate_to(path).await.unwrap();
-        app.left.active_tab_mut().cursor = file_idx;
-        let original_dir = app.left.active_tab().current_dir.clone();
+        app.panels
+            .left
+            .active_tab_mut()
+            .navigate_to(path)
+            .await
+            .unwrap();
+        app.panels.left.active_tab_mut().cursor = file_idx;
+        let original_dir = app.panels.left.active_tab().current_dir.clone();
         handle_open_item(&mut app).await;
         assert_eq!(
-            app.left.active_tab().current_dir,
+            app.panels.left.active_tab().current_dir,
             original_dir,
             "handle_open_item on file should not change directory"
         );
     }
 
     // Test handle_open_item on directory (should enter)
-    app.left.active_tab_mut().cursor = dir_idx;
+    app.panels.left.active_tab_mut().cursor = dir_idx;
     handle_open_item(&mut app).await;
     assert_ne!(
-        app.left.active_tab().current_dir,
+        app.panels.left.active_tab().current_dir,
         original_dir,
         "handle_open_item on directory should change directory"
     );
-    assert!(app.left.active_tab().current_dir.ends_with("test_dir"));
+    assert!(
+        app.panels
+            .left
+            .active_tab()
+            .current_dir
+            .ends_with("test_dir")
+    );
 }
 
 #[tokio::test]
@@ -203,16 +227,16 @@ async fn test_handle_type_char() {
     let mut app = test_app(entries);
 
     handle_type_char(&mut app, 'b').await;
-    assert_eq!(app.left.active_tab().cursor, 1);
+    assert_eq!(app.panels.left.active_tab().cursor, 1);
 
     // Test buffer reset (we can't easily wait 1s in unit test, but we can check it appends)
     handle_type_char(&mut app, 'a').await;
     // 'ba' doesn't match anything, so cursor should stay at 1 (previous match)
-    assert_eq!(app.left.active_tab().cursor, 1);
+    assert_eq!(app.panels.left.active_tab().cursor, 1);
 
-    app.left.active_tab_mut().search.buffer.clear();
+    app.panels.left.active_tab_mut().search.buffer.clear();
     handle_type_char(&mut app, 'a').await;
-    assert_eq!(app.left.active_tab().cursor, 0);
+    assert_eq!(app.panels.left.active_tab().cursor, 0);
 }
 
 #[tokio::test]
@@ -264,7 +288,7 @@ async fn test_handle_type_char_fuzzy_fallback() {
     assert!(app.active_tab().search.matching_indices.contains(&2));
 
     // Test with something that ONLY matches fuzzy
-    app.left.active_tab_mut().search.buffer.clear();
+    app.panels.left.active_tab_mut().search.buffer.clear();
     handle_type_char(&mut app, 'b').await;
     handle_type_char(&mut app, 't').await; // 'bt' doesn't match 'apple', 'banana', 'Cargo' via prefix
     // 'bt' matches 'banana.txt' (b...t) and 'apple.txt' (p...t...x...t)
@@ -275,13 +299,13 @@ async fn test_handle_type_char_fuzzy_fallback() {
 #[tokio::test]
 async fn test_handle_tab() {
     let mut app = test_app(vec![]);
-    assert_eq!(app.active, PanelSide::Left);
+    assert_eq!(app.panels.active, PanelSide::Left);
 
     handle_tab(&mut app);
-    assert_eq!(app.active, PanelSide::Right);
+    assert_eq!(app.panels.active, PanelSide::Right);
 
     handle_tab(&mut app);
-    assert_eq!(app.active, PanelSide::Left);
+    assert_eq!(app.panels.active, PanelSide::Left);
 
     // Test focusing file viewer
     app.file_viewer.is_visible = true;
@@ -304,11 +328,11 @@ async fn test_handle_sort_and_toggle() {
     let mut app = test_app(entries);
 
     handle_toggle_selection(&mut app).await;
-    assert!(app.left.active_tab().entries[0].selected);
+    assert!(app.panels.left.active_tab().entries[0].selected);
 
     handle_sort(&mut app, fm::app_state::tabs::SortColumn::Size).await;
     assert_eq!(
-        app.left.active_tab().sort.column,
+        app.panels.left.active_tab().sort.column,
         fm::app_state::tabs::SortColumn::Size
     );
 }
@@ -367,10 +391,13 @@ async fn test_handle_type_char_populates_matching_indices() {
     handle_type_char(&mut app, 'b').await;
 
     // Should have 3 matches: ab, abcd, abce
-    assert_eq!(app.left.active_tab().search.matching_indices.len(), 3);
-    assert_eq!(app.left.active_tab().search.position, 0);
+    assert_eq!(
+        app.panels.left.active_tab().search.matching_indices.len(),
+        3
+    );
+    assert_eq!(app.panels.left.active_tab().search.position, 0);
     // First match (ab) should be selected
-    assert_eq!(app.left.active_tab().cursor, 0);
+    assert_eq!(app.panels.left.active_tab().cursor, 0);
 }
 
 #[tokio::test]
@@ -418,33 +445,33 @@ async fn test_search_navigation_multiple_matches() {
     // Type 'a', 'b' -> cursor on 'ab' (index 0)
     handle_type_char(&mut app, 'a').await;
     handle_type_char(&mut app, 'b').await;
-    assert_eq!(app.left.active_tab().cursor, 0);
-    assert_eq!(app.left.active_tab().search.position, 0);
+    assert_eq!(app.panels.left.active_tab().cursor, 0);
+    assert_eq!(app.panels.left.active_tab().search.position, 0);
 
     // Down -> cursor on 'abcd' (index 1)
     handle_down_search(&mut app).await;
-    assert_eq!(app.left.active_tab().cursor, 1);
-    assert_eq!(app.left.active_tab().search.position, 1);
+    assert_eq!(app.panels.left.active_tab().cursor, 1);
+    assert_eq!(app.panels.left.active_tab().search.position, 1);
 
     // Down -> cursor on 'abce' (index 2)
     handle_down_search(&mut app).await;
-    assert_eq!(app.left.active_tab().cursor, 2);
-    assert_eq!(app.left.active_tab().search.position, 2);
+    assert_eq!(app.panels.left.active_tab().cursor, 2);
+    assert_eq!(app.panels.left.active_tab().search.position, 2);
 
     // Up -> cursor back on 'abcd' (index 1)
     handle_up_search(&mut app).await;
-    assert_eq!(app.left.active_tab().cursor, 1);
-    assert_eq!(app.left.active_tab().search.position, 1);
+    assert_eq!(app.panels.left.active_tab().cursor, 1);
+    assert_eq!(app.panels.left.active_tab().search.position, 1);
 
     // Up -> cursor on 'ab' (index 0)
     handle_up_search(&mut app).await;
-    assert_eq!(app.left.active_tab().cursor, 0);
-    assert_eq!(app.left.active_tab().search.position, 0);
+    assert_eq!(app.panels.left.active_tab().cursor, 0);
+    assert_eq!(app.panels.left.active_tab().search.position, 0);
 
     // Up -> wraps to 'abce' (index 2)
     handle_up_search(&mut app).await;
-    assert_eq!(app.left.active_tab().cursor, 2);
-    assert_eq!(app.left.active_tab().search.position, 2);
+    assert_eq!(app.panels.left.active_tab().cursor, 2);
+    assert_eq!(app.panels.left.active_tab().search.position, 2);
 }
 
 #[tokio::test]
@@ -484,19 +511,19 @@ async fn test_search_navigation_wrap_around() {
     handle_type_char(&mut app, 'a').await;
 
     // At first match (aaa)
-    assert_eq!(app.left.active_tab().cursor, 0);
-    assert_eq!(app.left.active_tab().search.position, 0);
+    assert_eq!(app.panels.left.active_tab().cursor, 0);
+    assert_eq!(app.panels.left.active_tab().search.position, 0);
 
     // Down twice to get to last match (aac)
     handle_down_search(&mut app).await;
     handle_down_search(&mut app).await;
-    assert_eq!(app.left.active_tab().cursor, 2);
-    assert_eq!(app.left.active_tab().search.position, 2);
+    assert_eq!(app.panels.left.active_tab().cursor, 2);
+    assert_eq!(app.panels.left.active_tab().search.position, 2);
 
     // Down again wraps to first (aaa)
     handle_down_search(&mut app).await;
-    assert_eq!(app.left.active_tab().cursor, 0);
-    assert_eq!(app.left.active_tab().search.position, 0);
+    assert_eq!(app.panels.left.active_tab().cursor, 0);
+    assert_eq!(app.panels.left.active_tab().search.position, 0);
 }
 
 #[tokio::test]
@@ -525,17 +552,20 @@ async fn test_search_single_match_ignores_arrows() {
 
     handle_type_char(&mut app, 'x').await;
 
-    assert_eq!(app.left.active_tab().cursor, 0);
-    assert_eq!(app.left.active_tab().search.matching_indices.len(), 1);
-    assert_eq!(app.left.active_tab().search.position, 0);
+    assert_eq!(app.panels.left.active_tab().cursor, 0);
+    assert_eq!(
+        app.panels.left.active_tab().search.matching_indices.len(),
+        1
+    );
+    assert_eq!(app.panels.left.active_tab().search.position, 0);
 
     // Down -> stays on 'xyz'
     handle_down_search(&mut app).await;
-    assert_eq!(app.left.active_tab().cursor, 0);
+    assert_eq!(app.panels.left.active_tab().cursor, 0);
 
     // Up -> stays on 'xyz'
     handle_up_search(&mut app).await;
-    assert_eq!(app.left.active_tab().cursor, 0);
+    assert_eq!(app.panels.left.active_tab().cursor, 0);
 }
 
 #[tokio::test]
@@ -563,15 +593,22 @@ async fn test_esc_resets_search() {
     let mut app = test_app(entries);
 
     handle_type_char(&mut app, 'b').await;
-    assert_eq!(app.left.active_tab().cursor, 1);
-    assert!(!app.left.active_tab().search.buffer.is_empty());
+    assert_eq!(app.panels.left.active_tab().cursor, 1);
+    assert!(!app.panels.left.active_tab().search.buffer.is_empty());
 
     reset_search(&mut app);
 
-    assert!(app.left.active_tab().search.buffer.is_empty());
-    assert!(app.left.active_tab().search.matching_indices.is_empty());
-    assert_eq!(app.left.active_tab().search.position, 0);
-    assert!(app.left.active_tab().search.last_type_time.is_none());
+    assert!(app.panels.left.active_tab().search.buffer.is_empty());
+    assert!(
+        app.panels
+            .left
+            .active_tab()
+            .search
+            .matching_indices
+            .is_empty()
+    );
+    assert_eq!(app.panels.left.active_tab().search.position, 0);
+    assert!(app.panels.left.active_tab().search.last_type_time.is_none());
 }
 
 #[tokio::test]
@@ -610,12 +647,12 @@ async fn test_search_restarts_timer() {
     handle_type_char(&mut app, 'a').await;
     handle_type_char(&mut app, 'b').await;
 
-    let first_type_time = app.left.active_tab().search.last_type_time;
+    let first_type_time = app.panels.left.active_tab().search.last_type_time;
 
     // Navigate down (should restart timer)
     handle_down_search(&mut app).await;
 
-    let second_type_time = app.left.active_tab().search.last_type_time;
+    let second_type_time = app.panels.left.active_tab().search.last_type_time;
     assert!(second_type_time > first_type_time);
 }
 
@@ -656,12 +693,15 @@ async fn test_timeout_resets_search_state() {
     handle_type_char(&mut app, 'b').await;
 
     // Verify search is active
-    assert!(!app.left.active_tab().search.buffer.is_empty());
-    assert_eq!(app.left.active_tab().search.matching_indices.len(), 2);
-    assert_eq!(app.left.active_tab().cursor, 0);
+    assert!(!app.panels.left.active_tab().search.buffer.is_empty());
+    assert_eq!(
+        app.panels.left.active_tab().search.matching_indices.len(),
+        2
+    );
+    assert_eq!(app.panels.left.active_tab().cursor, 0);
 
     // Simulate timeout by setting last_type_time to old value
-    app.left.active_tab_mut().search.last_type_time = Some(
+    app.panels.left.active_tab_mut().search.last_type_time = Some(
         std::time::Instant::now()
             .checked_sub(std::time::Duration::from_secs(2))
             .unwrap(),
@@ -671,10 +711,17 @@ async fn test_timeout_resets_search_state() {
     reset_search(&mut app);
 
     // Verify search state is cleared
-    assert!(app.left.active_tab().search.buffer.is_empty());
-    assert!(app.left.active_tab().search.matching_indices.is_empty());
-    assert_eq!(app.left.active_tab().search.position, 0);
-    assert!(app.left.active_tab().search.last_type_time.is_none());
+    assert!(app.panels.left.active_tab().search.buffer.is_empty());
+    assert!(
+        app.panels
+            .left
+            .active_tab()
+            .search
+            .matching_indices
+            .is_empty()
+    );
+    assert_eq!(app.panels.left.active_tab().search.position, 0);
+    assert!(app.panels.left.active_tab().search.last_type_time.is_none());
 }
 
 #[tokio::test]
@@ -705,11 +752,14 @@ async fn test_periodic_reset_expired_search() {
     handle_type_char(&mut app, 'b').await;
 
     // Verify search is active
-    assert!(!app.left.active_tab().search.buffer.is_empty());
-    assert_eq!(app.left.active_tab().search.matching_indices.len(), 2);
+    assert!(!app.panels.left.active_tab().search.buffer.is_empty());
+    assert_eq!(
+        app.panels.left.active_tab().search.matching_indices.len(),
+        2
+    );
 
     // Simulate timeout by setting last_type_time to old value
-    app.left.active_tab_mut().search.last_type_time = Some(
+    app.panels.left.active_tab_mut().search.last_type_time = Some(
         std::time::Instant::now()
             .checked_sub(std::time::Duration::from_secs(2))
             .unwrap(),
@@ -719,9 +769,16 @@ async fn test_periodic_reset_expired_search() {
     reset_expired_search(&mut app);
 
     // Verify search state is cleared
-    assert!(app.left.active_tab().search.buffer.is_empty());
-    assert!(app.left.active_tab().search.matching_indices.is_empty());
-    assert_eq!(app.left.active_tab().search.position, 0);
+    assert!(app.panels.left.active_tab().search.buffer.is_empty());
+    assert!(
+        app.panels
+            .left
+            .active_tab()
+            .search
+            .matching_indices
+            .is_empty()
+    );
+    assert_eq!(app.panels.left.active_tab().search.position, 0);
 }
 
 #[tokio::test]
@@ -799,7 +856,7 @@ async fn test_update_viewer_content_loads_large_file() {
         attributes: String::new(),
         selected: false,
     }]);
-    app.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
+    app.panels.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
     app.file_viewer.is_visible = true;
     update_viewer_content(&mut app).await;
 
@@ -834,7 +891,7 @@ async fn test_update_viewer_content_shows_error_for_binary() {
         attributes: String::new(),
         selected: false,
     }]);
-    app.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
+    app.panels.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
     app.file_viewer.is_visible = true;
     update_viewer_content(&mut app).await;
     let msg = &app.file_viewer.content[0];
@@ -860,7 +917,7 @@ async fn test_update_viewer_content_reads_text_file() {
         attributes: String::new(),
         selected: false,
     }]);
-    app.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
+    app.panels.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
     app.file_viewer.is_visible = true;
     update_viewer_content(&mut app).await;
     assert_eq!(app.file_viewer.content[0], "Hello, F3!");

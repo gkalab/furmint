@@ -73,7 +73,7 @@ fn minimal_state_with_entries(
             right_cursor,
         )))
         .build();
-    app.active = active;
+    app.panels.active = active;
     app
 }
 
@@ -264,20 +264,21 @@ async fn test_handle_paste_validation_same_path() {
     std::fs::File::create(&file_path).unwrap();
 
     let mut app = minimal_state_with_entries(PanelSide::Left, vec![], vec![], 0, 0);
-    app.left.active_tab_mut().current_dir = temp_dir.clone();
+    app.panels.left.active_tab_mut().current_dir = temp_dir.clone();
 
     let data = FileClipboardData {
         action: FileClipboardAction::Copy,
         paths: vec![file_path.clone()],
         source_provider: Arc::new(LocalFs::new()),
     };
-    app.clipboard.set(data).unwrap();
+    app.os.clipboard.set(data).unwrap();
 
     handle_paste(&mut app).await;
 
-    assert!(app.left.active_tab().error.is_some());
+    assert!(app.panels.left.active_tab().error.is_some());
     assert!(
-        app.left
+        app.panels
+            .left
             .active_tab()
             .error
             .as_ref()
@@ -298,19 +299,19 @@ async fn test_handle_paste_clears_clipboard_on_move() {
     // Navigate to different dir to pass path validation
     let dest_dir = temp_dir.join("test_paste_clear_dest");
     std::fs::create_dir_all(&dest_dir).unwrap();
-    app.left.active_tab_mut().current_dir = dest_dir.clone();
+    app.panels.left.active_tab_mut().current_dir = dest_dir.clone();
 
     let data = FileClipboardData {
         action: FileClipboardAction::Cut,
         paths: vec![src_file.clone()],
         source_provider: Arc::new(LocalFs::new()),
     };
-    app.clipboard.set(data).unwrap();
+    app.os.clipboard.set(data).unwrap();
 
     handle_paste(&mut app).await;
 
     // Clipboard should be empty now
-    assert!(app.clipboard.get().unwrap().is_none());
+    assert!(app.os.clipboard.get().unwrap().is_none());
 
     std::fs::remove_file(&src_file).ok();
     std::fs::remove_dir_all(&dest_dir).ok();

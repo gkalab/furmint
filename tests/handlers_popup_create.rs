@@ -30,7 +30,7 @@ async fn basic_app_state() -> AppState {
 #[tokio::test]
 async fn test_handle_init_create_file_and_directory() {
     let mut app = basic_app_state().await;
-    app.active = PanelSide::Right;
+    app.panels.active = PanelSide::Right;
     handle_init_create_file(&mut app);
     assert!(app.popups.create_file.is_visible);
     assert_eq!(app.popups.create_file.input_value, "");

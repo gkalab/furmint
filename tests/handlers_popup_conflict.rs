@@ -21,7 +21,7 @@ async fn app_with_conflict(task_id: usize) -> (AppState, mpsc::Receiver<TaskDeci
         )
         .task_tx(task_tx)
         .build();
-    app.task_decision_txs.insert(task_id, dec_tx);
+    app.tasks.task_decision_txs.insert(task_id, dec_tx);
 
     app.popups
         .set_popup_visible(fm::app::PopupKind::Conflict, true);

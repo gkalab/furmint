@@ -341,18 +341,18 @@ async fn test_can_swap_active_tabs() {
     };
 
     let mut app = AppState::test_default();
-    app.left.tabs = vec![local_tab.clone()];
-    app.right.tabs = vec![remote_tab.clone()];
+    app.panels.left.tabs = vec![local_tab.clone()];
+    app.panels.right.tabs = vec![remote_tab.clone()];
 
     // Case 1: Left has 1 local, Right has 0 local. Swapping Left (local) with Right (remote) would leave Left with 0 local.
     assert!(app.can_swap_active_tabs().is_err());
 
     // Case 2: Add another local tab to Left
-    app.left.tabs.push(local_tab.clone());
+    app.panels.left.tabs.push(local_tab.clone());
     assert!(app.can_swap_active_tabs().is_ok());
 
     // Case 3: Swap allowed when both are local
-    app.right.tabs[0] = local_tab.clone();
+    app.panels.right.tabs[0] = local_tab.clone();
     assert!(app.can_swap_active_tabs().is_ok());
 }
 
@@ -405,9 +405,9 @@ async fn test_drive_navigation_matches_opposite_pane() {
             visible_set: std::collections::HashSet::new(),
             filter: fm::state::FileFilterState::new(),
         };
-        app.left.tabs = vec![left_tab];
-        app.right.tabs = vec![right_tab];
-        app.active = PanelSide::Left;
+        app.panels.left.tabs = vec![left_tab];
+        app.panels.right.tabs = vec![right_tab];
+        app.panels.active = PanelSide::Left;
 
         app.popups
             .set_popup_visible(fm::app::PopupKind::DriveSelect, true);
@@ -419,7 +419,7 @@ async fn test_drive_navigation_matches_opposite_pane() {
             .await;
 
         assert_eq!(
-            app.left.active_tab().current_dir,
+            app.panels.left.active_tab().current_dir,
             PathBuf::from("D:\\RightDir")
         );
     }
@@ -467,9 +467,9 @@ async fn test_drive_navigation_matches_opposite_pane() {
             visible_set: std::collections::HashSet::new(),
             filter: fm::state::FileFilterState::new(),
         };
-        app.left.tabs = vec![left_tab];
-        app.right.tabs = vec![right_tab];
-        app.active = PanelSide::Left;
+        app.panels.left.tabs = vec![left_tab];
+        app.panels.right.tabs = vec![right_tab];
+        app.panels.active = PanelSide::Left;
 
         app.popups
             .set_popup_visible(fm::app::PopupKind::DriveSelect, true);
@@ -480,7 +480,10 @@ async fn test_drive_navigation_matches_opposite_pane() {
         fm::drive_select_ui::handle_drive_select_event(termina::event::KeyCode::Enter, &mut app)
             .await;
 
-        assert_eq!(app.left.active_tab().current_dir, PathBuf::from("D:\\"));
+        assert_eq!(
+            app.panels.left.active_tab().current_dir,
+            PathBuf::from("D:\\")
+        );
     }
 
     // Test Case 3: Selecting the same drive as active pane.
@@ -526,9 +529,9 @@ async fn test_drive_navigation_matches_opposite_pane() {
             visible_set: std::collections::HashSet::new(),
             filter: fm::state::FileFilterState::new(),
         };
-        app.left.tabs = vec![left_tab];
-        app.right.tabs = vec![right_tab];
-        app.active = PanelSide::Left;
+        app.panels.left.tabs = vec![left_tab];
+        app.panels.right.tabs = vec![right_tab];
+        app.panels.active = PanelSide::Left;
 
         app.popups
             .set_popup_visible(fm::app::PopupKind::DriveSelect, true);
@@ -540,7 +543,7 @@ async fn test_drive_navigation_matches_opposite_pane() {
             .await;
 
         assert_eq!(
-            app.left.active_tab().current_dir,
+            app.panels.left.active_tab().current_dir,
             PathBuf::from("C:\\RightDir")
         );
     }
@@ -550,11 +553,11 @@ async fn test_drive_navigation_matches_opposite_pane() {
 async fn test_move_active_tab_to_other_side() {
     let mut app = AppState::test_default();
 
-    assert_eq!(app.left.tabs.len(), 1);
-    assert_eq!(app.right.tabs.len(), 1);
+    assert_eq!(app.panels.left.tabs.len(), 1);
+    assert_eq!(app.panels.right.tabs.len(), 1);
 
     // 1. Moving the only tab should fail.
-    app.active = PanelSide::Left;
+    app.panels.active = PanelSide::Left;
     let res = app.move_active_tab_to_other_side(PanelSide::Right);
     assert!(res.is_err());
     assert_eq!(
@@ -563,44 +566,44 @@ async fn test_move_active_tab_to_other_side() {
     );
 
     // Add another local tab to Left.
-    let tab_clone = app.left.tabs[0].clone();
-    app.left.tabs.push(tab_clone);
-    assert_eq!(app.left.tabs.len(), 2);
-    assert_eq!(app.left.local_tab_count(), 2);
+    let tab_clone = app.panels.left.tabs[0].clone();
+    app.panels.left.tabs.push(tab_clone);
+    assert_eq!(app.panels.left.tabs.len(), 2);
+    assert_eq!(app.panels.left.local_tab_count(), 2);
 
     // Set a title on the tab we want to move.
-    app.left.tabs[0].custom_title = Some("MovedTab".to_string());
-    app.left.active_tab_index = 0;
+    app.panels.left.tabs[0].custom_title = Some("MovedTab".to_string());
+    app.panels.left.active_tab_index = 0;
 
     // 2. Now move it to Right.
     let res = app.move_active_tab_to_other_side(PanelSide::Right);
     assert!(res.is_ok());
 
     // Active panel should now be Right.
-    assert_eq!(app.active, PanelSide::Right);
+    assert_eq!(app.panels.active, PanelSide::Right);
 
     // Left should now have 1 tab.
-    assert_eq!(app.left.tabs.len(), 1);
+    assert_eq!(app.panels.left.tabs.len(), 1);
 
     // Right should now have 2 tabs.
-    assert_eq!(app.right.tabs.len(), 2);
+    assert_eq!(app.panels.right.tabs.len(), 2);
 
     // The active tab on Right should be the one we moved (custom_title: "MovedTab").
     assert_eq!(
-        app.right.active_tab().custom_title.as_deref(),
+        app.panels.right.active_tab().custom_title.as_deref(),
         Some("MovedTab")
     );
-    assert_eq!(app.right.active_tab_index, 1);
+    assert_eq!(app.panels.right.active_tab_index, 1);
 
     // 3. Move it back to Left.
     let res = app.move_active_tab_to_other_side(PanelSide::Left);
     assert!(res.is_ok());
-    assert_eq!(app.active, PanelSide::Left);
-    assert_eq!(app.left.tabs.len(), 2);
-    assert_eq!(app.right.tabs.len(), 1);
+    assert_eq!(app.panels.active, PanelSide::Left);
+    assert_eq!(app.panels.left.tabs.len(), 2);
+    assert_eq!(app.panels.right.tabs.len(), 1);
     assert_eq!(
-        app.left.active_tab().custom_title.as_deref(),
+        app.panels.left.active_tab().custom_title.as_deref(),
         Some("MovedTab")
     );
-    assert_eq!(app.left.active_tab_index, 1);
+    assert_eq!(app.panels.left.active_tab_index, 1);
 }

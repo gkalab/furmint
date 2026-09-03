@@ -513,10 +513,10 @@ pub async fn execute_toggle_console(app: &mut AppState) -> anyhow::Result<()> {
     }
 
     // 7. Refresh all tabs in both panels
-    for tab in &mut app.left.tabs {
+    for tab in &mut app.panels.left.tabs {
         refresh_tab(tab).await;
     }
-    for tab in &mut app.right.tabs {
+    for tab in &mut app.panels.right.tabs {
         refresh_tab(tab).await;
     }
 

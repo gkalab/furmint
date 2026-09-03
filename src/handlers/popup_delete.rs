@@ -56,7 +56,8 @@ pub fn handle_confirm_delete(app: &mut AppState) {
         format!("Trashing {} items", paths.len())
     };
 
-    app.task_manager
+    app.tasks
+        .task_manager
         .spawn_task(&name, move |cancel, tx, id| async move {
             let total = paths.len();
             let mut success = 0;

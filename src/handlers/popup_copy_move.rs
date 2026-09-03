@@ -111,11 +111,11 @@ fn handle_clipboard_action(app: &mut AppState, action: crate::clipboard::FileCli
         source_provider: app.active_tab().provider.clone(),
     };
 
-    let _ = app.clipboard.set(data);
+    let _ = app.os.clipboard.set(data);
 }
 
 pub async fn handle_paste(app: &mut AppState) {
-    if let Ok(Some(data)) = app.clipboard.get() {
+    if let Ok(Some(data)) = app.os.clipboard.get() {
         let action = match data.action {
             crate::clipboard::FileClipboardAction::Copy => CopyMoveAction::Copy,
             crate::clipboard::FileClipboardAction::Cut => CopyMoveAction::Move,
@@ -147,7 +147,7 @@ pub async fn handle_paste(app: &mut AppState) {
         );
 
         if data.action == crate::clipboard::FileClipboardAction::Cut {
-            let _ = app.clipboard.clear();
+            let _ = app.os.clipboard.clear();
         }
     }
 }
@@ -677,6 +677,7 @@ pub fn spawn_copy_move_task(
     let (decision_tx, decision_rx) = tokio::sync::mpsc::channel(1);
 
     let id = app
+        .tasks
         .task_manager
         .spawn_task(&task_name, move |cancel, tx, id| async move {
             let dest_path = std::path::PathBuf::from(&dest_str);
@@ -774,5 +775,5 @@ pub fn spawn_copy_move_task(
         });
 
     // Store decision tx
-    app.task_decision_txs.insert(id, decision_tx);
+    app.tasks.task_decision_txs.insert(id, decision_tx);
 }

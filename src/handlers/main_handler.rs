@@ -81,9 +81,9 @@ fn handle_quit_and_interceptors(
             && !app.file_viewer.is_visible
             && !app.fuzzy_search.list.is_visible
             && !app.popups.any_visible()
-            && !app.show_task_manager)
+            && !app.tasks.show_task_manager)
     {
-        if app.task_manager.has_running_tasks() {
+        if app.tasks.task_manager.has_running_tasks() {
             app.popups
                 .set_popup_visible(crate::app::PopupKind::QuitConfirmation, true);
             return Some(false);
@@ -166,7 +166,7 @@ async fn handle_popup_events(
     if app.active_tab().filter.active {
         return Some(handle_file_filter_event(code, modifiers, app));
     }
-    if app.show_task_manager {
+    if app.tasks.show_task_manager {
         return Some(handle_task_manager_event(code, app));
     }
     None

@@ -38,9 +38,9 @@ fn setup_test_app() -> AppState {
             selected: false,
         },
     ];
-    app.left.active_tab_mut().entries = entries;
-    app.left.active_tab_mut().current_dir = PathBuf::from("/test");
-    app.left.active_tab_mut().cursor = 0;
+    app.panels.left.active_tab_mut().entries = entries;
+    app.panels.left.active_tab_mut().current_dir = PathBuf::from("/test");
+    app.panels.left.active_tab_mut().cursor = 0;
 
     app
 }
@@ -106,7 +106,7 @@ async fn test_mouse_click_on_panel_updates_viewer() {
 
     handle_mouse_event(&mut app, event).await;
 
-    assert_eq!(app.left.active_tab().cursor, 1);
+    assert_eq!(app.panels.left.active_tab().cursor, 1);
     assert_eq!(app.file_viewer.path, PathBuf::from("/test/file2.txt"));
 }
 
@@ -116,7 +116,7 @@ async fn test_mouse_scroll_updates_viewer() {
 
     // Add more entries to allow scrolling/cursor movement
     for i in 3..10 {
-        app.left.active_tab_mut().entries.push(FileEntry {
+        app.panels.left.active_tab_mut().entries.push(FileEntry {
             name: format!("file{i}.txt"),
             is_dir: false,
             is_symlink: false,
@@ -140,7 +140,7 @@ async fn test_mouse_scroll_updates_viewer() {
 
     handle_mouse_event(&mut app, event).await;
 
-    assert_eq!(app.left.active_tab().cursor, 3);
+    assert_eq!(app.panels.left.active_tab().cursor, 3);
     assert_eq!(app.file_viewer.path, PathBuf::from("/test/file4.txt"));
 }
 
@@ -149,7 +149,7 @@ async fn test_mouse_tab_switch_updates_viewer() {
     let mut app = setup_test_app();
 
     // Add a second tab to the left panel
-    let mut tab2 = app.left.tabs[0].clone();
+    let mut tab2 = app.panels.left.tabs[0].clone();
     tab2.current_dir = PathBuf::from("/other");
     tab2.entries = vec![FileEntry {
         name: "other.txt".to_string(),
@@ -160,7 +160,7 @@ async fn test_mouse_tab_switch_updates_viewer() {
         attributes: "-rw-r--r--".to_string(),
         selected: false,
     }];
-    app.left.tabs.push(tab2);
+    app.panels.left.tabs.push(tab2);
 
     // Set tab areas (simple mock)
     app.left_tab_areas = vec![Rect::new(0, 0, 10, 1), Rect::new(10, 0, 10, 1)];
@@ -178,7 +178,7 @@ async fn test_mouse_tab_switch_updates_viewer() {
 
     handle_mouse_event(&mut app, event).await;
 
-    assert_eq!(app.left.active_tab_index, 1);
+    assert_eq!(app.panels.left.active_tab_index, 1);
     assert_eq!(app.file_viewer.path, PathBuf::from("/other/other.txt"));
 }
 
@@ -216,7 +216,7 @@ async fn test_empty_trash_mouse_click() {
     .await;
 
     assert_eq!(
-        app.mouse_button_down_index,
+        app.mouse.mouse_button_down_index,
         Some(1),
         "mouse_button_down_index should be Some(1) after clicking Yes"
     );
@@ -273,7 +273,7 @@ async fn test_empty_trash_mouse_click_released_outside() {
     )
     .await;
 
-    assert_eq!(app.mouse_button_down_index, Some(1));
+    assert_eq!(app.mouse.mouse_button_down_index, Some(1));
 
     // Up outside the popup
     let outside_x = 0;
@@ -294,7 +294,7 @@ async fn test_empty_trash_mouse_click_released_outside() {
         "popup should stay visible when Up is outside the button"
     );
     // mouse_button_down_index should have been consumed
-    assert_eq!(app.mouse_button_down_index, None);
+    assert_eq!(app.mouse.mouse_button_down_index, None);
 }
 
 #[tokio::test]
@@ -377,7 +377,7 @@ async fn test_scrollbar_thumb_rows() {
 async fn test_panel_scrollbar_drag() {
     let mut app = AppState::test_default();
     app.left_panel_area = Rect::new(0, 0, 40, 20);
-    let tab = app.left.active_tab_mut();
+    let tab = app.panels.left.active_tab_mut();
     tab.entries = file_entries(50);
     tab.cursor = 0;
 
@@ -397,10 +397,10 @@ async fn test_panel_scrollbar_drag() {
     .await;
 
     assert_eq!(
-        app.active_drag,
+        app.mouse.active_drag,
         Some(DragTarget::PanelScrollbar(PanelSide::Left))
     );
-    assert!(app.left.active_tab().cursor > 0);
+    assert!(app.panels.left.active_tab().cursor > 0);
 
     // Mouse Drag further down
     handle_mouse_event(
@@ -414,7 +414,7 @@ async fn test_panel_scrollbar_drag() {
     )
     .await;
 
-    assert_eq!(app.left.active_tab().cursor, 49);
+    assert_eq!(app.panels.left.active_tab().cursor, 49);
 
     // Mouse Up
     handle_mouse_event(
@@ -428,14 +428,14 @@ async fn test_panel_scrollbar_drag() {
     )
     .await;
 
-    assert_eq!(app.active_drag, None);
+    assert_eq!(app.mouse.active_drag, None);
 }
 
 #[tokio::test]
 async fn test_panel_scrollbar_thumb_click_does_not_jump() {
     let mut app = AppState::test_default();
     app.left_panel_area = Rect::new(0, 0, 40, 20);
-    let tab = app.left.active_tab_mut();
+    let tab = app.panels.left.active_tab_mut();
     tab.entries = file_entries(50);
     tab.cursor = 0;
 
@@ -455,10 +455,10 @@ async fn test_panel_scrollbar_thumb_click_does_not_jump() {
     .await;
 
     assert_eq!(
-        app.active_drag,
+        app.mouse.active_drag,
         Some(DragTarget::PanelScrollbar(PanelSide::Left))
     );
-    assert_eq!(app.left.active_tab().cursor, 0);
+    assert_eq!(app.panels.left.active_tab().cursor, 0);
 
     // Dragging now scrolls to the pointer position
     handle_mouse_event(
@@ -472,7 +472,7 @@ async fn test_panel_scrollbar_thumb_click_does_not_jump() {
     )
     .await;
 
-    assert_eq!(app.left.active_tab().cursor, 49);
+    assert_eq!(app.panels.left.active_tab().cursor, 49);
 
     // Mouse Up
     handle_mouse_event(
@@ -486,7 +486,7 @@ async fn test_panel_scrollbar_thumb_click_does_not_jump() {
     )
     .await;
 
-    assert_eq!(app.active_drag, None);
+    assert_eq!(app.mouse.active_drag, None);
 }
 
 #[tokio::test]
@@ -511,7 +511,7 @@ async fn test_file_viewer_scrollbar_drag() {
     )
     .await;
 
-    assert_eq!(app.active_drag, Some(DragTarget::FileViewerScrollbar));
+    assert_eq!(app.mouse.active_drag, Some(DragTarget::FileViewerScrollbar));
     assert_eq!(
         app.file_viewer.scroll_offset,
         app.file_viewer.max_scroll_offset()
@@ -529,7 +529,7 @@ async fn test_file_viewer_scrollbar_drag() {
     )
     .await;
 
-    assert_eq!(app.active_drag, None);
+    assert_eq!(app.mouse.active_drag, None);
 }
 
 #[tokio::test]
@@ -555,7 +555,7 @@ async fn test_file_viewer_scrollbar_thumb_click_does_not_jump() {
     )
     .await;
 
-    assert_eq!(app.active_drag, Some(DragTarget::FileViewerScrollbar));
+    assert_eq!(app.mouse.active_drag, Some(DragTarget::FileViewerScrollbar));
     assert_eq!(app.file_viewer.scroll_offset, 0);
 
     // Dragging now scrolls to the pointer position
@@ -587,7 +587,7 @@ async fn test_file_viewer_scrollbar_thumb_click_does_not_jump() {
     )
     .await;
 
-    assert_eq!(app.active_drag, None);
+    assert_eq!(app.mouse.active_drag, None);
 }
 
 #[tokio::test]
@@ -618,7 +618,10 @@ async fn test_fuzzy_search_scrollbar_hit_region_matches_rendered_column() {
     )
     .await;
 
-    assert_eq!(app.active_drag, Some(DragTarget::FuzzySearchScrollbar));
+    assert_eq!(
+        app.mouse.active_drag,
+        Some(DragTarget::FuzzySearchScrollbar)
+    );
     assert_eq!(app.fuzzy_search.list.selected_index, 0);
 
     // Drag to the bottom of the track.
@@ -647,5 +650,5 @@ async fn test_fuzzy_search_scrollbar_hit_region_matches_rendered_column() {
     )
     .await;
 
-    assert_eq!(app.active_drag, None);
+    assert_eq!(app.mouse.active_drag, None);
 }

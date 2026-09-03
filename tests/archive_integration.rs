@@ -183,8 +183,8 @@ async fn test_open_supported_archive_tar_gz() {
     let mut app = test_app(entries, tx, Arc::new(fm::opener::SystemOpener));
 
     // Point active tab to temp dir
-    app.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
-    app.left.active_tab_mut().cursor = 0; // Select the archive
+    app.panels.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
+    app.panels.left.active_tab_mut().cursor = 0; // Select the archive
 
     // 3. Trigger enter
     handle_enter(&mut app).await;
@@ -216,8 +216,8 @@ async fn test_open_unsupported_archive_fallback() {
     let mock_opener = Arc::new(MockOpener::new());
     let mut app = test_app(entries, tx, mock_opener.clone());
 
-    app.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
-    app.left.active_tab_mut().cursor = 0;
+    app.panels.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
+    app.panels.left.active_tab_mut().cursor = 0;
 
     // 3. Trigger enter
     handle_enter(&mut app).await;
@@ -256,8 +256,8 @@ async fn test_open_corrupt_7z_shows_error() {
     let mock_opener = Arc::new(MockOpener::new());
     let mut app = test_app(entries, tx, mock_opener.clone());
 
-    app.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
-    app.left.active_tab_mut().cursor = 0;
+    app.panels.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
+    app.panels.left.active_tab_mut().cursor = 0;
 
     // 3. Trigger enter — 7z is now a supported extension, so it goes through
     //    handle_open_archive. The corrupt content will cause an error event.

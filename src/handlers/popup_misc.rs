@@ -10,7 +10,7 @@ pub(crate) fn handle_quit_popup_event(code: KeyCode, app: &mut AppState) -> bool
     use crate::handlers::popup_utils::{ChoiceResult, get_choice_with_selection};
     match get_choice_with_selection(code, &mut app.popups.quit_confirmation.selected_no) {
         ChoiceResult::Confirmed => {
-            app.task_manager.cancel_all_tasks();
+            app.tasks.task_manager.cancel_all_tasks();
             true
         }
         ChoiceResult::Cancelled => {
@@ -31,13 +31,15 @@ pub async fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::
             handle_update_progress(app, id, p, t);
         }
         crate::tasks::TaskEvent::UpdateByteProgress(id, p, t) => {
-            app.task_manager.update_task_byte_progress(id, p, t);
+            app.tasks.task_manager.update_task_byte_progress(id, p, t);
         }
         crate::tasks::TaskEvent::UpdateCurrentFile(id, filename) => {
-            app.task_manager.update_task_current_file(id, filename);
+            app.tasks
+                .task_manager
+                .update_task_current_file(id, filename);
         }
         crate::tasks::TaskEvent::SetRsyncMode(id, rsync) => {
-            app.task_manager.update_task_rsync_mode(id, rsync);
+            app.tasks.task_manager.update_task_rsync_mode(id, rsync);
         }
         crate::tasks::TaskEvent::Conflict(id, path, conflict_type) => {
             handle_conflict(app, id, path, conflict_type);
@@ -107,7 +109,7 @@ async fn handle_update_status(
     id: usize,
     status: &crate::tasks::TaskStatus,
 ) {
-    app.task_manager.update_task_status(id, status);
+    app.tasks.task_manager.update_task_status(id, status);
     if let crate::tasks::TaskStatus::Completed = status {
         if app.watcher.is_none() || app.is_any_tab_on_network_share() {
             app.refresh_active_tabs().await;
@@ -118,7 +120,7 @@ async fn handle_update_status(
 }
 
 fn handle_update_progress(app: &mut crate::app::AppState, id: usize, p: usize, t: usize) {
-    app.task_manager.update_task_progress(id, p, t);
+    app.tasks.task_manager.update_task_progress(id, p, t);
     let now = u64::try_from(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -164,7 +166,7 @@ fn handle_ssh_host_key(
 }
 
 fn handle_dir_size_calculated(app: &mut crate::app::AppState, path: &std::path::Path, size: u64) {
-    for panel in [&mut app.left, &mut app.right] {
+    for panel in [&mut app.panels.left, &mut app.panels.right] {
         for tab in &mut panel.tabs {
             tab.set_dir_size(path.to_path_buf(), size);
         }
@@ -256,8 +258,8 @@ fn handle_remote_reload_completed(
     result: Result<Vec<crate::fs::utils::FileEntry>, String>,
 ) {
     let panel = match side {
-        crate::app_state::tabs::PanelSide::Left => &mut app.left,
-        crate::app_state::tabs::PanelSide::Right => &mut app.right,
+        crate::app_state::tabs::PanelSide::Left => &mut app.panels.left,
+        crate::app_state::tabs::PanelSide::Right => &mut app.panels.right,
     };
     if let Some(tab) = panel.tabs.get_mut(tab_index) {
         tab.is_reloading = false;
@@ -289,7 +291,7 @@ async fn handle_archive_loaded(
             .modified()
             .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
         let size = metadata.len();
-        app.archive_cache.insert(
+        app.cache.archive_cache.insert(
             path,
             crate::app::ArchiveCacheEntry {
                 mtime,
@@ -301,9 +303,9 @@ async fn handle_archive_loaded(
     }
 
     let manager = if side_index == 0 {
-        &mut app.left
+        &mut app.panels.left
     } else {
-        &mut app.right
+        &mut app.panels.right
     };
 
     // Create a new tab for the archive
@@ -315,9 +317,9 @@ async fn handle_archive_loaded(
 
             // Set active panel to this side
             if side_index == 0 {
-                app.active = crate::app_state::tabs::PanelSide::Left;
+                app.panels.active = crate::app_state::tabs::PanelSide::Left;
             } else {
-                app.active = crate::app_state::tabs::PanelSide::Right;
+                app.panels.active = crate::app_state::tabs::PanelSide::Right;
             }
         }
         Err(e) => {
@@ -330,20 +332,20 @@ async fn handle_archive_loaded(
 pub(crate) fn handle_task_manager_event(code: KeyCode, app: &mut AppState) -> bool {
     match code {
         KeyCode::Escape => {
-            app.show_task_manager = false;
+            app.tasks.show_task_manager = false;
         }
         KeyCode::Char('c') => {
-            app.task_manager.remove_finished_tasks();
+            app.tasks.task_manager.remove_finished_tasks();
         }
         KeyCode::Up => {
-            app.task_manager.move_selection_up();
+            app.tasks.task_manager.move_selection_up();
         }
         KeyCode::Down => {
-            app.task_manager.move_selection_down();
+            app.tasks.task_manager.move_selection_down();
         }
         KeyCode::Char('x') => {
-            if let Some(id) = app.task_manager.get_selected_task_id() {
-                app.task_manager.cancel_task(id);
+            if let Some(id) = app.tasks.task_manager.get_selected_task_id() {
+                app.tasks.task_manager.cancel_task(id);
                 // We don't update status here immediately, because the task itself
                 // will report Cancelled when it sees the cancel flag.
                 // However, if the task is already finished, this won't do anything.

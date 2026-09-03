@@ -74,22 +74,22 @@ fn test_multi_tab_search_timeout() {
         })
         .task_tx(tx)
         .build();
-    app.active = PanelSide::Right;
+    app.panels.active = PanelSide::Right;
 
     // Before reset
-    assert!(!app.left.tabs[0].search.buffer.is_empty());
-    assert!(!app.right.tabs[0].search.buffer.is_empty());
+    assert!(!app.panels.left.tabs[0].search.buffer.is_empty());
+    assert!(!app.panels.right.tabs[0].search.buffer.is_empty());
 
     // Run reset logic
     fm::handlers::navigation::reset_expired_search(&mut app);
 
     // After reset: left (background, expired) should be cleared. right (active, not expired) should remain.
     assert!(
-        app.left.tabs[0].search.buffer.is_empty(),
+        app.panels.left.tabs[0].search.buffer.is_empty(),
         "Expired background tab should be cleared"
     );
     assert!(
-        !app.right.tabs[0].search.buffer.is_empty(),
+        !app.panels.right.tabs[0].search.buffer.is_empty(),
         "Active valid tab should NOT be cleared"
     );
 }

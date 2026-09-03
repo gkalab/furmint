@@ -414,7 +414,7 @@ pub fn spawn_ssh_connect_with_keys(
 ) {
     let task_title = format!("Connecting to {user}@{host}");
     let ssh_manager = app.ssh_manager.clone();
-    app.task_manager
+    app.tasks.task_manager
         .spawn_task(&task_title, move |cancel, tx, id| async move {
             let result = tokio::select! {
                 res = ssh_manager.connect_pubkey_session(host.clone(), port, user.clone(), target_path.clone()) => Some(res),
@@ -480,7 +480,7 @@ pub fn spawn_ssh_connect_with_password(
 ) {
     let name = format!("Connecting to {user}@{host}");
     let ssh_manager = app.ssh_manager.clone();
-    app.task_manager
+    app.tasks.task_manager
         .spawn_task(&name, move |cancel, tx, id| async move {
             let pw = password.clone();
             let result = tokio::select! {
@@ -621,7 +621,7 @@ fn reconnect_ssh(app: &mut AppState, session_id: String, password: SecretString)
     let old_session_id = session_id.clone();
     let connection_name = app.active_tab().custom_title.clone();
 
-    app.task_manager.spawn_task(
+    app.tasks.task_manager.spawn_task(
         "Reconnecting SSH session",
         move |cancel, tx, id| async move {
             let result = tokio::select! {
@@ -707,12 +707,12 @@ pub fn handle_ssh_connection_mouse_click(app: &mut AppState, x: u16, y: u16) {
     }
 
     let now = Instant::now();
-    let is_double_click = if let Some((last_time, last_x, last_y)) = app.last_click {
+    let is_double_click = if let Some((last_time, last_x, last_y)) = app.mouse.last_click {
         now.duration_since(last_time) < Duration::from_millis(500) && x == last_x && y == last_y
     } else {
         false
     };
-    app.last_click = Some((now, x, y));
+    app.mouse.last_click = Some((now, x, y));
 
     let pos = (x, y);
     let fields = &app.popups.ssh_connection.field_areas;
@@ -821,7 +821,7 @@ fn spawn_pubkey_reconnect(app: &mut AppState, session_id: &str) {
     let session_id = session_id.to_string();
     let connection_name = app.active_tab().custom_title.clone();
 
-    app.task_manager.spawn_task(
+    app.tasks.task_manager.spawn_task(
         "Reconnecting SSH session",
         move |cancel, tx, id| async move {
             let result = tokio::select! {
@@ -900,7 +900,7 @@ pub fn handle_reconnect_ssh(app: &mut AppState) {
         let pw = password.clone();
         let connection_name = app.active_tab().custom_title.clone();
 
-        app.task_manager.spawn_task(
+        app.tasks.task_manager.spawn_task(
             "Reconnecting SSH session",
             move |cancel, tx, id| async move {
                 let result = tokio::select! {

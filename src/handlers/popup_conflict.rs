@@ -30,7 +30,7 @@ pub async fn handle_conflict_event(code: KeyCode, app: &mut AppState) -> bool {
     };
 
     if let Some(d) = decision {
-        if let Some(tx) = app.task_decision_txs.get(&task_id) {
+        if let Some(tx) = app.tasks.task_decision_txs.get(&task_id) {
             let _ = tx.send(d).await;
         }
         app.popups.reset_popup(crate::app::PopupKind::Conflict);

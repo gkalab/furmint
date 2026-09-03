@@ -103,8 +103,8 @@ async fn perform_drive_navigation(app: &mut AppState, drive: &str) {
     if let Some(sel_drive) = get_drive(&path) {
         let (opp_drive, opp_dir) = {
             let opposite_tab = match side {
-                PanelSide::Left => app.right.active_tab(),
-                PanelSide::Right => app.left.active_tab(),
+                PanelSide::Left => app.panels.right.active_tab(),
+                PanelSide::Right => app.panels.left.active_tab(),
             };
 
             let opp_drive = if opposite_tab.provider.is_local() {
@@ -123,8 +123,8 @@ async fn perform_drive_navigation(app: &mut AppState, drive: &str) {
 
     let success = {
         let tab_manager = match side {
-            PanelSide::Left => &mut app.left,
-            PanelSide::Right => &mut app.right,
+            PanelSide::Left => &mut app.panels.left,
+            PanelSide::Right => &mut app.panels.right,
         };
         tab_manager
             .active_tab_mut()

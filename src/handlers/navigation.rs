@@ -186,8 +186,8 @@ pub fn reset_expired_search(app: &mut AppState) {
         }
     };
 
-    handle_tabs(&mut app.left.tabs);
-    handle_tabs(&mut app.right.tabs);
+    handle_tabs(&mut app.panels.left.tabs);
+    handle_tabs(&mut app.panels.right.tabs);
 }
 
 // Switches between panels or focuses file viewer.
@@ -257,14 +257,14 @@ async fn handle_open_archive(app: &mut AppState, path: &PathBuf, filename: Strin
         return;
     }
 
-    let side_index = match app.active {
+    let side_index = match app.panels.active {
         crate::app_state::tabs::PanelSide::Left => 0,
         crate::app_state::tabs::PanelSide::Right => 1,
     };
 
     // Check cache first
     if let Ok(metadata) = std::fs::metadata(path)
-        && let Some(entry) = app.archive_cache.get(path)
+        && let Some(entry) = app.cache.archive_cache.get(path)
     {
         let current_mtime = metadata
             .modified()
@@ -275,9 +275,9 @@ async fn handle_open_archive(app: &mut AppState, path: &PathBuf, filename: Strin
             let provider = entry.provider.clone();
             // Create tab immediately
             let manager = if side_index == 0 {
-                &mut app.left
+                &mut app.panels.left
             } else {
-                &mut app.right
+                &mut app.panels.right
             };
 
             match crate::app_state::tabs::Tab::with_provider(
@@ -290,7 +290,7 @@ async fn handle_open_archive(app: &mut AppState, path: &PathBuf, filename: Strin
                     tab.custom_title = Some(filename);
                     manager.insert_tab_after_active(tab);
                     // Set active panel
-                    app.active = if side_index == 0 {
+                    app.panels.active = if side_index == 0 {
                         crate::app_state::tabs::PanelSide::Left
                     } else {
                         crate::app_state::tabs::PanelSide::Right
@@ -304,7 +304,7 @@ async fn handle_open_archive(app: &mut AppState, path: &PathBuf, filename: Strin
             return;
         }
         // Cache invalid
-        app.archive_cache.remove(path);
+        app.cache.archive_cache.remove(path);
     }
 
     let path_clone = path.clone();
@@ -313,7 +313,8 @@ async fn handle_open_archive(app: &mut AppState, path: &PathBuf, filename: Strin
 
     let task_name = format!("Opening {filename}");
 
-    app.task_manager
+    app.tasks
+        .task_manager
         .spawn_task(&task_name, move |_cancel, tx, id| async move {
             let path_for_task = path_clone.clone();
             // We need to run blocking IO
@@ -383,7 +384,7 @@ pub async fn handle_open_item(app: &mut AppState) {
                 ) {
                     app.active_tab_mut().error = Some(format!("Error launching in terminal: {e}"));
                 }
-            } else if let Err(e) = app.opener.open(&full_path) {
+            } else if let Err(e) = app.os.opener.open(&full_path) {
                 app.active_tab_mut().error = Some(format!("Error opening file: {e}"));
             }
         }

@@ -31,7 +31,7 @@ pub fn draw_main_layout(f: &mut Frame, app: &mut AppState, palette: &ThemePalett
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(vertical_chunks[1]);
 
-    let show_tabs = app.left.tabs.len() > 1 || app.right.tabs.len() > 1;
+    let show_tabs = app.panels.left.tabs.len() > 1 || app.panels.right.tabs.len() > 1;
 
     // Left Panel
     draw_side(f, app, PanelSide::Left, panel_chunks[0], palette, show_tabs);
@@ -59,7 +59,7 @@ fn draw_side(
     show_tabs: bool,
 ) {
     let opposite_side = side.opposite();
-    let is_viewer_visible = app.file_viewer.is_visible && app.active == opposite_side;
+    let is_viewer_visible = app.file_viewer.is_visible && app.panels.active == opposite_side;
 
     if is_viewer_visible {
         app.file_viewer.area = area;
@@ -72,11 +72,11 @@ fn draw_side(
             app.global.icons.unwrap_or(false),
         );
     } else {
-        let is_active = app.active == side && !app.file_viewer.focused;
+        let is_active = app.panels.active == side && !app.file_viewer.focused;
         let tab_manager = if side == PanelSide::Left {
-            &app.left
+            &app.panels.left
         } else {
-            &app.right
+            &app.panels.right
         };
 
         let sub_layout = Layout::default()
@@ -124,9 +124,9 @@ fn draw_side(
         }
 
         let tab = if side == PanelSide::Left {
-            app.left.active_tab_mut()
+            app.panels.left.active_tab_mut()
         } else {
-            app.right.active_tab_mut()
+            app.panels.right.active_tab_mut()
         };
         draw_panel(
             f,
@@ -143,25 +143,25 @@ fn draw_side(
 fn draw_status_bars(f: &mut Frame, app: &AppState, chunks: &[Rect], palette: &ThemePalette) {
     draw_panel_status(
         f,
-        app.left.active_tab(),
+        app.panels.left.active_tab(),
         chunks[0],
         &crate::ui::panel::PanelStatusContext {
             palette,
-            active: app.active == PanelSide::Left,
+            active: app.panels.active == PanelSide::Left,
             borders: app.global.borders.unwrap_or(false),
-            task_manager: &app.task_manager,
+            task_manager: &app.tasks.task_manager,
             side: PanelSide::Left,
         },
     );
     draw_panel_status(
         f,
-        app.right.active_tab(),
+        app.panels.right.active_tab(),
         chunks[1],
         &crate::ui::panel::PanelStatusContext {
             palette,
-            active: app.active == PanelSide::Right,
+            active: app.panels.active == PanelSide::Right,
             borders: app.global.borders.unwrap_or(false),
-            task_manager: &app.task_manager,
+            task_manager: &app.tasks.task_manager,
             side: PanelSide::Right,
         },
     );
@@ -183,7 +183,12 @@ pub fn draw_all_popups(
     crate::ui::delete_ui::draw_delete_popup(f, &mut app.popups.delete, palette);
     crate::ui::copy_move_ui::draw_copy_move_popup(f, &app.popups.copy_move, palette);
     crate::ui::conflict_ui::draw_conflict_popup(f, &mut app.popups.conflict, palette);
-    crate::ui::task_ui::draw_task_manager(f, &app.task_manager, app.show_task_manager, palette);
+    crate::ui::task_ui::draw_task_manager(
+        f,
+        &app.tasks.task_manager,
+        app.tasks.show_task_manager,
+        palette,
+    );
     crate::ui::empty_trash_ui::draw_empty_trash_popup(f, &mut app.popups.empty_trash, palette);
     crate::ui::quit_ui::draw_quit_popup(f, &mut app.popups.quit_confirmation, palette);
     crate::ui::error_ui::draw_error_popup(f, &mut app.popups.error, palette);

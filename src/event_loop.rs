@@ -133,7 +133,7 @@ where
                                 draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
                             }
                             _ = interval.tick() => {
-                                app.task_manager.cleanup_tasks();
+                                app.tasks.task_manager.cleanup_tasks();
                                 app.cleanup_archive_cache();
                                 // Reset search if timeout has expired
                                 reset_expired_search(app);
@@ -215,10 +215,10 @@ async fn handle_watcher_event(event: crate::fs::watcher::WatcherEvent, app: &mut
                 }
             }
 
-            for tab in &mut app.left.tabs {
+            for tab in &mut app.panels.left.tabs {
                 handle_tab(tab, &paths).await;
             }
-            for tab in &mut app.right.tabs {
+            for tab in &mut app.panels.right.tabs {
                 handle_tab(tab, &paths).await;
             }
         }
@@ -270,8 +270,8 @@ mod tests {
         // Setup AppState mock: two tabs, stub current_dir, fake entries
         use crate::fs::watcher::WatcherEvent;
         let mut app = crate::app::AppState::test_default();
-        app.left.active_tab_mut().current_dir = std::path::PathBuf::from("/mock");
-        app.left.active_tab_mut().entries = vec![crate::fs::utils::FileEntry {
+        app.panels.left.active_tab_mut().current_dir = std::path::PathBuf::from("/mock");
+        app.panels.left.active_tab_mut().entries = vec![crate::fs::utils::FileEntry {
             name: "testfile.txt".to_string(),
             is_dir: false,
             is_symlink: false,
@@ -280,13 +280,13 @@ mod tests {
             attributes: String::new(),
             selected: false,
         }];
-        app.right.active_tab_mut().current_dir = std::path::PathBuf::from("/mock");
+        app.panels.right.active_tab_mut().current_dir = std::path::PathBuf::from("/mock");
         let paths = vec![std::path::PathBuf::from("/mock")];
         let event = WatcherEvent::FileSystemChange(paths);
         super::handle_watcher_event(event, &mut app).await;
         // Check cursor and error remain valid
-        assert_eq!(app.left.active_tab().cursor, 0);
-        assert!(app.left.active_tab().error.is_none());
+        assert_eq!(app.panels.left.active_tab().cursor, 0);
+        assert!(app.panels.left.active_tab().error.is_none());
     }
 
     #[tokio::test]
@@ -304,8 +304,8 @@ mod tests {
         let file_path = tmp_dir.path().join("testfile.txt");
         std::fs::File::create(&file_path).unwrap();
 
-        app.left.active_tab_mut().current_dir = tmp_dir.path().to_path_buf();
-        app.left.active_tab_mut().entries = vec![FileEntry {
+        app.panels.left.active_tab_mut().current_dir = tmp_dir.path().to_path_buf();
+        app.panels.left.active_tab_mut().entries = vec![FileEntry {
             name: "testfile.txt".to_string(),
             is_dir: false,
             is_symlink: false,
@@ -322,7 +322,8 @@ mod tests {
 
         // Check if selection is preserved
         assert!(
-            app.left
+            app.panels
+                .left
                 .active_tab()
                 .entries
                 .iter()
@@ -338,6 +339,6 @@ mod tests {
         let event = WatcherEvent::Error("test error".to_string());
         super::handle_watcher_event(event, &mut app).await;
         // Should not panic or change error field
-        assert!(app.left.active_tab().error.is_none());
+        assert!(app.panels.left.active_tab().error.is_none());
     }
 }

@@ -481,14 +481,14 @@ mod tests {
             selected: false,
         };
         let mut app = AppState::test_default();
-        app.left.tabs[0].entries = vec![entry];
-        app.left.tabs[0].current_dir = std::path::PathBuf::from("/tmp");
+        app.panels.left.tabs[0].entries = vec![entry];
+        app.panels.left.tabs[0].current_dir = std::path::PathBuf::from("/tmp");
         app.editor_cfg = EditorConfig {
             command: Some(String::new()),
             in_terminal: Some(true),
         };
         handle_edit(&mut app).await;
-        let error = app.left.active_tab().error.clone();
+        let error = app.panels.left.active_tab().error.clone();
         assert!(
             error.is_some(),
             "Error should be set if invalid editor command"
@@ -891,7 +891,7 @@ mod tests {
 
         assert!(!result);
         assert!(!app.popups.remote_edit.is_visible);
-        assert!(app.left.active_tab().error.is_some());
+        assert!(app.panels.left.active_tab().error.is_some());
         assert!(temp_path.exists());
         tokio::fs::remove_file(&temp_path).await.unwrap();
     }

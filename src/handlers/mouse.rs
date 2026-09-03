@@ -8,14 +8,14 @@ pub async fn handle_mouse_event(app: &mut AppState, event: MouseEvent) {
     // Compute double-click before dispatching so all popups get consistent detection
     let is_double_click = if matches!(event.kind, MouseEventKind::Down(MouseButton::Left)) {
         let now = Instant::now();
-        let double = if let Some((last_time, last_x, last_y)) = app.last_click {
+        let double = if let Some((last_time, last_x, last_y)) = app.mouse.last_click {
             now.duration_since(last_time) < Duration::from_millis(500)
                 && event.column == last_x
                 && event.row == last_y
         } else {
             false
         };
-        app.last_click = Some((now, event.column, event.row));
+        app.mouse.last_click = Some((now, event.column, event.row));
         double
     } else {
         false
@@ -45,8 +45,8 @@ pub async fn handle_mouse_event(app: &mut AppState, event: MouseEvent) {
             handle_drag(app, event.column, event.row).await;
         }
         MouseEventKind::Up(MouseButton::Left) => {
-            app.active_drag = None;
-            app.last_drag_pos = None;
+            app.mouse.active_drag = None;
+            app.mouse.last_drag_pos = None;
         }
         MouseEventKind::ScrollUp => {
             let ctrl = event.modifiers.contains(Modifiers::CONTROL);
@@ -75,9 +75,9 @@ async fn handle_fuzzy_search_mouse(app: &mut AppState, event: MouseEvent, is_dou
             .await;
         }
         MouseEventKind::Up(MouseButton::Left) => {
-            app.active_drag = None;
+            app.mouse.active_drag = None;
         }
-        MouseEventKind::Drag(MouseButton::Left) if app.active_drag.is_some() => {
+        MouseEventKind::Drag(MouseButton::Left) if app.mouse.active_drag.is_some() => {
             update_drag_scroll(app, event.column, event.row).await;
         }
         MouseEventKind::ScrollUp => {
@@ -115,10 +115,10 @@ async fn handle_popup_mouse(app: &mut AppState, event: MouseEvent, is_double_cli
             }
         }
         MouseEventKind::Up(MouseButton::Left) => {
-            app.active_drag = None;
+            app.mouse.active_drag = None;
             handle_popup_up(app, event.column, event.row).await;
         }
-        MouseEventKind::Drag(MouseButton::Left) if app.active_drag.is_some() => {
+        MouseEventKind::Drag(MouseButton::Left) if app.mouse.active_drag.is_some() => {
             update_drag_scroll(app, event.column, event.row).await;
         }
         MouseEventKind::ScrollUp if app.popups.help.is_visible => {
@@ -210,7 +210,7 @@ fn find_button_index(app: &AppState, x: u16, y: u16) -> Option<usize> {
 
 fn handle_popup_down(app: &mut AppState, x: u16, y: u16) {
     if let Some(i) = find_button_index(app, x, y) {
-        app.mouse_button_down_index = Some(i);
+        app.mouse.mouse_button_down_index = Some(i);
 
         // Set the focused button for visual feedback
         if app.popups.error.is_visible {
@@ -234,7 +234,7 @@ fn handle_popup_down(app: &mut AppState, x: u16, y: u16) {
 }
 
 async fn handle_popup_up(app: &mut AppState, x: u16, y: u16) {
-    let down_index = app.mouse_button_down_index.take();
+    let down_index = app.mouse.mouse_button_down_index.take();
     let Some(down_index) = down_index else { return };
 
     let current_index = find_button_index(app, x, y);
@@ -284,11 +284,11 @@ async fn handle_left_click(app: &mut AppState, x: u16, y: u16, is_double_click: 
         if app.file_viewer.is_image_zoomed() {
             // Dragging a zoomed-in image pans it instead of selecting text.
             app.file_viewer.selection = None;
-            app.active_drag = Some(crate::app::DragTarget::FileViewerPan);
-            app.last_drag_pos = Some(click_pos);
+            app.mouse.active_drag = Some(crate::app::DragTarget::FileViewerPan);
+            app.mouse.last_drag_pos = Some(click_pos);
             return;
         }
-        app.active_drag = Some(crate::app::DragTarget::FileViewerSelection);
+        app.mouse.active_drag = Some(crate::app::DragTarget::FileViewerSelection);
         let borders = app.global.borders.unwrap_or(false);
         let border_offset = u16::from(borders);
         let inner_y = y.saturating_sub(app.file_viewer.area.y + border_offset);
@@ -312,24 +312,24 @@ async fn handle_left_click(app: &mut AppState, x: u16, y: u16, is_double_click: 
 
     // Check tab bars
     if is_in_rect(click_pos, app.left_tab_bar_area) {
-        app.active = PanelSide::Left;
+        app.panels.active = PanelSide::Left;
         handle_tab_bar_click(app, PanelSide::Left, x, y).await;
         return;
     }
     if is_in_rect(click_pos, app.right_tab_bar_area) {
-        app.active = PanelSide::Right;
+        app.panels.active = PanelSide::Right;
         handle_tab_bar_click(app, PanelSide::Right, x, y).await;
         return;
     }
 
     // Check panels
     if is_in_rect(click_pos, app.left_panel_area) {
-        app.active = PanelSide::Left;
+        app.panels.active = PanelSide::Left;
         handle_panel_click(app, PanelSide::Left, x, y, is_double_click).await;
         return;
     }
     if is_in_rect(click_pos, app.right_panel_area) {
-        app.active = PanelSide::Right;
+        app.panels.active = PanelSide::Right;
         handle_panel_click(app, PanelSide::Right, x, y, is_double_click).await;
     }
 }
@@ -340,10 +340,10 @@ async fn handle_right_click(app: &mut AppState, x: u16, y: u16) {
 
     // Determine which panel was clicked and set it active.
     let side = if is_in_rect(click_pos, app.left_panel_area) {
-        app.active = crate::app_state::tabs::PanelSide::Left;
+        app.panels.active = crate::app_state::tabs::PanelSide::Left;
         Some(crate::app_state::tabs::PanelSide::Left)
     } else if is_in_rect(click_pos, app.right_panel_area) {
-        app.active = crate::app_state::tabs::PanelSide::Right;
+        app.panels.active = crate::app_state::tabs::PanelSide::Right;
         Some(crate::app_state::tabs::PanelSide::Right)
     } else {
         None
@@ -352,9 +352,11 @@ async fn handle_right_click(app: &mut AppState, x: u16, y: u16) {
     let Some(side) = side else { return };
 
     let (tab, area) = match side {
-        crate::app_state::tabs::PanelSide::Left => (app.left.active_tab_mut(), app.left_panel_area),
+        crate::app_state::tabs::PanelSide::Left => {
+            (app.panels.left.active_tab_mut(), app.left_panel_area)
+        }
         crate::app_state::tabs::PanelSide::Right => {
-            (app.right.active_tab_mut(), app.right_panel_area)
+            (app.panels.right.active_tab_mut(), app.right_panel_area)
         }
     };
 
@@ -398,8 +400,8 @@ async fn handle_right_click(_app: &mut AppState, _x: u16, _y: u16) {}
 
 async fn handle_tab_bar_click(app: &mut AppState, side: PanelSide, x: u16, y: u16) {
     let (tab_manager, tab_areas) = match side {
-        PanelSide::Left => (&mut app.left, &app.left_tab_areas),
-        PanelSide::Right => (&mut app.right, &app.right_tab_areas),
+        PanelSide::Left => (&mut app.panels.left, &app.left_tab_areas),
+        PanelSide::Right => (&mut app.panels.right, &app.right_tab_areas),
     };
 
     for (idx, rect) in tab_areas.iter().enumerate() {
@@ -419,8 +421,8 @@ async fn handle_panel_click(
     is_double_click: bool,
 ) {
     let (tab, area) = match side {
-        PanelSide::Left => (app.left.active_tab_mut(), app.left_panel_area),
-        PanelSide::Right => (app.right.active_tab_mut(), app.right_panel_area),
+        PanelSide::Left => (app.panels.left.active_tab_mut(), app.left_panel_area),
+        PanelSide::Right => (app.panels.right.active_tab_mut(), app.right_panel_area),
     };
 
     let borders = app.global.borders.unwrap_or(false);
@@ -453,17 +455,17 @@ async fn handle_panel_click(
 }
 
 async fn handle_drag(app: &mut AppState, x: u16, y: u16) {
-    if let Some(active_drag) = app.active_drag
+    if let Some(active_drag) = app.mouse.active_drag
         && active_drag != crate::app::DragTarget::FileViewerSelection
     {
         if active_drag == crate::app::DragTarget::FileViewerPan {
-            if let Some((lx, ly)) = app.last_drag_pos {
+            if let Some((lx, ly)) = app.mouse.last_drag_pos {
                 let dx = i64::from(x) - i64::from(lx);
                 let dy = i64::from(y) - i64::from(ly);
                 // Pan so the content follows the cursor.
                 app.file_viewer.pan_image(-dx, -dy);
             }
-            app.last_drag_pos = Some((x, y));
+            app.mouse.last_drag_pos = Some((x, y));
         } else {
             update_drag_scroll(app, x, y).await;
         }
@@ -616,7 +618,7 @@ async fn start_scrollbar_drag(
     ) else {
         return false;
     };
-    app.active_drag = Some(target);
+    app.mouse.active_drag = Some(target);
     if y < start || y >= end {
         update_drag_scroll(app, 0, y).await;
     }
@@ -628,8 +630,8 @@ async fn start_scrollbar_drag(
 #[must_use]
 fn panel_scrollbar_metrics(app: &AppState, side: PanelSide) -> (usize, usize) {
     let tab = match side {
-        PanelSide::Left => app.left.active_tab(),
-        PanelSide::Right => app.right.active_tab(),
+        PanelSide::Left => app.panels.left.active_tab(),
+        PanelSide::Right => app.panels.right.active_tab(),
     };
     let content_length = if tab.has_file_filter() {
         tab.visible_count()
@@ -788,7 +790,7 @@ pub async fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) 
         let region = panel_scrollbar_hit_region(area, visible_rows);
         if is_in_rect((x, y), region) {
             let (content_length, offset) = panel_scrollbar_metrics(app, PanelSide::Left);
-            app.active = PanelSide::Left;
+            app.panels.active = PanelSide::Left;
             if start_scrollbar_drag(
                 app,
                 y,
@@ -813,7 +815,7 @@ pub async fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) 
         let region = panel_scrollbar_hit_region(area, visible_rows);
         if is_in_rect((x, y), region) {
             let (content_length, offset) = panel_scrollbar_metrics(app, PanelSide::Right);
-            app.active = PanelSide::Right;
+            app.panels.active = PanelSide::Right;
             if start_scrollbar_drag(
                 app,
                 y,
@@ -835,7 +837,7 @@ pub async fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) 
 }
 
 pub async fn update_drag_scroll(app: &mut AppState, _x: u16, y: u16) {
-    let Some(target) = app.active_drag else {
+    let Some(target) = app.mouse.active_drag else {
         return;
     };
 
@@ -886,8 +888,8 @@ pub async fn update_drag_scroll(app: &mut AppState, _x: u16, y: u16) {
         }
         crate::app::DragTarget::PanelScrollbar(side) => {
             let (tab, area) = match side {
-                PanelSide::Left => (app.left.active_tab_mut(), app.left_panel_area),
-                PanelSide::Right => (app.right.active_tab_mut(), app.right_panel_area),
+                PanelSide::Left => (app.panels.left.active_tab_mut(), app.left_panel_area),
+                PanelSide::Right => (app.panels.right.active_tab_mut(), app.right_panel_area),
             };
             let start_y = area.y + 2;
             let height = area.height.saturating_sub(3);
@@ -942,9 +944,9 @@ fn handle_file_viewer_scroll(app: &mut AppState, up: bool) {
 }
 
 async fn handle_scroll(app: &mut AppState, up: bool) {
-    let tab = match app.active {
-        PanelSide::Left => app.left.active_tab_mut(),
-        PanelSide::Right => app.right.active_tab_mut(),
+    let tab = match app.panels.active {
+        PanelSide::Left => app.panels.left.active_tab_mut(),
+        PanelSide::Right => app.panels.right.active_tab_mut(),
     };
 
     if up {

@@ -100,7 +100,7 @@ pub async fn handle_main_panel_event(
     if let Some(keys) = &keyboard.tasks
         && keys.contains(&shortcut)
     {
-        app.show_task_manager = !app.show_task_manager;
+        app.tasks.show_task_manager = !app.tasks.show_task_manager;
         return false;
     }
 
@@ -364,7 +364,7 @@ fn handle_calc_dir_size(app: &mut AppState) {
     for (path, name, provider) in dirs_to_calc {
         let path_clone = path.clone();
 
-        app.task_manager.spawn_task(
+        app.tasks.task_manager.spawn_task(
             &format!("Calculate size: {name}"),
             move |_cancel_flag, tx, id| async move {
                 match provider.calc_dir_size(&path_clone).await {
