@@ -250,6 +250,27 @@ where
         *mouse_capture_active = should_mouse_be_active;
     }
 
+    let size = terminal
+        .size()
+        .map_err(|e| anyhow::anyhow!("Failed to get terminal size: {e}"))?;
+    let viewer_side = if app.file_viewer.is_visible {
+        Some(app.panels.active.opposite())
+    } else {
+        None
+    };
+    app.layout = crate::layout::compute_layout(
+        ratatui::layout::Rect {
+            x: 0,
+            y: 0,
+            width: size.width,
+            height: size.height,
+        },
+        &app.panels.left.tabs,
+        &app.panels.right.tabs,
+        viewer_side,
+        app.global.icons.unwrap_or(false),
+    );
+
     terminal.draw(|f| {
         crate::ui::main_ui::draw_main_layout(f, app, palette);
         crate::ui::main_ui::draw_all_popups(f, app, palette, keyboard);

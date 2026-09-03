@@ -1,5 +1,6 @@
 use crate::app_state::tabs::{PanelSide, PersistentPanel, Tab, TabManager};
 use crate::clipboard::FileClipboard;
+use crate::layout::LayoutState;
 use crate::state::{
     BookmarkState, ConflictState, CopyMoveState, CreateDirectoryState, CreateFileState,
     DeleteState, DriveSelectState, EmptyTrashState, ErrorState, FileViewerSearchState,
@@ -274,13 +275,8 @@ pub struct AppState {
     pub ssh_history: crate::ssh_history::SshConnectionHistory,
     pub os: OsServices,
     pub cache: CacheState,
-    // Mouse interaction areas
-    pub left_tab_bar_area: ratatui::layout::Rect,
-    pub right_tab_bar_area: ratatui::layout::Rect,
-    pub left_tab_areas: Vec<ratatui::layout::Rect>,
-    pub right_tab_areas: Vec<ratatui::layout::Rect>,
-    pub left_panel_area: ratatui::layout::Rect,
-    pub right_panel_area: ratatui::layout::Rect,
+    /// Layout rects, recomputed once per frame before draw and input handling
+    pub layout: LayoutState,
     pub pending_action: Option<PendingAction>,
     pub mouse: MouseState,
 }
@@ -354,12 +350,7 @@ impl AppState {
                 opener: std::sync::Arc::new(crate::opener::SystemOpener),
             },
             cache: CacheState::default(),
-            left_tab_bar_area: ratatui::layout::Rect::default(),
-            right_tab_bar_area: ratatui::layout::Rect::default(),
-            left_tab_areas: Vec::new(),
-            right_tab_areas: Vec::new(),
-            left_panel_area: ratatui::layout::Rect::default(),
-            right_panel_area: ratatui::layout::Rect::default(),
+            layout: LayoutState::default(),
             pending_action: None,
             mouse: MouseState::default(),
         }

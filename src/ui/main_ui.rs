@@ -61,6 +61,9 @@ fn draw_side(
     let opposite_side = side.opposite();
     let is_viewer_visible = app.file_viewer.is_visible && app.panels.active == opposite_side;
 
+    let tab_bar_area = *app.layout.tab_bar_area(side);
+    let panel_area = *app.layout.panel_area(side);
+
     if is_viewer_visible {
         app.file_viewer.area = area;
         crate::ui::draw_file_viewer(
@@ -71,73 +74,42 @@ fn draw_side(
             app.global.borders.unwrap_or(false),
             app.global.icons.unwrap_or(false),
         );
+        return;
+    }
+
+    let is_active = app.panels.active == side && !app.file_viewer.focused;
+    let tab_manager = if side == PanelSide::Left {
+        &app.panels.left
     } else {
-        let is_active = app.panels.active == side && !app.file_viewer.focused;
-        let tab_manager = if side == PanelSide::Left {
-            &app.panels.left
-        } else {
-            &app.panels.right
-        };
+        &app.panels.right
+    };
 
-        let sub_layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                if show_tabs {
-                    Constraint::Length(1)
-                } else {
-                    Constraint::Length(0)
-                },
-                Constraint::Min(1),
-            ])
-            .split(area);
-
-        if show_tabs {
-            if side == PanelSide::Left {
-                app.left_tab_bar_area = sub_layout[0];
-            } else {
-                app.right_tab_bar_area = sub_layout[0];
-            }
-            let tab_areas = crate::ui::draw_tab_bar(
-                f,
-                tab_manager,
-                sub_layout[0],
-                palette,
-                is_active,
-                app.global.borders.unwrap_or(false),
-                app.global.icons.unwrap_or(false),
-            );
-            if side == PanelSide::Left {
-                app.left_tab_areas = tab_areas;
-            } else {
-                app.right_tab_areas = tab_areas;
-            }
-        } else if side == PanelSide::Left {
-            app.left_tab_bar_area = Rect::default();
-        } else {
-            app.right_tab_bar_area = Rect::default();
-        }
-
-        if side == PanelSide::Left {
-            app.left_panel_area = sub_layout[1];
-        } else {
-            app.right_panel_area = sub_layout[1];
-        }
-
-        let tab = if side == PanelSide::Left {
-            app.panels.left.active_tab_mut()
-        } else {
-            app.panels.right.active_tab_mut()
-        };
-        draw_panel(
+    if show_tabs {
+        crate::ui::draw_tab_bar(
             f,
-            tab,
-            is_active,
-            sub_layout[1],
+            tab_manager,
+            tab_bar_area,
             palette,
+            is_active,
             app.global.borders.unwrap_or(false),
             app.global.icons.unwrap_or(false),
         );
     }
+
+    let tab = if side == PanelSide::Left {
+        app.panels.left.active_tab_mut()
+    } else {
+        app.panels.right.active_tab_mut()
+    };
+    draw_panel(
+        f,
+        tab,
+        is_active,
+        panel_area,
+        palette,
+        app.global.borders.unwrap_or(false),
+        app.global.icons.unwrap_or(false),
+    );
 }
 
 fn draw_status_bars(f: &mut Frame, app: &AppState, chunks: &[Rect], palette: &ThemePalette) {

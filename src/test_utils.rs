@@ -15,7 +15,6 @@ use std::sync::Arc;
 #[must_use]
 pub fn create_test_tab() -> Tab {
     Tab {
-        area: ratatui::layout::Rect::default(),
         provider: Arc::new(LocalFs::new()),
         current_dir: PathBuf::from("/test"),
         entries: vec![],
@@ -78,7 +77,6 @@ pub fn create_test_tab_with_entries() -> Tab {
     ];
 
     Tab {
-        area: ratatui::layout::Rect::default(),
         provider: Arc::new(LocalFs::new()),
         current_dir: PathBuf::from("/tmp"),
         entries,
@@ -202,12 +200,7 @@ impl TestAppBuilder {
                     .unwrap_or_else(|| std::sync::Arc::new(crate::opener::SystemOpener)),
             },
             cache: crate::app::CacheState::default(),
-            left_tab_bar_area: ratatui::layout::Rect::default(),
-            right_tab_bar_area: ratatui::layout::Rect::default(),
-            left_tab_areas: Vec::new(),
-            right_tab_areas: Vec::new(),
-            left_panel_area: ratatui::layout::Rect::default(),
-            right_panel_area: ratatui::layout::Rect::default(),
+            layout: crate::layout::LayoutState::default(),
             pending_action: None,
             mouse: crate::app::MouseState::default(),
         }

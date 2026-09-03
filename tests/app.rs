@@ -321,7 +321,6 @@ async fn test_new_tab_inherits_sort() {
 async fn test_can_swap_active_tabs() {
     let local_tab = create_test_tab();
     let remote_tab = Tab {
-        area: ratatui::layout::Rect::default(),
         provider: Arc::new(MockProvider { local: false }),
         current_dir: PathBuf::from("/remote"),
         entries: vec![],
@@ -368,7 +367,6 @@ async fn test_drive_navigation_matches_opposite_pane() {
     {
         let mut app = AppState::test_default();
         let left_tab = Tab {
-            area: ratatui::layout::Rect::default(),
             provider: provider.clone(),
             current_dir: PathBuf::from("C:\\LeftDir"),
             entries: vec![],
@@ -387,7 +385,6 @@ async fn test_drive_navigation_matches_opposite_pane() {
             filter: fm::state::FileFilterState::new(),
         };
         let right_tab = Tab {
-            area: ratatui::layout::Rect::default(),
             provider: provider.clone(),
             current_dir: PathBuf::from("D:\\RightDir"),
             entries: vec![],
@@ -430,7 +427,6 @@ async fn test_drive_navigation_matches_opposite_pane() {
     {
         let mut app = AppState::test_default();
         let left_tab = Tab {
-            area: ratatui::layout::Rect::default(),
             provider: provider.clone(),
             current_dir: PathBuf::from("C:\\LeftDir"),
             entries: vec![],
@@ -449,7 +445,6 @@ async fn test_drive_navigation_matches_opposite_pane() {
             filter: fm::state::FileFilterState::new(),
         };
         let right_tab = Tab {
-            area: ratatui::layout::Rect::default(),
             provider: provider.clone(),
             current_dir: PathBuf::from("E:\\RightDir"),
             entries: vec![],
@@ -492,7 +487,6 @@ async fn test_drive_navigation_matches_opposite_pane() {
     {
         let mut app = AppState::test_default();
         let left_tab = Tab {
-            area: ratatui::layout::Rect::default(),
             provider: provider.clone(),
             current_dir: PathBuf::from("C:\\LeftDir"),
             entries: vec![],
@@ -511,7 +505,6 @@ async fn test_drive_navigation_matches_opposite_pane() {
             filter: fm::state::FileFilterState::new(),
         };
         let right_tab = Tab {
-            area: ratatui::layout::Rect::default(),
             provider: provider.clone(),
             current_dir: PathBuf::from("C:\\RightDir"),
             entries: vec![],

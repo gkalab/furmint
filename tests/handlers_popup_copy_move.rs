@@ -27,7 +27,6 @@ fn make_fileentry(name: &str, selected: bool, is_dir: bool) -> FileEntry {
 fn make_tab(path: &str, entries: Vec<FileEntry>, cursor: usize) -> Tab {
     let current_dir = PathBuf::from(path);
     Tab {
-        area: ratatui::layout::Rect::default(),
         provider: Arc::new(LocalFs::new()),
         current_dir: current_dir.clone(),
         entries,

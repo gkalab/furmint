@@ -451,7 +451,6 @@ pub fn draw_panel(
 ) {
     // Calculate visible rows for scrolling logic
     let visible_rows = area.height.saturating_sub(3) as usize; // -2 for borders, -1 for header
-    panel.area = area;
     panel.scroll_to_cursor(visible_rows);
 
     let col_widths = calculate_column_widths(panel, area);

@@ -13,9 +13,9 @@ fn setup_test_app() -> AppState {
     app.file_viewer.is_visible = true;
 
     // Set panel areas so mouse clicks can be mapped
-    app.left_panel_area = Rect::new(0, 0, 40, 20);
-    app.right_panel_area = Rect::new(40, 0, 40, 20);
-    app.left_tab_bar_area = Rect::new(0, 0, 40, 1);
+    app.layout.left_panel_area = Rect::new(0, 0, 40, 20);
+    app.layout.right_panel_area = Rect::new(40, 0, 40, 20);
+    app.layout.left_tab_bar_area = Rect::new(0, 0, 40, 1);
 
     // Setup some entries in left tab
     let entries = vec![
@@ -163,7 +163,7 @@ async fn test_mouse_tab_switch_updates_viewer() {
     app.panels.left.tabs.push(tab2);
 
     // Set tab areas (simple mock)
-    app.left_tab_areas = vec![Rect::new(0, 0, 10, 1), Rect::new(10, 0, 10, 1)];
+    app.layout.left_tab_areas = vec![Rect::new(0, 0, 10, 1), Rect::new(10, 0, 10, 1)];
 
     fm::handlers::navigation::update_viewer_content(&mut app).await;
     assert_eq!(app.file_viewer.path, PathBuf::from("/test/file1.txt"));
@@ -376,7 +376,7 @@ async fn test_scrollbar_thumb_rows() {
 #[tokio::test]
 async fn test_panel_scrollbar_drag() {
     let mut app = AppState::test_default();
-    app.left_panel_area = Rect::new(0, 0, 40, 20);
+    app.layout.left_panel_area = Rect::new(0, 0, 40, 20);
     let tab = app.panels.left.active_tab_mut();
     tab.entries = file_entries(50);
     tab.cursor = 0;
@@ -434,7 +434,7 @@ async fn test_panel_scrollbar_drag() {
 #[tokio::test]
 async fn test_panel_scrollbar_thumb_click_does_not_jump() {
     let mut app = AppState::test_default();
-    app.left_panel_area = Rect::new(0, 0, 40, 20);
+    app.layout.left_panel_area = Rect::new(0, 0, 40, 20);
     let tab = app.panels.left.active_tab_mut();
     tab.entries = file_entries(50);
     tab.cursor = 0;

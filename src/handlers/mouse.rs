@@ -311,24 +311,24 @@ async fn handle_left_click(app: &mut AppState, x: u16, y: u16, is_double_click: 
     }
 
     // Check tab bars
-    if is_in_rect(click_pos, app.left_tab_bar_area) {
+    if is_in_rect(click_pos, app.layout.left_tab_bar_area) {
         app.panels.active = PanelSide::Left;
         handle_tab_bar_click(app, PanelSide::Left, x, y).await;
         return;
     }
-    if is_in_rect(click_pos, app.right_tab_bar_area) {
+    if is_in_rect(click_pos, app.layout.right_tab_bar_area) {
         app.panels.active = PanelSide::Right;
         handle_tab_bar_click(app, PanelSide::Right, x, y).await;
         return;
     }
 
     // Check panels
-    if is_in_rect(click_pos, app.left_panel_area) {
+    if is_in_rect(click_pos, app.layout.left_panel_area) {
         app.panels.active = PanelSide::Left;
         handle_panel_click(app, PanelSide::Left, x, y, is_double_click).await;
         return;
     }
-    if is_in_rect(click_pos, app.right_panel_area) {
+    if is_in_rect(click_pos, app.layout.right_panel_area) {
         app.panels.active = PanelSide::Right;
         handle_panel_click(app, PanelSide::Right, x, y, is_double_click).await;
     }
@@ -339,10 +339,10 @@ async fn handle_right_click(app: &mut AppState, x: u16, y: u16) {
     let click_pos = (x, y);
 
     // Determine which panel was clicked and set it active.
-    let side = if is_in_rect(click_pos, app.left_panel_area) {
+    let side = if is_in_rect(click_pos, app.layout.left_panel_area) {
         app.panels.active = crate::app_state::tabs::PanelSide::Left;
         Some(crate::app_state::tabs::PanelSide::Left)
-    } else if is_in_rect(click_pos, app.right_panel_area) {
+    } else if is_in_rect(click_pos, app.layout.right_panel_area) {
         app.panels.active = crate::app_state::tabs::PanelSide::Right;
         Some(crate::app_state::tabs::PanelSide::Right)
     } else {
@@ -353,11 +353,12 @@ async fn handle_right_click(app: &mut AppState, x: u16, y: u16) {
 
     let (tab, area) = match side {
         crate::app_state::tabs::PanelSide::Left => {
-            (app.panels.left.active_tab_mut(), app.left_panel_area)
+            (app.panels.left.active_tab_mut(), app.layout.left_panel_area)
         }
-        crate::app_state::tabs::PanelSide::Right => {
-            (app.panels.right.active_tab_mut(), app.right_panel_area)
-        }
+        crate::app_state::tabs::PanelSide::Right => (
+            app.panels.right.active_tab_mut(),
+            app.layout.right_panel_area,
+        ),
     };
 
     // Only act on local providers.
@@ -400,8 +401,8 @@ async fn handle_right_click(_app: &mut AppState, _x: u16, _y: u16) {}
 
 async fn handle_tab_bar_click(app: &mut AppState, side: PanelSide, x: u16, y: u16) {
     let (tab_manager, tab_areas) = match side {
-        PanelSide::Left => (&mut app.panels.left, &app.left_tab_areas),
-        PanelSide::Right => (&mut app.panels.right, &app.right_tab_areas),
+        PanelSide::Left => (&mut app.panels.left, &app.layout.left_tab_areas),
+        PanelSide::Right => (&mut app.panels.right, &app.layout.right_tab_areas),
     };
 
     for (idx, rect) in tab_areas.iter().enumerate() {
@@ -421,8 +422,11 @@ async fn handle_panel_click(
     is_double_click: bool,
 ) {
     let (tab, area) = match side {
-        PanelSide::Left => (app.panels.left.active_tab_mut(), app.left_panel_area),
-        PanelSide::Right => (app.panels.right.active_tab_mut(), app.right_panel_area),
+        PanelSide::Left => (app.panels.left.active_tab_mut(), app.layout.left_panel_area),
+        PanelSide::Right => (
+            app.panels.right.active_tab_mut(),
+            app.layout.right_panel_area,
+        ),
     };
 
     let borders = app.global.borders.unwrap_or(false);
@@ -785,7 +789,7 @@ pub async fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) 
 
     // 6. Left Panel scrollbar
     {
-        let area = app.left_panel_area;
+        let area = app.layout.left_panel_area;
         let visible_rows = area.height.saturating_sub(3) as usize;
         let region = panel_scrollbar_hit_region(area, visible_rows);
         if is_in_rect((x, y), region) {
@@ -810,7 +814,7 @@ pub async fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) 
 
     // 7. Right Panel scrollbar
     {
-        let area = app.right_panel_area;
+        let area = app.layout.right_panel_area;
         let visible_rows = area.height.saturating_sub(3) as usize;
         let region = panel_scrollbar_hit_region(area, visible_rows);
         if is_in_rect((x, y), region) {
@@ -888,8 +892,11 @@ pub async fn update_drag_scroll(app: &mut AppState, _x: u16, y: u16) {
         }
         crate::app::DragTarget::PanelScrollbar(side) => {
             let (tab, area) = match side {
-                PanelSide::Left => (app.panels.left.active_tab_mut(), app.left_panel_area),
-                PanelSide::Right => (app.panels.right.active_tab_mut(), app.right_panel_area),
+                PanelSide::Left => (app.panels.left.active_tab_mut(), app.layout.left_panel_area),
+                PanelSide::Right => (
+                    app.panels.right.active_tab_mut(),
+                    app.layout.right_panel_area,
+                ),
             };
             let start_y = area.y + 2;
             let height = area.height.saturating_sub(3);

@@ -9,7 +9,6 @@ use std::time::{Duration, Instant};
 fn create_test_tab(name: &str, entries: Vec<FileEntry>) -> Tab {
     let current_dir = PathBuf::from(format!("/tmp/{name}"));
     Tab {
-        area: ratatui::layout::Rect::default(),
         provider: Arc::new(LocalFs::new()),
         current_dir: current_dir.clone(),
         entries,

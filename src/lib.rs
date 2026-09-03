@@ -12,6 +12,7 @@ pub mod fs;
 pub mod handlers;
 pub mod icons;
 pub mod large_text;
+pub mod layout;
 pub mod opener;
 pub mod paths;
 pub mod ssh_history;
