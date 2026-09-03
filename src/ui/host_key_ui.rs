@@ -1,4 +1,4 @@
-use crate::app::HostKeyState;
+use crate::state::HostKeyState;
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
 

@@ -1,4 +1,5 @@
-use crate::app::{AppState, PanelSide};
+use crate::app::AppState;
+use crate::app_state::tabs::PanelSide;
 use crate::config::KeyboardConfig;
 use crate::theme::ThemePalette;
 use crate::ui::{draw_panel, draw_panel_status};

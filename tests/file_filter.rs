@@ -1,4 +1,5 @@
-use fm::app::{AppState, TabManager};
+use fm::app::AppState;
+use fm::app_state::tabs::TabManager;
 use fm::fs::utils::FileEntry;
 use fm::handlers::navigation::{
     handle_down, handle_down_search, handle_end, handle_home, handle_page_down, handle_page_up,

@@ -48,14 +48,14 @@ fn get_paths_to_act_on(app: &AppState) -> Vec<PathBuf> {
 }
 
 pub fn handle_init_copy(app: &mut AppState) {
-    init_copy_move(app, crate::app::CopyMoveAction::Copy);
+    init_copy_move(app, crate::state::CopyMoveAction::Copy);
 }
 
 pub fn handle_init_move(app: &mut AppState) {
-    init_copy_move(app, crate::app::CopyMoveAction::Move);
+    init_copy_move(app, crate::state::CopyMoveAction::Move);
 }
 
-pub fn init_copy_move(app: &mut AppState, action: crate::app::CopyMoveAction) {
+pub fn init_copy_move(app: &mut AppState, action: crate::state::CopyMoveAction) {
     let paths = get_paths_to_act_on(app);
 
     if paths.is_empty() {

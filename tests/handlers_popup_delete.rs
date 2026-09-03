@@ -1,5 +1,5 @@
 use fm::app::AppState;
-use fm::app::Tab;
+use fm::app_state::tabs::Tab;
 use fm::fs::utils::FileEntry;
 use fm::handlers::popup_delete::{handle_delete_event, handle_init_delete};
 use fm::tasks::TaskEvent;
@@ -21,14 +21,14 @@ async fn basic_app_with_entry(name: &str) -> AppState {
         selected: false,
     });
     tab.cursor = 0;
-    let mut left_tm = fm::app::TabManager::new(&std::env::temp_dir())
+    let mut left_tm = fm::app_state::tabs::TabManager::new(&std::env::temp_dir())
         .await
         .unwrap();
     left_tm.tabs[0] = tab;
     fm::test_utils::TestAppBuilder::new()
         .left(left_tm)
         .right(
-            fm::app::TabManager::new(&std::env::temp_dir())
+            fm::app_state::tabs::TabManager::new(&std::env::temp_dir())
                 .await
                 .unwrap(),
         )

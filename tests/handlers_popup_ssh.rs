@@ -14,12 +14,12 @@ async fn basic_app_state() -> AppState {
 
     fm::test_utils::TestAppBuilder::new()
         .left(
-            fm::app::TabManager::new(&std::env::temp_dir())
+            fm::app_state::tabs::TabManager::new(&std::env::temp_dir())
                 .await
                 .unwrap(),
         )
         .right(
-            fm::app::TabManager::new(&std::env::temp_dir())
+            fm::app_state::tabs::TabManager::new(&std::env::temp_dir())
                 .await
                 .unwrap(),
         )

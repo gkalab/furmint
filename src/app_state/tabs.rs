@@ -17,6 +17,12 @@ pub struct PersistentTab {
     pub custom_title: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PersistentPanel {
+    pub tabs: Vec<PersistentTab>,
+    pub active_tab_index: usize,
+}
+
 #[derive(Clone, Default)]
 pub struct IncrementalSearch {
     pub buffer: String,
@@ -905,7 +911,7 @@ impl TabManager {
     /// # Errors
     ///
     /// Returns an error if no valid tabs can be restored.
-    pub async fn from_persistent(p: crate::app::PersistentPanel) -> anyhow::Result<Self> {
+    pub async fn from_persistent(p: PersistentPanel) -> anyhow::Result<Self> {
         let mut tabs = Vec::new();
         for pt in p.tabs {
             match Tab::from_persistent(pt).await {
@@ -939,7 +945,7 @@ impl TabManager {
     }
 
     #[must_use]
-    pub fn to_persistent(&self) -> crate::app::PersistentPanel {
+    pub fn to_persistent(&self) -> PersistentPanel {
         let tabs: Vec<PersistentTab> = self
             .tabs
             .iter()
@@ -974,7 +980,7 @@ impl TabManager {
             0
         };
 
-        crate::app::PersistentPanel {
+        PersistentPanel {
             tabs,
             active_tab_index: new_active_index,
         }

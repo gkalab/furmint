@@ -1,6 +1,7 @@
 //! Navigation-related event handlers for directory and panel navigation.
 
-use crate::app::{AppState, SortColumn};
+use crate::app::AppState;
+use crate::app_state::tabs::SortColumn;
 use crate::app_state::tabs::Tab;
 use crate::fs::fs_archive::ArchiveFs;
 use ratatui::layout::Rect;
@@ -177,7 +178,7 @@ pub fn reset_search(app: &mut AppState) {
 
 /// Reset search state if timeout has expired (called periodically and for navigation keys)
 pub fn reset_expired_search(app: &mut AppState) {
-    let handle_tabs = |tabs: &mut [crate::app::Tab]| {
+    let handle_tabs = |tabs: &mut [crate::app_state::tabs::Tab]| {
         for tab in tabs {
             if !tab.is_search_active() {
                 tab.reset_search();
@@ -257,8 +258,8 @@ async fn handle_open_archive(app: &mut AppState, path: &PathBuf, filename: Strin
     }
 
     let side_index = match app.active {
-        crate::app::PanelSide::Left => 0,
-        crate::app::PanelSide::Right => 1,
+        crate::app_state::tabs::PanelSide::Left => 0,
+        crate::app_state::tabs::PanelSide::Right => 1,
     };
 
     // Check cache first
@@ -279,15 +280,20 @@ async fn handle_open_archive(app: &mut AppState, path: &PathBuf, filename: Strin
                 &mut app.right
             };
 
-            match crate::app::Tab::with_provider(&std::path::PathBuf::from("/"), provider).await {
+            match crate::app_state::tabs::Tab::with_provider(
+                &std::path::PathBuf::from("/"),
+                provider,
+            )
+            .await
+            {
                 Ok(mut tab) => {
                     tab.custom_title = Some(filename);
                     manager.insert_tab_after_active(tab);
                     // Set active panel
                     app.active = if side_index == 0 {
-                        crate::app::PanelSide::Left
+                        crate::app_state::tabs::PanelSide::Left
                     } else {
-                        crate::app::PanelSide::Right
+                        crate::app_state::tabs::PanelSide::Right
                     };
                 }
                 Err(e) => {
@@ -435,7 +441,7 @@ pub async fn handle_header_click(app: &mut AppState, x: u16, area: Rect, borders
     handle_sort(app, column).await;
 }
 
-pub async fn handle_sort(app: &mut AppState, column: crate::app::SortColumn) {
+pub async fn handle_sort(app: &mut AppState, column: crate::app_state::tabs::SortColumn) {
     let (col, dir, context_key) = {
         let tab = app.active_tab_mut();
         tab.handle_sort(column);

@@ -307,16 +307,17 @@ async fn handle_archive_loaded(
     };
 
     // Create a new tab for the archive
-    match crate::app::Tab::with_provider(&std::path::PathBuf::from("/"), provider).await {
+    match crate::app_state::tabs::Tab::with_provider(&std::path::PathBuf::from("/"), provider).await
+    {
         Ok(mut tab) => {
             tab.custom_title = Some(filename);
             manager.insert_tab_after_active(tab);
 
             // Set active panel to this side
             if side_index == 0 {
-                app.active = crate::app::PanelSide::Left;
+                app.active = crate::app_state::tabs::PanelSide::Left;
             } else {
-                app.active = crate::app::PanelSide::Right;
+                app.active = crate::app_state::tabs::PanelSide::Right;
             }
         }
         Err(e) => {

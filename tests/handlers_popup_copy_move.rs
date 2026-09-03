@@ -1,4 +1,5 @@
-use fm::app::{AppState, PanelSide, Tab, TabManager};
+use fm::app::AppState;
+use fm::app_state::tabs::{PanelSide, Tab, TabManager};
 use fm::clipboard::{FileClipboardAction, FileClipboardData};
 use fm::fs::fs_local::LocalFs;
 use fm::fs::utils::FileEntry;

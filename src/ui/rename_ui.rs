@@ -1,4 +1,4 @@
-use crate::app::RenameState;
+use crate::state::RenameState;
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
 

@@ -1,10 +1,10 @@
-use fm::app::{
-    AppState, CreateFileState, HelpState, IncrementalSearch, SortColumn, SortSettings, Tab,
-    TabManager,
+use fm::app::AppState;
+use fm::app_state::tabs::{
+    IncrementalSearch, PanelSide, SortColumn, SortDirection, SortSettings, Tab, TabManager,
 };
-use fm::app_state::tabs::{PanelSide, SortDirection};
 use fm::fs::fs_provider::{FileMetadata, FileSystemProvider};
 use fm::fs::utils::FileEntry;
+use fm::state::{CreateFileState, HelpState};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 

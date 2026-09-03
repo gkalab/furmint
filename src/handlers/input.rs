@@ -1,4 +1,5 @@
-use crate::app::{AppState, SortColumn};
+use crate::app::AppState;
+use crate::app_state::tabs::SortColumn;
 use crate::config::KeyboardConfig;
 use crate::handlers::{
     editor::handle_edit,
@@ -414,7 +415,7 @@ fn handle_drive_selection(app: &mut AppState, keyboard: &KeyboardConfig, shortcu
             app.popups
                 .set_popup_visible(crate::app::PopupKind::DriveSelect, true);
             app.popups.drive_select.drives = drives;
-            app.popups.drive_select.side = crate::app::PanelSide::Left;
+            app.popups.drive_select.side = crate::app_state::tabs::PanelSide::Left;
             app.popups.drive_select.selected_index = 0;
         }
         return true;
@@ -428,7 +429,7 @@ fn handle_drive_selection(app: &mut AppState, keyboard: &KeyboardConfig, shortcu
             app.popups
                 .set_popup_visible(crate::app::PopupKind::DriveSelect, true);
             app.popups.drive_select.drives = drives;
-            app.popups.drive_select.side = crate::app::PanelSide::Right;
+            app.popups.drive_select.side = crate::app_state::tabs::PanelSide::Right;
             app.popups.drive_select.selected_index = 0;
         }
         return true;

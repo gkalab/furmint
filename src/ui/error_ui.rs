@@ -1,4 +1,4 @@
-use crate::app::ErrorState;
+use crate::state::ErrorState;
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
 

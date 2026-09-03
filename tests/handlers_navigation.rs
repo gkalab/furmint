@@ -1,4 +1,5 @@
-use fm::app::{AppState, PanelSide, TabManager};
+use fm::app::AppState;
+use fm::app_state::tabs::{PanelSide, TabManager};
 use fm::fs::utils::FileEntry;
 use fm::handlers::navigation::{
     handle_directory_up, handle_down, handle_down_search, handle_end, handle_enter_directory,
@@ -305,8 +306,11 @@ async fn test_handle_sort_and_toggle() {
     handle_toggle_selection(&mut app).await;
     assert!(app.left.active_tab().entries[0].selected);
 
-    handle_sort(&mut app, fm::app::SortColumn::Size).await;
-    assert_eq!(app.left.active_tab().sort.column, fm::app::SortColumn::Size);
+    handle_sort(&mut app, fm::app_state::tabs::SortColumn::Size).await;
+    assert_eq!(
+        app.left.active_tab().sort.column,
+        fm::app_state::tabs::SortColumn::Size
+    );
 }
 
 #[tokio::test]

@@ -102,15 +102,15 @@ async fn initialize_app() -> Result<InitializedApp> {
     };
 
     let mut app = if let Some(state) = persistent_state {
-        let left = crate::app::TabManager::from_persistent(state.left).await?;
-        let right = crate::app::TabManager::from_persistent(state.right).await?;
+        let left = crate::app_state::tabs::TabManager::from_persistent(state.left).await?;
+        let right = crate::app_state::tabs::TabManager::from_persistent(state.right).await?;
 
         crate::app::AppState::new(left, right, state.active_side, ctx)
     } else {
         crate::app::AppState::new(
-            crate::app::TabManager::new(&cwd).await?,
-            crate::app::TabManager::new(&cwd).await?,
-            crate::app::PanelSide::Left,
+            crate::app_state::tabs::TabManager::new(&cwd).await?,
+            crate::app_state::tabs::TabManager::new(&cwd).await?,
+            crate::app_state::tabs::PanelSide::Left,
             ctx,
         )
     };

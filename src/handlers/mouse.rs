@@ -1,4 +1,5 @@
-use crate::app::{AppState, PanelSide};
+use crate::app::AppState;
+use crate::app_state::tabs::PanelSide;
 use ratatui::layout::Rect;
 use std::time::{Duration, Instant};
 use termina::event::{KeyCode, Modifiers, MouseButton, MouseEvent, MouseEventKind};
@@ -339,11 +340,11 @@ async fn handle_right_click(app: &mut AppState, x: u16, y: u16) {
 
     // Determine which panel was clicked and set it active.
     let side = if is_in_rect(click_pos, app.left_panel_area) {
-        app.active = crate::app::PanelSide::Left;
-        Some(crate::app::PanelSide::Left)
+        app.active = crate::app_state::tabs::PanelSide::Left;
+        Some(crate::app_state::tabs::PanelSide::Left)
     } else if is_in_rect(click_pos, app.right_panel_area) {
-        app.active = crate::app::PanelSide::Right;
-        Some(crate::app::PanelSide::Right)
+        app.active = crate::app_state::tabs::PanelSide::Right;
+        Some(crate::app_state::tabs::PanelSide::Right)
     } else {
         None
     };
@@ -351,8 +352,10 @@ async fn handle_right_click(app: &mut AppState, x: u16, y: u16) {
     let Some(side) = side else { return };
 
     let (tab, area) = match side {
-        crate::app::PanelSide::Left => (app.left.active_tab_mut(), app.left_panel_area),
-        crate::app::PanelSide::Right => (app.right.active_tab_mut(), app.right_panel_area),
+        crate::app_state::tabs::PanelSide::Left => (app.left.active_tab_mut(), app.left_panel_area),
+        crate::app_state::tabs::PanelSide::Right => {
+            (app.right.active_tab_mut(), app.right_panel_area)
+        }
     };
 
     // Only act on local providers.

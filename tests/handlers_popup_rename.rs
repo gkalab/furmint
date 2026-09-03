@@ -1,4 +1,5 @@
-use fm::app::{AppState, Tab};
+use fm::app::AppState;
+use fm::app_state::tabs::Tab;
 use fm::fs::utils::FileEntry;
 use fm::handlers::popup_rename::{handle_init_rename, handle_rename_event};
 use fm::tasks::TaskEvent;
@@ -20,11 +21,11 @@ async fn test_app_with_entry(name: &str, is_dir: bool, path: &std::path::Path) -
         selected: false,
     });
     tab.cursor = 0;
-    let mut left_tm = fm::app::TabManager::new(path).await.unwrap();
+    let mut left_tm = fm::app_state::tabs::TabManager::new(path).await.unwrap();
     left_tm.tabs[0] = tab;
     fm::test_utils::TestAppBuilder::new()
         .left(left_tm)
-        .right(fm::app::TabManager::new(path).await.unwrap())
+        .right(fm::app_state::tabs::TabManager::new(path).await.unwrap())
         .task_tx(task_tx)
         .build()
 }

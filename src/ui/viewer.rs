@@ -1,4 +1,4 @@
-use crate::app::{FileViewerSearchState, FileViewerState};
+use crate::state::{FileViewerSearchState, FileViewerState};
 use crate::theme::ThemePalette;
 use crate::ui::ui_utils::TabScrollbarContext;
 use lumis::highlight::Highlighter;

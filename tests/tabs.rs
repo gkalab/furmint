@@ -1,4 +1,4 @@
-use fm::app::{Tab, TabManager};
+use fm::app_state::tabs::{Tab, TabManager};
 use std::path::Path;
 use std::sync::Arc;
 

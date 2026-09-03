@@ -1,5 +1,7 @@
 #[cfg(any(test, feature = "test-utils"))]
-use crate::app::{AppState, IncrementalSearch, PanelSide, Popups, SortSettings, Tab, TabManager};
+use crate::app::{AppState, Popups};
+#[cfg(any(test, feature = "test-utils"))]
+use crate::app_state::tabs::{IncrementalSearch, PanelSide, SortSettings, Tab, TabManager};
 #[cfg(any(test, feature = "test-utils"))]
 use crate::fs::fs_local::LocalFs;
 #[cfg(any(test, feature = "test-utils"))]

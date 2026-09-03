@@ -1,4 +1,4 @@
-use crate::app::{CopyMoveAction, CopyMoveState};
+use crate::state::{CopyMoveAction, CopyMoveState};
 use crate::theme::ThemePalette;
 
 pub fn draw_copy_move_popup(f: &mut ratatui::Frame, state: &CopyMoveState, palette: &ThemePalette) {

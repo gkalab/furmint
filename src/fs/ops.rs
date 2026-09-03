@@ -73,7 +73,7 @@ pub struct RecursiveOpContext<'a> {
     pub dest_fs: &'a dyn FileSystemProvider,
     pub src: &'a std::path::Path,
     pub dest: &'a std::path::Path,
-    pub action: crate::app::CopyMoveAction,
+    pub action: crate::state::CopyMoveAction,
     pub cancel: &'a std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub tx: &'a tokio::sync::mpsc::UnboundedSender<crate::tasks::TaskEvent>,
     pub id: usize,
@@ -103,7 +103,7 @@ async fn try_rename_move_optimization(
     dest: &std::path::Path,
 ) -> Result<bool> {
     let same_fs = ctx.src_fs.context_key() == ctx.dest_fs.context_key();
-    if ctx.action == crate::app::CopyMoveAction::Move && same_fs {
+    if ctx.action == crate::state::CopyMoveAction::Move && same_fs {
         let dest_exists = ctx.dest_fs.exists(dest).await;
         if !dest_exists && ctx.src_fs.rename(src, dest).await.is_ok() {
             // Successfully moved! Update progress.
@@ -156,7 +156,7 @@ async fn handle_file(
         }
     }
 
-    if ctx.action == crate::app::CopyMoveAction::Move && perform {
+    if ctx.action == crate::state::CopyMoveAction::Move && perform {
         let _ = ctx.src_fs.delete(src, false).await;
     }
 
@@ -472,7 +472,7 @@ fn update_progress_and_postprocess(
         + 1;
     update_progress_if_needed(ctx, decision_state, p);
 
-    if ctx.action == crate::app::CopyMoveAction::Move {
+    if ctx.action == crate::state::CopyMoveAction::Move {
         stack.push(WorkItem::PostProcessDir {
             src: src.to_path_buf(),
         });

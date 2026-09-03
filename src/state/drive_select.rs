@@ -1,4 +1,4 @@
-use crate::app::PanelSide;
+use crate::app_state::tabs::PanelSide;
 
 pub struct DriveSelectState {
     pub is_visible: bool,

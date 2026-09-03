@@ -1,4 +1,4 @@
-use crate::app::RemoteEditState;
+use crate::state::RemoteEditState;
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};

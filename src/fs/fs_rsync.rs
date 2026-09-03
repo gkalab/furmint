@@ -14,10 +14,10 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 pub fn should_use_rsync(
     src_fs: &dyn crate::fs::fs_provider::FileSystemProvider,
     dest_fs: &dyn crate::fs::fs_provider::FileSystemProvider,
-    action: crate::app::CopyMoveAction,
+    action: crate::state::CopyMoveAction,
 ) -> bool {
     // Only use rsync for copy operations
-    if action != crate::app::CopyMoveAction::Copy {
+    if action != crate::state::CopyMoveAction::Copy {
         return false;
     }
 
@@ -43,7 +43,7 @@ pub fn should_use_rsync(
 pub fn should_use_rsync(
     _src_fs: &dyn crate::fs::fs_provider::FileSystemProvider,
     _dest_fs: &dyn crate::fs::fs_provider::FileSystemProvider,
-    _action: crate::app::CopyMoveAction,
+    _action: crate::state::CopyMoveAction,
 ) -> bool {
     false
 }
@@ -419,7 +419,7 @@ mod tests {
         assert!(should_use_rsync(
             &src,
             &dest,
-            crate::app::CopyMoveAction::Copy
+            crate::state::CopyMoveAction::Copy
         ));
     }
 
@@ -436,7 +436,7 @@ mod tests {
         assert!(should_use_rsync(
             &src,
             &dest,
-            crate::app::CopyMoveAction::Copy
+            crate::state::CopyMoveAction::Copy
         ));
     }
 
@@ -453,7 +453,7 @@ mod tests {
         assert!(!should_use_rsync(
             &src,
             &dest,
-            crate::app::CopyMoveAction::Move
+            crate::state::CopyMoveAction::Move
         ));
     }
 
@@ -470,7 +470,7 @@ mod tests {
         assert!(!should_use_rsync(
             &src,
             &dest,
-            crate::app::CopyMoveAction::Copy
+            crate::state::CopyMoveAction::Copy
         ));
     }
 
@@ -487,7 +487,7 @@ mod tests {
         assert!(!should_use_rsync(
             &src,
             &dest,
-            crate::app::CopyMoveAction::Copy
+            crate::state::CopyMoveAction::Copy
         ));
     }
 
@@ -504,7 +504,7 @@ mod tests {
         assert!(!should_use_rsync(
             &src,
             &dest,
-            crate::app::CopyMoveAction::Copy
+            crate::state::CopyMoveAction::Copy
         ));
     }
 

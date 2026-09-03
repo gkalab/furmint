@@ -1,4 +1,4 @@
-use crate::app::Tab;
+use crate::app_state::tabs::Tab;
 use crate::app_state::tabs::{SortColumn, SortDirection};
 use crate::fs::utils::{FileEntry, format_modified, format_size};
 use crate::theme::ThemePalette;
@@ -556,7 +556,7 @@ pub struct PanelStatusContext<'a> {
     pub active: bool,
     pub borders: bool,
     pub task_manager: &'a crate::tasks::TaskManager,
-    pub side: crate::app::PanelSide,
+    pub side: crate::app_state::tabs::PanelSide,
 }
 
 /// Render the status bar for a panel, showing file counts, selection, and errors.
@@ -655,7 +655,7 @@ pub fn draw_panel_status(
     f.render_widget(Block::default().style(Style::default().bg(panel_bg)), area);
 
     match ctx.side {
-        crate::app::PanelSide::Left => {
+        crate::app_state::tabs::PanelSide::Left => {
             draw_left_panel_status(
                 f,
                 ctx,
@@ -665,7 +665,7 @@ pub fn draw_panel_status(
                 filter_label.as_deref(),
             );
         }
-        crate::app::PanelSide::Right => {
+        crate::app_state::tabs::PanelSide::Right => {
             draw_right_panel_status(
                 f,
                 ctx,

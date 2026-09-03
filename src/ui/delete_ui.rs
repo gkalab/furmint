@@ -1,4 +1,4 @@
-use crate::app::DeleteState;
+use crate::state::DeleteState;
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
 

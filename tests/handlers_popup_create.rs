@@ -1,4 +1,5 @@
-use fm::app::{AppState, PanelSide};
+use fm::app::AppState;
+use fm::app_state::tabs::PanelSide;
 use fm::handlers::popup_create::{
     handle_create_directory_event, handle_create_file_event, handle_init_create_directory,
     handle_init_create_file,
@@ -13,12 +14,12 @@ async fn basic_app_state() -> AppState {
 
     fm::test_utils::TestAppBuilder::new()
         .left(
-            fm::app::TabManager::new(&std::env::temp_dir())
+            fm::app_state::tabs::TabManager::new(&std::env::temp_dir())
                 .await
                 .unwrap(),
         )
         .right(
-            fm::app::TabManager::new(&std::env::temp_dir())
+            fm::app_state::tabs::TabManager::new(&std::env::temp_dir())
                 .await
                 .unwrap(),
         )

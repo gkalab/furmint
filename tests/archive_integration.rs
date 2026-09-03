@@ -1,6 +1,7 @@
 use flate2::Compression;
 use flate2::write::GzEncoder;
-use fm::app::{AppState, TabManager};
+use fm::app::AppState;
+use fm::app_state::tabs::TabManager;
 use fm::fs::fs_archive::ArchiveFs;
 use fm::fs::fs_local::LocalFs;
 use fm::fs::fs_provider::FileSystemProvider;
@@ -1233,7 +1234,7 @@ async fn test_recursive_op_copies_directory_tree_to_7z() {
         dest_fs: &dest_fs,
         src: &src,
         dest: Path::new("tree"),
-        action: fm::app::CopyMoveAction::Copy,
+        action: fm::state::CopyMoveAction::Copy,
         cancel: &cancel,
         tx: &tx,
         id: 1,

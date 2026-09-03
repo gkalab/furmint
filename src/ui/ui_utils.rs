@@ -1,6 +1,6 @@
 // Utility functions for UI truncation, formatting, and generic UI widgets
 
-use crate::app::Tab;
+use crate::app_state::tabs::Tab;
 use crate::theme::ThemePalette;
 use crate::ui::button_widget::{ButtonVariant, ButtonWidget};
 use ratatui::prelude::*;

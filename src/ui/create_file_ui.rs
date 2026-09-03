@@ -2,7 +2,7 @@ use crate::theme::ThemePalette;
 
 pub fn draw_create_file_popup(
     f: &mut ratatui::Frame,
-    state: &crate::app::CreateFileState,
+    state: &crate::state::CreateFileState,
     palette: &ThemePalette,
 ) {
     if !state.is_visible {

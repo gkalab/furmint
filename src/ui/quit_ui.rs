@@ -1,4 +1,4 @@
-use crate::app::QuitConfirmationState;
+use crate::state::QuitConfirmationState;
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
 

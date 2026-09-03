@@ -1,20 +1,15 @@
-pub use crate::app_state::tabs::{
-    IncrementalSearch, PanelSide, PersistentTab, SortColumn, SortSettings, Tab, TabManager,
-};
+use crate::app_state::tabs::{PanelSide, PersistentPanel, Tab, TabManager};
 use crate::clipboard::FileClipboard;
-use crate::state::BookmarkState;
-use anyhow::{Result, anyhow};
-use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
-use std::time::Instant;
-
-// Re-export state types from state module for backward compatibility
-pub use crate::state::{
-    ConflictState, CopyMoveAction, CopyMoveState, CreateDirectoryState, CreateFileState,
+use crate::state::{
+    BookmarkState, ConflictState, CopyMoveState, CreateDirectoryState, CreateFileState,
     DeleteState, DriveSelectState, EmptyTrashState, ErrorState, FileViewerSearchState,
     FileViewerState, HelpState, HostKeyState, QuitConfirmationState, RemoteEditState, RenameState,
     RenameTabState, SshConnectionState, SshPasswordState,
 };
+use anyhow::{Result, anyhow};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use std::time::Instant;
 
 /// Cache entry for an opened archive.
 pub struct ArchiveCacheEntry {
@@ -242,12 +237,6 @@ pub struct AppState {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct PersistentPanel {
-    pub tabs: Vec<PersistentTab>,
-    pub active_tab_index: usize,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
 pub struct PersistentState {
     pub left: PersistentPanel,
     pub right: PersistentPanel,
@@ -338,7 +327,12 @@ impl AppState {
 
         let path = Self::get_state_file_path()?;
         let content = serde_json::to_string_pretty(&state)?;
-        std::fs::write(path, content)?;
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, &content)?;
+        if path.exists() {
+            std::fs::remove_file(&path)?;
+        }
+        std::fs::rename(&tmp, &path)?;
         Ok(())
     }
 

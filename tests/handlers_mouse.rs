@@ -1,6 +1,8 @@
-use fm::app::{AppState, DragTarget, EmptyTrashState, PanelSide};
+use fm::app::{AppState, DragTarget};
+use fm::app_state::tabs::PanelSide;
 use fm::fs::utils::FileEntry;
 use fm::handlers::mouse::{calculate_scroll_from_y, handle_mouse_event, scrollbar_thumb_rows};
+use fm::state::EmptyTrashState;
 use fm::ui::ui_utils::compute_button_rects;
 use ratatui::layout::Rect;
 use std::path::PathBuf;

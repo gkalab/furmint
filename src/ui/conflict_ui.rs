@@ -1,4 +1,4 @@
-use crate::app::ConflictState;
+use crate::state::ConflictState;
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
 

@@ -82,7 +82,7 @@ pub(crate) async fn edit_file_remote(
         let mut child = spawn_editor_no_wait(cmd, &temp_path)?;
 
         // Show popup NOW while editor is running
-        app.popups.remote_edit = crate::app::RemoteEditState {
+        app.popups.remote_edit = crate::state::RemoteEditState {
             is_visible: false,
             temp_path: temp_path.clone(),
             remote_path: remote_path_buf,

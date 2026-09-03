@@ -1,4 +1,4 @@
-use crate::app::{Tab, TabManager};
+use crate::app_state::tabs::{Tab, TabManager};
 use crate::theme::ThemePalette;
 use crate::ui::ui_utils::panel_bg_color;
 use ratatui::prelude::*;

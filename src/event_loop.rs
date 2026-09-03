@@ -188,7 +188,10 @@ where
 async fn handle_watcher_event(event: crate::fs::watcher::WatcherEvent, app: &mut AppState) {
     match event {
         crate::fs::watcher::WatcherEvent::FileSystemChange(paths) => {
-            async fn handle_tab(tab: &mut crate::app::Tab, paths: &[std::path::PathBuf]) {
+            async fn handle_tab(
+                tab: &mut crate::app_state::tabs::Tab,
+                paths: &[std::path::PathBuf],
+            ) {
                 // Watcher only supports local filesystem
                 if !tab.provider.is_local() {
                     return;

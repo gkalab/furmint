@@ -1,4 +1,4 @@
-use crate::app::EmptyTrashState;
+use crate::state::EmptyTrashState;
 use crate::state::{ConfirmationAction, ConfirmationState};
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;

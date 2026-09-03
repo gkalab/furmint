@@ -10,12 +10,12 @@ async fn app_with_conflict(task_id: usize) -> (AppState, mpsc::Receiver<TaskDeci
     let (dec_tx, dec_rx) = mpsc::channel(1);
     let mut app = fm::test_utils::TestAppBuilder::new()
         .left(
-            fm::app::TabManager::new(&std::env::temp_dir())
+            fm::app_state::tabs::TabManager::new(&std::env::temp_dir())
                 .await
                 .unwrap(),
         )
         .right(
-            fm::app::TabManager::new(&std::env::temp_dir())
+            fm::app_state::tabs::TabManager::new(&std::env::temp_dir())
                 .await
                 .unwrap(),
         )

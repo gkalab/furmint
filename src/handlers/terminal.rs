@@ -451,7 +451,7 @@ pub async fn handle_toggle_console(app: &mut AppState) -> anyhow::Result<()> {
 ///
 /// Returns an error if the shell command or terminal restoration fails.
 pub async fn execute_toggle_console(app: &mut AppState) -> anyhow::Result<()> {
-    async fn refresh_tab(tab: &mut crate::app::Tab) {
+    async fn refresh_tab(tab: &mut crate::app_state::tabs::Tab) {
         if let Ok(entries) = tab.provider.list_dir(&tab.current_dir).await {
             tab.entries = entries;
             tab.sort_entries();

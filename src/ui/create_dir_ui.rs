@@ -1,4 +1,4 @@
-use crate::app::CreateDirectoryState;
+use crate::state::CreateDirectoryState;
 use crate::theme::ThemePalette;
 
 pub fn draw_create_dir_popup(
