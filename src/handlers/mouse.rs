@@ -1,5 +1,9 @@
-use crate::app::AppState;
+use crate::app::{AppState, DragTarget, PopupKind};
 use crate::app_state::tabs::PanelSide;
+use crate::state::{
+    ConflictState, DeleteState, EmptyTrashState, ErrorState, HostKeyState, QuitConfirmationState,
+    RemoteEditState, RenameState,
+};
 use ratatui::layout::Rect;
 use std::time::{Duration, Instant};
 use termina::event::{KeyCode, Modifiers, MouseButton, MouseEvent, MouseEventKind};
@@ -137,75 +141,192 @@ async fn handle_popup_mouse(app: &mut AppState, event: MouseEvent, is_double_cli
     }
 }
 
+/// A popup that renders clickable buttons, so the mouse handlers can hit-test,
+/// focus, and confirm them without knowing the popup's concrete state type.
+trait ButtonPopup {
+    /// Returns `true` when the popup is visible and its buttons should be hit-tested.
+    fn is_active(&self) -> bool;
+    /// Screen areas of the popup's buttons.
+    fn button_areas(&self) -> &[Rect];
+    /// Applies the visual feedback (focus/selection) for the pressed button.
+    fn set_focused_button(&mut self, index: usize);
+}
+
+impl ButtonPopup for ErrorState {
+    fn is_active(&self) -> bool {
+        self.is_visible
+    }
+    fn button_areas(&self) -> &[Rect] {
+        &self.button_areas
+    }
+    fn set_focused_button(&mut self, index: usize) {
+        self.focused_button = index;
+    }
+}
+
+impl ButtonPopup for ConflictState {
+    fn is_active(&self) -> bool {
+        self.is_visible
+    }
+    fn button_areas(&self) -> &[Rect] {
+        &self.button_areas
+    }
+    fn set_focused_button(&mut self, index: usize) {
+        self.focused_button = index;
+    }
+}
+
+impl ButtonPopup for RenameState {
+    fn is_active(&self) -> bool {
+        self.is_visible && self.show_overwrite_confirm
+    }
+    fn button_areas(&self) -> &[Rect] {
+        &self.button_areas
+    }
+    fn set_focused_button(&mut self, index: usize) {
+        self.focused_button = index;
+    }
+}
+
+impl ButtonPopup for RemoteEditState {
+    fn is_active(&self) -> bool {
+        self.is_visible
+    }
+    fn button_areas(&self) -> &[Rect] {
+        &self.button_areas
+    }
+    fn set_focused_button(&mut self, index: usize) {
+        self.focused_button = index;
+    }
+}
+
+impl ButtonPopup for QuitConfirmationState {
+    fn is_active(&self) -> bool {
+        self.is_visible
+    }
+    fn button_areas(&self) -> &[Rect] {
+        &self.button_areas
+    }
+    fn set_focused_button(&mut self, index: usize) {
+        self.selected_no = index == 0;
+    }
+}
+
+impl ButtonPopup for DeleteState {
+    fn is_active(&self) -> bool {
+        self.is_visible
+    }
+    fn button_areas(&self) -> &[Rect] {
+        &self.button_areas
+    }
+    fn set_focused_button(&mut self, index: usize) {
+        self.selected_no = index == 0;
+    }
+}
+
+impl ButtonPopup for EmptyTrashState {
+    fn is_active(&self) -> bool {
+        self.is_visible
+    }
+    fn button_areas(&self) -> &[Rect] {
+        &self.button_areas
+    }
+    fn set_focused_button(&mut self, index: usize) {
+        self.selected_no = index == 0;
+    }
+}
+
+impl ButtonPopup for HostKeyState {
+    fn is_active(&self) -> bool {
+        self.is_visible
+    }
+    fn button_areas(&self) -> &[Rect] {
+        &self.button_areas
+    }
+    fn set_focused_button(&mut self, index: usize) {
+        self.selected_no = index == 0;
+    }
+}
+
+/// The button popups in hit-test priority order.
+fn button_popup_table(app: &AppState) -> Vec<(PopupKind, &dyn ButtonPopup)> {
+    let popups = &app.popups;
+    vec![
+        (PopupKind::Error, &popups.error as &dyn ButtonPopup),
+        (PopupKind::Conflict, &popups.conflict as &dyn ButtonPopup),
+        (PopupKind::Rename, &popups.rename as &dyn ButtonPopup),
+        (
+            PopupKind::RemoteEdit,
+            &popups.remote_edit as &dyn ButtonPopup,
+        ),
+        (
+            PopupKind::QuitConfirmation,
+            &popups.quit_confirmation as &dyn ButtonPopup,
+        ),
+        (PopupKind::Delete, &popups.delete as &dyn ButtonPopup),
+        (
+            PopupKind::EmptyTrash,
+            &popups.empty_trash as &dyn ButtonPopup,
+        ),
+        (PopupKind::HostKey, &popups.host_key as &dyn ButtonPopup),
+    ]
+}
+
+/// The button popups in hit-test priority order, with mutable access.
+fn button_popup_table_mut(app: &mut AppState) -> Vec<(PopupKind, &mut dyn ButtonPopup)> {
+    let popups = &mut app.popups;
+    vec![
+        (PopupKind::Error, &mut popups.error as &mut dyn ButtonPopup),
+        (
+            PopupKind::Conflict,
+            &mut popups.conflict as &mut dyn ButtonPopup,
+        ),
+        (
+            PopupKind::Rename,
+            &mut popups.rename as &mut dyn ButtonPopup,
+        ),
+        (
+            PopupKind::RemoteEdit,
+            &mut popups.remote_edit as &mut dyn ButtonPopup,
+        ),
+        (
+            PopupKind::QuitConfirmation,
+            &mut popups.quit_confirmation as &mut dyn ButtonPopup,
+        ),
+        (
+            PopupKind::Delete,
+            &mut popups.delete as &mut dyn ButtonPopup,
+        ),
+        (
+            PopupKind::EmptyTrash,
+            &mut popups.empty_trash as &mut dyn ButtonPopup,
+        ),
+        (
+            PopupKind::HostKey,
+            &mut popups.host_key as &mut dyn ButtonPopup,
+        ),
+    ]
+}
+
+/// Returns the index of the popup button under the cursor, or `None` when no
+/// active button popup covers the position.
 fn find_button_index(app: &AppState, x: u16, y: u16) -> Option<usize> {
     let pos = (x, y);
-
-    if app.popups.error.is_visible {
-        for (i, rect) in app.popups.error.button_areas.iter().enumerate() {
-            if is_in_rect(pos, *rect) {
-                return Some(i);
+    button_popup_table(app)
+        .iter()
+        .find_map(|(_, popup)| {
+            if popup.is_active() {
+                Some(
+                    popup
+                        .button_areas()
+                        .iter()
+                        .position(|rect| is_in_rect(pos, *rect)),
+                )
+            } else {
+                None
             }
-        }
-        return None;
-    }
-    if app.popups.conflict.is_visible {
-        for (i, rect) in app.popups.conflict.button_areas.iter().enumerate() {
-            if is_in_rect(pos, *rect) {
-                return Some(i);
-            }
-        }
-        return None;
-    }
-    if app.popups.rename.is_visible && app.popups.rename.show_overwrite_confirm {
-        for (i, rect) in app.popups.rename.button_areas.iter().enumerate() {
-            if is_in_rect(pos, *rect) {
-                return Some(i);
-            }
-        }
-        return None;
-    }
-    if app.popups.remote_edit.is_visible {
-        for (i, rect) in app.popups.remote_edit.button_areas.iter().enumerate() {
-            if is_in_rect(pos, *rect) {
-                return Some(i);
-            }
-        }
-        return None;
-    }
-    if app.popups.quit_confirmation.is_visible {
-        for (i, rect) in app.popups.quit_confirmation.button_areas.iter().enumerate() {
-            if is_in_rect(pos, *rect) {
-                return Some(i);
-            }
-        }
-        return None;
-    }
-    if app.popups.delete.is_visible {
-        for (i, rect) in app.popups.delete.button_areas.iter().enumerate() {
-            if is_in_rect(pos, *rect) {
-                return Some(i);
-            }
-        }
-        return None;
-    }
-    if app.popups.empty_trash.is_visible {
-        for (i, rect) in app.popups.empty_trash.button_areas.iter().enumerate() {
-            if is_in_rect(pos, *rect) {
-                return Some(i);
-            }
-        }
-        return None;
-    }
-    if app.popups.host_key.is_visible {
-        for (i, rect) in app.popups.host_key.button_areas.iter().enumerate() {
-            if is_in_rect(pos, *rect) {
-                return Some(i);
-            }
-        }
-        return None;
-    }
-
-    None
+        })
+        .flatten()
 }
 
 fn handle_popup_down(app: &mut AppState, x: u16, y: u16) {
@@ -213,22 +334,11 @@ fn handle_popup_down(app: &mut AppState, x: u16, y: u16) {
         app.mouse.mouse_button_down_index = Some(i);
 
         // Set the focused button for visual feedback
-        if app.popups.error.is_visible {
-            app.popups.error.focused_button = i;
-        } else if app.popups.conflict.is_visible {
-            app.popups.conflict.focused_button = i;
-        } else if app.popups.rename.is_visible && app.popups.rename.show_overwrite_confirm {
-            app.popups.rename.focused_button = i;
-        } else if app.popups.remote_edit.is_visible {
-            app.popups.remote_edit.focused_button = i;
-        } else if app.popups.quit_confirmation.is_visible {
-            app.popups.quit_confirmation.selected_no = i == 0;
-        } else if app.popups.delete.is_visible {
-            app.popups.delete.selected_no = i == 0;
-        } else if app.popups.empty_trash.is_visible {
-            app.popups.empty_trash.selected_no = i == 0;
-        } else if app.popups.host_key.is_visible {
-            app.popups.host_key.selected_no = i == 0;
+        for (_, popup) in button_popup_table_mut(app) {
+            if popup.is_active() {
+                popup.set_focused_button(i);
+                break;
+            }
         }
     }
 }
@@ -242,36 +352,50 @@ async fn handle_popup_up(app: &mut AppState, x: u16, y: u16) {
         return;
     }
 
-    // Button click confirmed — trigger the action for the pressed button
-    if app.popups.error.is_visible {
-        app.popups.error.focused_button = down_index;
-        crate::handlers::popup_error::handle_error_event(KeyCode::Enter, app).await;
-    } else if app.popups.conflict.is_visible {
-        app.popups.conflict.focused_button = down_index;
-        crate::handlers::popup_conflict::handle_conflict_event(KeyCode::Enter, app).await;
-    } else if app.popups.rename.is_visible && app.popups.rename.show_overwrite_confirm {
-        app.popups.rename.focused_button = down_index;
-        crate::handlers::popup_rename::handle_rename_event(
-            KeyCode::Enter,
-            termina::event::Modifiers::NONE,
-            app,
-        )
-        .await;
-    } else if app.popups.remote_edit.is_visible {
-        app.popups.remote_edit.focused_button = down_index;
-        crate::handlers::editor::handle_remote_edit_event(KeyCode::Enter, app).await;
-    } else if app.popups.quit_confirmation.is_visible {
-        app.popups.quit_confirmation.selected_no = down_index == 0;
-        crate::handlers::popup_misc::handle_quit_popup_event(KeyCode::Enter, app);
-    } else if app.popups.delete.is_visible {
-        app.popups.delete.selected_no = down_index == 0;
-        crate::handlers::popup_delete::handle_delete_event(KeyCode::Enter, app);
-    } else if app.popups.empty_trash.is_visible {
-        app.popups.empty_trash.selected_no = down_index == 0;
-        crate::ui::empty_trash_ui::handle_empty_trash_popup_event(KeyCode::Enter, app);
-    } else if app.popups.host_key.is_visible {
-        app.popups.host_key.selected_no = down_index == 0;
-        crate::ui::host_key_ui::handle_host_key_popup_event(KeyCode::Enter, app);
+    // Button click confirmed — apply visual feedback and trigger the action
+    let mut active_kind = None;
+    for (kind, popup) in button_popup_table_mut(app) {
+        if popup.is_active() {
+            popup.set_focused_button(down_index);
+            active_kind = Some(kind);
+            break;
+        }
+    }
+    let Some(kind) = active_kind else {
+        return;
+    };
+
+    match kind {
+        PopupKind::Error => {
+            crate::handlers::popup_error::handle_error_event(KeyCode::Enter, app).await;
+        }
+        PopupKind::Conflict => {
+            crate::handlers::popup_conflict::handle_conflict_event(KeyCode::Enter, app).await;
+        }
+        PopupKind::Rename => {
+            crate::handlers::popup_rename::handle_rename_event(
+                KeyCode::Enter,
+                Modifiers::NONE,
+                app,
+            )
+            .await;
+        }
+        PopupKind::RemoteEdit => {
+            crate::handlers::editor::handle_remote_edit_event(KeyCode::Enter, app).await;
+        }
+        PopupKind::QuitConfirmation => {
+            crate::handlers::popup_misc::handle_quit_popup_event(KeyCode::Enter, app);
+        }
+        PopupKind::Delete => {
+            crate::handlers::popup_delete::handle_delete_event(KeyCode::Enter, app);
+        }
+        PopupKind::EmptyTrash => {
+            crate::ui::empty_trash_ui::handle_empty_trash_popup_event(KeyCode::Enter, app);
+        }
+        PopupKind::HostKey => {
+            crate::ui::host_key_ui::handle_host_key_popup_event(KeyCode::Enter, app);
+        }
+        _ => {}
     }
 }
 
@@ -646,120 +770,116 @@ fn panel_scrollbar_metrics(app: &AppState, side: PanelSide) -> (usize, usize) {
     (content_length, offset)
 }
 
-/// Checks if the mouse position is on any scrollbar and starts the drag.
+/// A scrollbar that can be grabbed for dragging: its hit region plus the
+/// scroll metrics used to start the drag, and an optional side effect applied
+/// when the region is hit.
+struct ScrollbarCandidate {
+    target: DragTarget,
+    region: Rect,
+    content_length: usize,
+    visible_length: usize,
+    offset: usize,
+    viewport_based: bool,
+    on_hit: Option<fn(&mut AppState)>,
+}
+
+fn focus_file_viewer(app: &mut AppState) {
+    app.file_viewer.focused = true;
+}
+
+fn mark_left_active(app: &mut AppState) {
+    app.panels.active = PanelSide::Left;
+}
+
+fn mark_right_active(app: &mut AppState) {
+    app.panels.active = PanelSide::Right;
+}
+
+/// Scrollbar hit region for a filterable list popup. The list renders its
+/// scrollbar one column right of the inner area (in the list block's right
+/// border column), so the hit region must match.
+fn list_popup_scrollbar_region(area: Rect) -> Rect {
+    Rect {
+        x: area.x + area.width.saturating_sub(1) + 1,
+        y: area.y,
+        width: 1,
+        height: area.height,
+    }
+}
+
+/// Builds the list of grabbable scrollbars in hit-test priority order.
 ///
-/// Scrollbar hit regions are computed from the same layout data used during rendering,
-/// ensuring consistency between hit detection and visual layout.
-#[allow(clippy::too_many_lines)] // one sequential block per scrollbar target
-pub async fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) -> bool {
-    // 1. Fuzzy search popup list scrollbar
-    // The filterable list popup renders its scrollbar one column right of the inner
-    // area (in the list block's right border column), so the hit region must match.
+/// Scrollbar hit regions are computed from the same layout data used during
+/// rendering, ensuring consistency between hit detection and visual layout.
+fn scrollbar_candidates(app: &AppState) -> Vec<ScrollbarCandidate> {
+    let mut candidates = Vec::new();
+
+    // Popup scrollbars
     if app.fuzzy_search.list.is_visible
-        && let Some(list_area) = app.fuzzy_search.list.list_area
+        && let Some(area) = app.fuzzy_search.list.list_area
     {
-        let region = Rect {
-            x: list_area.x + list_area.width.saturating_sub(1) + 1,
-            y: list_area.y,
-            width: 1,
-            height: list_area.height,
-        };
-        if is_in_rect((x, y), region)
-            && start_scrollbar_drag(
-                app,
-                y,
-                crate::app::DragTarget::FuzzySearchScrollbar,
-                region,
-                app.fuzzy_search.list.items.len(),
-                list_area.height as usize,
-                app.fuzzy_search.list.selected_index,
-                false,
-            )
-            .await
-        {
-            return true;
-        }
+        candidates.push(ScrollbarCandidate {
+            target: DragTarget::FuzzySearchScrollbar,
+            region: list_popup_scrollbar_region(area),
+            content_length: app.fuzzy_search.list.items.len(),
+            visible_length: area.height as usize,
+            offset: app.fuzzy_search.list.selected_index,
+            viewport_based: false,
+            on_hit: None,
+        });
     }
 
-    // 2. Bookmark list popup scrollbar
     if app.popups.bookmark.list.is_visible
-        && let Some(list_area) = app.popups.bookmark.list.list_area
+        && let Some(area) = app.popups.bookmark.list.list_area
     {
-        let region = Rect {
-            x: list_area.x + list_area.width.saturating_sub(1) + 1,
-            y: list_area.y,
-            width: 1,
-            height: list_area.height,
-        };
-        if is_in_rect((x, y), region)
-            && start_scrollbar_drag(
-                app,
-                y,
-                crate::app::DragTarget::BookmarkScrollbar,
-                region,
-                app.popups.bookmark.list.items.len(),
-                list_area.height as usize,
-                app.popups.bookmark.list.selected_index,
-                false,
-            )
-            .await
-        {
-            return true;
-        }
+        candidates.push(ScrollbarCandidate {
+            target: DragTarget::BookmarkScrollbar,
+            region: list_popup_scrollbar_region(area),
+            content_length: app.popups.bookmark.list.items.len(),
+            visible_length: area.height as usize,
+            offset: app.popups.bookmark.list.selected_index,
+            viewport_based: false,
+            on_hit: None,
+        });
     }
 
-    // 3. Help popup scrollbar
     if app.popups.help.is_visible
-        && let Some(table_area) = app.popups.help.table_area
+        && let Some(area) = app.popups.help.table_area
     {
-        let region = scrollbar_hit_region(table_area, false);
-        if is_in_rect((x, y), region)
-            && start_scrollbar_drag(
-                app,
-                y,
-                crate::app::DragTarget::HelpScrollbar,
-                region,
-                app.popups.help.total_rows,
-                table_area.height as usize,
-                app.popups.help.scroll_offset,
-                true,
-            )
-            .await
-        {
-            return true;
-        }
+        candidates.push(ScrollbarCandidate {
+            target: DragTarget::HelpScrollbar,
+            region: scrollbar_hit_region(area, false),
+            content_length: app.popups.help.total_rows,
+            visible_length: area.height as usize,
+            offset: app.popups.help.scroll_offset,
+            viewport_based: true,
+            on_hit: None,
+        });
     }
 
-    // 4. SSH history list scrollbar (uses dedicated history_area)
     if app.popups.ssh_connection.is_visible
-        && let Some(history_area) = app.popups.ssh_connection.history_area
+        && let Some(area) = app.popups.ssh_connection.history_area
     {
-        let region = scrollbar_hit_region(history_area, true);
-        if is_in_rect((x, y), region)
-            && start_scrollbar_drag(
-                app,
-                y,
-                crate::app::DragTarget::SshHistoryScrollbar,
-                region,
-                app.ssh_history.connections.len(),
-                region.height as usize,
-                app.popups.ssh_connection.selected_history_idx.unwrap_or(0),
-                false,
-            )
-            .await
-        {
-            return true;
-        }
+        let region = scrollbar_hit_region(area, true);
+        candidates.push(ScrollbarCandidate {
+            target: DragTarget::SshHistoryScrollbar,
+            region,
+            content_length: app.ssh_history.connections.len(),
+            visible_length: region.height as usize,
+            offset: app.popups.ssh_connection.selected_history_idx.unwrap_or(0),
+            viewport_based: false,
+            on_hit: None,
+        });
     }
 
     // If any popup is visible, do not check main view scrollbars
     if app.popups.any_visible() {
-        return false;
+        return candidates;
     }
 
-    // 5. File Viewer scrollbar
-    // The viewer always renders its scrollbar inset by one row (see
-    // `ui::viewer::draw_file_viewer`), regardless of the `borders` setting.
+    // File viewer scrollbar. The viewer always renders its scrollbar inset by
+    // one row (see `ui::viewer::draw_file_viewer`), regardless of the `borders`
+    // setting.
     if app.file_viewer.is_visible {
         let area = app.file_viewer.area;
         let region = Rect {
@@ -768,75 +888,71 @@ pub async fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) 
             width: 1,
             height: area.height.saturating_sub(2),
         };
-        if is_in_rect((x, y), region) {
-            app.file_viewer.focused = true;
-            if start_scrollbar_drag(
-                app,
-                y,
-                crate::app::DragTarget::FileViewerScrollbar,
-                region,
-                app.file_viewer.total_lines(),
-                region.height as usize,
-                app.file_viewer.scroll_offset,
-                true,
-            )
-            .await
-            {
-                return true;
-            }
-        }
+        candidates.push(ScrollbarCandidate {
+            target: DragTarget::FileViewerScrollbar,
+            region,
+            content_length: app.file_viewer.total_lines(),
+            visible_length: region.height as usize,
+            offset: app.file_viewer.scroll_offset,
+            viewport_based: true,
+            on_hit: Some(focus_file_viewer),
+        });
     }
 
-    // 6. Left Panel scrollbar
-    {
-        let area = app.layout.left_panel_area;
-        let visible_rows = area.height.saturating_sub(3) as usize;
-        let region = panel_scrollbar_hit_region(area, visible_rows);
-        if is_in_rect((x, y), region) {
-            let (content_length, offset) = panel_scrollbar_metrics(app, PanelSide::Left);
-            app.panels.active = PanelSide::Left;
-            if start_scrollbar_drag(
-                app,
-                y,
-                crate::app::DragTarget::PanelScrollbar(PanelSide::Left),
-                region,
-                content_length,
-                visible_rows,
-                offset,
-                false,
-            )
-            .await
-            {
-                return true;
-            }
+    // Panel scrollbars
+    let left_area = app.layout.left_panel_area;
+    let left_visible = left_area.height.saturating_sub(3) as usize;
+    let (left_content, left_offset) = panel_scrollbar_metrics(app, PanelSide::Left);
+    candidates.push(ScrollbarCandidate {
+        target: DragTarget::PanelScrollbar(PanelSide::Left),
+        region: panel_scrollbar_hit_region(left_area, left_visible),
+        content_length: left_content,
+        visible_length: left_visible,
+        offset: left_offset,
+        viewport_based: false,
+        on_hit: Some(mark_left_active),
+    });
+
+    let right_area = app.layout.right_panel_area;
+    let right_visible = right_area.height.saturating_sub(3) as usize;
+    let (right_content, right_offset) = panel_scrollbar_metrics(app, PanelSide::Right);
+    candidates.push(ScrollbarCandidate {
+        target: DragTarget::PanelScrollbar(PanelSide::Right),
+        region: panel_scrollbar_hit_region(right_area, right_visible),
+        content_length: right_content,
+        visible_length: right_visible,
+        offset: right_offset,
+        viewport_based: false,
+        on_hit: Some(mark_right_active),
+    });
+
+    candidates
+}
+
+/// Checks if the mouse position is on any scrollbar and starts the drag.
+pub async fn check_and_start_scrollbar_drag(app: &mut AppState, x: u16, y: u16) -> bool {
+    for candidate in scrollbar_candidates(app) {
+        if !is_in_rect((x, y), candidate.region) {
+            continue;
+        }
+        if let Some(on_hit) = candidate.on_hit {
+            on_hit(app);
+        }
+        if start_scrollbar_drag(
+            app,
+            y,
+            candidate.target,
+            candidate.region,
+            candidate.content_length,
+            candidate.visible_length,
+            candidate.offset,
+            candidate.viewport_based,
+        )
+        .await
+        {
+            return true;
         }
     }
-
-    // 7. Right Panel scrollbar
-    {
-        let area = app.layout.right_panel_area;
-        let visible_rows = area.height.saturating_sub(3) as usize;
-        let region = panel_scrollbar_hit_region(area, visible_rows);
-        if is_in_rect((x, y), region) {
-            let (content_length, offset) = panel_scrollbar_metrics(app, PanelSide::Right);
-            app.panels.active = PanelSide::Right;
-            if start_scrollbar_drag(
-                app,
-                y,
-                crate::app::DragTarget::PanelScrollbar(PanelSide::Right),
-                region,
-                content_length,
-                visible_rows,
-                offset,
-                false,
-            )
-            .await
-            {
-                return true;
-            }
-        }
-    }
-
     false
 }
 
