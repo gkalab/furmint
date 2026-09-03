@@ -943,7 +943,7 @@ impl TabManager {
         let tabs: Vec<PersistentTab> = self
             .tabs
             .iter()
-            .filter(|t| t.provider.context_key() == "local")
+            .filter(|t| t.provider.context_key().is_local())
             .map(Tab::to_persistent)
             .collect();
 
@@ -958,7 +958,7 @@ impl TabManager {
         // Or if the active tab was local, map its index.
 
         let active_tab_opt = self.tabs.get(self.active_tab_index);
-        let active_is_local = active_tab_opt.is_some_and(|t| t.provider.context_key() == "local");
+        let active_is_local = active_tab_opt.is_some_and(|t| t.provider.context_key().is_local());
 
         // Recalculate new active index
         let new_active_index = if active_is_local {
@@ -966,7 +966,7 @@ impl TabManager {
             self.tabs
                 .iter()
                 .take(self.active_tab_index)
-                .filter(|t| t.provider.context_key() == "local")
+                .filter(|t| t.provider.context_key().is_local())
                 .count()
         } else {
             // If active was remote, just default to 0 (last active local, or first)
@@ -1037,7 +1037,7 @@ impl TabManager {
     pub fn local_tab_count(&self) -> usize {
         self.tabs
             .iter()
-            .filter(|t| t.provider.context_key() == "local")
+            .filter(|t| t.provider.context_key().is_local())
             .count()
     }
 

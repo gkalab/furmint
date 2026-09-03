@@ -119,7 +119,7 @@ async fn initialize_app() -> Result<InitializedApp> {
     app.file_viewer.content_load_tx = Some(content_load_tx);
 
     let context_key = app.active_tab().provider.context_key();
-    app.dir_history.record_visit(&context_key, &cwd);
+    app.dir_history.record_visit(&context_key.to_string(), &cwd);
 
     app.sync_watcher();
 

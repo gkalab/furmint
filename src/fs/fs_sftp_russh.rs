@@ -224,7 +224,7 @@ pub struct SftpFs {
     user: String,
     port: u16,
     password: Option<SecretString>,
-    prefix: String,
+    display_prefix: String,
 }
 
 impl SftpFs {
@@ -531,7 +531,7 @@ impl SftpFs {
             .await
             .map_err(|e| anyhow!("Failed to create SFTP session: {e}"))?;
 
-        let prefix = format!("[{user}@{host}]");
+        let display_prefix = format!("[{user}@{host}]");
         Ok(Self {
             session: Arc::new(handle),
             sftp: Arc::new(sftp),
@@ -539,7 +539,7 @@ impl SftpFs {
             user,
             port,
             password,
-            prefix,
+            display_prefix,
         })
     }
 
@@ -772,7 +772,7 @@ impl FileSystemProvider for SftpFs {
     }
 
     fn display_prefix(&self) -> &str {
-        &self.prefix
+        &self.display_prefix
     }
 
     fn is_local(&self) -> bool {
@@ -876,8 +876,12 @@ impl FileSystemProvider for SftpFs {
         .is_ok()
     }
 
-    fn context_key(&self) -> String {
-        self.prefix.clone()
+    fn context_key(&self) -> crate::fs::fs_provider::ContextKey {
+        crate::fs::fs_provider::ContextKey::Ssh {
+            user: self.user.clone(),
+            host: self.host.clone(),
+            port: self.port,
+        }
     }
 
     fn get_password(&self) -> Option<SecretString> {

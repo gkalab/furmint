@@ -228,8 +228,12 @@ impl FileSystemProvider for MockFileSystem {
     async fn set_modified_time(&self, _path: &Path, _mtime: std::time::SystemTime) -> bool {
         true
     }
-    fn context_key(&self) -> String {
-        "mock".to_string()
+    fn context_key(&self) -> fm::fs::fs_provider::ContextKey {
+        fm::fs::fs_provider::ContextKey::Ssh {
+            user: "test".to_string(),
+            host: "remote".to_string(),
+            port: 22,
+        }
     }
     fn display_path(&self, path: &Path) -> String {
         path.display().to_string()

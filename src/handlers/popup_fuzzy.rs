@@ -33,9 +33,9 @@ pub(crate) async fn handle_fuzzy_search_mouse_click(
 fn update_fuzzy_search_results(
     state: &mut FuzzySearchState,
     dir_history: &crate::dir_history::DirectoryHistory,
-    context_key: &str,
+    context_key: &crate::fs::fs_provider::ContextKey,
 ) {
-    let results = dir_history.fuzzy_search(context_key, &state.list.input);
+    let results = dir_history.fuzzy_search(&context_key.to_string(), &state.list.input);
     state.list.items = results.into_iter().map(|(p, _)| p).collect();
     state.list.selected_index = 0;
     state.list.scroll_offset = 0;
@@ -62,9 +62,11 @@ pub(crate) async fn handle_fuzzy_search_event(
                 .await
                 {
                     Ok(navigated_path) => {
-                        app.dir_history.record_visit(&context_key, &navigated_path);
+                        app.dir_history
+                            .record_visit(&context_key.to_string(), &navigated_path);
                         if navigated_path != selected_dir {
-                            app.dir_history.remove_entry(&context_key, &selected_dir);
+                            app.dir_history
+                                .remove_entry(&context_key.to_string(), &selected_dir);
                             app.active_tab_mut().status_msg = Some((
                                 format!(
                                     "'{}' not found, navigated to '{}'",
@@ -77,7 +79,8 @@ pub(crate) async fn handle_fuzzy_search_event(
                     }
                     Err(e) => {
                         app.active_tab_mut().error = Some(format!("Error: {e}"));
-                        app.dir_history.remove_entry(&context_key, &selected_dir);
+                        app.dir_history
+                            .remove_entry(&context_key.to_string(), &selected_dir);
                     }
                 }
             }

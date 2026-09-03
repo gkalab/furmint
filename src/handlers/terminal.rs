@@ -625,8 +625,12 @@ mod tests {
         async fn set_modified_time(&self, _: &std::path::Path, _: std::time::SystemTime) -> bool {
             false
         }
-        fn context_key(&self) -> String {
-            "mock".to_string()
+        fn context_key(&self) -> crate::fs::fs_provider::ContextKey {
+            crate::fs::fs_provider::ContextKey::Ssh {
+                user: self.user.clone().unwrap_or_default(),
+                host: self.host.clone().unwrap_or_default(),
+                port: self.port,
+            }
         }
         fn display_path(&self, path: &std::path::Path) -> String {
             path.to_string_lossy().to_string()

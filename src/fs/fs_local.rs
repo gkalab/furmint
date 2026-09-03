@@ -382,8 +382,8 @@ impl FileSystemProvider for LocalFs {
         true
     }
 
-    fn context_key(&self) -> String {
-        "local".to_string()
+    fn context_key(&self) -> crate::fs::fs_provider::ContextKey {
+        crate::fs::fs_provider::ContextKey::Local
     }
 
     fn display_path(&self, path: &Path) -> String {

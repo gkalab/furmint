@@ -651,8 +651,12 @@ mod tests {
             true
         }
 
-        fn context_key(&self) -> String {
-            "mock".to_string()
+        fn context_key(&self) -> crate::fs::fs_provider::ContextKey {
+            crate::fs::fs_provider::ContextKey::Ssh {
+                user: "test".to_string(),
+                host: "remote".to_string(),
+                port: 22,
+            }
         }
 
         fn display_path(&self, path: &std::path::Path) -> String {

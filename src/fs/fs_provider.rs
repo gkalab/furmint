@@ -13,10 +13,43 @@ use crate::fs::utils::FileEntry;
 use anyhow::Result;
 use async_trait::async_trait;
 use secrecy::SecretString;
+use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::SystemTime;
+
+/// Identifier for a filesystem context.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum ContextKey {
+    /// Local filesystem.
+    Local,
+    /// Archive (zip, tar, etc.) mounted from `PathBuf`.
+    Archive(PathBuf),
+    /// SSH/SFTP remote connection.
+    Ssh {
+        user: String,
+        host: String,
+        port: u16,
+    },
+}
+
+impl ContextKey {
+    #[must_use]
+    pub fn is_local(&self) -> bool {
+        matches!(self, ContextKey::Local)
+    }
+}
+
+impl fmt::Display for ContextKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ContextKey::Local => write!(f, "local"),
+            ContextKey::Archive(path) => write!(f, "archive:{}", path.display()),
+            ContextKey::Ssh { user, host, .. } => write!(f, "[{user}@{host}]"),
+        }
+    }
+}
 
 /// Per-file metadata: size, modification time and permissions.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -314,8 +347,8 @@ pub trait FileSystemProvider: Send + Sync {
 
     async fn set_modified_time(&self, path: &Path, mtime: SystemTime) -> bool;
 
-    /// Get a string identifying the context (e.g., "local", "user@host").
-    fn context_key(&self) -> String;
+    /// Get a structured identifier for this filesystem context.
+    fn context_key(&self) -> ContextKey;
 
     /// Get the password if this is a password-authenticated connection.
     fn get_password(&self) -> Option<SecretString> {

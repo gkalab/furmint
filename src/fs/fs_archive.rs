@@ -543,8 +543,8 @@ impl FileSystemProvider for ArchiveFs {
             .unwrap_or(false)
     }
 
-    fn context_key(&self) -> String {
-        format!("archive:{}", self.archive_path.to_string_lossy())
+    fn context_key(&self) -> crate::fs::fs_provider::ContextKey {
+        crate::fs::fs_provider::ContextKey::Archive(self.archive_path.clone())
     }
 
     fn display_path(&self, path: &Path) -> String {

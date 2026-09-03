@@ -181,13 +181,15 @@ async fn test_handle_reconnect_ssh_no_op_for_local() {
 /// Minimal stand-in for a remote (non-local) filesystem provider, used to test
 /// the reconnect handler without opening a real SSH connection.
 struct MockSftpProvider {
-    context: String,
+    user: String,
+    host: String,
 }
 
 impl MockSftpProvider {
     fn new(user: &str, host: &str) -> Self {
         Self {
-            context: format!("[{user}@{host}]"),
+            user: user.to_string(),
+            host: host.to_string(),
         }
     }
 }
@@ -248,7 +250,7 @@ impl fm::fs::fs_provider::FileSystemProvider for MockSftpProvider {
     }
 
     fn display_prefix(&self) -> &str {
-        &self.context
+        &self.host
     }
 
     fn is_local(&self) -> bool {
@@ -294,8 +296,12 @@ impl fm::fs::fs_provider::FileSystemProvider for MockSftpProvider {
         unreachable!("not used by tests")
     }
 
-    fn context_key(&self) -> String {
-        self.context.clone()
+    fn context_key(&self) -> fm::fs::fs_provider::ContextKey {
+        fm::fs::fs_provider::ContextKey::Ssh {
+            user: self.user.clone(),
+            host: self.host.clone(),
+            port: 22,
+        }
     }
 
     fn display_path(&self, path: &std::path::Path) -> String {

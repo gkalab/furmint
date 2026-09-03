@@ -276,8 +276,8 @@ impl FileSystemProvider for StdFileSystem {
         true
     }
 
-    fn context_key(&self) -> String {
-        "std_local".to_string()
+    fn context_key(&self) -> crate::fs::fs_provider::ContextKey {
+        crate::fs::fs_provider::ContextKey::Local
     }
 
     fn display_path(&self, path: &std::path::Path) -> String {

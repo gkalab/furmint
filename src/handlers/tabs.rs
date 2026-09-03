@@ -63,7 +63,7 @@ pub(crate) async fn handle_prev_tab(app: &mut AppState) {
 
 pub(crate) async fn handle_close_tab(app: &mut AppState) {
     let current_index = app.active_tab_manager().active_tab_index;
-    let is_local = app.active_tab().provider.context_key() == "local";
+    let is_local = app.active_tab().provider.context_key().is_local();
 
     if is_local && app.active_tab_manager().local_tab_count() <= 1 {
         app.active_tab_mut().error = Some("Cannot close the last local tab".to_string());

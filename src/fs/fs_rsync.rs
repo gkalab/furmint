@@ -30,12 +30,11 @@ pub fn should_use_rsync(
     }
 
     // Verify specifically that the remote side is SFTP
-    // We detect this by checking if the context_key matches "[user@host]" format
     let src_ctx = src_fs.context_key();
     let dest_ctx = dest_fs.context_key();
 
-    let src_is_sftp = src_ctx.starts_with('[') && src_ctx.ends_with(']');
-    let dest_is_sftp = dest_ctx.starts_with('[') && dest_ctx.ends_with(']');
+    let src_is_sftp = matches!(src_ctx, crate::fs::fs_provider::ContextKey::Ssh { .. });
+    let dest_is_sftp = matches!(dest_ctx, crate::fs::fs_provider::ContextKey::Ssh { .. });
 
     src_is_sftp || dest_is_sftp
 }
@@ -186,12 +185,13 @@ fn format_remote_path(
     fs: &dyn crate::fs::fs_provider::FileSystemProvider,
     path: &std::path::Path,
 ) -> Result<String> {
-    // Extract user@host from fs.context_key() which is formatted as "[user@host]"
-    let context = fs.context_key();
-    let user_host = context
-        .trim_start_matches('[')
-        .trim_end_matches(']')
-        .to_string();
+    // Extract user@host from the structured context key
+    let user_host = match fs.context_key() {
+        crate::fs::fs_provider::ContextKey::Ssh { user, host, .. } => {
+            format!("{user}@{host}")
+        }
+        _ => return Err(anyhow!("Cannot determine remote host from filesystem")),
+    };
 
     if user_host.is_empty() {
         return Err(anyhow!("Cannot determine remote host from filesystem"));
@@ -385,8 +385,18 @@ mod tests {
         fn is_local(&self) -> bool {
             self.local
         }
-        fn context_key(&self) -> String {
-            self.ctx.clone()
+        fn context_key(&self) -> crate::fs::fs_provider::ContextKey {
+            if self.local {
+                crate::fs::fs_provider::ContextKey::Local
+            } else if let Some(rest) = self.ctx.strip_prefix("archive:") {
+                crate::fs::fs_provider::ContextKey::Archive(std::path::PathBuf::from(rest))
+            } else {
+                crate::fs::fs_provider::ContextKey::Ssh {
+                    user: "user".to_string(),
+                    host: "host".to_string(),
+                    port: 22,
+                }
+            }
         }
         fn display_path(&self, path: &Path) -> String {
             path.to_string_lossy().to_string()

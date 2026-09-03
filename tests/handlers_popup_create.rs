@@ -292,8 +292,12 @@ async fn test_handle_create_file_remote_uses_remote_edit_workflow() {
         async fn set_permissions(&self, _path: &std::path::Path, _mode: u32) -> bool {
             true
         }
-        fn context_key(&self) -> String {
-            "mock".to_string()
+        fn context_key(&self) -> fm::fs::fs_provider::ContextKey {
+            fm::fs::fs_provider::ContextKey::Ssh {
+                user: "test".to_string(),
+                host: "remote".to_string(),
+                port: 22,
+            }
         }
         fn display_path(&self, path: &std::path::Path) -> String {
             path.to_string_lossy().to_string()

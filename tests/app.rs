@@ -83,11 +83,15 @@ impl FileSystemProvider for MockProvider {
     async fn set_modified_time(&self, _path: &Path, _mtime: std::time::SystemTime) -> bool {
         false
     }
-    fn context_key(&self) -> String {
+    fn context_key(&self) -> fm::fs::fs_provider::ContextKey {
         if self.local {
-            "local".to_string()
+            fm::fs::fs_provider::ContextKey::Local
         } else {
-            "remote".to_string()
+            fm::fs::fs_provider::ContextKey::Ssh {
+                user: "test".to_string(),
+                host: "remote".to_string(),
+                port: 22,
+            }
         }
     }
     fn display_path(&self, path: &Path) -> String {

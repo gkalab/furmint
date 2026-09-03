@@ -95,14 +95,17 @@ fn test_sort_settings_persistence() {
 
 #[test]
 fn test_context_key_extraction() {
-    let context_key = "[user@host]";
-    assert!(context_key.starts_with('[') && context_key.ends_with(']'));
-    let inner = &context_key[1..context_key.len() - 1];
-    let at_idx = inner.find('@').unwrap();
-    let user = &inner[..at_idx];
-    let host = &inner[at_idx + 1..];
-    assert_eq!(user, "user");
-    assert_eq!(host, "host");
+    let key = fm::fs::fs_provider::ContextKey::Ssh {
+        user: "user".to_string(),
+        host: "host".to_string(),
+        port: 22,
+    };
+    assert_eq!(key.to_string(), "[user@host]");
+    assert!(!key.is_local());
+
+    let local = fm::fs::fs_provider::ContextKey::Local;
+    assert!(local.is_local());
+    assert_eq!(local.to_string(), "local");
 }
 
 #[test]

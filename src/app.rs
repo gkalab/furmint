@@ -342,20 +342,20 @@ impl AppState {
     /// using that archive have been closed. Called once per second from the event loop.
     pub fn cleanup_archive_cache(&mut self) {
         // Collect context keys of all currently open archive tabs
-        let open_keys: std::collections::HashSet<String> = self
+        let open_keys: std::collections::HashSet<_> = self
             .left
             .tabs
             .iter()
             .chain(self.right.tabs.iter())
             .map(|t| t.provider.context_key())
-            .filter(|k| k.starts_with("archive:"))
+            .filter(|k| matches!(k, crate::fs::fs_provider::ContextKey::Archive(_)))
             .collect();
 
         let now = std::time::Instant::now();
         let timeout = std::time::Duration::from_mins(1);
 
         self.archive_cache.retain(|path, entry| {
-            let key = format!("archive:{}", path.to_string_lossy());
+            let key = crate::fs::fs_provider::ContextKey::Archive(path.clone());
             if open_keys.contains(&key) {
                 entry.closed_at = None; // still in use — clear any stale timestamp
                 true
@@ -465,8 +465,8 @@ impl AppState {
         let left_tab = self.left.active_tab();
         let right_tab = self.right.active_tab();
 
-        let left_is_local = left_tab.provider.context_key() == "local";
-        let right_is_local = right_tab.provider.context_key() == "local";
+        let left_is_local = left_tab.provider.context_key().is_local();
+        let right_is_local = right_tab.provider.context_key().is_local();
 
         if left_is_local && !right_is_local && self.left.local_tab_count() <= 1 {
             return Err(anyhow!(
@@ -551,7 +551,7 @@ impl AppState {
             return Ok(());
         }
 
-        let is_local = self.active_tab().provider.context_key() == "local";
+        let is_local = self.active_tab().provider.context_key().is_local();
         if is_local && self.active_tab_manager().local_tab_count() <= 1 {
             return Err("Cannot move the last local tab to the other side");
         }
@@ -596,22 +596,15 @@ impl AppState {
         match Tab::with_provider(&path, ctx.provider).await {
             Ok(mut tab) => {
                 // Restore sort settings from history
-                let context_key = tab.provider.context_key();
-                if context_key.starts_with('[') && context_key.ends_with(']') {
-                    let inner = &context_key[1..context_key.len() - 1];
-                    if let Some(at_idx) = inner.find('@') {
-                        let user = &inner[..at_idx];
-                        let host = &inner[at_idx + 1..];
-                        if let Some((col, dir)) = self.ssh_history.get_sort_settings(
-                            host,
-                            user,
-                            connection_name.as_deref(),
-                        ) {
-                            tab.sort.column = col;
-                            tab.sort.direction = dir;
-                            tab.sort_entries();
-                        }
-                    }
+                if let crate::fs::fs_provider::ContextKey::Ssh { user, host, .. } =
+                    tab.provider.context_key()
+                    && let Some((col, dir)) =
+                        self.ssh_history
+                            .get_sort_settings(&host, &user, connection_name.as_deref())
+                {
+                    tab.sort.column = col;
+                    tab.sort.direction = dir;
+                    tab.sort_entries();
                 }
 
                 tab.custom_title = connection_name;
@@ -631,18 +624,12 @@ impl AppState {
         let path = ctx.path.unwrap_or_else(|| std::path::PathBuf::from("/"));
 
         // Restore sort settings from history FIRST before borrowing tab mutably
-        let context_key = ctx.provider.context_key();
-        let mut sort_settings = None;
-        if context_key.starts_with('[') && context_key.ends_with(']') {
-            let inner = &context_key[1..context_key.len() - 1];
-            if let Some(at_idx) = inner.find('@') {
-                let user = &inner[..at_idx];
-                let host = &inner[at_idx + 1..];
-                sort_settings = self
-                    .ssh_history
-                    .get_sort_settings(host, user, ctx.name.as_deref());
-            }
-        }
+        let sort_settings = match ctx.provider.context_key() {
+            crate::fs::fs_provider::ContextKey::Ssh { user, host, .. } => self
+                .ssh_history
+                .get_sort_settings(&host, &user, ctx.name.as_deref()),
+            _ => None,
+        };
 
         let tab = self.active_tab_mut();
 

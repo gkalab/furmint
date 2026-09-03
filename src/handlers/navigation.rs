@@ -230,7 +230,8 @@ pub async fn handle_enter_directory(app: &mut AppState) {
             if let Err(e) = app.active_tab_mut().go_up().await {
                 app.active_tab_mut().error = Some(format!("Error: {e}"));
             } else {
-                app.dir_history.record_visit(&context_key, &current_dir);
+                app.dir_history
+                    .record_visit(&context_key.to_string(), &current_dir);
                 update_viewer_content(app).await;
             }
         } else {
@@ -239,7 +240,8 @@ pub async fn handle_enter_directory(app: &mut AppState) {
                 app.active_tab_mut().error = Some(format!("Error: {e}"));
             } else {
                 let context_key = app.active_tab().provider.context_key();
-                app.dir_history.record_visit(&context_key, &path);
+                app.dir_history
+                    .record_visit(&context_key.to_string(), &path);
                 update_viewer_content(app).await;
             }
         }
@@ -395,8 +397,9 @@ pub async fn handle_directory_up(app: &mut AppState) {
         if let Err(e) = app.active_tab_mut().go_up().await {
             app.active_tab_mut().error = Some(format!("Error: {e}"));
         } else {
-            if !context_key.starts_with("archive:") {
-                app.dir_history.record_visit(&context_key, &path);
+            if !matches!(context_key, crate::fs::fs_provider::ContextKey::Archive(_)) {
+                app.dir_history
+                    .record_visit(&context_key.to_string(), &path);
             }
             update_viewer_content(app).await;
         }
@@ -443,18 +446,13 @@ pub async fn handle_sort(app: &mut AppState, column: crate::app::SortColumn) {
         )
     };
 
-    if context_key.starts_with('[') && context_key.ends_with(']') {
-        let inner = &context_key[1..context_key.len() - 1];
-        if let Some(at_idx) = inner.find('@') {
-            let user = &inner[..at_idx];
-            let host = &inner[at_idx + 1..];
-            let name = {
-                let tab = app.active_tab();
-                tab.custom_title.clone()
-            };
-            app.ssh_history
-                .update_sort_settings(host, user, name.as_deref(), col, dir);
-        }
+    if let crate::fs::fs_provider::ContextKey::Ssh { user, host, .. } = &context_key {
+        let name = {
+            let tab = app.active_tab();
+            tab.custom_title.clone()
+        };
+        app.ssh_history
+            .update_sort_settings(host, user, name.as_deref(), col, dir);
     }
 
     update_viewer_content(app).await;

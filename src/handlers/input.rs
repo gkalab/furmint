@@ -84,7 +84,7 @@ pub async fn handle_main_panel_event(
         app.fuzzy_search.reset();
         // Initialize with all directories sorted by score
         let context_key = app.active_tab().provider.context_key();
-        let results = app.dir_history.fuzzy_search(&context_key, "");
+        let results = app.dir_history.fuzzy_search(&context_key.to_string(), "");
         app.fuzzy_search.list.items = results.into_iter().map(|(p, _)| p).collect();
         app.fuzzy_search.list.selected_index = 0;
         return false;
