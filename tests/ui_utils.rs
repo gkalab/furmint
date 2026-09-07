@@ -103,6 +103,32 @@ fn test_replace_home_with_tilde_relative() {
 }
 
 #[test]
+fn test_truncate_path_str_ellipsis_fits() {
+    assert_eq!(
+        ui_utils::truncate_path_str_with_ellipsis("/usr/local/bin", 40),
+        "/usr/local/bin"
+    );
+}
+
+#[test]
+fn test_truncate_path_str_ellipsis_normalizes_backslashes() {
+    assert_eq!(
+        ui_utils::truncate_path_str_with_ellipsis("/usr\\local\\bin", 40),
+        "/usr/local/bin"
+    );
+}
+
+#[test]
+fn test_truncate_path_str_ellipsis_long() {
+    let s = ui_utils::truncate_path_str_with_ellipsis("/very/long/path/to/a/deeply/nested/dir", 20);
+    assert!(s.contains('…'), "expected ellipsis, got {s}");
+    assert!(s.chars().count() <= 20, "got {s}");
+    assert!(s.starts_with('/'), "leading slash lost, got {s}");
+    assert!(s.ends_with("dir"), "last segment lost, got {s}");
+    assert!(!s.contains('\\'), "mixed separators, got {s}");
+}
+
+#[test]
 fn test_truncate_path_str_fits() {
     assert_eq!(ui_utils::truncate_path_str("/home/user", 20), "/home/user");
 }
@@ -112,4 +138,46 @@ fn test_truncate_path_str_truncated() {
     let s = ui_utils::truncate_path_str("/very/long/path/to/a/deeply/nested/remote/dir", 20);
     assert!(s.contains("…"), "expected ellipsis, got {s}");
     assert!(s.chars().count() <= 20, "got {s}");
+}
+
+#[test]
+fn test_truncate_path_for_display_local_keeps_backslashes() {
+    let p = Path::new("C:\\Users\\test\\very\\long\\path\\to\\dir");
+    let s = ui_utils::truncate_path_for_display(p, 20);
+    assert!(
+        s.contains('\\'),
+        "local separators must be preserved, got {s}"
+    );
+    assert!(!s.contains('/'), "got {s}");
+    assert!(s.contains('…'), "expected ellipsis, got {s}");
+    assert!(s.chars().count() <= 20, "got {s}");
+}
+
+#[test]
+fn test_truncate_path_for_display_remote_keeps_forward_slashes() {
+    let p = Path::new("/remote/home/user/some/very/long/path");
+    let s = ui_utils::truncate_path_for_display(p, 20);
+    assert!(!s.contains('\\'), "got {s}");
+    assert!(s.starts_with('/'), "leading slash lost, got {s}");
+    assert!(s.ends_with("path"), "last segment lost, got {s}");
+    assert!(s.chars().count() <= 20, "got {s}");
+}
+
+#[test]
+fn test_truncate_path_for_display_mixed_normalized() {
+    let p = Path::new("/remote\\home/user/deep/path/here");
+    let s = ui_utils::truncate_path_for_display(p, 40);
+    assert_eq!(s, "/remote/home/user/deep/path/here");
+}
+
+#[test]
+fn test_truncate_path_for_display_fits_unchanged() {
+    assert_eq!(
+        ui_utils::truncate_path_for_display(Path::new("/home/user"), 20),
+        "/home/user"
+    );
+    assert_eq!(
+        ui_utils::truncate_path_for_display(Path::new("C:\\Users\\test"), 40),
+        "C:\\Users\\test"
+    );
 }

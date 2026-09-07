@@ -166,48 +166,42 @@ pub fn replace_home_with_tilde(path: &std::path::Path) -> String {
     display.to_string_lossy().to_string()
 }
 
-#[must_use]
-pub fn truncate_path_with_ellipsis(path: &std::path::Path, max_width: usize) -> String {
-    let path_str = path.to_string_lossy();
-    if path_str.chars().count() <= max_width {
-        return path_str.to_string();
-    }
+/// Shared core: rebuild `raw` keeping the first `left_count` and last `right_count`
+/// segments joined by `sep`, inserting an ellipsis between them, while staying within
+/// `max_width` chars. Returns `Some(result)` when a combination fits, `None` if even
+/// the minimal split is too wide (callers then fall back to a middle truncation).
+fn truncate_segments_with_ellipsis(raw: &str, sep: char, max_width: usize) -> Option<String> {
+    let sep_str = sep.to_string();
+    let has_leading_sep = raw.starts_with(sep);
+    let segments: Vec<&str> = raw.split(sep).filter(|s| !s.is_empty()).collect();
+    let total = segments.len();
 
-    let components: Vec<_> = path.components().collect();
-    let total_components = components.len();
-
-    if total_components == 0 {
-        return String::new();
+    if total == 0 {
+        return Some(String::new());
     }
 
     let ellipsis = "…";
     let mut left_count = 1;
     let mut right_count = 1;
-    let mut last_result = String::new();
+    let mut last_result = None;
 
     // Iterate to find the best fit
-    while left_count + right_count < total_components {
-        let mut new_path = std::path::PathBuf::new();
-
-        // Add left components
-        for c in &components[..left_count] {
-            new_path.push(c);
+    while left_count + right_count < total {
+        let mut result = String::new();
+        if has_leading_sep {
+            result.push(sep);
         }
+        result.push_str(&segments[..left_count].join(&sep_str));
+        result.push(sep);
+        result.push_str(ellipsis);
+        result.push(sep);
+        result.push_str(&segments[total.saturating_sub(right_count)..].join(&sep_str));
 
-        // Add ellipsis (as a component)
-        new_path.push(ellipsis);
-
-        // Add right components
-        for c in &components[total_components.saturating_sub(right_count)..] {
-            new_path.push(c);
-        }
-
-        let result = new_path.to_string_lossy().to_string();
         if result.chars().count() > max_width {
             break;
         }
 
-        last_result = result;
+        last_result = Some(result);
 
         // Try to add more segments
         if left_count <= right_count {
@@ -217,16 +211,58 @@ pub fn truncate_path_with_ellipsis(path: &std::path::Path, max_width: usize) -> 
         }
     }
 
-    // Fallback if nothing fits or initial split failed:
-    // Truncate the whole string with ellipsis in the middle (using existing function)
-    if last_result.is_empty() {
-        // If we have components but couldn't fit even 1+1+ellipsis,
-        // or if it was just 1 component that is too long.
-        // fallback to string truncation
-        return truncate_middle_with_ellipsis(&path_str, max_width);
+    last_result
+}
+
+#[must_use]
+pub fn truncate_path_with_ellipsis(path: &std::path::Path, max_width: usize) -> String {
+    let path_str = path.to_string_lossy();
+    if path_str.chars().count() <= max_width {
+        return path_str.to_string();
     }
 
-    last_result
+    // Prefer the separator actually present in the configured path so that strings
+    // using forward slashes (remote-style paths) keep them instead of being rebuilt
+    // with the platform separator.
+    let sep = if path_str.contains('\\') { '\\' } else { '/' };
+
+    match truncate_segments_with_ellipsis(&path_str, sep, max_width) {
+        Some(result) => result,
+        None => truncate_middle_with_ellipsis(&path_str, max_width),
+    }
+}
+
+/// Truncates a `/`-separated path string (as used for remote/SSH paths) to fit
+/// `max_width` characters, keeping the first and last path segments and inserting
+/// an ellipsis in the middle. Any backslashes are normalized to forward slashes
+/// first so the result never mixes separators.
+#[must_use]
+pub fn truncate_path_str_with_ellipsis(path: &str, max_width: usize) -> String {
+    let normalized = path.replace('\\', "/");
+    if normalized.chars().count() <= max_width {
+        return normalized;
+    }
+
+    match truncate_segments_with_ellipsis(&normalized, '/', max_width) {
+        Some(result) => result,
+        None => truncate_middle_with_ellipsis(&normalized, max_width),
+    }
+}
+
+/// Truncates an arbitrary path for display, choosing the separator handling per
+/// path: native local paths containing backslashes (e.g. Windows `C:\...`) keep
+/// their separators, while remote-style paths (no backslashes, typically with a
+/// leading `/`) are rendered with forward slashes, normalizing any stray
+/// backslashes. This lets mixed lists (e.g. the bookmark list spanning local and
+/// remote contexts) render each entry correctly without a per-context flag.
+#[must_use]
+pub fn truncate_path_for_display(path: &std::path::Path, max_width: usize) -> String {
+    let path_str = path.to_string_lossy();
+    if path_str.contains('\\') && !path_str.starts_with('/') {
+        truncate_path_with_ellipsis(path, max_width)
+    } else {
+        truncate_path_str_with_ellipsis(&path_str, max_width)
+    }
 }
 
 /// Truncates a `/`-separated path string to fit `max_width` characters, keeping

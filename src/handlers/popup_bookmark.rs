@@ -110,8 +110,7 @@ pub async fn handle_bookmark_event(
                     .iter()
                     .position(|e| e.path == selected_path)
                 {
-                    let path_display =
-                        crate::ui::ui_utils::truncate_path_with_ellipsis(path_ref, 50);
+                    let path_display = crate::ui::ui_utils::truncate_path_for_display(path_ref, 50);
                     app.popups.bookmark.confirmation = Some(ConfirmationState::new(
                         format!("Remove bookmark '{path_display}'?"),
                         true,

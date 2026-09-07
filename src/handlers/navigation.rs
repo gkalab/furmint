@@ -226,11 +226,11 @@ pub async fn handle_enter_directory(app: &mut AppState) {
     {
         if entry.name == ".." {
             let context_key = app.active_tab().provider.context_key();
-            let current_dir = app.active_tab().current_dir.clone();
 
             if let Err(e) = app.active_tab_mut().go_up().await {
                 app.active_tab_mut().error = Some(format!("Error: {e}"));
             } else {
+                let current_dir = app.active_tab().current_dir.clone();
                 app.dir_history
                     .record_visit(&context_key.to_string(), &current_dir);
                 update_viewer_content(app).await;
@@ -241,8 +241,9 @@ pub async fn handle_enter_directory(app: &mut AppState) {
                 app.active_tab_mut().error = Some(format!("Error: {e}"));
             } else {
                 let context_key = app.active_tab().provider.context_key();
+                let current_dir = app.active_tab().current_dir.clone();
                 app.dir_history
-                    .record_visit(&context_key.to_string(), &path);
+                    .record_visit(&context_key.to_string(), &current_dir);
                 update_viewer_content(app).await;
             }
         }
@@ -483,7 +484,7 @@ pub async fn navigate_with_fallback(
 ) -> Result<PathBuf, anyhow::Error> {
     // Try the target path first
     let original_error = match tab.navigate_to(target).await {
-        Ok(()) => return Ok(target.to_path_buf()),
+        Ok(()) => return Ok(tab.current_dir.clone()),
         Err(e) => e,
     };
 
@@ -495,7 +496,7 @@ pub async fn navigate_with_fallback(
         }
         current = parent.to_path_buf();
         if tab.navigate_to(current.as_path()).await.is_ok() {
-            return Ok(current);
+            return Ok(tab.current_dir.clone());
         }
     }
 

@@ -203,6 +203,58 @@ async fn test_handle_enter_directory_only_enters_dirs() {
 }
 
 #[tokio::test]
+async fn test_handle_enter_directory_dotdot_records_parent_dir() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let path = temp_dir.path();
+    let dir_path = path.join("test_dir");
+    std::fs::create_dir(&dir_path).unwrap();
+
+    let mut app = test_app(vec![]);
+    app.panels
+        .left
+        .active_tab_mut()
+        .navigate_to(&dir_path)
+        .await
+        .unwrap();
+
+    // Start from a clean history so the assertions are hermetic
+    app.dir_history.entries.clear();
+
+    let up_idx = app
+        .panels
+        .left
+        .active_tab()
+        .entries
+        .iter()
+        .position(|e| e.name == "..")
+        .expect("listing should contain '..'");
+    app.panels.left.active_tab_mut().cursor = up_idx;
+
+    handle_enter_directory(&mut app).await;
+
+    assert_eq!(
+        app.panels.left.active_tab().current_dir,
+        path,
+        "should have navigated to the parent directory"
+    );
+
+    let local_entries = app
+        .dir_history
+        .entries
+        .get("local")
+        .expect("local context should be present in history");
+    assert!(
+        local_entries.contains_key(path),
+        "the parent directory navigated to must be recorded, got: {:?}",
+        local_entries.keys().collect::<Vec<_>>()
+    );
+    assert!(
+        !local_entries.contains_key(&dir_path),
+        "the directory being left must NOT be recorded in history"
+    );
+}
+
+#[tokio::test]
 async fn test_handle_type_char() {
     let entries = vec![
         FileEntry {

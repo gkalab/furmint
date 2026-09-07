@@ -100,6 +100,9 @@ impl FilterableListState {
     }
 }
 
+/// Listed paths are truncated per item: remote-style (forward-slash) paths keep
+/// `/` separators while native local paths (e.g. Windows `C:\...`) keep their
+/// platform separators, so lists mixing contexts render correctly.
 pub fn draw_filterable_list_popup(
     f: &mut Frame,
     state: &mut FilterableListState,
@@ -162,7 +165,7 @@ pub fn draw_filterable_list_popup(
     for (row_idx, item_idx) in (start_idx..end_idx).enumerate() {
         let path = &state.items[item_idx];
         let max_width = list_inner_area.width as usize;
-        let path_str = crate::ui::ui_utils::truncate_path_with_ellipsis(path, max_width);
+        let path_str = crate::ui::ui_utils::truncate_path_for_display(path, max_width);
 
         let is_selected = item_idx == state.selected_index;
         let (fg, bg) = if is_selected {

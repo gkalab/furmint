@@ -108,9 +108,14 @@ impl Tab {
         provider: Arc<dyn FileSystemProvider>,
     ) -> anyhow::Result<Self> {
         let entries = provider.list_dir(path).await?;
+        let current_dir = if provider.is_local() {
+            path.to_path_buf()
+        } else {
+            PathBuf::from(crate::fs::utils::normalize_sftp_path(path))
+        };
         let mut tab = Self {
             provider,
-            current_dir: path.to_path_buf(),
+            current_dir,
             entries,
             cursor: 0,
             search: IncrementalSearch::default(),
@@ -292,7 +297,11 @@ impl Tab {
         let entries = self.provider.list_dir(path).await?;
         self.error = None;
 
-        self.current_dir = path.to_path_buf();
+        self.current_dir = if self.provider.is_local() {
+            path.to_path_buf()
+        } else {
+            PathBuf::from(crate::fs::utils::normalize_sftp_path(path))
+        };
         self.entries = entries;
         self.cursor = 0;
         self.scroll_offset = 0;
