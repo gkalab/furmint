@@ -595,7 +595,7 @@ async fn test_fuzzy_search_scrollbar_hit_region_matches_rendered_column() {
     let mut app = AppState::test_default();
     app.fuzzy_search.list.is_visible = true;
     app.fuzzy_search.list.items = (0..100)
-        .map(|i| PathBuf::from(format!("item {i}")))
+        .map(|i| fm::ui::filterable_list::ListItem::from_path(PathBuf::from(format!("item {i}"))))
         .collect();
     app.fuzzy_search.list.selected_index = 0;
     app.fuzzy_search.list.scroll_offset = 0;

@@ -62,6 +62,10 @@ pub struct SshPasswordState {
     pub session_id: String,
     pub error: Option<String>,
     pub cursor_position: usize,
+    /// True when the password prompt was opened from a remote bookmark.
+    /// In that case `Esc` dismisses the prompt instead of reopening the SSH
+    /// connection dialog.
+    pub from_bookmark: bool,
 }
 
 impl SshPasswordState {
@@ -75,6 +79,7 @@ impl SshPasswordState {
             session_id: String::new(),
             error: None,
             cursor_position: 0,
+            from_bookmark: false,
         }
     }
 }

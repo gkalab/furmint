@@ -3,12 +3,39 @@ use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use std::path::PathBuf;
 
+/// A single row in a filterable list: the underlying path plus an optional
+/// precomposed display string. When `display` is `Some`, it is rendered as-is;
+/// otherwise the row is rendered from `path`.
+#[derive(Clone)]
+pub struct ListItem {
+    pub path: PathBuf,
+    pub display: Option<String>,
+}
+
+impl ListItem {
+    #[must_use]
+    pub fn from_path(path: PathBuf) -> Self {
+        Self {
+            path,
+            display: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_display(path: PathBuf, display: String) -> Self {
+        Self {
+            path,
+            display: Some(display),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct FilterableListState {
     pub is_visible: bool,
     pub input: String,
     pub cursor_position: usize,
-    pub items: Vec<PathBuf>,
+    pub items: Vec<ListItem>,
     pub selected_index: usize,
     pub scroll_offset: usize,
     pub list_area: Option<Rect>,
@@ -67,7 +94,7 @@ impl FilterableListState {
     }
 
     #[must_use]
-    pub fn get_selected_item(&self) -> Option<PathBuf> {
+    pub fn get_selected_item(&self) -> Option<ListItem> {
         self.items.get(self.selected_index).cloned()
     }
 
@@ -163,9 +190,12 @@ pub fn draw_filterable_list_popup(
     let end_idx = (start_idx + visible_rows).min(state.items.len());
 
     for (row_idx, item_idx) in (start_idx..end_idx).enumerate() {
-        let path = &state.items[item_idx];
         let max_width = list_inner_area.width as usize;
-        let path_str = crate::ui::ui_utils::truncate_path_for_display(path, max_width);
+        let item = &state.items[item_idx];
+        let path_str = match &item.display {
+            Some(s) => crate::ui::ui_utils::truncate_path_str_with_ellipsis(s, max_width),
+            None => crate::ui::ui_utils::truncate_path_for_display(&item.path, max_width),
+        };
 
         let is_selected = item_idx == state.selected_index;
         let (fg, bg) = if is_selected {

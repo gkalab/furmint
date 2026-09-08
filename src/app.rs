@@ -684,10 +684,38 @@ impl AppState {
     }
 
     pub async fn handle_ssh_connected(&mut self, ctx: crate::tasks::SshContext) {
-        let path = ctx.path.unwrap_or_else(|| std::path::PathBuf::from("/"));
+        let original_path = ctx
+            .path
+            .clone()
+            .unwrap_or_else(|| std::path::PathBuf::from("/"));
         let connection_name = ctx.name;
-        match Tab::with_provider(&path, ctx.provider).await {
+        let provider = ctx.provider.clone();
+
+        // Find the deepest ancestor that is a listable directory. Probe with a
+        // lightweight stat (`is_dir`) rather than a full tab creation so a long,
+        // missing path does not trigger a full directory listing per level.
+        let mut target = original_path.clone();
+        while !provider.is_dir(&target).await {
+            match target.parent() {
+                Some(parent) if parent != target => {
+                    target = parent.to_path_buf();
+                }
+                _ => break,
+            }
+        }
+
+        match Tab::with_provider(&target, provider.clone()).await {
             Ok(mut tab) => {
+                if target != original_path {
+                    tab.status_msg = Some((
+                        format!(
+                            "'{}' not found, opened '{}'",
+                            original_path.display(),
+                            target.display()
+                        ),
+                        Instant::now(),
+                    ));
+                }
                 // Restore sort settings from history
                 if let crate::fs::fs_provider::ContextKey::Ssh { user, host, .. } =
                     tab.provider.context_key()

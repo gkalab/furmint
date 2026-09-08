@@ -11,6 +11,7 @@ pub fn handle_ssh_connection_init(app: &mut AppState) {
         .set_popup_visible(crate::app::PopupKind::SshConnection, true);
     app.popups.ssh_connection.error = None;
     app.popups.ssh_connection.active_field = crate::state::ssh::SshField::ConnectionString;
+    app.popups.ssh_password.from_bookmark = false;
 
     // Clear fields on initialization
     app.popups.ssh_connection.connection_string.clear();
@@ -544,7 +545,9 @@ pub fn handle_ssh_password_event(app: &mut AppState, code: KeyCode, modifiers: M
         KeyCode::Escape => {
             app.popups
                 .set_popup_visible(crate::app::PopupKind::SshPassword, false);
-            if !app.popups.ssh_connection.connection_string.is_empty() {
+            let from_bookmark = app.popups.ssh_password.from_bookmark;
+            app.popups.ssh_password.from_bookmark = false;
+            if !from_bookmark && !app.popups.ssh_connection.connection_string.is_empty() {
                 app.popups
                     .set_popup_visible(crate::app::PopupKind::SshConnection, true);
             }
@@ -555,6 +558,7 @@ pub fn handle_ssh_password_event(app: &mut AppState, code: KeyCode, modifiers: M
 
             app.popups
                 .set_popup_visible(crate::app::PopupKind::SshPassword, false);
+            app.popups.ssh_password.from_bookmark = false;
 
             if session_id.is_empty() {
                 let host = app.popups.ssh_password.host.clone();

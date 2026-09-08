@@ -33,10 +33,6 @@ impl FuzzySearchState {
         &self.list.input
     }
     #[must_use]
-    pub fn filtered_dirs(&self) -> &[PathBuf] {
-        &self.list.items
-    }
-    #[must_use]
     pub fn selected_index(&self) -> usize {
         self.list.selected_index
     }
@@ -56,7 +52,7 @@ impl FuzzySearchState {
 
     #[must_use]
     pub fn get_selected_dir(&self) -> Option<PathBuf> {
-        self.list.get_selected_item()
+        self.list.get_selected_item().map(|item| item.path)
     }
 
     pub fn update_scroll(&mut self, visible_rows: usize) {

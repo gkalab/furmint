@@ -36,7 +36,10 @@ fn update_fuzzy_search_results(
     context_key: &crate::fs::fs_provider::ContextKey,
 ) {
     let results = dir_history.fuzzy_search(&context_key.to_string(), &state.list.input);
-    state.list.items = results.into_iter().map(|(p, _)| p).collect();
+    state.list.items = results
+        .into_iter()
+        .map(|(p, _)| crate::ui::filterable_list::ListItem::from_path(p))
+        .collect();
     state.list.selected_index = 0;
     state.list.scroll_offset = 0;
 }

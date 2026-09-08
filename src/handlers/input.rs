@@ -86,7 +86,10 @@ pub async fn handle_main_panel_event(
         // Initialize with all directories sorted by score
         let context_key = app.active_tab().provider.context_key();
         let results = app.dir_history.fuzzy_search(&context_key.to_string(), "");
-        app.fuzzy_search.list.items = results.into_iter().map(|(p, _)| p).collect();
+        app.fuzzy_search.list.items = results
+            .into_iter()
+            .map(|(p, _)| crate::ui::filterable_list::ListItem::from_path(p))
+            .collect();
         app.fuzzy_search.list.selected_index = 0;
         return false;
     }
@@ -547,8 +550,9 @@ fn handle_bookmark_shortcuts(
     {
         app.popups
             .set_popup_visible(crate::app::PopupKind::Bookmark, true);
-        // Search all bookmarks on open
-        app.popups.bookmark.list.items = app.bookmark_store.fuzzy_search("");
+        app.popups.bookmark.list.input.clear();
+        app.popups.bookmark.list.cursor_position = 0;
+        crate::handlers::popup_bookmark::refresh_bookmark_list(app);
         return true;
     }
     false

@@ -3,6 +3,32 @@ use crate::state::{ConfirmationAction, ConfirmationState};
 use std::time::Instant;
 use termina::event::{KeyCode, Modifiers};
 
+/// Refresh the visible bookmark list (items + precomposed display strings) from
+/// the current filter query.
+pub fn refresh_bookmark_list(app: &mut AppState) {
+    let query = app.popups.bookmark.list.input.clone();
+    let entries = app.bookmark_store.fuzzy_search_entries(&query);
+    app.popups.bookmark.list.items = entries
+        .iter()
+        .map(|e| {
+            crate::ui::filterable_list::ListItem::with_display(
+                e.path.clone(),
+                crate::bookmarks::BookmarkEntry::display_string(e),
+            )
+        })
+        .collect();
+}
+
+/// The selected `BookmarkEntry`, resolved from the current filter results.
+fn selected_bookmark_entry(app: &AppState) -> Option<crate::bookmarks::BookmarkEntry> {
+    let query = app.popups.bookmark.list.input.clone();
+    let idx = app.popups.bookmark.list.selected_index;
+    app.bookmark_store
+        .fuzzy_search_entries(&query)
+        .into_iter()
+        .nth(idx)
+}
+
 pub async fn handle_bookmark_mouse_click(
     app: &mut AppState,
     x: u16,
@@ -34,14 +60,33 @@ pub async fn handle_bookmark_mouse_click(
 
 pub fn handle_bookmark_add(app: &mut AppState) {
     let current_dir = app.active_tab().current_dir.clone();
-    let path_str = current_dir.to_string_lossy().to_string();
+    let provider = app.active_tab().provider.clone();
 
-    if app.bookmark_store.add(current_dir) {
+    let (ssh_user, ssh_host, ssh_port) = match provider.context_key() {
+        crate::fs::fs_provider::ContextKey::Ssh { user, host, port } => {
+            let port = (port != 22).then_some(port);
+            (Some(user), Some(host), port)
+        }
+        _ => (None, None, None),
+    };
+
+    let display = crate::bookmarks::BookmarkEntry {
+        path: current_dir.clone(),
+        ssh_user: ssh_user.clone(),
+        ssh_host: ssh_host.clone(),
+        ssh_port,
+    }
+    .display_string();
+
+    if app
+        .bookmark_store
+        .add_with_ssh(current_dir, ssh_user, ssh_host, ssh_port)
+    {
         app.active_tab_mut().status_msg =
-            Some((format!("Bookmark added: {path_str}"), Instant::now()));
+            Some((format!("Bookmark added: {display}"), Instant::now()));
     } else {
         app.active_tab_mut().status_msg =
-            Some((format!("Already bookmarked: {path_str}"), Instant::now()));
+            Some((format!("Already bookmarked: {display}"), Instant::now()));
     }
 }
 
@@ -58,8 +103,7 @@ pub async fn handle_bookmark_event(
                 if let ConfirmationAction::DeleteBookmark(idx) = conf.action {
                     app.bookmark_store.remove(idx);
                     // Refresh the filtered list
-                    let query = app.popups.bookmark.list.input.clone();
-                    app.popups.bookmark.list.items = app.bookmark_store.fuzzy_search(&query);
+                    refresh_bookmark_list(app);
                     // Adjust selection if it's now out of bounds
                     if app.popups.bookmark.list.selected_index
                         >= app.popups.bookmark.list.items.len()
@@ -101,16 +145,18 @@ pub async fn handle_bookmark_event(
             app.popups.bookmark.list.move_selection_page_down(10);
         }
         KeyCode::Delete => {
-            if let Some(selected_path) = app.popups.bookmark.list.get_selected_item() {
-                let path_ref: &std::path::Path = selected_path.as_path();
+            if let Some(entry) = selected_bookmark_entry(app) {
+                let path_display =
+                    crate::ui::ui_utils::truncate_path_str(&entry.display_string(), 50);
                 // We need the index in the actual store to delete it, but the list might be filtered.
-                if let Some(store_idx) = app
-                    .bookmark_store
-                    .entries
-                    .iter()
-                    .position(|e| e.path == selected_path)
-                {
-                    let path_display = crate::ui::ui_utils::truncate_path_for_display(path_ref, 50);
+                // Match all identifying fields: the same path+host can exist with
+                // different user or port, which are distinct bookmarks.
+                if let Some(store_idx) = app.bookmark_store.entries.iter().position(|e| {
+                    e.path == entry.path
+                        && e.ssh_user == entry.ssh_user
+                        && e.ssh_host == entry.ssh_host
+                        && e.ssh_port == entry.ssh_port
+                }) {
                     app.popups.bookmark.confirmation = Some(ConfirmationState::new(
                         format!("Remove bookmark '{path_display}'?"),
                         true,
@@ -127,8 +173,7 @@ pub async fn handle_bookmark_event(
                 &mut app.popups.bookmark.list.cursor_position,
                 false,
             ) {
-                let query = app.popups.bookmark.list.input.clone();
-                app.popups.bookmark.list.items = app.bookmark_store.fuzzy_search(&query);
+                refresh_bookmark_list(app);
                 app.popups.bookmark.list.selected_index = 0;
                 app.popups.bookmark.list.scroll_offset = 0;
             }
@@ -138,7 +183,85 @@ pub async fn handle_bookmark_event(
 }
 
 async fn handle_bookmark_enter(app: &mut AppState) {
-    if let Some(selected_path) = app.popups.bookmark.list.get_selected_item() {
+    if let Some(entry) = selected_bookmark_entry(app) {
+        if entry.is_remote() {
+            let user = entry.ssh_user.clone().unwrap_or_else(|| "root".to_string());
+            let host = entry.ssh_host.clone().unwrap_or_default();
+            let port = entry.ssh_port.unwrap_or(22);
+
+            // Reuse the current connection if this tab is already connected to
+            // the same remote, navigating to the bookmarked path instead of
+            // opening a new connection/tab.
+            let same_connection = matches!(
+                app.active_tab().provider.context_key(),
+                crate::fs::fs_provider::ContextKey::Ssh {
+                    user: ref cu,
+                    host: ref ch,
+                    port: cp,
+                } if cu == &user && ch == &host && cp == port
+            );
+
+            if same_connection {
+                let selected_path = entry.path;
+                match crate::handlers::navigation::navigate_with_fallback(
+                    app.active_tab_mut(),
+                    &selected_path,
+                )
+                .await
+                {
+                    Ok(navigated_path) => {
+                        if navigated_path != selected_path {
+                            app.active_tab_mut().status_msg = Some((
+                                format!(
+                                    "'{}' not found, navigated to '{}'",
+                                    selected_path.display(),
+                                    navigated_path.display()
+                                ),
+                                Instant::now(),
+                            ));
+                        }
+                    }
+                    Err(e) => {
+                        app.active_tab_mut().error = Some(format!("Error: {e}"));
+                    }
+                }
+                app.popups
+                    .set_popup_visible(crate::app::PopupKind::Bookmark, false);
+                app.popups.reset_popup(crate::app::PopupKind::Bookmark);
+                return;
+            }
+
+            // Different connection: open a new tab. Seed the SSH popup fields so
+            // the password-auth fallback (and its resolution of host/port/target)
+            // works when pubkey auth fails.
+            app.popups.ssh_connection.port = port.to_string();
+            let path_str = entry.path.to_string_lossy();
+            app.popups.ssh_connection.connection_string = if port == 22 {
+                format!("{user}@{host}:{path_str}")
+            } else {
+                format!("{user}@{host}:{port}:{path_str}")
+            };
+
+            // Remember that the password prompt (if any) came from a bookmark so
+            // that `Esc` dismisses it instead of reopening the SSH dialog.
+            app.popups.ssh_password.from_bookmark = true;
+
+            crate::handlers::popup_ssh::spawn_ssh_connect_with_keys(
+                app,
+                host,
+                port,
+                user,
+                Some(path_str.to_string()),
+                None,
+            );
+
+            app.popups
+                .set_popup_visible(crate::app::PopupKind::Bookmark, false);
+            app.popups.reset_popup(crate::app::PopupKind::Bookmark);
+            return;
+        }
+
+        let selected_path = entry.path;
         match crate::handlers::navigation::navigate_with_fallback(
             app.active_tab_mut(),
             &selected_path,
