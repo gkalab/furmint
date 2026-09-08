@@ -12,6 +12,7 @@ use crate::fs::utils::FileEntry;
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use russh::client;
+use russh::keys::PublicKeyOrCertificate;
 use russh::keys::agent::AgentIdentity;
 use russh::keys::agent::client::{AgentClient, AgentStream};
 use russh::keys::ssh_key;
@@ -134,10 +135,11 @@ impl client::Handler for SshClientHandler {
 
     async fn check_server_key(
         &mut self,
-        key: &ssh_key::PublicKey,
+        key: &PublicKeyOrCertificate,
     ) -> std::result::Result<bool, Self::Error> {
-        let fingerprint = key.fingerprint(ssh_key::HashAlg::Sha256).to_string();
-        let raw = key.to_openssh().unwrap_or_else(|_| String::new());
+        let public_key = key.public_key();
+        let fingerprint = public_key.fingerprint(ssh_key::HashAlg::Sha256).to_string();
+        let raw = public_key.to_openssh().unwrap_or_else(|_| String::new());
         let key_line = raw.split_whitespace().take(2).collect::<Vec<_>>().join(" ");
         if key_line.is_empty() {
             return Ok(false);

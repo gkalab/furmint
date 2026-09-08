@@ -47,18 +47,18 @@ notify-debouncer-full = "0.7"
 rand = "0.10"
 ratatui = { version = "0.30.2", features = ["termina"] }
 ratatui-image = { version = "11.0", default-features = false, features = ["tokio", "image-defaults"] }
-regex = "1.12.3"
-russh = { version = "0.62", default-features = false, features = ["ring", "rsa", "flate2"] }
-russh-sftp = "2.3"
+regex = "1.13"
+russh = { version = "0.63", default-features = false, features = ["ring", "rsa", "flate2"] }
+russh-sftp = "3.0"
 secrecy = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sevenz-rust2 = { version = "0.21", features = ["deflate", "zstd"] }
+sevenz-rust2 = { version = "0.22", features = ["deflate", "zstd"] }
 shell-words = "1.1"
 tar = "0.4"
 tempfile = "3.27"
 termina = "0.3"
-tokio = { version = "1.52", features = ["full"] }
+tokio = { version = "1.53", features = ["full"] }
 toml = "1.1"
 trash = "5.2"
 unicode-width = "0.2"
@@ -66,13 +66,13 @@ walkdir = "2.5"
 xz2 = "0.1"
 zeroize = "1.9"
 zip = "8.6"
-zstd = "0.13"
+zstd = "0.14"
 
 [target.'cfg(unix)'.dependencies]
 shell-escape = "0.1"
 
 [target.'cfg(windows)'.dependencies]
-open = "5.3"
+open = "5.4"
 winapi = { version = "0.3.9", features = ["shellapi", "fileapi", "winnt"] }
 windows = { version = "0.62", features = [
     "Win32_Foundation",
