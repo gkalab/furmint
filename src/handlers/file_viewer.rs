@@ -48,28 +48,33 @@ fn handle_viewer_navigation(code: KeyCode, app: &mut AppState) {
     }
     match code {
         KeyCode::Up => {
-            app.file_viewer.scroll_offset = app.file_viewer.scroll_offset.saturating_sub(1);
+            app.file_viewer.text.scroll_offset =
+                app.file_viewer.text.scroll_offset.saturating_sub(1);
         }
         KeyCode::Down => {
-            app.file_viewer.scroll_offset =
-                (app.file_viewer.scroll_offset + 1).min(app.file_viewer.max_scroll_offset());
+            app.file_viewer.text.scroll_offset =
+                (app.file_viewer.text.scroll_offset + 1).min(app.file_viewer.max_scroll_offset());
         }
         KeyCode::Left => {
-            app.file_viewer.horizontal_scroll_offset =
-                app.file_viewer.horizontal_scroll_offset.saturating_sub(10);
+            app.file_viewer.text.horizontal_scroll_offset = app
+                .file_viewer
+                .text
+                .horizontal_scroll_offset
+                .saturating_sub(10);
         }
         KeyCode::Right => {
-            app.file_viewer.horizontal_scroll_offset += 10;
+            app.file_viewer.text.horizontal_scroll_offset += 10;
         }
         KeyCode::PageUp => {
-            app.file_viewer.scroll_offset = app.file_viewer.scroll_offset.saturating_sub(20);
+            app.file_viewer.text.scroll_offset =
+                app.file_viewer.text.scroll_offset.saturating_sub(20);
         }
         KeyCode::PageDown => {
-            app.file_viewer.scroll_offset =
-                (app.file_viewer.scroll_offset + 20).min(app.file_viewer.max_scroll_offset());
+            app.file_viewer.text.scroll_offset =
+                (app.file_viewer.text.scroll_offset + 20).min(app.file_viewer.max_scroll_offset());
         }
-        KeyCode::Home => app.file_viewer.scroll_offset = 0,
-        KeyCode::End => app.file_viewer.scroll_offset = app.file_viewer.max_scroll_offset(),
+        KeyCode::Home => app.file_viewer.text.scroll_offset = 0,
+        KeyCode::End => app.file_viewer.text.scroll_offset = app.file_viewer.max_scroll_offset(),
         _ => {}
     }
 }
@@ -104,13 +109,13 @@ fn handle_viewer_shortcuts(code: KeyCode, modifiers: Modifiers, app: &mut AppSta
     // Image zoom (+ / = zoom in, - zoom out); only meaningful when an image is displayed.
     if let KeyCode::Char(c) = code
         && (c == '+' || c == '=')
-        && app.file_viewer.image_zoom.image.is_some()
+        && app.file_viewer.image.has_image()
     {
         app.file_viewer.zoom_image_in();
         return;
     }
     if let KeyCode::Char('-') = code
-        && app.file_viewer.image_zoom.image.is_some()
+        && app.file_viewer.image.has_image()
     {
         app.file_viewer.zoom_image_out();
         return;
@@ -124,7 +129,7 @@ fn handle_viewer_shortcuts(code: KeyCode, modifiers: Modifiers, app: &mut AppSta
     {
         app.popups
             .set_popup_visible(crate::app::PopupKind::ViewerSearch, true);
-        app.popups.viewer_search.query = app.file_viewer.search_query.clone();
+        app.popups.viewer_search.query = app.file_viewer.search_query().to_string();
         app.popups.viewer_search.cursor_position = app.popups.viewer_search.query.chars().count();
         app.popups.viewer_search.error = None;
     } else if app

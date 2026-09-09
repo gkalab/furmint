@@ -58,6 +58,7 @@ pub fn draw_file_viewer(
     f.render_widget(block, area);
 
     if viewer
+        .image
         .protocol
         .as_ref()
         .and_then(|p| p.protocol_type())
@@ -69,7 +70,7 @@ pub fn draw_file_viewer(
         } else {
             ratatui_image::Resize::Fit(Some(ratatui_image::FilterType::CatmullRom))
         };
-        if let Some(protocol) = &mut viewer.protocol {
+        if let Some(protocol) = &mut viewer.image.protocol {
             f.render_stateful_widget(
                 ratatui_image::StatefulImage::new().resize(resize),
                 inner_area,
@@ -79,7 +80,7 @@ pub fn draw_file_viewer(
         return;
     }
 
-    if viewer.content.is_empty() && viewer.large_file_indexer.is_none() {
+    if viewer.text.content.is_empty() && viewer.text.large_file_indexer.is_none() {
         if viewer.is_loading {
             let loading_style = Style::default().fg(Color::Rgb(
                 palette.overlay0.r,
@@ -107,24 +108,25 @@ fn render_text_content(
     icons_enabled: bool,
 ) {
     let visible_lines = viewer.visible_lines();
-    let (max_lines, is_large_file) = if let Some(indexer) = &viewer.large_file_indexer {
+    let (max_lines, is_large_file) = if let Some(indexer) = &viewer.text.large_file_indexer {
         (indexer.total_lines(), true)
     } else {
-        (viewer.content.len(), false)
+        (viewer.text.content.len(), false)
     };
 
     let max_scroll = max_lines.saturating_sub(visible_lines);
-    let start_line = viewer.scroll_offset.min(max_scroll);
+    let start_line = viewer.text.scroll_offset.min(max_scroll);
     let end_line = (start_line + visible_lines).min(max_lines);
 
-    let highlighter = Highlighter::new(viewer.language, viewer.theme.clone());
+    let highlighter = Highlighter::new(viewer.text.language, viewer.text.theme.clone());
     let default_fg = viewer
+        .text
         .theme
         .as_ref()
         .and_then(|t| t.fg().map(std::string::ToString::to_string))
         .and_then(|s| parse_hex_color(Some(&s)));
 
-    let normalized_selection = viewer.selection.map(normalize_selection);
+    let normalized_selection = viewer.text.selection.map(normalize_selection);
 
     let mut lines = Vec::new();
     for i in start_line..end_line {
@@ -157,7 +159,7 @@ fn render_text_content(
         scroll_area,
         max_lines,
         visible_lines,
-        viewer.scroll_offset,
+        viewer.text.scroll_offset,
         &TabScrollbarContext {
             palette,
             borders,
@@ -266,6 +268,7 @@ fn render_archive_line(
 
     let search_ranges: Vec<(usize, usize)> = ctx
         .viewer
+        .text
         .current_search_match
         .filter(|(line, _, _)| *line == ctx.line_idx)
         .map(|(_, s, e)| (map_content_to_rendered(s), map_content_to_rendered(e)))
@@ -322,7 +325,7 @@ fn render_archive_line(
 }
 
 fn render_viewer_line(ctx: &ViewerLineContext) -> Option<Line<'static>> {
-    if let Some(rows) = &ctx.viewer.archive_rows
+    if let Some(rows) = &ctx.viewer.text.archive_rows
         && let Some(row) = rows.get(ctx.line_idx)
     {
         return Some(render_archive_line(ctx, row));
@@ -343,21 +346,30 @@ fn render_viewer_line(ctx: &ViewerLineContext) -> Option<Line<'static>> {
     });
 
     let line_content = if ctx.is_large_file {
-        ctx.viewer.large_file_indexer.as_ref().and_then(|indexer| {
-            ctx.viewer.large_file_reader.as_ref().and_then(|reader| {
-                indexer
-                    .get_line_with_reader(ctx.line_idx, reader)
-                    .map(|(s, e)| reader.get_chunk(s, e))
+        ctx.viewer
+            .text
+            .large_file_indexer
+            .as_ref()
+            .and_then(|indexer| {
+                ctx.viewer
+                    .text
+                    .large_file_reader
+                    .as_ref()
+                    .and_then(|reader| {
+                        indexer
+                            .get_line_with_reader(ctx.line_idx, reader)
+                            .map(|(s, e)| reader.get_chunk(s, e))
+                    })
             })
-        })
     } else {
-        ctx.viewer.content.get(ctx.line_idx).cloned()
+        ctx.viewer.text.content.get(ctx.line_idx).cloned()
     };
 
     let line_content = line_content?;
 
     let search_ranges: Vec<(usize, usize)> = ctx
         .viewer
+        .text
         .current_search_match
         .filter(|(line, _, _)| *line == ctx.line_idx)
         .map(|(_, s, e)| (s, e))
@@ -374,7 +386,7 @@ fn render_viewer_line(ctx: &ViewerLineContext) -> Option<Line<'static>> {
         let style = lumis::themes::Style::default();
         generate_line_spans(&LineSpansContext {
             ranges: vec![(&style, line_content.as_str())],
-            h_offset: ctx.viewer.horizontal_scroll_offset,
+            h_offset: ctx.viewer.text.horizontal_scroll_offset,
             max_width: ctx.max_width,
             default_fg: ctx.default_fg,
             selection: selection_range,
@@ -400,7 +412,7 @@ fn render_viewer_line(ctx: &ViewerLineContext) -> Option<Line<'static>> {
 
         generate_line_spans(&LineSpansContext {
             ranges,
-            h_offset: ctx.viewer.horizontal_scroll_offset,
+            h_offset: ctx.viewer.text.horizontal_scroll_offset,
             max_width: ctx.max_width,
             default_fg: ctx.default_fg,
             selection: selection_range,
@@ -601,14 +613,14 @@ mod tests {
     #[test]
     fn test_archive_search_highlight() {
         let mut viewer = FileViewerState::new(true, "catppuccin macchiato");
-        viewer.archive_rows = Some(vec![ArchiveTreeRow {
+        viewer.text.archive_rows = Some(vec![ArchiveTreeRow {
             prefix: "└─ ".to_string(),
             name: "src".to_string(),
             is_dir: true,
             size: None,
         }]);
         // Content line is "└─ src"; match "src" at chars 3-6.
-        viewer.current_search_match = Some((0, 3, 6));
+        viewer.text.current_search_match = Some((0, 3, 6));
 
         let ctx = ViewerLineContext {
             line_idx: 0,
@@ -653,7 +665,7 @@ mod tests {
     #[test]
     fn test_archive_line_hides_icons_when_disabled() {
         let mut viewer = FileViewerState::new(true, "catppuccin macchiato");
-        viewer.archive_rows = Some(vec![ArchiveTreeRow {
+        viewer.text.archive_rows = Some(vec![ArchiveTreeRow {
             prefix: "└─ ".to_string(),
             name: "main.rs".to_string(),
             is_dir: false,

@@ -407,7 +407,7 @@ async fn handle_left_click(app: &mut AppState, x: u16, y: u16, is_double_click: 
         app.file_viewer.focused = true;
         if app.file_viewer.is_image_zoomed() {
             // Dragging a zoomed-in image pans it instead of selecting text.
-            app.file_viewer.selection = None;
+            app.file_viewer.text.selection = None;
             app.mouse.active_drag = Some(crate::app::DragTarget::FileViewerPan);
             app.mouse.last_drag_pos = Some(click_pos);
             return;
@@ -417,14 +417,14 @@ async fn handle_left_click(app: &mut AppState, x: u16, y: u16, is_double_click: 
         let border_offset = u16::from(borders);
         let inner_y = y.saturating_sub(app.file_viewer.area.y + border_offset);
         let inner_x = x.saturating_sub(app.file_viewer.area.x + border_offset);
-        let row = (inner_y as usize) + app.file_viewer.scroll_offset;
-        let display_col = (inner_x as usize) + app.file_viewer.horizontal_scroll_offset;
+        let row = (inner_y as usize) + app.file_viewer.text.scroll_offset;
+        let display_col = (inner_x as usize) + app.file_viewer.text.horizontal_scroll_offset;
 
         if is_double_click {
             app.file_viewer.select_word_at(row, display_col);
         } else {
             let char_idx = app.file_viewer.display_col_to_char_idx(row, display_col);
-            app.file_viewer.selection = Some(((row, char_idx), (row, char_idx)));
+            app.file_viewer.text.selection = Some(((row, char_idx), (row, char_idx)));
         }
         return;
     }
@@ -620,12 +620,12 @@ async fn handle_drag(app: &mut AppState, x: u16, y: u16) {
 
     let inner_y = y.saturating_sub(area.y + border_offset);
     let inner_x = x.saturating_sub(area.x + border_offset);
-    let row = (inner_y as usize) + app.file_viewer.scroll_offset;
-    let display_col = (inner_x as usize) + app.file_viewer.horizontal_scroll_offset;
+    let row = (inner_y as usize) + app.file_viewer.text.scroll_offset;
+    let display_col = (inner_x as usize) + app.file_viewer.text.horizontal_scroll_offset;
     let char_idx = app.file_viewer.display_col_to_char_idx(row, display_col);
 
-    if let Some((start, _)) = app.file_viewer.selection {
-        app.file_viewer.selection = Some((start, (row, char_idx)));
+    if let Some((start, _)) = app.file_viewer.text.selection {
+        app.file_viewer.text.selection = Some((start, (row, char_idx)));
     }
 }
 
@@ -893,7 +893,7 @@ fn scrollbar_candidates(app: &AppState) -> Vec<ScrollbarCandidate> {
             region,
             content_length: app.file_viewer.total_lines(),
             visible_length: region.height as usize,
-            offset: app.file_viewer.scroll_offset,
+            offset: app.file_viewer.text.scroll_offset,
             viewport_based: true,
             on_hit: Some(focus_file_viewer),
         });
@@ -1004,7 +1004,7 @@ pub async fn update_drag_scroll(app: &mut AppState, _x: u16, y: u16) {
             let height = area.height.saturating_sub(2);
             let total = app.file_viewer.total_lines();
             let idx = calculate_scroll_from_y(y, start_y, height, total);
-            app.file_viewer.scroll_offset = idx.min(app.file_viewer.max_scroll_offset());
+            app.file_viewer.text.scroll_offset = idx.min(app.file_viewer.max_scroll_offset());
         }
         crate::app::DragTarget::PanelScrollbar(side) => {
             let (tab, area) = match side {
@@ -1041,7 +1041,7 @@ async fn handle_scroll_event(app: &mut AppState, pos: (u16, u16), up: bool, ctrl
     if ctrl
         && app.file_viewer.is_visible
         && is_in_rect(pos, app.file_viewer.area)
-        && app.file_viewer.image_zoom.image.is_some()
+        && app.file_viewer.image.has_image()
     {
         if up {
             app.file_viewer.zoom_image_in();
@@ -1059,10 +1059,10 @@ async fn handle_scroll_event(app: &mut AppState, pos: (u16, u16), up: bool, ctrl
 
 fn handle_file_viewer_scroll(app: &mut AppState, up: bool) {
     if up {
-        app.file_viewer.scroll_offset = app.file_viewer.scroll_offset.saturating_sub(3);
+        app.file_viewer.text.scroll_offset = app.file_viewer.text.scroll_offset.saturating_sub(3);
     } else {
-        app.file_viewer.scroll_offset =
-            (app.file_viewer.scroll_offset + 3).min(app.file_viewer.max_scroll_offset());
+        app.file_viewer.text.scroll_offset =
+            (app.file_viewer.text.scroll_offset + 3).min(app.file_viewer.max_scroll_offset());
     }
 }
 

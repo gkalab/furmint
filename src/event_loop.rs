@@ -148,7 +148,7 @@ where
                             }
                             // Handle image resize requests immediately and off-thread
                             Some(request) = async {
-                                if let Some(rx) = &mut app.file_viewer.resize_rx {
+                                if let Some(rx) = app.file_viewer.image.resize_receiver() {
                                     rx.recv().await
                                 } else {
                                     std::future::pending().await
@@ -158,7 +158,7 @@ where
                                     request.resize_encode()
                                 }).await.ok().and_then(std::result::Result::ok);
 
-                                if let (Some(encoded), Some(protocol)) = (encoded, &mut app.file_viewer.protocol) {
+                                if let (Some(encoded), Some(protocol)) = (encoded, &mut app.file_viewer.image.protocol) {
                                     let _ = protocol.update_resized_protocol(encoded);
                                     draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
                                 }

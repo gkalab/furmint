@@ -116,8 +116,10 @@ async fn initialize_app() -> Result<InitializedApp> {
         )
     };
 
-    app.file_viewer.image_load_tx = Some(image_load_tx);
-    app.file_viewer.content_load_tx = Some(content_load_tx);
+    app.file_viewer.image.set_image_load_channel(image_load_tx);
+    app.file_viewer
+        .text
+        .set_content_load_channel(content_load_tx);
 
     let context_key = app.active_tab().provider.context_key();
     app.dir_history.record_visit(&context_key.to_string(), &cwd);

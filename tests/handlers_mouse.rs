@@ -494,8 +494,8 @@ async fn test_file_viewer_scrollbar_drag() {
     let mut app = AppState::test_default();
     app.file_viewer.is_visible = true;
     app.file_viewer.area = Rect::new(0, 0, 40, 20);
-    app.file_viewer.content = (0..100).map(|i| format!("line {i}")).collect();
-    app.file_viewer.scroll_offset = 0;
+    app.file_viewer.text.content = (0..100).map(|i| format!("line {i}")).collect();
+    app.file_viewer.text.scroll_offset = 0;
 
     let scrollbar_x = 39;
 
@@ -513,7 +513,7 @@ async fn test_file_viewer_scrollbar_drag() {
 
     assert_eq!(app.mouse.active_drag, Some(DragTarget::FileViewerScrollbar));
     assert_eq!(
-        app.file_viewer.scroll_offset,
+        app.file_viewer.text.scroll_offset,
         app.file_viewer.max_scroll_offset()
     );
 
@@ -537,8 +537,8 @@ async fn test_file_viewer_scrollbar_thumb_click_does_not_jump() {
     let mut app = AppState::test_default();
     app.file_viewer.is_visible = true;
     app.file_viewer.area = Rect::new(0, 0, 40, 20);
-    app.file_viewer.content = (0..100).map(|i| format!("line {i}")).collect();
-    app.file_viewer.scroll_offset = 0;
+    app.file_viewer.text.content = (0..100).map(|i| format!("line {i}")).collect();
+    app.file_viewer.text.scroll_offset = 0;
 
     let scrollbar_x = 39;
     let thumb_y = 1; // thumb spans rows [0, 3) at offset 0
@@ -556,7 +556,7 @@ async fn test_file_viewer_scrollbar_thumb_click_does_not_jump() {
     .await;
 
     assert_eq!(app.mouse.active_drag, Some(DragTarget::FileViewerScrollbar));
-    assert_eq!(app.file_viewer.scroll_offset, 0);
+    assert_eq!(app.file_viewer.text.scroll_offset, 0);
 
     // Dragging now scrolls to the pointer position
     handle_mouse_event(
@@ -571,7 +571,7 @@ async fn test_file_viewer_scrollbar_thumb_click_does_not_jump() {
     .await;
 
     assert_eq!(
-        app.file_viewer.scroll_offset,
+        app.file_viewer.text.scroll_offset,
         app.file_viewer.max_scroll_offset()
     );
 

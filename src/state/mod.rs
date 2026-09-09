@@ -29,7 +29,10 @@ pub use drive_select::DriveSelectState;
 pub use empty_trash::EmptyTrashState;
 pub use error::ErrorState;
 pub use file_filter::FileFilterState;
-pub use file_viewer::{ContentLoadResult, FileViewerSearchState, FileViewerState, ImageLoadResult};
+pub use file_viewer::{
+    ContentLoadResult, FileViewerSearchState, FileViewerState, ImageLoadResult, ImageViewerState,
+    TextViewerState,
+};
 pub use help::HelpState;
 pub use host_key::{HostKeyPrompt, HostKeyState};
 pub use quit::QuitConfirmationState;

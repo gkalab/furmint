@@ -32,11 +32,11 @@ async fn test_large_file_no_duplication() {
         .load_content(&test_file, &provider, Some(file_size), limit)
         .await;
 
-    assert!(state.large_file_reader.is_some());
-    assert!(state.large_file_indexer.is_some());
+    assert!(state.text.large_file_reader.is_some());
+    assert!(state.text.large_file_indexer.is_some());
 
-    let indexer = state.large_file_indexer.as_ref().unwrap();
-    let reader = state.large_file_reader.as_ref().unwrap();
+    let indexer = state.text.large_file_indexer.as_ref().unwrap();
+    let reader = state.text.large_file_reader.as_ref().unwrap();
 
     // Check for duplicates in a few ranges
     let check_ranges = [0..100, 100_000..100_100, 199_800..199_999];

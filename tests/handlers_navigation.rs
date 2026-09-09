@@ -913,14 +913,14 @@ async fn test_update_viewer_content_loads_large_file() {
     update_viewer_content(&mut app).await;
 
     // Should NOT have error message in content
-    assert!(app.file_viewer.content.is_empty());
+    assert!(app.file_viewer.text.content.is_empty());
     // Should have large file components initialized
-    assert!(app.file_viewer.large_file_reader.is_some());
-    assert!(app.file_viewer.large_file_indexer.is_some());
+    assert!(app.file_viewer.text.large_file_reader.is_some());
+    assert!(app.file_viewer.text.large_file_indexer.is_some());
 
     // Verify we can read the first line
-    let indexer = app.file_viewer.large_file_indexer.as_ref().unwrap();
-    let reader = app.file_viewer.large_file_reader.as_ref().unwrap();
+    let indexer = app.file_viewer.text.large_file_indexer.as_ref().unwrap();
+    let reader = app.file_viewer.text.large_file_reader.as_ref().unwrap();
     let (s, e) = indexer.get_line_with_reader(0, reader).unwrap();
     assert_eq!(reader.get_chunk(s, e).trim(), "Line 0000");
 }
@@ -946,7 +946,7 @@ async fn test_update_viewer_content_shows_error_for_binary() {
     app.panels.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
     app.file_viewer.is_visible = true;
     update_viewer_content(&mut app).await;
-    let msg = &app.file_viewer.content[0];
+    let msg = &app.file_viewer.text.content[0];
 
     assert!(
         msg.to_lowercase().contains("binary"),
@@ -972,5 +972,5 @@ async fn test_update_viewer_content_reads_text_file() {
     app.panels.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
     app.file_viewer.is_visible = true;
     update_viewer_content(&mut app).await;
-    assert_eq!(app.file_viewer.content[0], "Hello, F3!");
+    assert_eq!(app.file_viewer.text.content[0], "Hello, F3!");
 }
