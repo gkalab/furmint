@@ -1,7 +1,16 @@
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+//! Background task management and the application-level UI event bus.
+//!
+//! Worker tasks (filesystem operations, SSH connections, archive loads, ...)
+//! report back to the single-threaded UI over one event channel. Events are
+//! grouped per subsystem; the sole dispatcher is
+//! [`crate::handlers::popup_misc::dispatch_ui_event`], which routes each event
+//! to its subsystem handler.
+
+use std::collections::BTreeMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum TaskStatus {
@@ -19,6 +28,7 @@ pub struct Task {
     pub rsync: bool,
     pub current_file: Option<String>,
     pub cancel_flag: Arc<AtomicBool>,
+    pub handle: Option<JoinHandle<()>>,
     pub completed_at: Option<std::time::Instant>,
 }
 
@@ -34,20 +44,48 @@ pub struct TaskInfo {
     pub completed_at: Option<std::time::Instant>,
 }
 
+/// Task lifecycle and progress updates.
 #[derive(Debug)]
 pub enum TaskEvent {
-    UpdateStatus(usize, TaskStatus),
-    UpdateProgress(usize, usize, usize), // id, processed, total
-    UpdateByteProgress(usize, u64, u64), // id, processed_bytes, total_bytes
-    UpdateCurrentFile(usize, String),    // id, filename
-    SetRsyncMode(usize, bool),           // id, is_rsync
-    Conflict(usize, std::path::PathBuf, ConflictType),
-    Error(usize, String, String), // id, path, error_message
-    SshConnected(SshContext),
-    SshReconnected(SshContext),
-    SshReconnectFailed(String, String), // session_id, error_message
-    SshError(String, String, crate::ssh_manager::SshError), // host, user, error
-    SshHostKey {
+    UpdateStatus {
+        task_id: usize,
+        status: TaskStatus,
+    },
+    UpdateProgress {
+        task_id: usize,
+        processed: usize,
+        total: usize,
+    },
+    UpdateByteProgress {
+        task_id: usize,
+        processed: u64,
+        total: u64,
+    },
+    UpdateCurrentFile {
+        task_id: usize,
+        filename: String,
+    },
+    SetRsyncMode {
+        task_id: usize,
+        rsync: bool,
+    },
+}
+
+/// SSH connection lifecycle: connect, reconnect, errors, host-key prompts.
+#[derive(Debug)]
+pub enum SshEvent {
+    Connected(SshContext),
+    Reconnected(SshContext),
+    ReconnectFailed {
+        session_id: String,
+        error: String,
+    },
+    Error {
+        host: String,
+        user: String,
+        error: crate::ssh_manager::SshError,
+    },
+    HostKey {
         host: String,
         port: u16,
         user: String,
@@ -59,15 +97,56 @@ pub enum TaskEvent {
         key_auth: bool,
         connection_name: Option<String>,
     },
-    /// Directory size calculation completed: (`task_id`, path, `size_in_bytes`)
-    DirSizeCalculated(usize, std::path::PathBuf, u64),
-    ArchiveLoaded(usize, ProviderWrapper, String, std::path::PathBuf), // side_index, provider, filename, path
+}
+
+/// Filesystem results: directory sizes, remote reloads, archive loads.
+#[derive(Debug)]
+pub enum FsEvent {
+    /// Directory size calculation completed.
+    DirSizeCalculated {
+        task_id: usize,
+        path: std::path::PathBuf,
+        size: u64,
+    },
     RemoteReloadCompleted {
         side: crate::app_state::tabs::PanelSide,
         tab_index: usize,
         current_dir: std::path::PathBuf,
         result: Result<Vec<crate::fs::utils::FileEntry>, String>,
     },
+    ArchiveLoaded {
+        side_index: usize,
+        provider: ProviderWrapper,
+        filename: String,
+        path: std::path::PathBuf,
+    },
+}
+
+/// User-facing alerts raised by background tasks (conflict and error popups).
+#[derive(Debug)]
+pub enum AlertEvent {
+    Conflict {
+        task_id: usize,
+        path: std::path::PathBuf,
+        conflict_type: ConflictType,
+    },
+    TaskError {
+        task_id: usize,
+        path: String,
+        message: String,
+    },
+}
+
+/// App-level event bus: worker-to-UI messages from all subsystems.
+///
+/// Events flow from background tasks to the UI thread over a single channel;
+/// the sole dispatcher is [`crate::handlers::popup_misc::dispatch_ui_event`].
+#[derive(Debug)]
+pub enum UiEvent {
+    Task(TaskEvent),
+    Ssh(SshEvent),
+    Fs(FsEvent),
+    Alert(AlertEvent),
 }
 
 #[derive(Clone)]
@@ -116,157 +195,152 @@ pub enum TaskDecision {
     Cancel,
 }
 
+/// Tracks background tasks and their progress.
+///
+/// All access happens on the UI thread — workers only send events over the
+/// bus — so no interior mutability is needed.
 pub struct TaskManager {
-    tasks: Arc<Mutex<HashMap<usize, Task>>>,
-    next_id: AtomicUsize,
-    event_tx: mpsc::UnboundedSender<TaskEvent>,
-    pub selected_index: Arc<AtomicUsize>,
+    tasks: BTreeMap<usize, Task>,
+    next_id: usize,
+    event_tx: mpsc::UnboundedSender<UiEvent>,
+    selected_index: usize,
 }
 
 impl TaskManager {
     #[must_use]
-    pub fn new(event_tx: mpsc::UnboundedSender<TaskEvent>) -> Self {
+    pub fn new(event_tx: mpsc::UnboundedSender<UiEvent>) -> Self {
         Self {
-            tasks: Arc::new(Mutex::new(HashMap::new())),
-            next_id: AtomicUsize::new(1),
+            tasks: BTreeMap::new(),
+            next_id: 1,
             event_tx,
-            selected_index: Arc::new(AtomicUsize::new(0)),
+            selected_index: 0,
         }
     }
 
     #[must_use]
-    pub fn get_tx(&self) -> mpsc::UnboundedSender<TaskEvent> {
+    pub fn get_tx(&self) -> mpsc::UnboundedSender<UiEvent> {
         self.event_tx.clone()
     }
 
-    /// Spawns a new task.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the tasks mutex cannot be locked.
-    pub fn spawn_task<F, Fut>(&self, name: &str, f: F) -> usize
+    /// Selected index in display order (newest first).
+    #[must_use]
+    pub fn selected_index(&self) -> usize {
+        self.selected_index
+    }
+
+    /// Task IDs in display order (newest first).
+    fn ordered_ids(&self) -> Vec<usize> {
+        self.tasks.keys().rev().copied().collect()
+    }
+
+    /// Spawns a new task and returns its ID. The worker reports back over the
+    /// event bus.
+    pub fn spawn_task<F, Fut>(&mut self, name: &str, f: F) -> usize
     where
-        F: FnOnce(Arc<AtomicBool>, mpsc::UnboundedSender<TaskEvent>, usize) -> Fut + Send + 'static,
+        F: FnOnce(Arc<AtomicBool>, mpsc::UnboundedSender<UiEvent>, usize) -> Fut + Send + 'static,
         Fut: std::future::Future<Output = ()> + Send + 'static,
     {
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let id = self.next_id;
+        self.next_id += 1;
         let cancel_flag = Arc::new(AtomicBool::new(false));
-
-        let task = Task {
-            name: name.to_string(),
-            status: TaskStatus::Running,
-            progress: None,
-            byte_progress: None,
-            rsync: false,
-            current_file: None,
-            cancel_flag: cancel_flag.clone(),
-            completed_at: None,
-        };
-
-        {
-            let mut tasks = self.tasks.lock().unwrap();
-            tasks.insert(id, task);
-        }
-
+        let worker_flag = Arc::clone(&cancel_flag);
         let tx = self.event_tx.clone();
-
-        tokio::spawn(async move {
-            f(cancel_flag, tx.clone(), id).await;
+        let handle = tokio::spawn(async move {
+            f(worker_flag, tx, id).await;
         });
 
+        self.tasks.insert(
+            id,
+            Task {
+                name: name.to_string(),
+                status: TaskStatus::Running,
+                progress: None,
+                byte_progress: None,
+                rsync: false,
+                current_file: None,
+                cancel_flag,
+                handle: Some(handle),
+                completed_at: None,
+            },
+        );
         id
     }
 
-    /// Cancels a task by ID.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the tasks mutex cannot be locked.
-    pub fn cancel_task(&self, id: usize) {
-        let tasks = self.tasks.lock().unwrap();
-        if let Some(task) = tasks.get(&id) {
-            task.cancel_flag.store(true, Ordering::Relaxed);
+    /// Cancels a task by ID: sets the cooperative flag and aborts the worker
+    /// so a stuck task is always terminated.
+    pub fn cancel_task(&mut self, id: usize) {
+        if let Some(task) = self.tasks.get_mut(&id)
+            && matches!(task.status, TaskStatus::Running)
+        {
+            Self::abort_task(task);
         }
     }
 
     /// Cancels all running tasks.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the tasks mutex cannot be locked.
-    pub fn cancel_all_tasks(&self) {
-        let tasks = self.tasks.lock().unwrap();
-        for task in tasks.values() {
-            task.cancel_flag.store(true, Ordering::Relaxed);
-        }
-    }
-
-    /// Removes all finished tasks.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the tasks mutex cannot be locked.
-    pub fn remove_finished_tasks(&self) {
-        let mut tasks = self.tasks.lock().unwrap();
-        tasks.retain(|_, task| matches!(task.status, TaskStatus::Running));
-        // Reset selection if list changes?
-        self.selected_index.store(0, Ordering::Relaxed);
-    }
-
-    /// Moves the selection up.
-    pub fn move_selection_up(&self) {
-        let current = self.selected_index.load(Ordering::Relaxed);
-        if current > 0 {
-            self.selected_index.store(current - 1, Ordering::Relaxed);
-        }
-    }
-
-    /// Moves the selection down.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the tasks mutex cannot be locked.
-    pub fn move_selection_down(&self) {
-        let tasks = self.tasks.lock().unwrap();
-        let len = tasks.len();
-        if len > 0 {
-            let current = self.selected_index.load(Ordering::Relaxed);
-            if current + 1 < len {
-                self.selected_index.store(current + 1, Ordering::Relaxed);
+    pub fn cancel_all_tasks(&mut self) {
+        let running: Vec<usize> = self
+            .tasks
+            .iter()
+            .filter(|(_, task)| matches!(task.status, TaskStatus::Running))
+            .map(|(id, _)| *id)
+            .collect();
+        for id in running {
+            if let Some(task) = self.tasks.get_mut(&id) {
+                Self::abort_task(task);
             }
         }
     }
 
-    /// Gets the selected task ID.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the tasks mutex cannot be locked.
-    pub fn get_selected_task_id(&self) -> Option<usize> {
-        let tasks = self.tasks.lock().unwrap();
-        if tasks.is_empty() {
-            return None;
-        }
-        let current = self.selected_index.load(Ordering::Relaxed);
-        // We need to match the sort order of get_tasks: by ID descending
-        let mut ids: Vec<usize> = tasks.keys().copied().collect();
-        ids.sort_unstable_by(|a, b| b.cmp(a));
-        if current < ids.len() {
-            Some(ids[current])
-        } else {
-            None
+    fn abort_task(task: &mut Task) {
+        task.cancel_flag.store(true, Ordering::Relaxed);
+        if let Some(handle) = task.handle.take() {
+            handle.abort();
+            task.status = TaskStatus::Cancelled;
+            task.completed_at = Some(std::time::Instant::now());
         }
     }
 
-    /// Gets all tasks.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the tasks mutex cannot be locked.
+    /// Removes all finished tasks, keeping the selection on the same task
+    /// (or the nearest surviving one).
+    pub fn remove_finished_tasks(&mut self) {
+        let selected_id = self.ordered_ids().get(self.selected_index).copied();
+        self.tasks
+            .retain(|_, task| matches!(task.status, TaskStatus::Running));
+        let len = self.tasks.len();
+        self.selected_index = if len == 0 {
+            0
+        } else {
+            let pos = selected_id
+                .and_then(|id| self.ordered_ids().iter().position(|i| *i == id))
+                .unwrap_or(self.selected_index);
+            pos.min(len - 1)
+        };
+    }
+
+    /// Moves the selection up.
+    pub fn move_selection_up(&mut self) {
+        self.selected_index = self.selected_index.saturating_sub(1);
+    }
+
+    /// Moves the selection down.
+    pub fn move_selection_down(&mut self) {
+        if self.selected_index + 1 < self.tasks.len() {
+            self.selected_index += 1;
+        }
+    }
+
+    /// Gets the selected task ID.
+    #[must_use]
+    pub fn get_selected_task_id(&self) -> Option<usize> {
+        self.ordered_ids().get(self.selected_index).copied()
+    }
+
+    /// Gets all tasks in display order (newest first).
+    #[must_use]
     pub fn get_tasks(&self) -> Vec<TaskInfo> {
-        let tasks = self.tasks.lock().unwrap();
-        let mut result: Vec<_> = tasks
+        self.tasks
             .iter()
+            .rev()
             .map(|(id, t)| TaskInfo {
                 id: *id,
                 name: t.name.clone(),
@@ -277,31 +351,20 @@ impl TaskManager {
                 current_file: t.current_file.clone(),
                 completed_at: t.completed_at,
             })
-            .collect();
-        result.sort_by_key(|b| std::cmp::Reverse(b.id));
-        result
+            .collect()
     }
 
     /// Checks if there are running tasks.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the tasks mutex cannot be locked.
+    #[must_use]
     pub fn has_running_tasks(&self) -> bool {
-        let tasks = self.tasks.lock().unwrap();
-        tasks
+        self.tasks
             .values()
             .any(|t| matches!(t.status, TaskStatus::Running))
     }
 
     /// Updates a task's status.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the tasks mutex cannot be locked.
-    pub fn update_task_status(&self, id: usize, status: &TaskStatus) {
-        let mut tasks = self.tasks.lock().unwrap();
-        if let Some(task) = tasks.get_mut(&id) {
+    pub fn update_task_status(&mut self, id: usize, status: &TaskStatus) {
+        if let Some(task) = self.tasks.get_mut(&id) {
             task.status = status.clone();
             match status {
                 TaskStatus::Completed | TaskStatus::Failed(_) | TaskStatus::Cancelled => {
@@ -314,76 +377,47 @@ impl TaskManager {
         }
     }
 
-    /// Cleans up old completed tasks.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the tasks mutex cannot be locked.
-    pub fn cleanup_tasks(&self) {
-        let mut tasks = self.tasks.lock().unwrap();
+    /// Cleans up completed tasks older than 10 seconds.
+    pub fn cleanup_tasks(&mut self) {
         let now = std::time::Instant::now();
-        tasks.retain(|_, task| {
-            if let Some(completed_at) = task.completed_at {
+        self.tasks.retain(|_, task| {
+            task.completed_at.is_none_or(|completed_at| {
                 now.duration_since(completed_at) < std::time::Duration::from_secs(10)
-            } else {
-                true
-            }
+            })
         });
 
-        // Clamp selection
-        let len = tasks.len();
-        let current = self.selected_index.load(Ordering::Relaxed);
-        if len > 0 && current >= len {
-            self.selected_index.store(len - 1, Ordering::Relaxed);
-        } else if len == 0 {
-            self.selected_index.store(0, Ordering::Relaxed);
+        let len = self.tasks.len();
+        if len == 0 {
+            self.selected_index = 0;
+        } else if self.selected_index >= len {
+            self.selected_index = len - 1;
         }
     }
 
     /// Updates a task's progress.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the tasks mutex cannot be locked.
-    pub fn update_task_progress(&self, id: usize, processed: usize, total: usize) {
-        let mut tasks = self.tasks.lock().unwrap();
-        if let Some(task) = tasks.get_mut(&id) {
+    pub fn update_task_progress(&mut self, id: usize, processed: usize, total: usize) {
+        if let Some(task) = self.tasks.get_mut(&id) {
             task.progress = Some((processed, total));
         }
     }
 
     /// Updates a task's byte progress.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the tasks mutex cannot be locked.
-    pub fn update_task_byte_progress(&self, id: usize, processed: u64, total: u64) {
-        let mut tasks = self.tasks.lock().unwrap();
-        if let Some(task) = tasks.get_mut(&id) {
+    pub fn update_task_byte_progress(&mut self, id: usize, processed: u64, total: u64) {
+        if let Some(task) = self.tasks.get_mut(&id) {
             task.byte_progress = Some((processed, total));
         }
     }
 
     /// Updates the current file being processed by a task.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the tasks mutex cannot be locked.
-    pub fn update_task_current_file(&self, id: usize, filename: String) {
-        let mut tasks = self.tasks.lock().unwrap();
-        if let Some(task) = tasks.get_mut(&id) {
+    pub fn update_task_current_file(&mut self, id: usize, filename: String) {
+        if let Some(task) = self.tasks.get_mut(&id) {
             task.current_file = Some(filename);
         }
     }
 
     /// Sets whether a task is in rsync mode.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the tasks mutex cannot be locked.
-    pub fn update_task_rsync_mode(&self, id: usize, rsync: bool) {
-        let mut tasks = self.tasks.lock().unwrap();
-        if let Some(task) = tasks.get_mut(&id) {
+    pub fn update_task_rsync_mode(&mut self, id: usize, rsync: bool) {
+        if let Some(task) = self.tasks.get_mut(&id) {
             task.rsync = rsync;
         }
     }
@@ -397,7 +431,7 @@ mod tests {
     #[tokio::test]
     async fn test_task_cleanup() {
         let (tx, _rx) = mpsc::unbounded_channel();
-        let manager = TaskManager::new(tx);
+        let mut manager = TaskManager::new(tx);
 
         let id = manager.spawn_task("test", |_cancel, _tx, _id| async move {});
 
@@ -416,16 +450,12 @@ mod tests {
         // Cleanup should not remove it yet (it's new)
         manager.cleanup_tasks();
         assert_eq!(manager.get_tasks().len(), 1);
-
-        // Manually manipulate completed_at for testing removal (if we could, but it's private field of Task in HashMap)
-        // Since we can't easily manipulate time in Instant without mocks,
-        // we've at least verified it's not removed immediately.
     }
 
     #[tokio::test]
     async fn test_task_order_descending() {
         let (tx, _rx) = mpsc::unbounded_channel();
-        let tm = TaskManager::new(tx);
+        let mut tm = TaskManager::new(tx);
 
         let id1 = tm.spawn_task("task 1", |_cancel, _tx, _id| async move {});
         let id2 = tm.spawn_task("task 2", |_cancel, _tx, _id| async move {});
@@ -439,34 +469,34 @@ mod tests {
         assert_eq!(tasks[2].id, id1);
 
         // Verify selected task id mapping matches visual order
-        tm.selected_index.store(0, Ordering::Relaxed);
+        tm.selected_index = 0;
         assert_eq!(tm.get_selected_task_id(), Some(id3));
-        tm.selected_index.store(2, Ordering::Relaxed);
+        tm.selected_index = 2;
         assert_eq!(tm.get_selected_task_id(), Some(id1));
     }
 
     #[tokio::test]
     async fn test_task_selection_navigation() {
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-        let tm = TaskManager::new(tx);
+        let mut tm = TaskManager::new(tx);
         tm.spawn_task("task1", |_c, _tx, _id| async {});
         tm.spawn_task("task2", |_c, _tx, _id| async {});
 
-        assert_eq!(tm.selected_index.load(Ordering::Relaxed), 0);
+        assert_eq!(tm.selected_index(), 0);
         tm.move_selection_down();
-        assert_eq!(tm.selected_index.load(Ordering::Relaxed), 1);
+        assert_eq!(tm.selected_index(), 1);
         tm.move_selection_down(); // should clamp
-        assert_eq!(tm.selected_index.load(Ordering::Relaxed), 1);
+        assert_eq!(tm.selected_index(), 1);
         tm.move_selection_up();
-        assert_eq!(tm.selected_index.load(Ordering::Relaxed), 0);
+        assert_eq!(tm.selected_index(), 0);
         tm.move_selection_up(); // should clamp
-        assert_eq!(tm.selected_index.load(Ordering::Relaxed), 0);
+        assert_eq!(tm.selected_index(), 0);
     }
 
     #[tokio::test]
     async fn test_task_status_updates() {
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-        let tm = TaskManager::new(tx);
+        let mut tm = TaskManager::new(tx);
         let id = tm.spawn_task("task1", |_c, _tx, _id| async {});
 
         tm.update_task_status(id, &TaskStatus::Completed);
@@ -480,19 +510,52 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_cancel_task() {
+    async fn test_cancel_task_aborts_worker() {
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-        let tm = TaskManager::new(tx);
-        let id = tm.spawn_task("task1", |cancel, _tx, _id| async move {
-            while !cancel.load(Ordering::Relaxed) {
-                tokio::task::yield_now().await;
-            }
+        let mut tm = TaskManager::new(tx);
+        let id = tm.spawn_task("task1", |_c, _tx, _id| async {
+            // Never completes on its own — only abort can end this.
+            std::future::pending::<()>().await;
         });
 
         assert!(tm.has_running_tasks());
         tm.cancel_task(id);
-        // We might need to wait a bit for the task to react, but cancel_task sets the flag
-        let tasks = tm.tasks.lock().unwrap();
-        assert!(tasks.get(&id).unwrap().cancel_flag.load(Ordering::Relaxed));
+        let task = &tm.tasks[&id];
+        assert!(task.cancel_flag.load(Ordering::Relaxed));
+        assert!(
+            task.handle.is_none(),
+            "worker handle should have been aborted"
+        );
+        assert_eq!(task.status, TaskStatus::Cancelled);
+        assert!(!tm.has_running_tasks());
+    }
+
+    #[tokio::test]
+    async fn test_remove_finished_preserves_selection() {
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut tm = TaskManager::new(tx);
+        let id1 = tm.spawn_task("task1", |_c, _tx, _id| async {});
+        let id2 = tm.spawn_task("task2", |_c, _tx, _id| async {});
+        let id3 = tm.spawn_task("task3", |_c, _tx, _id| async {});
+
+        // Display order: id3 (0), id2 (1), id1 (2)
+        tm.selected_index = 1; // select id2
+        tm.update_task_status(id3, &TaskStatus::Completed);
+        tm.remove_finished_tasks();
+
+        assert_eq!(tm.ordered_ids(), vec![id2, id1]);
+        assert_eq!(
+            tm.get_selected_task_id(),
+            Some(id2),
+            "selection should follow its task"
+        );
+
+        // Remove the selected task itself: selection should fall back to the
+        // nearest surviving task instead of resetting.
+        tm.update_task_status(id2, &TaskStatus::Failed("boom".to_string()));
+        tm.remove_finished_tasks();
+        assert_eq!(tm.ordered_ids(), vec![id1]);
+        assert_eq!(tm.get_selected_task_id(), Some(id1));
+        assert_eq!(tm.selected_index(), 0);
     }
 }

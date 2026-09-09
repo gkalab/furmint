@@ -64,7 +64,7 @@ pub struct FileMetadata {
 #[derive(Clone)]
 pub struct TaskProgressContext {
     pub id: usize,
-    pub tx: tokio::sync::mpsc::UnboundedSender<crate::tasks::TaskEvent>,
+    pub tx: tokio::sync::mpsc::UnboundedSender<crate::tasks::UiEvent>,
     pub cancel: Arc<AtomicBool>,
     pub processed_bytes: Arc<std::sync::atomic::AtomicU64>,
     pub processed_items: Arc<std::sync::atomic::AtomicUsize>,
@@ -234,7 +234,7 @@ pub trait FileSystemProvider: Send + Sync {
         src: &Path,
         dst: &Path,
         id: usize,
-        tx: &tokio::sync::mpsc::UnboundedSender<crate::tasks::TaskEvent>,
+        tx: &tokio::sync::mpsc::UnboundedSender<crate::tasks::UiEvent>,
         cancel: &Arc<AtomicBool>,
     ) -> Result<()> {
         let src_buf = src.to_path_buf();
@@ -256,10 +256,12 @@ pub trait FileSystemProvider: Send + Sync {
             self.write_file_with_permissions(&dst_buf, &data, perms)
                 .await?;
             let processed = data.len() as u64;
-            let _ = tx.send(crate::tasks::TaskEvent::UpdateByteProgress(
-                id,
-                processed,
-                total_size.max(processed),
+            let _ = tx.send(crate::tasks::UiEvent::Task(
+                crate::tasks::TaskEvent::UpdateByteProgress {
+                    task_id: id,
+                    processed,
+                    total: total_size.max(processed),
+                },
             ));
         } else {
             let chunk_size = crate::fs::utils::calculate_optimal_chunk_size(total_size);
@@ -280,10 +282,12 @@ pub trait FileSystemProvider: Send + Sync {
                 }
                 self.write_file_at(&dst_buf, offset, &chunk).await?;
                 offset += chunk.len() as u64;
-                let _ = tx.send(crate::tasks::TaskEvent::UpdateByteProgress(
-                    id,
-                    offset,
-                    total_size.max(offset),
+                let _ = tx.send(crate::tasks::UiEvent::Task(
+                    crate::tasks::TaskEvent::UpdateByteProgress {
+                        task_id: id,
+                        processed: offset,
+                        total: total_size.max(offset),
+                    },
                 ));
             }
 
@@ -417,11 +421,15 @@ mod tests {
         LocalFs::new()
     }
 
-    fn byte_events(events: Vec<crate::tasks::TaskEvent>) -> Vec<(u64, u64)> {
+    fn byte_events(events: Vec<crate::tasks::UiEvent>) -> Vec<(u64, u64)> {
         events
             .into_iter()
             .filter_map(|e| match e {
-                crate::tasks::TaskEvent::UpdateByteProgress(_, p, t) => Some((p, t)),
+                crate::tasks::UiEvent::Task(crate::tasks::TaskEvent::UpdateByteProgress {
+                    task_id: _,
+                    processed,
+                    total,
+                }) => Some((processed, total)),
                 _ => None,
             })
             .collect()

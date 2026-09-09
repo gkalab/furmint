@@ -252,9 +252,13 @@ impl SevenZHandler {
         common::preserve_mtimes(dir_mtimes);
 
         let p = progress.processed_items.load(Ordering::Relaxed);
-        let _ = progress
-            .tx
-            .send(crate::tasks::TaskEvent::UpdateProgress(progress.id, p, 0));
+        let _ = progress.tx.send(crate::tasks::UiEvent::Task(
+            crate::tasks::TaskEvent::UpdateProgress {
+                task_id: progress.id,
+                processed: p,
+                total: 0,
+            },
+        ));
 
         Ok(())
     }

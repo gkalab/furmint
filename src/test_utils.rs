@@ -106,7 +106,7 @@ pub fn create_test_tab_with_entries() -> Tab {
 pub struct TestAppBuilder {
     left: Option<TabManager>,
     right: Option<TabManager>,
-    task_tx: Option<tokio::sync::mpsc::UnboundedSender<crate::tasks::TaskEvent>>,
+    task_tx: Option<tokio::sync::mpsc::UnboundedSender<crate::tasks::UiEvent>>,
     opener: Option<std::sync::Arc<dyn crate::opener::FileOpener + Send + Sync>>,
 }
 
@@ -132,7 +132,7 @@ impl TestAppBuilder {
     #[must_use]
     pub fn task_tx(
         mut self,
-        tx: tokio::sync::mpsc::UnboundedSender<crate::tasks::TaskEvent>,
+        tx: tokio::sync::mpsc::UnboundedSender<crate::tasks::UiEvent>,
     ) -> Self {
         self.task_tx = Some(tx);
         self

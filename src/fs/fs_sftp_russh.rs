@@ -999,13 +999,13 @@ impl FileSystemProvider for SftpFs {
             progress
                 .processed_bytes
                 .fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
-            let _ = progress
-                .tx
-                .send(crate::tasks::TaskEvent::UpdateByteProgress(
-                    progress.id,
-                    offset,
-                    total_size,
-                ));
+            let _ = progress.tx.send(crate::tasks::UiEvent::Task(
+                crate::tasks::TaskEvent::UpdateByteProgress {
+                    task_id: progress.id,
+                    processed: offset,
+                    total: total_size,
+                },
+            ));
         }
 
         if let Some(p) = perms {
@@ -1073,13 +1073,13 @@ impl FileSystemProvider for SftpFs {
             progress
                 .processed_bytes
                 .fetch_add(chunk.len() as u64, std::sync::atomic::Ordering::Relaxed);
-            let _ = progress
-                .tx
-                .send(crate::tasks::TaskEvent::UpdateByteProgress(
-                    progress.id,
-                    offset,
-                    total_size,
-                ));
+            let _ = progress.tx.send(crate::tasks::UiEvent::Task(
+                crate::tasks::TaskEvent::UpdateByteProgress {
+                    task_id: progress.id,
+                    processed: offset,
+                    total: total_size,
+                },
+            ));
         }
 
         if let Some(mode) = src_perms {

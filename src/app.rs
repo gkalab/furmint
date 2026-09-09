@@ -308,6 +308,7 @@ impl AppState {
     /// # Panics
     ///
     /// Panics if SSH history cannot be initialized.
+    #[must_use]
     pub fn new(
         left: TabManager,
         right: TabManager,
@@ -486,12 +487,14 @@ impl AppState {
                             .list_dir(&current_dir)
                             .await
                             .map_err(|e| e.to_string());
-                        let _ = tx.send(crate::tasks::TaskEvent::RemoteReloadCompleted {
-                            side,
-                            tab_index,
-                            current_dir,
-                            result,
-                        });
+                        let _ = tx.send(crate::tasks::UiEvent::Fs(
+                            crate::tasks::FsEvent::RemoteReloadCompleted {
+                                side,
+                                tab_index,
+                                current_dir,
+                                result,
+                            },
+                        ));
                     });
                 }
             };
@@ -515,15 +518,19 @@ impl AppState {
                 let result = crate::fs::utils::empty_trash().await;
                 match result {
                     Ok(_num) => {
-                        let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
-                            id,
-                            crate::tasks::TaskStatus::Completed,
+                        let _ = tx.send(crate::tasks::UiEvent::Task(
+                            crate::tasks::TaskEvent::UpdateStatus {
+                                task_id: id,
+                                status: crate::tasks::TaskStatus::Completed,
+                            },
                         ));
                     }
                     Err(e) => {
-                        let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
-                            id,
-                            crate::tasks::TaskStatus::Failed(e),
+                        let _ = tx.send(crate::tasks::UiEvent::Task(
+                            crate::tasks::TaskEvent::UpdateStatus {
+                                task_id: id,
+                                status: crate::tasks::TaskStatus::Failed(e),
+                            },
                         ));
                     }
                 }
@@ -577,6 +584,7 @@ impl AppState {
     }
 
     /// Returns a reference to the active tab manager
+    #[must_use]
     pub fn active_tab_manager(&self) -> &TabManager {
         match self.panels.active {
             PanelSide::Left => &self.panels.left,
@@ -593,6 +601,7 @@ impl AppState {
     }
 
     /// Returns a reference to the currently active tab
+    #[must_use]
     pub fn active_tab(&self) -> &Tab {
         self.active_tab_manager().active_tab()
     }
@@ -612,6 +621,7 @@ impl AppState {
     }
 
     /// Returns a reference to the inactive tab manager
+    #[must_use]
     pub fn inactive_tab_manager(&self) -> &TabManager {
         match self.panels.active {
             PanelSide::Left => &self.panels.right,
@@ -674,6 +684,7 @@ impl AppState {
     }
 
     /// Returns a reference to the currently inactive tab
+    #[must_use]
     pub fn inactive_tab(&self) -> &Tab {
         self.inactive_tab_manager().active_tab()
     }

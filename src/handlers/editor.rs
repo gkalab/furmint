@@ -470,7 +470,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_edit_invalid_command_sets_error() {
-        let (_tx, _) = unbounded_channel::<crate::tasks::TaskEvent>();
+        let (_tx, _) = unbounded_channel::<crate::tasks::UiEvent>();
         let entry = FileEntry {
             name: "file.txt".to_string(),
             is_dir: false,

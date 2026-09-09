@@ -4,7 +4,7 @@ use fm::fs::ops::DecisionState;
 use fm::fs::ops::{RecursiveOpContext, recursive_op};
 use fm::fs::utils::FileEntry;
 use fm::state::CopyMoveAction;
-use fm::tasks::{TaskDecision, TaskEvent};
+use fm::tasks::{AlertEvent, TaskDecision, TaskEvent, UiEvent};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -269,7 +269,7 @@ impl FileSystemProvider for MockFileSystem {
         src: &Path,
         dst: &Path,
         _id: usize,
-        _tx: &tokio::sync::mpsc::UnboundedSender<TaskEvent>,
+        _tx: &tokio::sync::mpsc::UnboundedSender<UiEvent>,
         _cancel: &Arc<AtomicBool>,
     ) -> anyhow::Result<()> {
         self.copy(src, dst).await
@@ -398,7 +398,7 @@ async fn test_recursive_copy_overwrite_all() {
     // Decision task: send OverwriteAll on first conflict
     tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
-            if let TaskEvent::Conflict(_, _, _) = event {
+            if let UiEvent::Alert(AlertEvent::Conflict { .. }) = event {
                 let _ = dtx.send(TaskDecision::OverwriteAll).await;
             }
         }
@@ -462,7 +462,7 @@ async fn test_recursive_copy_cancel() {
     // Decision task: send Cancel on first conflict
     tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
-            if let TaskEvent::Conflict(_, _, _) = event {
+            if let UiEvent::Alert(AlertEvent::Conflict { .. }) = event {
                 let _ = dtx.send(TaskDecision::Cancel).await;
             }
         }
@@ -525,7 +525,7 @@ async fn test_recursive_copy_skip_all() {
     // Decision task
     tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
-            if let TaskEvent::Conflict(_, _, _) = event {
+            if let UiEvent::Alert(AlertEvent::Conflict { .. }) = event {
                 let _ = dtx.send(TaskDecision::SkipAll).await;
             }
         }
@@ -584,7 +584,12 @@ async fn test_mock_simple_move_conflict_overwrite() {
     // Spawn task to send overwrite decision
     tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
-            if let TaskEvent::Conflict(_id, _path, _ty) = event {
+            if let UiEvent::Alert(AlertEvent::Conflict {
+                task_id: _id,
+                path: _path,
+                conflict_type: _ty,
+            }) = event
+            {
                 let _ = decision_tx.send(TaskDecision::Overwrite).await;
             }
         }
@@ -644,7 +649,7 @@ async fn test_recursive_op_retry() {
     // Spawn task to send retry decision
     tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
-            if let TaskEvent::Error(_, _, _) = event {
+            if let UiEvent::Alert(AlertEvent::TaskError { .. }) = event {
                 let _ = decision_tx.send(TaskDecision::Retry).await;
             }
         }
@@ -706,7 +711,7 @@ async fn test_recursive_op_error_skip_all() {
     // Send SkipAll on the first error
     tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
-            if let TaskEvent::Error(_, _, _) = event {
+            if let UiEvent::Alert(AlertEvent::TaskError { .. }) = event {
                 let _ = dtx.send(TaskDecision::SkipAll).await;
             }
         }
@@ -772,7 +777,7 @@ async fn test_recursive_op_error_cancel() {
     // Send Cancel on the first error
     tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
-            if let TaskEvent::Error(_, _, _) = event {
+            if let UiEvent::Alert(AlertEvent::TaskError { .. }) = event {
                 let _ = dtx.send(TaskDecision::Cancel).await;
             }
         }
@@ -841,7 +846,7 @@ async fn test_recursive_op_error_skip() {
     // Send Skip on each error
     tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
-            if let TaskEvent::Error(_, _, _) = event {
+            if let UiEvent::Alert(AlertEvent::TaskError { .. }) = event {
                 let _ = dtx.send(TaskDecision::Skip).await;
             }
         }
@@ -910,7 +915,7 @@ async fn test_move_rename_optimization_no_conflict() {
         assert!(r.is_ok(), "Operation failed: {:?}", r.err());
     } else {
         // Check if there was a conflict event
-        if let Ok(TaskEvent::Conflict(_, _, _)) = rx.try_recv() {
+        if let Ok(UiEvent::Alert(AlertEvent::Conflict { .. })) = rx.try_recv() {
             panic!("BUG DETECTED: Conflict triggered for successful move!");
         }
         panic!("Operation timed out - likely waiting for conflict resolution!");
@@ -968,7 +973,7 @@ async fn test_move_rename_optimization_directory() {
     let mut progress_events = 0;
     let mut last_p = 0;
     while let Ok(event) = rx.try_recv() {
-        if let TaskEvent::UpdateProgress(_, p, _) = event {
+        if let UiEvent::Task(TaskEvent::UpdateProgress { processed: p, .. }) = event {
             progress_events += 1;
             last_p = p;
         }
@@ -1113,7 +1118,7 @@ async fn test_handle_directory_download_failure() {
 
     tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
-            if let TaskEvent::Error(_, _, _) = event {
+            if let UiEvent::Alert(AlertEvent::TaskError { .. }) = event {
                 let _ = dtx.send(TaskDecision::Skip).await;
             }
         }
@@ -1250,7 +1255,7 @@ async fn test_handle_directory_dest_exists_as_file_skip() {
 
     tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
-            if let TaskEvent::Conflict(_, _, _) = event {
+            if let UiEvent::Alert(AlertEvent::Conflict { .. }) = event {
                 let _ = dtx.send(TaskDecision::Skip).await;
             }
         }
@@ -1301,7 +1306,7 @@ async fn test_handle_directory_dest_exists_as_file_cancel() {
 
     tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
-            if let TaskEvent::Conflict(_, _, _) = event {
+            if let UiEvent::Alert(AlertEvent::Conflict { .. }) = event {
                 let _ = dtx.send(TaskDecision::Cancel).await;
             }
         }

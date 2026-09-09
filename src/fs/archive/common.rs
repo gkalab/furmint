@@ -434,21 +434,19 @@ pub fn handle_extraction_entry<R: std::io::Read>(
     if p.is_multiple_of(10)
         || now.duration_since(*last_update) > std::time::Duration::from_millis(100)
     {
-        let _ = opts
-            .progress
-            .tx
-            .send(crate::tasks::TaskEvent::UpdateCurrentFile(
-                opts.progress.id,
-                rel_name_str,
-            ));
-        let _ = opts
-            .progress
-            .tx
-            .send(crate::tasks::TaskEvent::UpdateProgress(
-                opts.progress.id,
-                p,
-                0,
-            ));
+        let _ = opts.progress.tx.send(crate::tasks::UiEvent::Task(
+            crate::tasks::TaskEvent::UpdateCurrentFile {
+                task_id: opts.progress.id,
+                filename: rel_name_str,
+            },
+        ));
+        let _ = opts.progress.tx.send(crate::tasks::UiEvent::Task(
+            crate::tasks::TaskEvent::UpdateProgress {
+                task_id: opts.progress.id,
+                processed: p,
+                total: 0,
+            },
+        ));
         *last_update = now;
     }
 
@@ -459,13 +457,13 @@ pub fn handle_extraction_entry<R: std::io::Read>(
 mod tests {
     use super::*;
     use crate::fs::fs_provider::TaskProgressContext;
-    use crate::tasks::TaskEvent;
+    use crate::tasks::UiEvent;
     use std::io::Cursor;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
 
     fn test_progress() -> TaskProgressContext {
-        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<TaskEvent>();
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<UiEvent>();
         TaskProgressContext {
             id: 1,
             tx,

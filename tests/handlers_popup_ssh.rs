@@ -4,13 +4,13 @@ use fm::handlers::popup_ssh::{
     handle_ssh_connection_init, parse_connection_string,
 };
 use fm::state::ssh::SshField;
-use fm::tasks::TaskEvent;
+use fm::tasks::UiEvent;
 use secrecy::ExposeSecret;
 use termina::event::{KeyCode, Modifiers};
 use tokio::sync::mpsc;
 
 async fn basic_app_state() -> AppState {
-    let (task_tx, _task_rx) = mpsc::unbounded_channel::<TaskEvent>();
+    let (task_tx, _task_rx) = mpsc::unbounded_channel::<UiEvent>();
 
     fm::test_utils::TestAppBuilder::new()
         .left(

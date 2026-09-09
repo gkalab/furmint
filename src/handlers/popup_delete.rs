@@ -64,9 +64,11 @@ pub fn handle_confirm_delete(app: &mut AppState) {
             let mut failures = Vec::new();
             for (i, path) in paths.iter().enumerate() {
                 if cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                    let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
-                        id,
-                        crate::tasks::TaskStatus::Cancelled,
+                    let _ = tx.send(crate::tasks::UiEvent::Task(
+                        crate::tasks::TaskEvent::UpdateStatus {
+                            task_id: id,
+                            status: crate::tasks::TaskStatus::Cancelled,
+                        },
                     ));
                     return;
                 }
@@ -87,12 +89,20 @@ pub fn handle_confirm_delete(app: &mut AppState) {
                     Ok(()) => success += 1,
                     Err(e) => failures.push(format!("{}: {e}", path.display())),
                 }
-                let _ = tx.send(crate::tasks::TaskEvent::UpdateProgress(id, i + 1, total));
+                let _ = tx.send(crate::tasks::UiEvent::Task(
+                    crate::tasks::TaskEvent::UpdateProgress {
+                        task_id: id,
+                        processed: i + 1,
+                        total,
+                    },
+                ));
             }
             if failures.is_empty() {
-                let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
-                    id,
-                    crate::tasks::TaskStatus::Completed,
+                let _ = tx.send(crate::tasks::UiEvent::Task(
+                    crate::tasks::TaskEvent::UpdateStatus {
+                        task_id: id,
+                        status: crate::tasks::TaskStatus::Completed,
+                    },
                 ));
             } else {
                 let error_msg = if success > 0 {
@@ -100,9 +110,11 @@ pub fn handle_confirm_delete(app: &mut AppState) {
                 } else {
                     format!("Failed: {}", failures[0])
                 };
-                let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
-                    id,
-                    crate::tasks::TaskStatus::Failed(error_msg),
+                let _ = tx.send(crate::tasks::UiEvent::Task(
+                    crate::tasks::TaskEvent::UpdateStatus {
+                        task_id: id,
+                        status: crate::tasks::TaskStatus::Failed(error_msg),
+                    },
                 ));
             }
         });

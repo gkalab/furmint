@@ -1,7 +1,7 @@
 use crate::app::AppState;
 use crate::config::KeyboardConfig;
 use crate::handlers::navigation::reset_expired_search;
-use crate::handlers::popup_misc::handle_task_event;
+use crate::handlers::popup_misc::dispatch_ui_event;
 use crate::handlers::terminal::{disable_mouse_capture, enable_mouse_capture};
 use crate::theme::ThemePalette;
 use ratatui::Terminal;
@@ -48,7 +48,7 @@ pub fn spawn_input_polling(
 pub(crate) struct EventSources<'a> {
     pub reader: EventReader,
     pub watcher_rx: &'a mut UnboundedReceiver<crate::fs::watcher::WatcherEvent>,
-    pub task_rx: &'a mut UnboundedReceiver<crate::tasks::TaskEvent>,
+    pub task_rx: &'a mut UnboundedReceiver<crate::tasks::UiEvent>,
     pub image_load_rx: &'a mut UnboundedReceiver<crate::state::ImageLoadResult>,
     pub content_load_rx: &'a mut UnboundedReceiver<crate::state::ContentLoadResult>,
 }
@@ -129,7 +129,7 @@ where
                             }
                             // Handle task events
                             Some(event) = sources.task_rx.recv() => {
-                                handle_task_event(event, app).await;
+                                dispatch_ui_event(event, app).await;
                                 draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
                             }
                             _ = interval.tick() => {

@@ -5,8 +5,8 @@ use termina::event::KeyCode;
 use tokio::sync::mpsc;
 
 async fn app_with_conflict(task_id: usize) -> (AppState, mpsc::Receiver<TaskDecision>) {
-    use fm::tasks::TaskEvent;
-    let (task_tx, _task_rx) = mpsc::unbounded_channel::<TaskEvent>();
+    use fm::tasks::UiEvent;
+    let (task_tx, _task_rx) = mpsc::unbounded_channel::<UiEvent>();
     let (dec_tx, dec_rx) = mpsc::channel(1);
     let mut app = fm::test_utils::TestAppBuilder::new()
         .left(

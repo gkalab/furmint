@@ -316,46 +316,74 @@ async fn handle_open_archive(app: &mut AppState, path: &PathBuf, filename: Strin
 
     app.tasks
         .task_manager
-        .spawn_task(&task_name, move |_cancel, tx, id| async move {
-            let path_for_task = path_clone.clone();
-            // We need to run blocking IO
-            let res = tokio::task::spawn_blocking(move || ArchiveFs::new(&path_for_task)).await;
-
-            match res {
-                Ok(Ok(archive_fs)) => {
-                    let provider = Arc::new(archive_fs);
-                    let wrapper = crate::tasks::ProviderWrapper(provider);
-                    let _ = tx.send(crate::tasks::TaskEvent::ArchiveLoaded(
-                        side_index,
-                        wrapper,
-                        filename_clone,
-                        path_for_event,
-                    ));
-                    let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
-                        id,
-                        crate::tasks::TaskStatus::Completed,
-                    ));
-                }
-                Ok(Err(e)) => {
-                    let _ = tx.send(crate::tasks::TaskEvent::Error(
-                        id,
-                        path_clone.to_string_lossy().to_string(),
-                        e.to_string(),
-                    ));
-                    let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
-                        id,
-                        crate::tasks::TaskStatus::Failed(e.to_string()),
-                    ));
-                }
-                Err(e) => {
-                    // Join error
-                    let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
-                        id,
-                        crate::tasks::TaskStatus::Failed(e.to_string()),
-                    ));
-                }
-            }
+        .spawn_task(&task_name, move |_cancel, tx, id| {
+            run_archive_open_task(
+                tx,
+                id,
+                side_index,
+                path_clone,
+                filename_clone,
+                path_for_event,
+            )
         });
+}
+
+async fn run_archive_open_task(
+    tx: tokio::sync::mpsc::UnboundedSender<crate::tasks::UiEvent>,
+    id: usize,
+    side_index: usize,
+    path_clone: std::path::PathBuf,
+    filename_clone: String,
+    path_for_event: std::path::PathBuf,
+) {
+    let path_for_task = path_clone.clone();
+    // We need to run blocking IO
+    let res = tokio::task::spawn_blocking(move || ArchiveFs::new(&path_for_task)).await;
+
+    match res {
+        Ok(Ok(archive_fs)) => {
+            let provider = Arc::new(archive_fs);
+            let wrapper = crate::tasks::ProviderWrapper(provider);
+            let _ = tx.send(crate::tasks::UiEvent::Fs(
+                crate::tasks::FsEvent::ArchiveLoaded {
+                    side_index,
+                    provider: wrapper,
+                    filename: filename_clone,
+                    path: path_for_event,
+                },
+            ));
+            let _ = tx.send(crate::tasks::UiEvent::Task(
+                crate::tasks::TaskEvent::UpdateStatus {
+                    task_id: id,
+                    status: crate::tasks::TaskStatus::Completed,
+                },
+            ));
+        }
+        Ok(Err(e)) => {
+            let _ = tx.send(crate::tasks::UiEvent::Alert(
+                crate::tasks::AlertEvent::TaskError {
+                    task_id: id,
+                    path: path_clone.to_string_lossy().to_string(),
+                    message: e.to_string(),
+                },
+            ));
+            let _ = tx.send(crate::tasks::UiEvent::Task(
+                crate::tasks::TaskEvent::UpdateStatus {
+                    task_id: id,
+                    status: crate::tasks::TaskStatus::Failed(e.to_string()),
+                },
+            ));
+        }
+        Err(e) => {
+            // Join error
+            let _ = tx.send(crate::tasks::UiEvent::Task(
+                crate::tasks::TaskEvent::UpdateStatus {
+                    task_id: id,
+                    status: crate::tasks::TaskStatus::Failed(e.to_string()),
+                },
+            ));
+        }
+    }
 }
 
 pub async fn handle_open_item(app: &mut AppState) {

@@ -66,9 +66,12 @@ pub async fn rsync_transfer(
     let mut cmd = build_rsync_command(src_fs, dest_fs, src, dest).await?;
 
     // Signal that rsync is starting
-    let _ = progress_ctx
-        .tx
-        .send(crate::tasks::TaskEvent::SetRsyncMode(progress_ctx.id, true));
+    let _ = progress_ctx.tx.send(crate::tasks::UiEvent::Task(
+        crate::tasks::TaskEvent::SetRsyncMode {
+            task_id: progress_ctx.id,
+            rsync: true,
+        },
+    ));
 
     let mut child = cmd
         .spawn()
@@ -95,13 +98,13 @@ pub async fn rsync_transfer(
                 // Parse rsync progress output
                 // Format: "  1,234,567  45%  123.45kB/s    0:00:12"
                 if let Some(parsed) = parse_rsync_progress(&line) {
-                    let _ = progress_ctx
-                        .tx
-                        .send(crate::tasks::TaskEvent::UpdateByteProgress(
-                            progress_ctx.id,
-                            parsed.bytes_transferred,
-                            parsed.total_bytes,
-                        ));
+                    let _ = progress_ctx.tx.send(crate::tasks::UiEvent::Task(
+                        crate::tasks::TaskEvent::UpdateByteProgress {
+                            task_id: progress_ctx.id,
+                            processed: parsed.bytes_transferred,
+                            total: parsed.total_bytes,
+                        },
+                    ));
 
                     progress_ctx.processed_bytes.store(
                         parsed.bytes_transferred,
@@ -121,9 +124,11 @@ pub async fn rsync_transfer(
     progress_task.abort();
 
     // Signal that rsync has finished
-    let _ = progress_ctx.tx.send(crate::tasks::TaskEvent::SetRsyncMode(
-        progress_ctx.id,
-        false,
+    let _ = progress_ctx.tx.send(crate::tasks::UiEvent::Task(
+        crate::tasks::TaskEvent::SetRsyncMode {
+            task_id: progress_ctx.id,
+            rsync: false,
+        },
     ));
 
     if !status.success() {

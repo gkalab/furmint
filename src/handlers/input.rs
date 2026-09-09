@@ -372,18 +372,26 @@ fn handle_calc_dir_size(app: &mut AppState) {
             move |_cancel_flag, tx, id| async move {
                 match provider.calc_dir_size(&path_clone).await {
                     Ok(size) => {
-                        let _ = tx.send(crate::tasks::TaskEvent::DirSizeCalculated(
-                            id, path_clone, size,
+                        let _ = tx.send(crate::tasks::UiEvent::Fs(
+                            crate::tasks::FsEvent::DirSizeCalculated {
+                                task_id: id,
+                                path: path_clone,
+                                size,
+                            },
                         ));
-                        let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
-                            id,
-                            crate::tasks::TaskStatus::Completed,
+                        let _ = tx.send(crate::tasks::UiEvent::Task(
+                            crate::tasks::TaskEvent::UpdateStatus {
+                                task_id: id,
+                                status: crate::tasks::TaskStatus::Completed,
+                            },
                         ));
                     }
                     Err(e) => {
-                        let _ = tx.send(crate::tasks::TaskEvent::UpdateStatus(
-                            id,
-                            crate::tasks::TaskStatus::Failed(e.to_string()),
+                        let _ = tx.send(crate::tasks::UiEvent::Task(
+                            crate::tasks::TaskEvent::UpdateStatus {
+                                task_id: id,
+                                status: crate::tasks::TaskStatus::Failed(e.to_string()),
+                            },
                         ));
                     }
                 }

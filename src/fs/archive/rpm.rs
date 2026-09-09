@@ -493,17 +493,12 @@ impl ArchiveFormat for RpmHandler {
 
         common::preserve_mtimes(dir_mtimes);
         let p_final = progress.processed_items.load(Ordering::Relaxed);
-        let _ = progress.tx.send(crate::tasks::TaskEvent::UpdateProgress(
-            progress.id,
-            p_final,
-            0,
-        ));
-
-        let p_final = progress.processed_items.load(Ordering::Relaxed);
-        let _ = progress.tx.send(crate::tasks::TaskEvent::UpdateProgress(
-            progress.id,
-            p_final,
-            0,
+        let _ = progress.tx.send(crate::tasks::UiEvent::Task(
+            crate::tasks::TaskEvent::UpdateProgress {
+                task_id: progress.id,
+                processed: p_final,
+                total: 0,
+            },
         ));
 
         Ok(())

@@ -2,12 +2,12 @@ use fm::app::AppState;
 use fm::app_state::tabs::Tab;
 use fm::fs::utils::FileEntry;
 use fm::handlers::popup_rename::{handle_init_rename, handle_rename_event};
-use fm::tasks::TaskEvent;
+use fm::tasks::UiEvent;
 use termina::event::{KeyCode, Modifiers};
 use tokio::sync::mpsc;
 
 async fn test_app_with_entry(name: &str, is_dir: bool, path: &std::path::Path) -> AppState {
-    let (task_tx, _task_rx) = mpsc::unbounded_channel::<TaskEvent>();
+    let (task_tx, _task_rx) = mpsc::unbounded_channel::<UiEvent>();
 
     let mut tab = Tab::new(path).await.unwrap();
     tab.entries.clear();

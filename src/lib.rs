@@ -48,7 +48,7 @@ struct InitializedApp {
     #[allow(clippy::struct_field_names)]
     watcher_rx: tokio::sync::mpsc::UnboundedReceiver<crate::fs::watcher::WatcherEvent>,
     #[allow(clippy::struct_field_names)]
-    task_rx: tokio::sync::mpsc::UnboundedReceiver<crate::tasks::TaskEvent>,
+    task_rx: tokio::sync::mpsc::UnboundedReceiver<crate::tasks::UiEvent>,
     #[allow(clippy::struct_field_names)]
     image_load_rx: tokio::sync::mpsc::UnboundedReceiver<crate::state::ImageLoadResult>,
     #[allow(clippy::struct_field_names)]

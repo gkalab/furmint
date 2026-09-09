@@ -9,7 +9,7 @@ use fm::fs::fs_provider::TaskProgressContext;
 use fm::fs::utils::FileEntry;
 use fm::handlers::navigation::handle_enter;
 use fm::opener::FileOpener;
-use fm::tasks::TaskEvent;
+use fm::tasks::{AlertEvent, FsEvent, UiEvent};
 use std::fs::File;
 use std::io::{Seek, Write};
 use std::path::Path;
@@ -44,7 +44,7 @@ impl FileOpener for MockOpener {
 
 fn test_app(
     entries: Vec<FileEntry>,
-    task_tx: mpsc::UnboundedSender<TaskEvent>,
+    task_tx: mpsc::UnboundedSender<UiEvent>,
     opener: Arc<dyn FileOpener + Send + Sync>,
 ) -> AppState {
     let mut tab = fm::test_utils::create_test_tab();
@@ -116,7 +116,7 @@ async fn test_zip_extract_attributes() {
     let dest_dir = temp_dir.path().join("extracted_zip_attributes");
     std::fs::create_dir_all(&dest_dir).unwrap();
 
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
     let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 0,
         tx,
@@ -192,7 +192,7 @@ async fn test_open_supported_archive_tar_gz() {
     // 4. Verification: Should receive ArchiveLoaded event
     let event = rx.recv().await;
     match event {
-        Some(TaskEvent::ArchiveLoaded(_, _, filename, path)) => {
+        Some(UiEvent::Fs(FsEvent::ArchiveLoaded { filename, path, .. })) => {
             assert_eq!(filename, "test.tar.gz");
             assert_eq!(path, archive_path);
         }
@@ -268,7 +268,7 @@ async fn test_open_corrupt_7z_shows_error() {
         .await
         .expect("timed out waiting for task event");
     match event {
-        Some(TaskEvent::Error(_, _, msg)) => {
+        Some(UiEvent::Alert(AlertEvent::TaskError { message: msg, .. })) => {
             assert!(!msg.is_empty(), "Error message should not be empty");
         }
         other => panic!("Expected Error event, got {other:?}"),
@@ -319,7 +319,7 @@ async fn test_archive_fs_read_and_download_zip() {
     let dest_dir = temp_dir.path().join("extracted_zip");
     std::fs::create_dir_all(&dest_dir).unwrap();
 
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
     let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 0,
         tx,
@@ -383,7 +383,7 @@ async fn test_archive_fs_read_and_download_tar_gz() {
     let dest_dir = temp_dir.path().join("extracted_tar");
     std::fs::create_dir_all(&dest_dir).unwrap();
 
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
     let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 0,
         tx,
@@ -433,7 +433,7 @@ async fn test_archive_fs_read_and_download_plain_gz() {
     let dest_dir = temp_dir.path().join("extracted_gz");
     std::fs::create_dir_all(&dest_dir).unwrap();
 
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
     let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 0,
         tx,
@@ -506,7 +506,7 @@ async fn test_archive_download_empty_dir_and_nesting() {
     let dest_dir = temp_dir.path().join("extracted_nesting");
     std::fs::create_dir_all(&dest_dir).unwrap();
 
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
     let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 123,
         tx,
@@ -532,7 +532,12 @@ async fn test_archive_download_empty_dir_and_nesting() {
     // Verify progress pulse
     let mut item_count = 0;
     while let Ok(event) = rx.try_recv() {
-        if let fm::tasks::TaskEvent::UpdateProgress(id, p, _) = event {
+        if let fm::tasks::UiEvent::Task(fm::tasks::TaskEvent::UpdateProgress {
+            task_id: id,
+            processed: p,
+            ..
+        }) = event
+        {
             assert_eq!(id, 123);
             item_count = p;
         }
@@ -565,7 +570,7 @@ async fn test_archive_download_cancellation() {
     let dest_dir = temp_dir.path().join("extracted_cancel");
     std::fs::create_dir_all(&dest_dir).unwrap();
 
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
     let cancel_flag = Arc::new(AtomicBool::new(false));
     let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 789,
@@ -795,7 +800,7 @@ async fn test_archive_fs_download_tar_gz_optimized() {
     // 3. Test download (optimized extraction from temp tar)
     let dest_file = temp_dir.path().join("extracted_hello.txt");
 
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
     let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 0,
         tx,
@@ -851,7 +856,7 @@ async fn test_archive_fs_read_and_download_xz() {
     let dest_dir = temp_dir.path().join("extracted_xz");
     std::fs::create_dir_all(&dest_dir).unwrap();
 
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
     let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 0,
         tx,
@@ -985,7 +990,7 @@ async fn test_archive_fs_read_and_download_rpm() {
     let dest_dir = temp_dir.path().join("extracted_rpm");
     std::fs::create_dir_all(&dest_dir).unwrap();
 
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
     let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 0,
         tx,

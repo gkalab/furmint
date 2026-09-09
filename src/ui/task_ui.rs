@@ -102,9 +102,7 @@ pub fn draw_task_manager(
     let tasks = task_manager.get_tasks();
 
     // Use stateful list to show selection
-    let selected_index = task_manager
-        .selected_index
-        .load(std::sync::atomic::Ordering::Relaxed);
+    let selected_index = task_manager.selected_index();
     let mut state = ListState::default();
     if !tasks.is_empty() {
         state.select(Some(selected_index));

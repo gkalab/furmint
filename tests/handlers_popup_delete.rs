@@ -2,12 +2,12 @@ use fm::app::AppState;
 use fm::app_state::tabs::Tab;
 use fm::fs::utils::FileEntry;
 use fm::handlers::popup_delete::{handle_delete_event, handle_init_delete};
-use fm::tasks::TaskEvent;
+use fm::tasks::UiEvent;
 use termina::event::KeyCode;
 use tokio::sync::mpsc;
 
 async fn basic_app_with_entry(name: &str) -> AppState {
-    let (task_tx, _task_rx) = mpsc::unbounded_channel::<TaskEvent>();
+    let (task_tx, _task_rx) = mpsc::unbounded_channel::<UiEvent>();
 
     let mut tab = Tab::new(&std::env::temp_dir()).await.unwrap();
     tab.entries.clear();

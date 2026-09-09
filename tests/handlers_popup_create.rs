@@ -4,13 +4,13 @@ use fm::handlers::popup_create::{
     handle_create_directory_event, handle_create_file_event, handle_init_create_directory,
     handle_init_create_file,
 };
-use fm::tasks::TaskEvent;
+use fm::tasks::UiEvent;
 use termina::event::KeyCode;
 use termina::event::Modifiers;
 use tokio::sync::mpsc;
 
 async fn basic_app_state() -> AppState {
-    let (task_tx, _task_rx) = mpsc::unbounded_channel::<TaskEvent>();
+    let (task_tx, _task_rx) = mpsc::unbounded_channel::<UiEvent>();
 
     fm::test_utils::TestAppBuilder::new()
         .left(
@@ -103,7 +103,7 @@ async fn test_handle_create_directory_navigation() {
 #[tokio::test]
 async fn test_handle_create_file_event() {
     let mut app = basic_app_state().await;
-    let (_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
+    let (_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
     handle_init_create_file(&mut app);
 
     handle_create_file_event(KeyCode::Char('f'), Modifiers::NONE, &mut app).await;
@@ -119,7 +119,7 @@ async fn test_handle_create_file_event() {
 #[tokio::test]
 async fn test_handle_create_file_errors() {
     let mut app = basic_app_state().await;
-    let (_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
+    let (_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
     handle_init_create_file(&mut app);
 
     // Empty name
@@ -174,7 +174,7 @@ async fn test_handle_create_file_errors() {
 #[tokio::test]
 async fn test_handle_create_file_tilde_expansion() {
     let mut app = basic_app_state().await;
-    let (_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
+    let (_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
     handle_init_create_file(&mut app);
 
     // Test ~ expansion (just check if it doesn't immediately fail with "Unsupported")
@@ -309,7 +309,7 @@ async fn test_handle_create_file_remote_uses_remote_edit_workflow() {
     }
 
     let mut app = basic_app_state().await;
-    let (_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
+    let (_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
 
     // Replace the active tab's provider with a mock remote provider
     app.active_tab_mut().provider = std::sync::Arc::new(MockRemoteCreateFs);
@@ -364,7 +364,7 @@ async fn test_handle_create_file_navigation() {
     app.popups.create_file.input_value = "test.txt".to_string();
     app.popups.create_file.cursor_position = 8;
 
-    let (_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::TaskEvent>();
+    let (_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
 
     handle_create_file_event(KeyCode::Left, Modifiers::NONE, &mut app).await;
     assert_eq!(app.popups.create_file.cursor_position, 7);

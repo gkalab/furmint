@@ -22,44 +22,66 @@ pub(crate) fn handle_quit_popup_event(code: KeyCode, app: &mut AppState) -> bool
     }
 }
 
-pub async fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::app::AppState) {
+/// Sole dispatcher of the app-level UI event bus
+/// ([`crate::tasks::UiEvent`]): routes each event to its subsystem handler.
+pub async fn dispatch_ui_event(event: crate::tasks::UiEvent, app: &mut crate::app::AppState) {
     match event {
-        crate::tasks::TaskEvent::UpdateStatus(id, status) => {
-            handle_update_status(app, id, &status).await;
+        crate::tasks::UiEvent::Task(e) => dispatch_task_event(e, app).await,
+        crate::tasks::UiEvent::Ssh(e) => dispatch_ssh_event(e, app).await,
+        crate::tasks::UiEvent::Fs(e) => dispatch_fs_event(e, app).await,
+        crate::tasks::UiEvent::Alert(e) => dispatch_alert_event(e, app),
+    }
+}
+
+async fn dispatch_task_event(e: crate::tasks::TaskEvent, app: &mut crate::app::AppState) {
+    match e {
+        crate::tasks::TaskEvent::UpdateStatus { task_id, status } => {
+            handle_update_status(app, task_id, &status).await;
         }
-        crate::tasks::TaskEvent::UpdateProgress(id, p, t) => {
-            handle_update_progress(app, id, p, t);
+        crate::tasks::TaskEvent::UpdateProgress {
+            task_id,
+            processed,
+            total,
+        } => {
+            handle_update_progress(app, task_id, processed, total);
         }
-        crate::tasks::TaskEvent::UpdateByteProgress(id, p, t) => {
-            app.tasks.task_manager.update_task_byte_progress(id, p, t);
-        }
-        crate::tasks::TaskEvent::UpdateCurrentFile(id, filename) => {
+        crate::tasks::TaskEvent::UpdateByteProgress {
+            task_id,
+            processed,
+            total,
+        } => {
             app.tasks
                 .task_manager
-                .update_task_current_file(id, filename);
+                .update_task_byte_progress(task_id, processed, total);
         }
-        crate::tasks::TaskEvent::SetRsyncMode(id, rsync) => {
-            app.tasks.task_manager.update_task_rsync_mode(id, rsync);
+        crate::tasks::TaskEvent::UpdateCurrentFile { task_id, filename } => {
+            app.tasks
+                .task_manager
+                .update_task_current_file(task_id, filename);
         }
-        crate::tasks::TaskEvent::Conflict(id, path, conflict_type) => {
-            handle_conflict(app, id, path, conflict_type);
+        crate::tasks::TaskEvent::SetRsyncMode { task_id, rsync } => {
+            app.tasks
+                .task_manager
+                .update_task_rsync_mode(task_id, rsync);
         }
-        crate::tasks::TaskEvent::Error(id, path, msg) => {
-            handle_task_error(app, id, path, msg);
-        }
-        crate::tasks::TaskEvent::SshConnected(ctx) => {
+    }
+}
+
+async fn dispatch_ssh_event(e: crate::tasks::SshEvent, app: &mut crate::app::AppState) {
+    match e {
+        crate::tasks::SshEvent::Connected(ctx) => {
             app.handle_ssh_connected(ctx).await;
         }
-        crate::tasks::TaskEvent::SshReconnected(ctx) => {
+        crate::tasks::SshEvent::Reconnected(ctx) => {
             app.handle_ssh_reconnected(ctx).await;
         }
-        crate::tasks::TaskEvent::SshReconnectFailed(session_id, error) => {
+        crate::tasks::SshEvent::ReconnectFailed { session_id, error } => {
             handle_ssh_reconnect_failed(app, &session_id, error);
         }
-        crate::tasks::TaskEvent::SshError(host, user, error) => {
+        crate::tasks::SshEvent::Error { host, user, error } => {
             handle_ssh_error(app, host, user, error);
         }
-        crate::tasks::TaskEvent::SshHostKey {
+        crate::tasks::SshEvent::HostKey {
             host,
             port,
             user,
@@ -87,19 +109,48 @@ pub async fn handle_task_event(event: crate::tasks::TaskEvent, app: &mut crate::
                 },
             );
         }
-        crate::tasks::TaskEvent::DirSizeCalculated(_id, path, size) => {
+    }
+}
+
+async fn dispatch_fs_event(e: crate::tasks::FsEvent, app: &mut crate::app::AppState) {
+    match e {
+        crate::tasks::FsEvent::DirSizeCalculated { path, size, .. } => {
             handle_dir_size_calculated(app, &path, size);
         }
-        crate::tasks::TaskEvent::ArchiveLoaded(side_index, wrapper, filename, path) => {
-            handle_archive_loaded(app, side_index, wrapper, filename, path).await;
-        }
-        crate::tasks::TaskEvent::RemoteReloadCompleted {
+        crate::tasks::FsEvent::RemoteReloadCompleted {
             side,
             tab_index,
-            ref current_dir,
+            current_dir,
             result,
         } => {
-            handle_remote_reload_completed(app, side, tab_index, current_dir, result);
+            handle_remote_reload_completed(app, side, tab_index, &current_dir, result);
+        }
+        crate::tasks::FsEvent::ArchiveLoaded {
+            side_index,
+            provider,
+            filename,
+            path,
+        } => {
+            handle_archive_loaded(app, side_index, provider, filename, path).await;
+        }
+    }
+}
+
+fn dispatch_alert_event(e: crate::tasks::AlertEvent, app: &mut crate::app::AppState) {
+    match e {
+        crate::tasks::AlertEvent::Conflict {
+            task_id,
+            path,
+            conflict_type,
+        } => {
+            handle_conflict(app, task_id, path, conflict_type);
+        }
+        crate::tasks::AlertEvent::TaskError {
+            task_id,
+            path,
+            message,
+        } => {
+            handle_task_error(app, task_id, path, message);
         }
     }
 }
