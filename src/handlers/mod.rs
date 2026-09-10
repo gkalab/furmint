@@ -24,4 +24,5 @@ pub mod file_viewer;
 pub mod input;
 pub mod input_utils;
 pub mod popup_utils;
+pub mod suspended_ui;
 pub mod terminal;

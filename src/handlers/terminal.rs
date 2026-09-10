@@ -1,6 +1,7 @@
 //! Terminal event handlers for opening/spawning terminals and toggling console
 
 use crate::app::AppState;
+use crate::handlers::suspended_ui::SuspendedUi;
 use directories::UserDirs;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -458,32 +459,13 @@ pub async fn execute_toggle_console(app: &mut AppState) -> anyhow::Result<()> {
         }
     }
 
-    // 1. Abort input polling
-    if let Some(handle) = app.input_polling_handle.take() {
-        handle.abort();
-    }
+    // 1. Suspend the TUI (input polling, screen, mouse, watcher)
+    let mut suspended = SuspendedUi::enter(app);
 
-    // 2. Clear terminal and reset cursor position
-    write!(std::io::stdout(), "\x1b[?25h\x1b[2J\x1b[H")?;
-    std::io::stdout().flush()?;
-
-    if app.global.mouse.unwrap_or(true) {
-        disable_mouse_capture()?;
-    }
-
-    // 3. Pause watcher
-    let panel_current_dir = get_terminal_working_dir(app);
-    if let Some(watcher) = &mut app.watcher {
-        let paths = watcher.watched_paths();
-        for path in &paths {
-            let _ = watcher.unwatch(path);
-        }
-    }
-
-    // 4. Run shell
+    // 2. Run shell
     println!("\r\n--- Dropping to shell. Type 'exit' to return to fm ---\r\n");
     let result = tokio::task::spawn_blocking({
-        let dir = panel_current_dir.clone();
+        let dir = get_terminal_working_dir(app);
         move || {
             #[cfg(target_os = "windows")]
             let shell = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string());
@@ -501,18 +483,10 @@ pub async fn execute_toggle_console(app: &mut AppState) -> anyhow::Result<()> {
         Err(e) => Some(format!("Error launching shell: {e}")),
     };
 
-    // 5. Restart watcher
-    if let Some(watcher) = &mut app.watcher {
-        let _ = watcher.watch(&panel_current_dir);
-    }
-    app.sync_watcher();
+    // 3. Restore TUI state (watcher, mouse)
+    suspended.restore(app);
 
-    // 6. Restore mouse capture if enabled
-    if app.global.mouse.unwrap_or(true) {
-        enable_mouse_capture()?;
-    }
-
-    // 7. Refresh all tabs in both panels
+    // 4. Refresh all tabs in both panels
     for tab in &mut app.panels.left.tabs {
         refresh_tab(tab).await;
     }
@@ -520,7 +494,7 @@ pub async fn execute_toggle_console(app: &mut AppState) -> anyhow::Result<()> {
         refresh_tab(tab).await;
     }
 
-    // 8. Return error if any
+    // 5. Return error if any
     if let Some(e) = err {
         Err(anyhow::anyhow!(e))
     } else {

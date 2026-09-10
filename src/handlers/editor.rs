@@ -2,6 +2,7 @@
 
 use crate::app::AppState;
 use crate::fs::fs_provider::FileSystemProvider;
+use crate::handlers::suspended_ui::SuspendedUi;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -122,35 +123,17 @@ pub async fn execute_open_editor_remote(
     let (cmd, in_terminal) = {
         let editor_cfg = &app.editor_cfg;
         (
-            editor_cfg.command.as_deref(),
+            editor_cfg.command.clone(),
             editor_cfg.in_terminal.unwrap_or(true),
         )
     };
-    let active_panel_dir = app.active_tab().current_dir.clone();
 
-    if let Some(handle) = app.input_polling_handle.take() {
-        handle.abort();
-    }
-    let panel_current_dir = active_panel_dir.clone();
-    if let Some(watcher) = &mut app.watcher {
-        let paths = watcher.watched_paths();
-        for path in &paths {
-            let _ = watcher.unwatch(path);
-        }
-    }
+    // Suspend the TUI while the editor runs
+    let mut suspended = SuspendedUi::enter(app);
 
-    if app.global.mouse.unwrap_or(true) {
-        let _ = crate::handlers::terminal::disable_mouse_capture();
-    }
-    let edit_result = launch_and_wait_for_editor(&temp_path, cmd, in_terminal).await;
-    if app.global.mouse.unwrap_or(true) {
-        let _ = crate::handlers::terminal::enable_mouse_capture();
-    }
+    let edit_result = launch_and_wait_for_editor(&temp_path, cmd.as_deref(), in_terminal).await;
 
-    if let Some(watcher) = &mut app.watcher {
-        let _ = watcher.watch(&panel_current_dir);
-    }
-    app.sync_watcher();
+    suspended.restore(app);
 
     if let Err(e) = edit_result {
         let _ = tokio::fs::remove_file(&temp_path).await;
@@ -341,34 +324,20 @@ pub async fn open_file_in_editor_with_env_handling(
     file_path: &std::path::Path,
     filename_to_select: Option<String>,
 ) -> anyhow::Result<()> {
-    if let Some(handle) = app.input_polling_handle.take() {
-        handle.abort();
-    }
+    // Suspend the TUI while the editor runs
+    let mut suspended = SuspendedUi::enter(app);
+
     let panel_current_dir = app.active_tab().current_dir.clone();
-    if let Some(watcher) = &mut app.watcher {
-        let paths = watcher.watched_paths();
-        for path in &paths {
-            let _ = watcher.unwatch(path);
-        }
-    }
-    let use_mouse = app.global.mouse.unwrap_or(true);
     let result = tokio::task::spawn_blocking({
         let path = file_path.to_path_buf();
         let cmd = app.editor_cfg.command.clone();
         let in_terminal = app.editor_cfg.in_terminal.unwrap_or(true);
         move || {
-            if use_mouse {
-                let _ = crate::handlers::terminal::disable_mouse_capture();
-            }
-            let res = if let Some(cmd_str) = cmd {
+            if let Some(cmd_str) = cmd {
                 launch_and_wait_for_editor_sync(&path, Some(&cmd_str), in_terminal)
             } else {
                 open_in_default_editor(&path)
-            };
-            if use_mouse {
-                let _ = crate::handlers::terminal::enable_mouse_capture();
             }
-            res
         }
     })
     .await;
@@ -377,10 +346,7 @@ pub async fn open_file_in_editor_with_env_handling(
         Ok(Err(e)) => Some(format!("Error opening editor: {e}")),
         Err(e) => Some(format!("Error launching editor: {e}")),
     };
-    if let Some(watcher) = &mut app.watcher {
-        let _ = watcher.watch(&panel_current_dir);
-    }
-    app.sync_watcher();
+    suspended.restore(app);
     let panel = app.active_tab_mut();
     if let Ok(entries) = panel.provider.list_dir(&panel_current_dir).await {
         panel.entries = entries;

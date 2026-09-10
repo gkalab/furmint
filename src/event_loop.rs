@@ -5,7 +5,6 @@ use crate::handlers::popup_misc::dispatch_ui_event;
 use crate::handlers::terminal::{disable_mouse_capture, enable_mouse_capture};
 use crate::theme::ThemePalette;
 use ratatui::Terminal;
-use std::io::Write;
 use termina::EventReader;
 use termina::event::Event;
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -180,8 +179,7 @@ where
         }
     }
     // Clear terminal
-    write!(std::io::stdout(), "\x1b[?25h\x1b[2J\x1b[H")?;
-    std::io::stdout().flush()?;
+    crate::handlers::suspended_ui::clear_terminal_screen()?;
     Ok(None)
 }
 
