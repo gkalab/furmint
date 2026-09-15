@@ -636,6 +636,14 @@ impl FileSystemProvider for ArchiveFs {
         )
     }
 
+    async fn supports_copy_to_local(&self, _src: &Path, dest_fs: &dyn FileSystemProvider) -> bool {
+        dest_fs.is_local()
+    }
+
+    async fn supports_copy_from_local(&self, src_fs: &dyn FileSystemProvider, _src: &Path) -> bool {
+        src_fs.is_local()
+    }
+
     async fn copy_to_local(
         &self,
         src: &Path,

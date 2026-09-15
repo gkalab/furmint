@@ -409,6 +409,25 @@ pub trait FileSystemProvider: Send + Sync {
     ) -> Option<anyhow::Result<()>> {
         None
     }
+
+    /// Capability probe for `copy_to_local`: returns `true` if this provider
+    /// has an optimized path for transferring `src` to a destination on
+    /// `dest_fs`. Must not perform the transfer, so callers can check
+    /// applicability before making a conflict decision.
+    async fn supports_copy_to_local(&self, _src: &Path, _dest_fs: &dyn FileSystemProvider) -> bool {
+        false
+    }
+
+    /// Capability probe for `copy_from_local`: returns `true` if this provider
+    /// has an optimized path for transferring `src` (on `src_fs`) to a
+    /// destination on this provider. Must not perform the transfer.
+    async fn supports_copy_from_local(
+        &self,
+        _src_fs: &dyn FileSystemProvider,
+        _src: &Path,
+    ) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]

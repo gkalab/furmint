@@ -339,44 +339,45 @@ async fn handle_copy_to_local_with_existing_dir(
     dest: &std::path::Path,
     progress: &TaskProgressContext,
 ) -> Result<Option<Result<()>>> {
-    if let Some(_res) = ctx
+    // Probe the capability without transferring: running `copy_to_local` here
+    // would write the destination before the user has even seen the conflict.
+    if !ctx.src_fs.supports_copy_to_local(src, ctx.dest_fs).await {
+        return Ok(None);
+    }
+
+    match resolve_conflict(ctx, decision_state, dest).await? {
+        ConflictResult::Perform => {}
+        ConflictResult::Skip => {
+            let p = ctx
+                .processed
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                + 1;
+            update_progress_if_needed(ctx, decision_state, p);
+            return Ok(Some(Ok(())));
+        }
+        ConflictResult::Cancel => return Ok(Some(Ok(()))),
+    }
+
+    // User said overwrite — run the transfer now (exactly once).
+    let res = ctx
         .src_fs
         .copy_to_local(src, ctx.dest_fs, dest, progress)
-        .await
-    {
-        match resolve_conflict(ctx, decision_state, dest).await? {
-            ConflictResult::Perform => {}
-            ConflictResult::Skip => {
-                let p = ctx
-                    .processed
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-                    + 1;
-                update_progress_if_needed(ctx, decision_state, p);
-                return Ok(Some(Ok(())));
+        .await;
+    if let Some(res) = res {
+        if res.is_ok() {
+            if let Some(mtime) = ctx.src_fs.get_modified_time(src).await {
+                let _ = ctx.dest_fs.set_modified_time(dest, mtime).await;
             }
-            ConflictResult::Cancel => return Ok(Some(Ok(()))),
+            let p = ctx.processed.load(std::sync::atomic::Ordering::Relaxed);
+            let _ = ctx.tx.send(crate::tasks::UiEvent::Task(
+                crate::tasks::TaskEvent::UpdateProgress {
+                    task_id: ctx.id,
+                    processed: p,
+                    total: ctx.total,
+                },
+            ));
         }
-        // User said overwrite — run copy_to_local for real now.
-        let res = ctx
-            .src_fs
-            .copy_to_local(src, ctx.dest_fs, dest, progress)
-            .await;
-        if let Some(res) = res {
-            if res.is_ok() {
-                if let Some(mtime) = ctx.src_fs.get_modified_time(src).await {
-                    let _ = ctx.dest_fs.set_modified_time(dest, mtime).await;
-                }
-                let p = ctx.processed.load(std::sync::atomic::Ordering::Relaxed);
-                let _ = ctx.tx.send(crate::tasks::UiEvent::Task(
-                    crate::tasks::TaskEvent::UpdateProgress {
-                        task_id: ctx.id,
-                        processed: p,
-                        total: ctx.total,
-                    },
-                ));
-            }
-            return Ok(Some(res));
-        }
+        return Ok(Some(res));
     }
     Ok(None)
 }
