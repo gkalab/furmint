@@ -474,7 +474,7 @@ pub mod win_clipboard {
         fn set_is_bounded_when_clipboard_is_locked() {
             // A separate process must own the clipboard the legacy way (real window handle):
             // modern-mode `OpenClipboard(0)` calls may succeed concurrently on recent Windows.
-            let script = r###"
+            let script = r#"
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -MemberDefinition @'
 [DllImport("user32.dll")] public static extern bool OpenClipboard(int hWnd);
@@ -493,14 +493,13 @@ if ($ok) {
     Start-Sleep -Milliseconds 8000
     [Clip.W32]::CloseClipboard() | Out-Null
 }
-"###;
-            let mut child = match std::process::Command::new("powershell.exe")
+"#;
+            let Ok(mut child) = std::process::Command::new("powershell.exe")
                 .args(["-NoProfile", "-NonInteractive", "-Command", script])
                 .stdout(std::process::Stdio::piped())
                 .spawn()
-            {
-                Ok(child) => child,
-                Err(_) => return, // no PowerShell in this environment: skip
+            else {
+                return; // no PowerShell in this environment: skip
             };
 
             // Wait for the holder to confirm it owns the clipboard (EOF means skip).

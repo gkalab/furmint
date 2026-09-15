@@ -566,6 +566,7 @@ impl ArchiveFormat for RpmHandler {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::cast_possible_truncation)]
     use super::*;
     use crate::fs::archive::ArchiveFormat;
     use crate::tasks::UiEvent;
@@ -791,7 +792,7 @@ mod tests {
 
         let remaining: Vec<_> = std::fs::read_dir(&dest)
             .unwrap()
-            .filter_map(|e| e.ok())
+            .filter_map(Result::ok)
             .collect();
         assert!(remaining.is_empty(), "cancelled extract wrote entries");
     }

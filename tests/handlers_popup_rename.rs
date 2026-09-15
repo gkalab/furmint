@@ -149,7 +149,7 @@ impl FileSystemProvider for SftpLikeFs {
     async fn write_file_at(&self, path: &Path, offset: u64, data: &[u8]) -> anyhow::Result<()> {
         self.inner.write_file_at(path, offset, data).await
     }
-    fn display_prefix(&self) -> &str {
+    fn display_prefix(&self) -> &'static str {
         "local"
     }
     fn is_local(&self) -> bool {
