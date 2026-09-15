@@ -146,10 +146,40 @@ pub fn compute_tab_areas(bar_area: Rect, tabs: &[Tab], icons: bool) -> Vec<Rect>
     areas
 }
 
+/// Total display width of a string in terminal columns.
+///
+/// Characters without a defined width (control characters, most emoji) count
+/// as 1, matching the rest of the renderer.
+#[must_use]
+pub fn display_width(s: &str) -> usize {
+    s.chars()
+        .map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(1))
+        .sum()
+}
+
+/// Prefix of `s` whose display width is at most `max_width`.
+///
+/// Truncates on character boundaries; never splits multi-byte or wide
+/// characters.
+#[must_use]
+pub fn truncate_to_width(s: &str, max_width: usize) -> String {
+    let mut width = 0;
+    let mut out = String::new();
+    for c in s.chars() {
+        let w = unicode_width::UnicodeWidthChar::width(c).unwrap_or(1);
+        if width + w > max_width {
+            break;
+        }
+        width += w;
+        out.push(c);
+    }
+    out
+}
+
 /// Width of a single tab (without separator) in the tab bar.
 #[must_use]
 pub fn tab_area_width(tab: &Tab, icons: bool) -> u16 {
-    let mut width = u16::try_from(tab_display_title(tab).chars().count() + 2).unwrap_or(u16::MAX);
+    let mut width = u16::try_from(display_width(&tab_display_title(tab)) + 2).unwrap_or(u16::MAX);
     if icons {
         width += 1; // left edge
     }
@@ -173,8 +203,8 @@ pub fn tab_display_title(tab: &Tab) -> String {
         tab_title.to_string()
     } else {
         let max_len = if tab.provider.is_local() { 15 } else { 25 };
-        if tab_title.len() > max_len {
-            format!("{}…", &tab_title[..max_len - 3])
+        if display_width(tab_title) > max_len {
+            format!("{}…", truncate_to_width(tab_title, max_len - 3))
         } else {
             tab_title.to_string()
         }
@@ -359,5 +389,43 @@ mod tests {
         // " test " = 6 columns; icons add left/right edges
         assert_eq!(tab_area_width(&tab, false), 6);
         assert_eq!(tab_area_width(&tab, true), 8);
+    }
+
+    #[test]
+    fn ascii_title_truncation_unchanged() {
+        let mut tab = crate::test_utils::create_test_tab();
+        tab.current_dir = std::path::PathBuf::from("abcdefghijklmnop"); // 16 > 15
+        assert_eq!(tab_display_title(&tab), "abcdefghijkl…");
+    }
+
+    #[test]
+    fn multibyte_title_truncation_does_not_panic() {
+        // 18 display columns: 3 CJK (3 each... 2 cols) + 8 é + "test".
+        // Old code sliced bytes at `&title[..12]`, which lands inside the
+        // second é (byte 12 is not a char boundary) and panicked on draw.
+        let mut tab = crate::test_utils::create_test_tab();
+        tab.current_dir = std::path::PathBuf::from("日本語éééééééétest");
+
+        let title = tab_display_title(&tab);
+        assert_eq!(title, "日本語éééééé…");
+        assert!(display_width(&title) <= 15);
+    }
+
+    #[test]
+    fn multibyte_title_width_is_display_width_aware() {
+        let mut tab = crate::test_utils::create_test_tab();
+        tab.current_dir = std::path::PathBuf::from("日本語");
+        // Width 6, not the 3 chars the old code counted
+        assert_eq!(display_width("日本語"), 6);
+        assert_eq!(tab_display_title(&tab), "日本語");
+        // 6 display columns + 2 padding
+        assert_eq!(tab_area_width(&tab, false), 8);
+
+        // Wide title exceeding the 15-column local budget truncates by width
+        tab.current_dir = std::path::PathBuf::from("日本語日本語日本語xx");
+        let title = tab_display_title(&tab);
+        assert!(title.ends_with('…'));
+        assert_eq!(display_width(&title), 13); // 12 + ellipsis
+        assert_eq!(tab_area_width(&tab, false), 15);
     }
 }

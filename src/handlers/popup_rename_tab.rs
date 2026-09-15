@@ -12,7 +12,7 @@ pub fn handle_init_rename_tab(app: &mut AppState) {
     let state = &mut app.popups.rename_tab;
     state.is_visible = true;
     state.new_name.clone_from(&current_title);
-    state.cursor_position = current_title.len();
+    state.cursor_position = current_title.chars().count();
 }
 
 pub fn handle_rename_tab_event(code: KeyCode, modifiers: Modifiers, app: &mut AppState) -> bool {
@@ -40,4 +40,47 @@ pub fn handle_rename_tab_event(code: KeyCode, modifiers: Modifiers, app: &mut Ap
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app_state::tabs::TabManager;
+    use std::path::Path;
+
+    async fn test_app() -> AppState {
+        crate::test_utils::TestAppBuilder::new()
+            .left(TabManager::new(Path::new(".")).await.unwrap())
+            .right(TabManager::new(Path::new(".")).await.unwrap())
+            .build()
+    }
+
+    #[tokio::test]
+    async fn test_init_rename_tab_cursor_starts_at_end_in_chars() {
+        let mut app = test_app().await;
+        app.panels.left.active_tab_mut().custom_title = Some("héllo ✓".to_string());
+
+        handle_init_rename_tab(&mut app);
+
+        let popup = &app.popups.rename_tab;
+        assert!(popup.is_visible);
+        assert_eq!(popup.new_name, "héllo ✓");
+        // Cursor is a char index: "héllo ✓" is 7 chars but 10 bytes.
+        assert_eq!(popup.cursor_position, popup.new_name.chars().count());
+        assert!(
+            popup.cursor_position <= popup.new_name.chars().count(),
+            "cursor position is out of range"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_init_rename_tab_cursor_for_ascii_title() {
+        let mut app = test_app().await;
+        app.panels.left.active_tab_mut().custom_title = Some("plain".to_string());
+
+        handle_init_rename_tab(&mut app);
+
+        assert_eq!(app.popups.rename_tab.new_name, "plain");
+        assert_eq!(app.popups.rename_tab.cursor_position, 5);
+    }
 }

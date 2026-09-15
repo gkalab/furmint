@@ -180,11 +180,7 @@ fn handle_viewer_shortcuts(code: KeyCode, modifiers: Modifiers, app: &mut AppSta
     }
 }
 
-pub fn handle_viewer_search_event(
-    code: KeyCode,
-    _modifiers: Modifiers,
-    app: &mut AppState,
-) -> bool {
+pub fn handle_viewer_search_event(code: KeyCode, modifiers: Modifiers, app: &mut AppState) -> bool {
     match code {
         KeyCode::Escape => {
             app.popups
@@ -201,43 +197,15 @@ pub fn handle_viewer_search_event(
             app.popups
                 .set_popup_visible(crate::app::PopupKind::ViewerSearch, false);
         }
-        KeyCode::Char(c) => {
-            app.popups
-                .viewer_search
-                .query
-                .insert(app.popups.viewer_search.cursor_position, c);
-            app.popups.viewer_search.cursor_position += 1;
+        _ => {
+            crate::handlers::input_utils::handle_text_input(
+                code,
+                modifiers,
+                &mut app.popups.viewer_search.query,
+                &mut app.popups.viewer_search.cursor_position,
+                false,
+            );
         }
-        KeyCode::Backspace if app.popups.viewer_search.cursor_position > 0 => {
-            app.popups.viewer_search.cursor_position -= 1;
-            app.popups
-                .viewer_search
-                .query
-                .remove(app.popups.viewer_search.cursor_position);
-        }
-        KeyCode::Delete
-            if app.popups.viewer_search.cursor_position < app.popups.viewer_search.query.len() =>
-        {
-            app.popups
-                .viewer_search
-                .query
-                .remove(app.popups.viewer_search.cursor_position);
-        }
-        KeyCode::Left if app.popups.viewer_search.cursor_position > 0 => {
-            app.popups.viewer_search.cursor_position -= 1;
-        }
-        KeyCode::Right
-            if app.popups.viewer_search.cursor_position < app.popups.viewer_search.query.len() =>
-        {
-            app.popups.viewer_search.cursor_position += 1;
-        }
-        KeyCode::Home => {
-            app.popups.viewer_search.cursor_position = 0;
-        }
-        KeyCode::End => {
-            app.popups.viewer_search.cursor_position = app.popups.viewer_search.query.len();
-        }
-        _ => {}
     }
     false
 }
