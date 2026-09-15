@@ -193,8 +193,10 @@ impl ZipHandler {
         let file = File::open(&self.path).context("Failed to open archive")?;
         let mut archive = zip::ZipArchive::new(file).context("Failed to read zip")?;
         let mut zip_file = archive.by_name(path_str).context("File not found in zip")?;
-        let size = usize::try_from(zip_file.size()).context("Zip file entry too large")?;
-        let mut buffer = Vec::with_capacity(size);
+        // Grow the buffer naturally instead of pre-reserving the central
+        // directory's claimed size, which is untrusted and could be absurdly
+        // large (e.g. a hostile archive claiming 4 GB).
+        let mut buffer = Vec::new();
         zip_file.read_to_end(&mut buffer)?;
         Ok(buffer)
     }
