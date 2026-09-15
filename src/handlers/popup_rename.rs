@@ -102,7 +102,7 @@ pub async fn handle_rename_event(code: KeyCode, modifiers: Modifiers, app: &mut 
     false
 }
 
-pub(crate) async fn perform_rename(app: &mut AppState, _overwrite: bool) {
+pub(crate) async fn perform_rename(app: &mut AppState, overwrite: bool) {
     let old_path = app
         .popups
         .rename
@@ -116,7 +116,14 @@ pub(crate) async fn perform_rename(app: &mut AppState, _overwrite: bool) {
 
     let new_name = app.popups.rename.new_name.clone();
     let panel = app.active_tab_mut();
-    let result = panel.provider.rename(&old_path, &new_path).await;
+    let result = if overwrite && panel.provider.exists(&new_path).await {
+        match panel.provider.delete(&new_path, false).await {
+            Ok(()) => panel.provider.rename(&old_path, &new_path).await,
+            Err(e) => Err(e),
+        }
+    } else {
+        panel.provider.rename(&old_path, &new_path).await
+    };
 
     match result {
         Ok(()) => {
