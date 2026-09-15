@@ -105,6 +105,7 @@ async fn handle_popup_mouse(app: &mut AppState, event: MouseEvent, is_double_cli
                     app,
                     event.column,
                     event.row,
+                    is_double_click,
                 );
             } else if app.popups.bookmark.list.is_visible {
                 crate::handlers::popup_bookmark::handle_bookmark_mouse_click(

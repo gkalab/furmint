@@ -3,7 +3,7 @@ use crate::state::ssh::SshField;
 use crate::tasks::{SshContext, SshEvent, TaskEvent, TaskStatus, UiEvent};
 use secrecy::{ExposeSecret, SecretString};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use termina::event::{KeyCode, Modifiers};
 
 pub fn handle_ssh_connection_init(app: &mut AppState) {
@@ -447,9 +447,10 @@ pub fn spawn_ssh_connect_with_keys(
                     })));
                 }
                 Err(e) => {
+                    let err = e.to_string();
                     let _ = tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
                         task_id: id,
-                        status: TaskStatus::Completed,
+                        status: TaskStatus::Failed(err),
                     }));
                     if let crate::ssh_manager::SshError::HostKey {
                         host: hk_host,
@@ -586,7 +587,12 @@ pub fn handle_ssh_password_event(app: &mut AppState, code: KeyCode, modifiers: M
             if session_id.is_empty() {
                 let host = app.popups.ssh_password.host.clone();
                 let user = app.popups.ssh_password.user.clone();
-                let port = app.popups.ssh_connection.port.parse::<u16>().unwrap_or(22);
+                let Ok(port) = app.popups.ssh_connection.port.trim().parse::<u16>() else {
+                    app.popups
+                        .set_popup_visible(crate::app::PopupKind::SshConnection, true);
+                    app.popups.ssh_connection.error = Some("Invalid port number".to_string());
+                    return false;
+                };
                 let target_path =
                     parse_connection_string(&app.popups.ssh_connection.connection_string)
                         .and_then(|p| p.path);
@@ -734,18 +740,15 @@ fn show_password_popup_for_reconnect(
     app.popups.ssh_password.cursor_position = 0;
 }
 
-pub fn handle_ssh_connection_mouse_click(app: &mut AppState, x: u16, y: u16) {
+pub fn handle_ssh_connection_mouse_click(
+    app: &mut AppState,
+    x: u16,
+    y: u16,
+    is_double_click: bool,
+) {
     if app.popups.ssh_connection.confirmation.is_some() {
         return;
     }
-
-    let now = Instant::now();
-    let is_double_click = if let Some((last_time, last_x, last_y)) = app.mouse.last_click {
-        now.duration_since(last_time) < Duration::from_millis(500) && x == last_x && y == last_y
-    } else {
-        false
-    };
-    app.mouse.last_click = Some((now, x, y));
 
     let pos = (x, y);
     let fields = &app.popups.ssh_connection.field_areas;
@@ -995,5 +998,73 @@ pub fn handle_reconnect_ssh(app: &mut AppState) {
     } else {
         // No cached password, show popup immediately
         show_password_popup_for_reconnect(app, &session, None);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ssh_history::SshConnectionInfo;
+    use ratatui::layout::Rect;
+    use termina::event::{MouseButton, MouseEvent, MouseEventKind};
+
+    fn left_click(x: u16, y: u16) -> MouseEvent {
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: x,
+            row: y,
+            modifiers: Modifiers::NONE,
+        }
+    }
+
+    /// App with the SSH popup open and one history entry whose connection
+    /// string fails validation ("user@" has an empty host), so Enter reports
+    /// an error instead of spawning a real connection.
+    fn ssh_popup_app() -> AppState {
+        let mut app = crate::test_utils::create_test_app();
+        app.ssh_history.add(SshConnectionInfo {
+            name: None,
+            connection_string: "user@".to_string(),
+            user: "user".to_string(),
+            host: String::new(),
+            port: 22,
+            path: None,
+            sort_column: None,
+            sort_direction: None,
+        });
+        app.popups
+            .set_popup_visible(crate::app::PopupKind::SshConnection, true);
+        app.popups.ssh_connection.field_areas = vec![
+            Rect::new(0, 0, 10, 1),
+            Rect::new(0, 1, 10, 1),
+            Rect::new(0, 2, 10, 1),
+            Rect::new(0, 5, 10, 5),
+        ];
+        app
+    }
+
+    #[tokio::test]
+    async fn single_click_on_ssh_history_row_selects_without_connecting() {
+        let mut app = ssh_popup_app();
+
+        crate::handlers::mouse::handle_mouse_event(&mut app, left_click(2, 6)).await;
+
+        assert_eq!(app.popups.ssh_connection.selected_history_idx, Some(0));
+        assert_eq!(app.popups.ssh_connection.active_field, SshField::History);
+        assert!(app.popups.ssh_connection.error.is_none());
+        assert!(app.popups.ssh_connection.is_visible);
+    }
+
+    #[tokio::test]
+    async fn double_click_on_ssh_history_row_triggers_enter() {
+        let mut app = ssh_popup_app();
+
+        crate::handlers::mouse::handle_mouse_event(&mut app, left_click(2, 6)).await;
+        crate::handlers::mouse::handle_mouse_event(&mut app, left_click(2, 6)).await;
+
+        assert_eq!(
+            app.popups.ssh_connection.error.as_deref(),
+            Some("Invalid connection string format")
+        );
     }
 }
