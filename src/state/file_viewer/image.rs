@@ -9,6 +9,13 @@ use ratatui_image::protocol::StatefulProtocol;
 const ZOOM_IN_FACTOR: f32 = 1.25;
 const ZOOM_OUT_FACTOR: f32 = 0.8;
 
+/// Maximum decoded size (width * height) of an image we are willing to display.
+///
+/// Larger images are rejected up front (after a cheap header-only dimension probe) so we never
+/// allocate, on the runtime worker or at rest, a full-size decode that exceeds this many pixels.
+/// Each retained full-size copy costs ~4 bytes per pixel (RGBA), so this bounds steady memory.
+const MAX_IMAGE_PIXELS: u64 = 50_000_000; // ~50 MP
+
 /// State for the image side of the file viewer.
 #[derive(Default)]
 pub struct ImageViewerState {
@@ -116,6 +123,37 @@ pub struct ImageLoadResult {
     pub result: Result<ratatui_image::protocol::StatefulProtocol, String>,
     pub picker: Option<ratatui_image::picker::Picker>,
     pub image: Option<image::DynamicImage>,
+}
+
+/// Decode an image from in-memory bytes, refusing images larger than [`MAX_IMAGE_PIXELS`].
+///
+/// The dimension probe only reads the image header (via a borrowed `Cursor`), so oversized
+/// images are rejected before any full-size decode allocates memory.
+fn decode_image_capped(data: Vec<u8>) -> Result<image::DynamicImage, String> {
+    use image::ImageReader;
+    use std::io::Cursor;
+
+    let (width, height) = ImageReader::new(Cursor::new(&data[..]))
+        .with_guessed_format()
+        .map_err(|e| e.to_string())
+        .and_then(|r| r.into_dimensions().map_err(|e| e.to_string()))?;
+    check_image_size(width, height)?;
+
+    ImageReader::new(Cursor::new(data))
+        .with_guessed_format()
+        .map_err(|e| e.to_string())
+        .and_then(|r| r.decode().map_err(|e| e.to_string()))
+}
+
+/// Reject images whose pixel count exceeds [`MAX_IMAGE_PIXELS`].
+fn check_image_size(width: u32, height: u32) -> Result<(), String> {
+    let pixels = u64::from(width) * u64::from(height);
+    if pixels > MAX_IMAGE_PIXELS {
+        return Err(format!(
+            "image too large to display: {width}x{height} ({pixels} pixels, max {MAX_IMAGE_PIXELS})"
+        ));
+    }
+    Ok(())
 }
 
 impl ImageViewerState {
@@ -233,40 +271,58 @@ impl ImageViewerState {
             let picker = self.picker.clone();
 
             tokio::spawn(async move {
-                let path_for_result = path_clone.clone();
-                let p = picker.unwrap_or_else(|| {
-                    ratatui_image::picker::Picker::from_query_stdio()
-                        .unwrap_or_else(|_| ratatui_image::picker::Picker::halfblocks())
-                });
-
-                let (result, image): (
-                    Result<StatefulProtocol, String>,
-                    Option<image::DynamicImage>,
-                ) = match provider_clone.read_file(&path_clone).await {
-                    Ok(data) => {
-                        use image::ImageReader;
-                        use std::io::Cursor;
-                        let decode_result = ImageReader::new(Cursor::new(data))
-                            .with_guessed_format()
-                            .map_err(|e| e.to_string())
-                            .and_then(|r| r.decode().map_err(|e| e.to_string()));
-                        match decode_result {
-                            Ok(dyn_image) => (
-                                Ok(p.new_resize_protocol(dyn_image.clone())),
-                                Some(dyn_image),
-                            ),
-                            Err(e) => (Err(e), None),
-                        }
-                    }
-                    Err(e) => (Err(e.to_string()), None),
+                // Resolve the picker off the runtime worker: `from_query_stdio` performs
+                // blocking stdio (and a blocking `tmux` process launch) and must not run on an
+                // async worker. This only happens while the detached picker init is in flight.
+                let p = match picker {
+                    Some(p) => p,
+                    None => tokio::task::spawn_blocking(|| {
+                        ratatui_image::picker::Picker::from_query_stdio()
+                            .unwrap_or_else(|_| ratatui_image::picker::Picker::halfblocks())
+                    })
+                    .await
+                    .unwrap_or_else(|_| ratatui_image::picker::Picker::halfblocks()),
                 };
+
+                let data = match provider_clone.read_file(&path_clone).await {
+                    Ok(data) => data,
+                    Err(e) => {
+                        let _ = image_tx_clone.send(ImageLoadResult {
+                            load_id,
+                            path: path_clone,
+                            result: Err(e.to_string()),
+                            image: None,
+                            picker: None,
+                        });
+                        return;
+                    }
+                };
+
+                // Bail out before the expensive decode if a newer load superseded this one.
+                if cancel_flag.load(Ordering::Relaxed) {
+                    return;
+                }
+
+                // Decode off the runtime workers: image decode is CPU-bound and can be
+                // hundreds of MB; it must not block a tokio worker (a few large images can
+                // starve the runtime).
+                let (result, image) =
+                    tokio::task::spawn_blocking(move || match decode_image_capped(data) {
+                        Ok(dyn_image) => (
+                            Ok(p.new_resize_protocol(dyn_image.clone())),
+                            Some(dyn_image),
+                        ),
+                        Err(e) => (Err(e), None),
+                    })
+                    .await
+                    .unwrap_or_else(|_| (Err("image decode task failed".to_string()), None));
 
                 if cancel_flag.load(Ordering::Relaxed) {
                     return;
                 }
                 let _ = image_tx_clone.send(ImageLoadResult {
                     load_id,
-                    path: path_for_result,
+                    path: path_clone,
                     result,
                     image,
                     picker: None,
@@ -415,7 +471,6 @@ impl ImageViewerState {
         scale: f32,
         area: ratatui::layout::Rect,
     ) -> Option<StatefulProtocol> {
-        let img = self.image_zoom.image.clone()?;
         let (rw, rh) = self.render_pixel_size(scale);
         let vw = (f32::from(area.width) * f32::from(font.width)).ceil() as u32;
         let vh = (f32::from(area.height) * f32::from(font.height)).ceil() as u32;
@@ -426,7 +481,7 @@ impl ImageViewerState {
         let oy =
             ((f32::from(self.image_zoom.pan_y) * f32::from(font.height)).round() as u32).min(max_y);
 
-        let scaled = self.scale_for_zoom(&img, rw, rh, scale);
+        let scaled = self.scale_for_zoom(rw, rh, scale)?;
         let crop = scaled.crop_imm(ox, oy, vw, vh);
 
         let mut proto = picker.new_resize_protocol(crop);
@@ -442,19 +497,17 @@ impl ImageViewerState {
     }
 
     /// Returns the source image resized to `(rw, rh)`, caching it for the given `scale`.
+    ///
+    /// Reads the source from `self.image_zoom.image` directly (by reference) rather than
+    /// cloning the full-size source on every pan/zoom event.
     #[allow(clippy::float_cmp)]
-    fn scale_for_zoom(
-        &mut self,
-        img: &image::DynamicImage,
-        rw: u32,
-        rh: u32,
-        scale: f32,
-    ) -> image::DynamicImage {
+    fn scale_for_zoom(&mut self, rw: u32, rh: u32, scale: f32) -> Option<image::DynamicImage> {
         if self.image_zoom.scaled_zoom == scale
             && let Some(scaled) = &self.image_zoom.scaled
         {
-            return scaled.clone();
+            return Some(scaled.clone());
         }
+        let img = self.image_zoom.image.as_ref()?;
         let scaled = img.resize(
             rw.max(1),
             rh.max(1),
@@ -462,7 +515,7 @@ impl ImageViewerState {
         );
         self.image_zoom.scaled = Some(scaled.clone());
         self.image_zoom.scaled_zoom = scale;
-        scaled
+        Some(scaled)
     }
 }
 
@@ -699,5 +752,27 @@ mod tests {
                 .as_ref()
                 .is_none_or(|p| p.protocol_type().is_none())
         );
+    }
+
+    #[test]
+    fn decode_image_capped_decodes_small_image() {
+        let img = image::DynamicImage::ImageRgba8(image::RgbaImage::new(3, 2));
+        let mut buf = std::io::Cursor::new(Vec::new());
+        img.write_to(&mut buf, image::ImageFormat::Png).unwrap();
+
+        let decoded = decode_image_capped(buf.into_inner()).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (3, 2));
+    }
+
+    #[test]
+    fn check_image_size_enforces_pixel_cap() {
+        // Well under the cap.
+        assert!(check_image_size(100, 100).is_ok());
+        // Exactly at the cap (10000 * 5000 == MAX_IMAGE_PIXELS) is allowed.
+        assert!(check_image_size(10_000, 5_000).is_ok());
+        // Just over the cap is rejected.
+        assert!(check_image_size(10_000, 5_001).is_err());
+        // A pathological 20000x20000 (~400 MP) is rejected.
+        assert!(check_image_size(20_000, 20_000).is_err());
     }
 }
