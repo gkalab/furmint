@@ -10,11 +10,14 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 
+/// Maximum number of tag index entries accepted in a single RPM header.
+const MAX_RPM_TAG_COUNT: u32 = 10_000;
+
 pub struct RpmHandler {
     path: PathBuf,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RpmValue {
     String(String),
     Int32(i32),
@@ -84,6 +87,24 @@ impl RpmHandler {
         reader.read_exact(&mut size_buf)?;
         let size = u32::from_be_bytes(size_buf);
 
+        if count > MAX_RPM_TAG_COUNT {
+            return Err(anyhow!(
+                "RPM header tag count too large: {count} (max {MAX_RPM_TAG_COUNT})"
+            ));
+        }
+
+        // The rest of the stream must hold the whole index and tag data,
+        // otherwise the header fields are corrupt and must not drive
+        // allocations or slicing below.
+        let pos = reader.stream_position()?;
+        let total = reader.seek(SeekFrom::End(0))?;
+        reader.seek(SeekFrom::Start(pos))?;
+        let remaining = total.saturating_sub(pos);
+        let index_bytes = u64::from(count) * 16;
+        if index_bytes > remaining || u64::from(size) > remaining - index_bytes {
+            return Err(anyhow!("RPM header extends past end of data"));
+        }
+
         let mut index_entries = Vec::new();
         for _ in 0..count {
             let mut buf = [0u8; 16];
@@ -96,62 +117,96 @@ impl RpmHandler {
             ));
         }
 
-        let mut data = vec![0u8; size as usize];
+        let mut data = vec![0u8; usize::try_from(size).unwrap_or(0)];
         reader.read_exact(&mut data)?;
 
         let mut tags = HashMap::new();
         for (tag, ty, offset, cnt) in index_entries {
-            let offset = usize::try_from(offset).unwrap_or(0);
+            let offset = usize::try_from(offset)
+                .map_err(|_| anyhow!("Negative RPM tag offset for tag {tag}"))?;
+            if offset > data.len() {
+                return Err(anyhow!("RPM tag {tag} offset out of bounds"));
+            }
             let cnt = u32::try_from(cnt).unwrap_or(0);
-            let val = match ty {
-                6 | 9 => {
-                    // STRING, I18NSTRING
-                    let s = data[offset..].split(|&b| b == 0).next().unwrap_or(&[]);
-                    RpmValue::String(String::from_utf8_lossy(s).to_string())
-                }
-                4 => {
-                    // INT32
-                    match cnt.cmp(&1) {
-                        std::cmp::Ordering::Equal => {
-                            let i =
-                                i32::from_be_bytes(data[offset..offset + 4].try_into().unwrap());
-                            RpmValue::Int32(i)
-                        }
-                        std::cmp::Ordering::Greater => {
-                            let mut arr = Vec::new();
-                            for i in 0..cnt {
-                                let start = offset + (i as usize) * 4;
-                                arr.push(i32::from_be_bytes(
-                                    data[start..start + 4].try_into().unwrap(),
-                                ));
-                            }
-                            RpmValue::String(
-                                arr.iter()
-                                    .map(std::string::ToString::to_string)
-                                    .collect::<Vec<_>>()
-                                    .join(", "),
-                            )
-                        }
-                        std::cmp::Ordering::Less => RpmValue::Int32(0),
-                    }
-                }
-                8 => {
-                    // STRING_ARRAY
-                    let mut arr = Vec::new();
-                    let mut start = offset;
-                    for _ in 0..cnt {
-                        let s = data[start..].split(|&b| b == 0).next().unwrap_or(&[]);
-                        arr.push(String::from_utf8_lossy(s).to_string());
-                        start += s.len() + 1;
-                    }
-                    RpmValue::StringArray(arr)
-                }
-                _ => RpmValue::Binary(vec![]), // Placeholder for other types
-            };
+            let val = Self::parse_tag_value(&data, tag, ty, offset, cnt)?;
             tags.insert(tag, val);
         }
 
         Ok(tags)
+    }
+
+    /// Decodes the value of a single tag from the header data section.
+    ///
+    /// `offset` must already be validated to be within `data`. All bounds
+    /// violations are returned as errors, never as panics.
+    fn parse_tag_value(
+        data: &[u8],
+        tag: i32,
+        ty: i32,
+        offset: usize,
+        cnt: u32,
+    ) -> Result<RpmValue> {
+        match ty {
+            6 | 9 => {
+                // STRING, I18NSTRING
+                let rest = &data[offset..];
+                let end = rest.iter().position(|&b| b == 0).unwrap_or(rest.len());
+                Ok(RpmValue::String(
+                    String::from_utf8_lossy(&rest[..end]).to_string(),
+                ))
+            }
+            4 => match cnt.cmp(&1) {
+                // INT32
+                std::cmp::Ordering::Equal => {
+                    if data.len() - offset < 4 {
+                        return Err(anyhow!("RPM INT32 tag {tag} overflows header data"));
+                    }
+                    let i = i32::from_be_bytes(data[offset..offset + 4].try_into().unwrap());
+                    Ok(RpmValue::Int32(i))
+                }
+                std::cmp::Ordering::Greater => {
+                    if u64::from(cnt) * 4 > (data.len() - offset) as u64 {
+                        return Err(anyhow!(
+                            "RPM INT32 array for tag {tag} overflows header data"
+                        ));
+                    }
+                    let mut arr = Vec::new();
+                    for i in 0..cnt {
+                        let start = offset + (i as usize) * 4;
+                        arr.push(i32::from_be_bytes(
+                            data[start..start + 4].try_into().unwrap(),
+                        ));
+                    }
+                    Ok(RpmValue::String(
+                        arr.iter()
+                            .map(std::string::ToString::to_string)
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    ))
+                }
+                std::cmp::Ordering::Less => Ok(RpmValue::Int32(0)),
+            },
+            8 => {
+                // STRING_ARRAY
+                let mut arr = Vec::new();
+                let mut start = offset;
+                for _ in 0..cnt {
+                    if start >= data.len() {
+                        return Err(anyhow!(
+                            "RPM string array for tag {tag} overflows header data"
+                        ));
+                    }
+                    let rest = &data[start..];
+                    let Some(end) = rest.iter().position(|&b| b == 0) else {
+                        return Err(anyhow!("Unterminated RPM string array entry for tag {tag}"));
+                    };
+                    arr.push(String::from_utf8_lossy(&rest[..end]).to_string());
+                    start += end + 1;
+                }
+                Ok(RpmValue::StringArray(arr))
+            }
+            _ => Ok(RpmValue::Binary(vec![])), // Placeholder for other types
+        }
     }
 
     /// Extracts metadata from the RPM package.
@@ -454,6 +509,10 @@ impl ArchiveFormat for RpmHandler {
         let mut last_update = std::time::Instant::now();
 
         loop {
+            if progress.cancel.load(Ordering::Relaxed) {
+                return Ok(());
+            }
+
             let Ok(mut entry_reader) = NewcReader::new(reader) else {
                 break;
             };
@@ -502,5 +561,253 @@ impl ArchiveFormat for RpmHandler {
         ));
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fs::archive::ArchiveFormat;
+    use crate::tasks::UiEvent;
+    use std::io::Cursor;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
+
+    fn test_progress(cancel: bool) -> TaskProgressContext {
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<UiEvent>();
+        TaskProgressContext {
+            id: 1,
+            tx,
+            cancel: Arc::new(AtomicBool::new(cancel)),
+            processed_bytes: Arc::new(AtomicU64::new(0)),
+            processed_items: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    /// Builds a raw RPM header structure (magic, version, reserved, count,
+    /// size, index entries, tag data) from explicit fields.
+    fn rpm_header(count: u32, size: u32, index: &[(i32, i32, i32, i32)], data: &[u8]) -> Vec<u8> {
+        let mut v = Vec::with_capacity(16 + index.len() * 16 + data.len());
+        v.extend_from_slice(&[0x8e, 0xad, 0xe8, 1]);
+        v.extend_from_slice(&[0u8; 4]);
+        v.extend_from_slice(&count.to_be_bytes());
+        v.extend_from_slice(&size.to_be_bytes());
+        for (tag, ty, offset, cnt) in index {
+            v.extend_from_slice(&tag.to_be_bytes());
+            v.extend_from_slice(&ty.to_be_bytes());
+            v.extend_from_slice(&offset.to_be_bytes());
+            v.extend_from_slice(&cnt.to_be_bytes());
+        }
+        v.extend_from_slice(data);
+        v
+    }
+
+    fn parse_header(buf: &[u8]) -> Result<HashMap<i32, RpmValue>> {
+        RpmHandler::parse_header_internal(&mut Cursor::new(buf))
+    }
+
+    fn valid_header() -> (Vec<u8>, Vec<u8>) {
+        let mut data = Vec::new();
+        data.extend_from_slice(b"test\0"); // tag 1000 STRING @0
+        data.extend_from_slice(b"1.0\0"); // tag 1001 STRING @5
+        data.extend_from_slice(&1i32.to_be_bytes()); // tag 1002 INT32 @9
+        data.extend_from_slice(b"GPL\0MIT\0"); // tag 1004 STRING_ARRAY @13
+        let index = [
+            (1000, 6, 0, 1),
+            (1001, 6, 5, 1),
+            (1002, 4, 9, 1),
+            (1004, 8, 13, 2),
+        ];
+        (
+            rpm_header(index.len() as u32, data.len() as u32, &index, &data),
+            data,
+        )
+    }
+
+    #[test]
+    fn valid_header_parses_all_supported_types() {
+        let (buf, _data) = valid_header();
+        let tags = parse_header(&buf).unwrap();
+
+        assert_eq!(tags.get(&1000), Some(&RpmValue::String("test".to_string())));
+        assert_eq!(tags.get(&1001), Some(&RpmValue::String("1.0".to_string())));
+        assert_eq!(tags.get(&1002), Some(&RpmValue::Int32(1)));
+        assert_eq!(
+            tags.get(&1004),
+            Some(&RpmValue::StringArray(vec![
+                "GPL".to_string(),
+                "MIT".to_string()
+            ]))
+        );
+    }
+
+    #[test]
+    fn invalid_header_magic_is_error() {
+        let (mut buf, _data) = valid_header();
+        buf[0] = 0x00;
+        let err = parse_header(&buf).unwrap_err().to_string();
+        assert!(err.contains("magic"), "{err}");
+    }
+
+    #[test]
+    fn truncated_header_is_error() {
+        let buf = rpm_header(0, 0, &[], &[]);
+        assert!(parse_header(&buf[..10]).is_err());
+    }
+
+    #[test]
+    fn tag_count_above_limit_is_error() {
+        // 10_001 index entries claimed, none present: must error before any
+        // allocation proportional to the (untrusted) count.
+        let buf = rpm_header(MAX_RPM_TAG_COUNT + 1, 0, &[], &[]);
+        let err = parse_header(&buf).unwrap_err().to_string();
+        assert!(err.contains("tag count"), "{err}");
+    }
+
+    #[test]
+    fn huge_data_size_is_error() {
+        // Claims 2 GiB of tag data while providing none: the old code would
+        // have allocated the whole thing.
+        let buf = rpm_header(0, 0x8000_0000, &[], &[]);
+        let err = parse_header(&buf).unwrap_err().to_string();
+        assert!(err.contains("end of data"), "{err}");
+    }
+
+    #[test]
+    fn index_larger_than_stream_is_error() {
+        let buf = rpm_header(100, 0, &[], &[]);
+        assert!(parse_header(&buf).is_err());
+    }
+
+    #[test]
+    fn negative_tag_offset_is_error() {
+        let data = b"x\0";
+        let buf = rpm_header(1, data.len() as u32, &[(1000, 6, -1, 1)], data);
+        let err = parse_header(&buf).unwrap_err().to_string();
+        assert!(err.contains("offset"), "{err}");
+    }
+
+    #[test]
+    fn string_offset_out_of_bounds_is_error() {
+        let data = b"x\0";
+        let buf = rpm_header(1, data.len() as u32, &[(1000, 6, 50, 1)], data);
+        let err = parse_header(&buf).unwrap_err().to_string();
+        assert!(err.contains("out of bounds"), "{err}");
+    }
+
+    #[test]
+    fn int32_out_of_bounds_is_error() {
+        let data = [0u8, 0];
+        let buf = rpm_header(1, data.len() as u32, &[(1002, 4, 0, 1)], &data);
+        assert!(parse_header(&buf).is_err());
+    }
+
+    #[test]
+    fn int32_array_overflow_is_error() {
+        let data = [0u8; 16];
+        // Claims 10 ints (40 bytes) inside a 16-byte data section.
+        let buf = rpm_header(1, data.len() as u32, &[(1002, 4, 0, 10)], &data);
+        assert!(parse_header(&buf).is_err());
+    }
+
+    #[test]
+    fn string_array_overflow_is_error() {
+        let data = b"a\0b\0";
+        // Asks for 5 NUL-terminated strings from a 4-byte section.
+        let buf = rpm_header(1, data.len() as u32, &[(1004, 8, 0, 5)], data);
+        assert!(parse_header(&buf).is_err());
+    }
+
+    fn build_cpio_payload() -> Vec<u8> {
+        let entries = vec![
+            (
+                cpio::NewcBuilder::new("./usr").mode(0o040_755),
+                Cursor::new(Vec::new()),
+            ),
+            (
+                cpio::NewcBuilder::new("./usr/hello.txt").mode(0o100_644),
+                Cursor::new(b"hello rpm".to_vec()),
+            ),
+        ];
+        cpio::write_cpio(entries.into_iter(), Vec::new()).unwrap()
+    }
+
+    /// Minimal RPM: 96-byte lead, two empty headers, uncompressed cpio payload.
+    fn build_rpm(cpio_payload: &[u8]) -> Vec<u8> {
+        let mut v = vec![0u8; 96];
+        for _ in 0..2 {
+            v.extend_from_slice(&[0x8e, 0xad, 0xe8, 1]);
+            v.extend_from_slice(&[0u8; 4]); // reserved
+            v.extend_from_slice(&0u32.to_be_bytes()); // count
+            v.extend_from_slice(&0u32.to_be_bytes()); // size
+        }
+        v.extend_from_slice(cpio_payload);
+        v
+    }
+
+    fn write_rpm(tmp: &std::path::Path, name: &str, bytes: &[u8]) -> std::path::PathBuf {
+        let path = tmp.join(name);
+        std::fs::write(&path, bytes).unwrap();
+        path
+    }
+
+    #[test]
+    fn rpm_scan_read_and_extract_roundtrip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rpm_path = write_rpm(tmp.path(), "test.rpm", &build_rpm(&build_cpio_payload()));
+        let handler = RpmHandler::new(&rpm_path);
+
+        let (entries, _tree) = handler.scan().unwrap();
+        let file = entries.get(&PathBuf::from("usr/hello.txt")).unwrap();
+        assert_eq!(file.file_entry.name, "hello.txt");
+        assert!(!file.file_entry.is_dir);
+        assert_eq!(file.file_entry.size, Some(b"hello rpm".len() as u64));
+        let dir = entries.get(&PathBuf::from("usr")).unwrap();
+        assert!(dir.file_entry.is_dir);
+
+        assert_eq!(handler.read_file("usr/hello.txt").unwrap(), b"hello rpm");
+
+        let dest = tmp.path().join("out");
+        std::fs::create_dir_all(&dest).unwrap();
+        let progress = test_progress(false);
+        handler.extract("", &dest, true, &progress).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dest.join("usr/hello.txt")).unwrap(),
+            "hello rpm"
+        );
+    }
+
+    #[test]
+    fn rpm_extract_stops_when_cancelled() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rpm_path = write_rpm(tmp.path(), "test.rpm", &build_rpm(&build_cpio_payload()));
+        let handler = RpmHandler::new(&rpm_path);
+
+        let dest = tmp.path().join("out");
+        std::fs::create_dir_all(&dest).unwrap();
+
+        let progress = test_progress(true);
+        handler.extract("", &dest, true, &progress).unwrap();
+
+        let remaining: Vec<_> = std::fs::read_dir(&dest)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert!(remaining.is_empty(), "cancelled extract wrote entries");
+    }
+
+    #[test]
+    fn corrupt_rpm_metadata_is_error_not_panic() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        let payloads: [&[u8]; 3] = [b"\x01\x02\x03\x04", b"", b"\x8e\xad\xe8\x01"];
+        for bytes in payloads {
+            let path = write_rpm(tmp.path(), "bad.rpm", bytes);
+            let handler = RpmHandler::new(&path);
+            assert!(
+                handler.get_metadata().is_err(),
+                "expected error for {bytes:?}"
+            );
+        }
     }
 }
