@@ -51,6 +51,15 @@ impl SshConnectionHistory {
         };
         Ok(Self { connections, path })
     }
+
+    #[cfg(any(test, feature = "test-utils"))]
+    #[must_use]
+    pub fn test_default() -> Self {
+        Self {
+            connections: Vec::new(),
+            path: PathBuf::from("/tmp/ssh_history_test.json"),
+        }
+    }
     pub fn add(&mut self, mut info: SshConnectionInfo) {
         // Find existing match by user@host:port
         if let Some(pos) = self.connections.iter().position(|c| {

@@ -191,7 +191,7 @@ impl TestAppBuilder {
             },
             editor_cfg: crate::config::EditorConfig::default(),
             viewer_cfg: crate::config::ViewerConfig::default(),
-            ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
+            ssh_history: crate::ssh_history::SshConnectionHistory::test_default(),
             bookmark_store: crate::bookmarks::BookmarkStore::test_default(),
             os: crate::app::OsServices {
                 clipboard: Box::new(crate::clipboard::InMemoryFileClipboard::new()),

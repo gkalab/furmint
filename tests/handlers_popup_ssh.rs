@@ -142,6 +142,8 @@ async fn test_history_search_reset() {
     let mut app = basic_app_state().await;
     handle_ssh_connection_init(&mut app);
 
+    // Isolate from any real history loaded from the state directory.
+    app.ssh_history.connections.clear();
     app.ssh_history.connections.push(SshConnectionInfo {
         name: Some("Target".to_string()),
         connection_string: "user@target".to_string(),
