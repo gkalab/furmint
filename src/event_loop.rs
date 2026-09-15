@@ -43,6 +43,27 @@ pub fn spawn_input_polling(
     })
 }
 
+/// Returns true if the input polling task is not running and a new one must
+/// be spawned: either the handle was taken (e.g. by `SuspendedUi`) or the
+/// task has finished, which happens when `reader.poll`/`read` errored.
+#[must_use]
+pub(crate) fn input_polling_needs_respawn(handle: Option<&tokio::task::JoinHandle<()>>) -> bool {
+    !matches!(handle, Some(h) if !h.is_finished())
+}
+
+/// (Re)spawns the input polling task if it is missing or has died, so the
+/// app never keeps running with a dead `Some(handle)` and no keyboard input.
+pub(crate) fn ensure_input_polling(
+    app: &mut AppState,
+    input_tx: &tokio::sync::mpsc::UnboundedSender<Event>,
+    reader: &EventReader,
+) {
+    if !input_polling_needs_respawn(app.input_polling_handle.as_ref()) {
+        return;
+    }
+    app.input_polling_handle = Some(spawn_input_polling(input_tx.clone(), reader.clone()));
+}
+
 /// Input event sources for the event loop.
 pub(crate) struct EventSources<'a> {
     pub reader: EventReader,
@@ -87,12 +108,8 @@ where
 
     while !should_exit {
         // Automatically resume input polling if it was taken by a handler
-        if app.input_polling_handle.is_none() {
-            app.input_polling_handle = Some(spawn_input_polling(
-                input_tx.clone(),
-                sources.reader.clone(),
-            ));
-        }
+        // or if the polling task died (e.g. on a reader error).
+        ensure_input_polling(app, &input_tx, &sources.reader);
 
         tokio::select! {
                             // Handle watcher events
@@ -283,6 +300,34 @@ pub async fn handle_event(ev: Event, app: &mut AppState, keyboard: &KeyboardConf
 
 #[cfg(test)]
 mod tests {
+
+    #[tokio::test]
+    async fn test_input_polling_needs_respawn_finished_handle() {
+        // Regression test: the polling task can exit on a reader error while
+        // `app.input_polling_handle` still holds `Some(dead)`. The old guard
+        // only checked `is_none()`, so it was never respawned and keyboard
+        // input silently died.
+        let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+        let dead = tokio::spawn(async move {
+            let _ = done_tx.send(());
+        });
+        done_rx.await.unwrap();
+        assert!(super::input_polling_needs_respawn(Some(&dead)));
+    }
+
+    #[tokio::test]
+    async fn test_input_polling_needs_respawn_none() {
+        assert!(super::input_polling_needs_respawn(None));
+    }
+
+    #[tokio::test]
+    async fn test_input_polling_needs_respawn_live_handle() {
+        let live = tokio::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        });
+        assert!(!super::input_polling_needs_respawn(Some(&live)));
+        live.abort();
+    }
 
     #[tokio::test]
     async fn test_handle_watcher_event_filesystem_change() {
