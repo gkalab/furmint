@@ -5,9 +5,11 @@ use crate::fs::utils::{FileEntry, get_attributes};
 use anyhow::{Context, Result};
 use flate2::read::GzDecoder;
 use std::fs::File;
-use std::io::{BufReader, Read};
+use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
+
+const IO_BUFFER_SIZE: usize = 64 * 1024;
 
 pub struct GzipHandler {
     path: PathBuf,
@@ -31,30 +33,67 @@ impl GzipHandler {
         })
     }
 
-    fn decompress(&self) -> Result<(Vec<u8>, Option<SystemTime>)> {
+    /// Opens the gzip file and returns a streaming decoder.
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be opened.
+    fn open_decompressor(&self) -> Result<GzDecoder<BufReader<File>>> {
         let file = File::open(&self.path).context("Failed to open gzip file")?;
-        let reader = BufReader::new(file);
-        let mut decoder = GzDecoder::new(reader);
+        Ok(GzDecoder::new(BufReader::new(file)))
+    }
 
-        let mtime = decoder.header().and_then(|h| {
+    /// Extracts the original modification time from the gzip header, if set.
+    fn header_mtime(decoder: &GzDecoder<BufReader<File>>) -> Option<SystemTime> {
+        decoder.header().and_then(|h| {
             let m = h.mtime();
             if m == 0 {
                 None
             } else {
-                Some(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(u64::from(m)))
+                Some(SystemTime::UNIX_EPOCH + Duration::from_secs(u64::from(m)))
             }
-        });
+        })
+    }
 
-        let mut decompressed = Vec::new();
-        decoder.read_to_end(&mut decompressed)?;
-        Ok((decompressed, mtime))
+    /// Streams `reader` into `file` in fixed-size chunks, reporting each chunk
+    /// as processed bytes. Never holds the whole payload in memory.
+    fn write_streamed<R: Read>(
+        reader: &mut R,
+        file: &mut File,
+        progress: &TaskProgressContext,
+    ) -> std::io::Result<()> {
+        let mut buf = vec![0u8; IO_BUFFER_SIZE];
+        loop {
+            let n = reader.read(&mut buf)?;
+            if n > 0 {
+                file.write_all(&buf[..n])?;
+                progress
+                    .processed_bytes
+                    .fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
+            }
+            if n == 0 {
+                return file.flush();
+            }
+        }
     }
 }
 
 impl ArchiveFormat for GzipHandler {
     fn scan(&self) -> Result<super::ScanResult> {
-        let (data, mtime) = self.decompress()?;
-        let decompressed_size = data.len() as u64;
+        let mut decoder = self.open_decompressor()?;
+        let mtime = Self::header_mtime(&decoder);
+
+        // Stream the payload through a fixed-size buffer, keeping only a byte
+        // count, so large `.gz` files are never materialized in memory just
+        // to report their size.
+        let mut decompressed_size = 0u64;
+        let mut buf = vec![0u8; IO_BUFFER_SIZE];
+        loop {
+            let n = decoder.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            decompressed_size += n as u64;
+        }
 
         let metadata = std::fs::metadata(&self.path).ok();
         let attributes = metadata.as_ref().map_or_else(
@@ -87,7 +126,14 @@ impl ArchiveFormat for GzipHandler {
     fn read_file(&self, path: &str) -> Result<Vec<u8>> {
         let path_clean = path.trim_end_matches('/');
         if path_clean == self.original_name || path_clean.is_empty() || path_clean == "." {
-            Ok(self.decompress()?.0)
+            // The trait requires the full payload, so this call materializes
+            // the file; `scan` and `extract` stream instead.
+            let mut decoder = self.open_decompressor()?;
+            let mut data = Vec::new();
+            decoder
+                .read_to_end(&mut data)
+                .context("Failed to decompress gzip file")?;
+            Ok(data)
         } else {
             Err(anyhow::anyhow!(
                 "File not found in gzip: {} (only contains: {})",
@@ -114,8 +160,6 @@ impl ArchiveFormat for GzipHandler {
             ));
         }
 
-        let (data, _mtime) = self.decompress()?;
-
         let target = if path_clean.is_empty() || path_clean == "." {
             if dest.is_dir() {
                 dest.join(&self.original_name)
@@ -130,10 +174,16 @@ impl ArchiveFormat for GzipHandler {
             std::fs::create_dir_all(parent)?;
         }
 
-        std::fs::write(&target, &data)?;
-        progress
-            .processed_bytes
-            .fetch_add(data.len() as u64, std::sync::atomic::Ordering::Relaxed);
+        let mut decoder = self.open_decompressor()?;
+        let mut file = File::create(&target)
+            .with_context(|| format!("Failed to create {}", target.display()))?;
+
+        if let Err(e) = Self::write_streamed(&mut decoder, &mut file, progress) {
+            // Don't leave a partial file behind on failure.
+            let _ = std::fs::remove_file(&target);
+            return Err(e.into());
+        }
+
         progress
             .processed_items
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
