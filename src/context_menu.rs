@@ -9,27 +9,38 @@
 
 use anyhow::{Result, anyhow};
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use windows::{
     Win32::{
-        Foundation::{HWND, POINT},
+        Foundation::{HWND, LPARAM, POINT},
         System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize},
         System::Threading::{AttachThreadInput, GetCurrentThreadId},
         UI::{
             Shell::{
-                CMF_NORMAL, CMIC_MASK_PTINVOKE, CMINVOKECOMMANDINFOEX, GCS_VERBA, IContextMenu,
-                IShellFolder, SHBindToParent, SHParseDisplayName,
+                CMF_NORMAL, CMIC_MASK_PTINVOKE, CMINVOKECOMMANDINFOEX, IContextMenu, IShellFolder,
+                SHBindToParent, SHParseDisplayName,
             },
             WindowsAndMessaging::{
-                CreatePopupMenu, DestroyMenu, DestroyWindow, DispatchMessageW, GetCursorPos,
-                GetForegroundWindow, GetMessageW, GetWindowThreadProcessId, MSG, PostMessageW,
-                SW_SHOWNORMAL, SetForegroundWindow, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON,
-                TrackPopupMenu, TranslateMessage, WM_NULL,
+                CreatePopupMenu, DestroyMenu, DestroyWindow, DispatchMessageW, EnumWindows,
+                GetCursorPos, GetForegroundWindow, GetMessageW, GetWindowThreadProcessId,
+                IsWindowVisible, MSG, PM_REMOVE, PeekMessageW, PostMessageW, SW_SHOWNORMAL,
+                SetForegroundWindow, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu,
+                TranslateMessage, WM_NULL,
             },
         },
     },
-    core::{PCWSTR, PSTR},
+    core::{BOOL, PCWSTR},
 };
+
+/// First command ID the shell may assign via `QueryContextMenu`.
+const CMD_ID_FIRST: i32 = 1;
+/// Last command ID the shell may assign via `QueryContextMenu`.
+const CMD_ID_LAST: i32 = 0x7FFF;
+/// How long to wait for the shell to create a dialog on our thread after
+/// `InvokeCommand` returns.
+const DIALOG_APPEARANCE_GRACE: Duration = Duration::from_millis(500);
+const DIALOG_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 /// Show the native Windows Shell context menu for `path`.
 ///
@@ -84,14 +95,19 @@ impl Drop for FreePidl {
 
 /// # Safety
 /// Caller must ensure COM is initialised (STA) on the current thread.
-#[allow(clippy::cast_sign_loss)]
 unsafe fn inner_show(wide_path: &[u16]) -> Result<()> {
     unsafe {
         let (_free_pidl, ctx_menu) = get_context_menu_for_path(wide_path)?;
 
         let hmenu = CreatePopupMenu().map_err(|e| anyhow!("CreatePopupMenu: {e}"))?;
         ctx_menu
-            .QueryContextMenu(hmenu, 0, 1, 0x7FFF, CMF_NORMAL)
+            .QueryContextMenu(
+                hmenu,
+                0,
+                CMD_ID_FIRST as u32,
+                CMD_ID_LAST as u32,
+                CMF_NORMAL,
+            )
             .ok()
             .map_err(|e| anyhow!("QueryContextMenu: {e}"))?;
 
@@ -121,14 +137,12 @@ unsafe fn inner_show(wide_path: &[u16]) -> Result<()> {
 
         let _ = DestroyMenu(hmenu);
 
-        // User dismissed without selecting anything.
-        if cmd.0 == 0 {
+        // User dismissed the menu, or the result lies outside the command-ID
+        // range registered by `QueryContextMenu`: nothing to invoke.
+        let Some(verb_offset) = menu_result_to_verb_offset(cmd.0, CMD_ID_FIRST, CMD_ID_LAST) else {
             let _ = DestroyWindow(hwnd_dummy);
             return Ok(());
-        }
-
-        let verb_offset = (cmd.0 - 1) as usize;
-        let is_properties = is_properties_verb(&ctx_menu, verb_offset);
+        };
 
         let info = CMINVOKECOMMANDINFOEX {
             cbSize: std::mem::size_of::<CMINVOKECOMMANDINFOEX>() as u32,
@@ -145,10 +159,10 @@ unsafe fn inner_show(wide_path: &[u16]) -> Result<()> {
             .InvokeCommand(std::ptr::addr_of!(info).cast())
             .map_err(|e| anyhow!("InvokeCommand: {e}"))?;
 
-        // If "Properties" was clicked, keep the thread alive indefinitely for the Explorer dialog.
-        if is_properties {
-            pump_messages_indefinitely();
-        }
+        // The shell may open dialog UI (e.g. the file "Properties" sheet) on
+        // this COM thread *after* `InvokeCommand` returns; keep the thread and
+        // its message pump alive until that dialog is destroyed.
+        keep_alive_for_thread_dialogs();
 
         let _ = DestroyWindow(hwnd_dummy);
         Ok(())
@@ -221,33 +235,198 @@ unsafe fn force_foreground_window(hwnd: HWND) {
     }
 }
 
-unsafe fn is_properties_verb(ctx_menu: &IContextMenu, verb_offset: usize) -> bool {
+/// Maps the raw `TrackPopupMenu` result to the 0-based verb offset passed to
+/// `IContextMenu::InvokeCommand` (`lpVerb` = selected command ID - first ID).
+///
+/// Returns `None` when the user dismissed the menu, or when the value falls
+/// outside the `CMD_ID_FIRST..=CMD_ID_LAST` range declared with
+/// `QueryContextMenu`. Without this check a failed `TrackPopupMenu` call
+/// could yield a negative value whose `(cmd - 1) as usize` wrap-around would
+/// be reinterpreted as a raw pointer (undefined behavior).
+fn menu_result_to_verb_offset(cmd: i32, cmd_first: i32, cmd_last: i32) -> Option<usize> {
+    // `checked_sub` also rejects a `cmd` below `cmd_first`.
+    let diff = cmd.checked_sub(cmd_first)?;
+    if cmd > cmd_last {
+        return None;
+    }
+    usize::try_from(diff).ok()
+}
+
+/// State for [`enum_thread_windows`], passed through the `LPARAM` slot.
+struct ThreadWindowScan {
+    thread_id: u32,
+    found: HWND,
+}
+
+/// `EnumWindows` callback recording the first visible top-level window owned
+/// by the scanning thread.
+///
+/// # Safety
+///
+/// `lparam` must point to a `ThreadWindowScan` that stays alive for the
+/// duration of the `EnumWindows` call; the callback runs synchronously on
+/// the calling thread.
+unsafe extern "system" fn enum_thread_windows(hwnd: HWND, lparam: LPARAM) -> BOOL {
     unsafe {
-        let mut verb_buf = [0u8; 256];
-        if ctx_menu
-            .GetCommandString(
-                verb_offset,
-                GCS_VERBA,
-                None,
-                PSTR(verb_buf.as_mut_ptr().cast::<u8>()),
-                verb_buf.len() as u32,
-            )
-            .is_ok()
-            && let Ok(s) = std::ffi::CStr::from_bytes_until_nul(&verb_buf)
-            && s.to_string_lossy().to_lowercase() == "properties"
+        let scan = &mut *(lparam.0 as *mut ThreadWindowScan);
+        if scan.found.0.is_null()
+            && GetWindowThreadProcessId(hwnd, None) == scan.thread_id
+            && IsWindowVisible(hwnd).as_bool()
         {
-            return true;
+            scan.found = hwnd;
         }
-        false
+        // Always continue: the binding maps a `FALSE` return to a call
+        // failure, so the enumeration cannot be stopped early.
+        BOOL(1)
     }
 }
 
-unsafe fn pump_messages_indefinitely() {
+/// Finds a visible top-level window owned by the calling thread, if any.
+///
+/// Detection is purely structural (thread ownership plus visibility), so it
+/// works identically on every Windows locale.
+unsafe fn find_thread_dialog() -> Option<HWND> {
+    unsafe {
+        let mut scan = ThreadWindowScan {
+            thread_id: GetCurrentThreadId(),
+            found: HWND(std::ptr::null_mut()),
+        };
+        EnumWindows(Some(enum_thread_windows), LPARAM(&raw mut scan as isize)).ok()?;
+
+        (!scan.found.0.is_null()).then_some(scan.found)
+    }
+}
+
+/// Dispatches every message currently pending on the calling thread's queue.
+unsafe fn drain_messages() {
     unsafe {
         let mut msg = MSG::default();
-        while GetMessageW(&raw mut msg, Some(HWND(std::ptr::null_mut())), 0, 0).into() {
+        while PeekMessageW(&raw mut msg, None, 0, 0, PM_REMOVE).as_bool() {
             let _ = TranslateMessage(&raw const msg);
             DispatchMessageW(&raw const msg);
+        }
+    }
+}
+
+/// Keeps the thread alive while the shell owns a visible top-level window on
+/// it (e.g. the file "Properties" sheet, which the shell opens on this COM
+/// thread *after* `InvokeCommand` returns).
+///
+/// Waits up to [`DIALOG_APPEARANCE_GRACE`] for such a dialog to appear, then
+/// pumps messages until the dialog (and any successor dialog) is destroyed —
+/// i.e. its `WM_DESTROY` has been processed — so the thread and the hidden
+/// helper window are always cleaned up.
+unsafe fn keep_alive_for_thread_dialogs() {
+    unsafe {
+        let deadline = Instant::now() + DIALOG_APPEARANCE_GRACE;
+        let mut dialog_open = find_thread_dialog().is_some();
+
+        while !dialog_open && Instant::now() < deadline {
+            drain_messages();
+            dialog_open = find_thread_dialog().is_some();
+            std::thread::sleep(DIALOG_POLL_INTERVAL);
+        }
+
+        while dialog_open {
+            let mut msg = MSG::default();
+            if !GetMessageW(&raw mut msg, Some(HWND(std::ptr::null_mut())), 0, 0).as_bool() {
+                break;
+            }
+            let _ = TranslateMessage(&raw const msg);
+            DispatchMessageW(&raw const msg);
+            dialog_open = find_thread_dialog().is_some();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dismissed_menu_maps_to_no_verb() {
+        assert_eq!(
+            menu_result_to_verb_offset(0, CMD_ID_FIRST, CMD_ID_LAST),
+            None
+        );
+    }
+
+    #[test]
+    fn invalid_track_popup_menu_results_map_to_no_verb() {
+        // Regression: the old `(cmd - 1) as usize` expression wrapped for a
+        // negative `TrackPopupMenu` result, and the wrapped value was cast
+        // straight to a `lpVerb` pointer (undefined behavior).
+        assert_eq!(
+            menu_result_to_verb_offset(-1, CMD_ID_FIRST, CMD_ID_LAST),
+            None
+        );
+        assert_eq!(
+            menu_result_to_verb_offset(i32::MIN, CMD_ID_FIRST, CMD_ID_LAST),
+            None
+        );
+        assert_eq!(
+            menu_result_to_verb_offset(CMD_ID_LAST + 1, CMD_ID_FIRST, CMD_ID_LAST),
+            None,
+        );
+    }
+
+    #[test]
+    fn valid_command_ids_map_to_zero_based_offsets() {
+        assert_eq!(
+            menu_result_to_verb_offset(1, CMD_ID_FIRST, CMD_ID_LAST),
+            Some(0)
+        );
+        assert_eq!(
+            menu_result_to_verb_offset(5, CMD_ID_FIRST, CMD_ID_LAST),
+            Some(4)
+        );
+        assert_eq!(
+            menu_result_to_verb_offset(CMD_ID_LAST, CMD_ID_FIRST, CMD_ID_LAST),
+            Some(CMD_ID_LAST as usize - 1),
+        );
+        // Non-default first ID.
+        assert_eq!(menu_result_to_verb_offset(10, 10, 0x7FFF), Some(0));
+        assert_eq!(menu_result_to_verb_offset(12, 10, 0x7FFF), Some(2));
+    }
+
+    #[test]
+    fn scan_ignores_hidden_windows_on_this_thread() {
+        unsafe {
+            let hidden = create_dummy_window().expect("create hidden window");
+            assert!(find_thread_dialog().is_none());
+            let _ = DestroyWindow(hidden);
+        }
+    }
+
+    #[test]
+    fn scan_detects_visible_thread_windows_structurally() {
+        unsafe {
+            use windows::Win32::UI::WindowsAndMessaging::{
+                CreateWindowExW, WINDOW_EX_STYLE, WS_POPUP, WS_VISIBLE,
+            };
+
+            let visible = CreateWindowExW(
+                WINDOW_EX_STYLE::default(),
+                windows::core::w!("STATIC"),
+                windows::core::w!(""),
+                WS_POPUP | WS_VISIBLE,
+                -10_000,
+                -10_000,
+                1,
+                1,
+                None,
+                None,
+                None,
+                None,
+            )
+            .expect("create visible window");
+
+            // No localized-string matching: a visible top-level window owned
+            // by this thread is detected by ownership and visibility alone.
+            assert_eq!(find_thread_dialog(), Some(visible));
+
+            let _ = DestroyWindow(visible);
+            assert!(find_thread_dialog().is_none());
         }
     }
 }
