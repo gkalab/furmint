@@ -497,10 +497,11 @@ impl ArchiveFormat for RpmHandler {
         progress: &TaskProgressContext,
     ) -> Result<()> {
         let mut reader = self.get_payload_reader()?;
+        let dest = common::canonicalize_dest(dest);
 
         let opts = common::ExtractOptions {
             src_str: src_path,
-            dest,
+            dest: &dest,
             is_dir,
             progress,
         };

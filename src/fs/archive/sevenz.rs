@@ -196,10 +196,11 @@ impl SevenZHandler {
         let is_root = src_str.is_empty() || src_str == ".";
         let mut dir_mtimes = Vec::new();
         let mut last_update = std::time::Instant::now();
+        let dest = common::canonicalize_dest(dest);
 
         let opts = common::ExtractOptions {
             src_str,
-            dest,
+            dest: &dest,
             is_dir,
             progress,
         };

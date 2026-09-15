@@ -58,7 +58,14 @@ impl TarHandler {
             .stderr(Stdio::null())
             .spawn()
             && let Some(mut stdout) = child.stdout.take()
-            && std::io::copy(&mut stdout, temp.as_file_mut()).is_ok()
+            // Cap the decompressed size (zip-bomb guard).
+            && common::copy_bounded(
+                &mut stdout,
+                temp.as_file_mut(),
+                common::MAX_TOTAL_EXTRACT_BYTES,
+                "decompressed archive",
+            )
+            .is_ok()
             && child.wait().is_ok_and(|s| s.success())
         {
             decompressed_via_system = true;
@@ -72,15 +79,30 @@ impl TarHandler {
             match ext.as_str() {
                 "gz" | "tgz" => {
                     let mut decoder = flate2::read::GzDecoder::new(reader);
-                    std::io::copy(&mut decoder, temp.as_file_mut())?;
+                    common::copy_bounded(
+                        &mut decoder,
+                        temp.as_file_mut(),
+                        common::MAX_TOTAL_EXTRACT_BYTES,
+                        "decompressed archive",
+                    )?;
                 }
                 "bz2" | "tbz2" => {
                     let mut decoder = bzip2::read::BzDecoder::new(reader);
-                    std::io::copy(&mut decoder, temp.as_file_mut())?;
+                    common::copy_bounded(
+                        &mut decoder,
+                        temp.as_file_mut(),
+                        common::MAX_TOTAL_EXTRACT_BYTES,
+                        "decompressed archive",
+                    )?;
                 }
                 "xz" | "txz" => {
                     let mut decoder = xz2::read::XzDecoder::new(reader);
-                    std::io::copy(&mut decoder, temp.as_file_mut())?;
+                    common::copy_bounded(
+                        &mut decoder,
+                        temp.as_file_mut(),
+                        common::MAX_TOTAL_EXTRACT_BYTES,
+                        "decompressed archive",
+                    )?;
                 }
                 _ => {}
             }
@@ -166,8 +188,10 @@ impl ArchiveFormat for TarHandler {
             let mut entry = entry?;
             let name = entry.path()?.to_string_lossy().replace('\\', "/");
             if name == path_str || name.trim_end_matches('/') == path_str {
-                let size = usize::try_from(entry.size()).context("Archive entry size too large")?;
-                let mut buffer = Vec::with_capacity(size);
+                // Grow the buffer naturally instead of pre-reserving the
+                // header's claimed size, which is untrusted (a hostile
+                // archive could claim gigabytes).
+                let mut buffer = Vec::new();
                 entry.read_to_end(&mut buffer)?;
                 return Ok(buffer);
             }
@@ -192,9 +216,10 @@ impl ArchiveFormat for TarHandler {
         } else {
             &self.path
         };
+        let dest = common::canonicalize_dest(dest);
 
         // Try system tar first
-        if Self::system_tar_extract(effective_path, src_str, dest, is_dir, progress).is_ok() {
+        if Self::system_tar_extract(effective_path, src_str, &dest, is_dir, progress).is_ok() {
             return Ok(());
         }
 
@@ -205,7 +230,7 @@ impl ArchiveFormat for TarHandler {
         let mut last_update = std::time::Instant::now();
         let opts = common::ExtractOptions {
             src_str,
-            dest,
+            dest: &dest,
             is_dir,
             progress,
         };

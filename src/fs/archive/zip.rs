@@ -210,6 +210,7 @@ impl ZipHandler {
     ) -> Result<()> {
         let file = File::open(&self.path).context("Failed to open archive")?;
         let mut archive = zip::ZipArchive::new(file).context("Failed to read zip")?;
+        let dest = common::canonicalize_dest(dest);
 
         let is_root = src_str.is_empty() || src_str == ".";
         let mut dir_mtimes = Vec::new();
@@ -230,7 +231,7 @@ impl ZipHandler {
 
             let opts = common::ExtractOptions {
                 src_str,
-                dest,
+                dest: &dest,
                 is_dir: false,
                 progress,
             };
@@ -254,7 +255,7 @@ impl ZipHandler {
 
         let opts = common::ExtractOptions {
             src_str,
-            dest,
+            dest: &dest,
             is_dir,
             progress,
         };

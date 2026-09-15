@@ -145,10 +145,25 @@ pub fn finalize_tree<S: BuildHasher + Clone>(
 ///
 /// This function never panics.
 pub fn preserve_mtimes(mut dir_mtimes: Vec<(PathBuf, SystemTime)>) {
-    dir_mtimes.sort_by_key(|b| std::cmp::Reverse(b.0.as_os_str().len()));
+    sort_dir_mtimes_deepest_first(&mut dir_mtimes);
     for (dir, mtime) in dir_mtimes {
         let _ = set_file_mtime(&dir, FileTime::from_system_time(mtime));
     }
+}
+
+/// Sorts directory mtime restorations deepest-first (reverse depth order), so
+/// that a directory's time is restored after all of its descendants. Ties are
+/// broken by path for a deterministic order.
+///
+/// Depth is the component count, not the OS-string length (a shallow path
+/// with a long name must not sort before a deep path with short names).
+fn sort_dir_mtimes_deepest_first(dir_mtimes: &mut [(PathBuf, SystemTime)]) {
+    dir_mtimes.sort_by(|a, b| {
+        b.0.components()
+            .count()
+            .cmp(&a.0.components().count())
+            .then_with(|| b.0.cmp(&a.0))
+    });
 }
 
 /// Replaces the contents of `to` with the contents of `from` in place.
@@ -194,7 +209,21 @@ pub fn remove_or_truncate_temp(path: &Path) {
     }
 }
 
+/// Maximum total number of bytes a single extraction task is allowed to write
+/// to disk.
+///
+/// Last-resort guard against zip bombs: a tiny archive whose entries
+/// decompress to hundreds of gigabytes (or more) would otherwise fill the
+/// destination volume. Legitimate single extractions are far below this.
+pub const MAX_TOTAL_EXTRACT_BYTES: u64 = 1 << 40; // 1 TiB
+
+/// Buffer size for bounded copies.
+const IO_BUFFER_SIZE: usize = 64 * 1024;
+
 /// Options for archive extraction.
+///
+/// `dest` must be canonicalized once per extraction via [`canonicalize_dest`]
+/// (not per entry).
 pub struct ExtractOptions<'a> {
     pub src_str: &'a str,
     pub dest: &'a Path,
@@ -210,6 +239,33 @@ pub struct ExtractionEntryMetadata<'a> {
     pub size: u64,
     pub mtime: Option<SystemTime>,
     pub mode: Option<u32>,
+}
+
+/// Canonicalizes the extraction destination once per extraction.
+///
+/// The destination usually does not exist yet (it is created during
+/// extraction), so the deepest existing prefix is canonicalized and the
+/// missing tail is re-appended. This keeps `starts_with`-based containment
+/// checks stable against OS-reported path casing and symlinks, which a raw
+/// path would not survive.
+#[must_use]
+pub fn canonicalize_dest(dest: &Path) -> PathBuf {
+    use std::ffi::OsString;
+    let mut tail: Vec<OsString> = Vec::new();
+    let mut path = dest.to_path_buf();
+    loop {
+        if let Ok(mut canon) = path.canonicalize() {
+            for comp in tail.iter().rev() {
+                canon.push(comp);
+            }
+            return canon;
+        }
+        let Some(last) = path.components().next_back() else {
+            return dest.to_path_buf();
+        };
+        tail.push(last.as_os_str().to_os_string());
+        path.pop();
+    }
 }
 
 /// Normalizes a raw archive entry name into a safe relative path that cannot
@@ -291,13 +347,70 @@ fn ensure_parent_safe(target: &Path, dest: &Path, name: &str) -> anyhow::Result<
     Ok(())
 }
 
-/// Writes a regular file entry to `target`, applying its mtime and (on Unix)
-/// mode, and reports progress.
+/// Copies `reader` into `out` in chunks, never writing more than `limit`
+/// bytes in total. Returns the number of bytes written.
+///
+/// Used to cap output of untrusted input: `limit` is the declared size of the
+/// archive entry being written (or [`MAX_TOTAL_EXTRACT_BYTES`] for whole
+/// decompression steps), so a hostile archive cannot make us write more than
+/// it claims.
 ///
 /// # Errors
 ///
-/// Returns an error if the entry resolves outside `dest` or the file cannot
-/// be written.
+/// Returns an error if the reader produces more than `limit` bytes or an I/O
+/// error occurs.
+pub fn copy_bounded<R: std::io::Read, W: std::io::Write>(
+    reader: &mut R,
+    out: &mut W,
+    limit: u64,
+    what: &str,
+) -> std::io::Result<u64> {
+    let mut buf = vec![0u8; IO_BUFFER_SIZE];
+    let mut total = 0u64;
+    loop {
+        let n = reader.read(&mut buf)?;
+        if n == 0 {
+            return Ok(total);
+        }
+        total = total
+            .checked_add(n as u64)
+            .ok_or_else(|| std::io::Error::other("copy size overflow"))?;
+        if total > limit {
+            return Err(std::io::Error::other(format!(
+                "{what} exceeds the {limit} byte limit"
+            )));
+        }
+        out.write_all(&buf[..n])?;
+    }
+}
+
+/// Fails the extraction once the task has written more than
+/// [`MAX_TOTAL_EXTRACT_BYTES`] in total (zip-bomb guard).
+///
+/// # Errors
+///
+/// Returns an error if `total_bytes` exceeds [`MAX_TOTAL_EXTRACT_BYTES`].
+fn check_total_quota(total_bytes: u64) -> anyhow::Result<()> {
+    if total_bytes > MAX_TOTAL_EXTRACT_BYTES {
+        return Err(anyhow!(
+            "extraction aborted: {total_bytes} bytes exceed the total limit of {MAX_TOTAL_EXTRACT_BYTES}"
+        ));
+    }
+    Ok(())
+}
+
+/// Writes a regular file entry to `target`, applying its mtime and (on Unix)
+/// mode, and reports progress.
+///
+/// The number of bytes streamed by the entry is capped at its declared size
+/// (per-entry) and the task total is capped at [`MAX_TOTAL_EXTRACT_BYTES`]
+/// (zip-bomb guard); on any failure the partially written file is removed.
+///
+/// # Errors
+///
+/// Returns an error if the entry resolves outside `dest`, the entry exceeds
+/// its declared size, the total quota is exceeded, or the file cannot be
+/// written.
 fn extract_file_entry<R: std::io::Read>(
     mut reader: R,
     target: &Path,
@@ -307,27 +420,63 @@ fn extract_file_entry<R: std::io::Read>(
     progress: &crate::fs::fs_provider::TaskProgressContext,
 ) -> anyhow::Result<()> {
     ensure_parent_safe(target, dest, name)?;
-    {
-        let out = std::fs::File::create(target)?;
-        let mut out = out;
-        std::io::copy(&mut reader, &mut out)?;
-
-        if let Some(mt) = meta.mtime {
-            set_file_handle_times(&out, None, Some(FileTime::from_system_time(mt)))?;
+    // A well-formed entry never streams more bytes than its declared size. A
+    // declared size of 0 means "unknown" (e.g. zip entries written with a
+    // data descriptor); those are only bounded by the total quota below.
+    let entry_limit = if meta.size > 0 { meta.size } else { u64::MAX };
+    let written = match write_entry_file(&mut reader, target, entry_limit, name, meta) {
+        Ok(written) => written,
+        Err(e) => {
+            let _ = std::fs::remove_file(target);
+            return Err(e.into());
         }
-        #[cfg(unix)]
-        if let Some(mode) = meta.mode {
-            use std::os::unix::fs::PermissionsExt;
-            out.set_permissions(std::fs::Permissions::from_mode(mode))?;
-        }
-
-        out.sync_all()?;
-    }
+    };
     progress
         .processed_bytes
-        .fetch_add(meta.size, std::sync::atomic::Ordering::Relaxed);
+        .fetch_add(written, std::sync::atomic::Ordering::Relaxed);
+    check_total_quota(
+        progress
+            .processed_bytes
+            .load(std::sync::atomic::Ordering::Relaxed),
+    )?;
     Ok(())
 }
+
+/// Creates `target` and streams the entry data into it (bounded by
+/// `entry_limit`), then applies the mtime and (on Unix) mode.
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be written or more than `entry_limit`
+/// bytes are produced.
+fn write_entry_file<R: std::io::Read>(
+    reader: &mut R,
+    target: &Path,
+    entry_limit: u64,
+    name: &str,
+    meta: &ExtractionEntryMetadata<'_>,
+) -> std::io::Result<u64> {
+    let out = std::fs::File::create(target)?;
+    let mut out = out;
+    let written = copy_bounded(reader, &mut out, entry_limit, &format!("entry {name}"))?;
+
+    if let Some(mt) = meta.mtime {
+        set_file_handle_times(&out, None, Some(FileTime::from_system_time(mt)))?;
+    }
+    #[cfg(unix)]
+    if let Some(mode) = meta.mode {
+        use std::os::unix::fs::PermissionsExt;
+        out.set_permissions(std::fs::Permissions::from_mode(mode))?;
+    }
+
+    out.sync_all()?;
+    Ok(written)
+}
+
+/// Maximum length of a symlink target accepted from an archive. A symlink
+/// target is a path; anything this long is hostile.
+#[cfg(unix)]
+const MAX_SYMLINK_TARGET: u64 = 8 * 1024;
 
 /// Extracts a symlink entry on Unix, replacing any pre-existing file at
 /// `target`. Symlink extraction is not supported on other platforms and is a
@@ -335,17 +484,23 @@ fn extract_file_entry<R: std::io::Read>(
 ///
 /// # Errors
 ///
-/// Returns an error if the entry resolves outside `dest` or the symlink
-/// cannot be created.
+/// Returns an error if the entry resolves outside `dest`, the target is
+/// longer than [`MAX_SYMLINK_TARGET`], or the symlink cannot be created.
 #[cfg(unix)]
 fn extract_symlink_entry<R: std::io::Read>(
-    mut reader: R,
+    reader: R,
     target: &Path,
     dest: &Path,
     name: &str,
 ) -> anyhow::Result<()> {
     let mut link_target = Vec::new();
-    reader.read_to_end(&mut link_target)?;
+    {
+        let mut limited = std::io::Take::new(reader).take(MAX_SYMLINK_TARGET + 1);
+        limited.read_to_end(&mut link_target)?;
+    }
+    if link_target.len() > MAX_SYMLINK_TARGET as usize {
+        return Err(anyhow!("unsafe symlink target in archive: {name}"));
+    }
     let link_target_str = String::from_utf8_lossy(&link_target);
     ensure_parent_safe(target, dest, name)?;
     if target.exists() {
@@ -383,11 +538,7 @@ pub fn handle_extraction_entry<R: std::io::Read>(
         return Ok(false);
     }
 
-    let dest = opts
-        .dest
-        .canonicalize()
-        .unwrap_or_else(|_| opts.dest.to_path_buf());
-
+    let dest = opts.dest;
     let rel_raw = if is_root {
         name.to_string()
     } else {
@@ -406,11 +557,11 @@ pub fn handle_extraction_entry<R: std::io::Read>(
     }
 
     let target = if rel_name_str.is_empty() {
-        dest.clone()
+        dest.to_path_buf()
     } else {
         dest.join(&rel)
     };
-    if !target.starts_with(&dest) {
+    if !target.starts_with(dest) {
         return Err(anyhow!("unsafe path in archive: {name}"));
     }
 
@@ -418,11 +569,11 @@ pub fn handle_extraction_entry<R: std::io::Read>(
         extract_dir_entry(&target, entry_meta, dir_mtimes)?;
     } else if entry_meta.is_symlink {
         #[cfg(unix)]
-        extract_symlink_entry(reader, &target, &dest, name)?;
+        extract_symlink_entry(reader, &target, dest, name)?;
         #[cfg(not(unix))]
-        let _ = (reader, &target, &dest, name);
+        let _ = (reader, &target, dest, name);
     } else {
-        extract_file_entry(reader, &target, &dest, name, entry_meta, opts.progress)?;
+        extract_file_entry(reader, &target, dest, name, entry_meta, opts.progress)?;
     }
 
     let p = opts
@@ -477,9 +628,10 @@ mod tests {
         let mut cursor = Cursor::new(blob);
         let mut archive = tar::Archive::new(&mut cursor);
         let opts_progress = test_progress();
+        let dest = canonicalize_dest(dest);
         let opts = ExtractOptions {
             src_str,
-            dest,
+            dest: &dest,
             is_dir: true,
             progress: &opts_progress,
         };
@@ -534,9 +686,10 @@ mod tests {
 
     fn extract_plain_name(name: &str, dest: &Path) -> Result<bool> {
         let opts_progress = test_progress();
+        let dest = canonicalize_dest(dest);
         let opts = ExtractOptions {
             src_str: "",
-            dest,
+            dest: &dest,
             is_dir: true,
             progress: &opts_progress,
         };
@@ -606,7 +759,7 @@ mod tests {
         // Single-file extraction passes the final file path as `dest` (not a
         // directory), which must not trip the containment check.
         let dir = tempfile::tempdir().unwrap();
-        let dest = dir.path().join("out.txt");
+        let dest = canonicalize_dest(&dir.path().join("out.txt"));
         let opts_progress = test_progress();
         let opts = ExtractOptions {
             src_str: "out.txt",
@@ -633,7 +786,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&dest).unwrap(), "hello");
 
         // Same for a file from a subdirectory; `dest` is still just the file.
-        let dest2 = dir.path().join("sub").join("b.txt");
+        let dest2 = canonicalize_dest(&dir.path().join("sub").join("b.txt"));
         let opts2 = ExtractOptions {
             src_str: "a/b.txt",
             dest: &dest2,
@@ -657,5 +810,124 @@ mod tests {
         )
         .unwrap();
         assert_eq!(std::fs::read_to_string(&dest2).unwrap(), "world");
+    }
+
+    #[test]
+    fn copy_bounded_enforces_limit() {
+        let mut out = Vec::new();
+        let mut reader = Cursor::new(b"hello".as_slice());
+        assert_eq!(copy_bounded(&mut reader, &mut out, 5, "test").unwrap(), 5);
+        assert_eq!(out, b"hello");
+
+        let mut over = Vec::new();
+        let mut reader = Cursor::new(b"hello world".as_slice());
+        let err = copy_bounded(&mut reader, &mut over, 5, "test").unwrap_err();
+        assert!(
+            err.to_string().contains("exceeds the 5 byte limit"),
+            "{err}"
+        );
+        // Fails before writing past the limit (here: the first read already
+        // exceeds it, so nothing is written at all).
+        assert!(over.is_empty());
+    }
+
+    #[test]
+    fn extraction_fails_when_entry_exceeds_declared_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("dest");
+        std::fs::create_dir_all(&dest).unwrap();
+        let dest = canonicalize_dest(&dest);
+
+        let opts_progress = test_progress();
+        let opts = ExtractOptions {
+            src_str: "",
+            dest: &dest,
+            is_dir: true,
+            progress: &opts_progress,
+        };
+        // The reader streams 10 bytes although the entry declares 4.
+        let mut cursor = Cursor::new(b"0123456789".as_slice());
+        let err = handle_extraction_entry(
+            &mut cursor,
+            &ExtractionEntryMetadata {
+                name_raw: "f.txt",
+                is_dir: false,
+                is_symlink: false,
+                size: 4,
+                mtime: None,
+                mode: None,
+            },
+            &opts,
+            &mut Vec::new(),
+            &mut std::time::Instant::now(),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("exceeds the 4 byte limit"),
+            "{err}"
+        );
+        assert!(!dest.join("f.txt").exists());
+    }
+
+    #[test]
+    fn extraction_allows_unknown_declared_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("dest");
+        std::fs::create_dir_all(&dest).unwrap();
+        let dest = canonicalize_dest(&dest);
+
+        let opts_progress = test_progress();
+        let opts = ExtractOptions {
+            src_str: "",
+            dest: &dest,
+            is_dir: true,
+            progress: &opts_progress,
+        };
+        // Declared size 0 means "unknown" (e.g. a zip entry written with a
+        // data descriptor); the content must be written in full and still
+        // counts against progress.
+        let mut cursor = Cursor::new(b"hello".as_slice());
+        handle_extraction_entry(
+            &mut cursor,
+            &ExtractionEntryMetadata {
+                name_raw: "g.txt",
+                is_dir: false,
+                is_symlink: false,
+                size: 0,
+                mtime: None,
+                mode: None,
+            },
+            &opts,
+            &mut Vec::new(),
+            &mut std::time::Instant::now(),
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dest.join("g.txt")).unwrap(),
+            "hello"
+        );
+        assert_eq!(
+            opts_progress
+                .processed_bytes
+                .load(std::sync::atomic::Ordering::Relaxed),
+            5
+        );
+    }
+
+    #[test]
+    fn total_quota_is_enforced() {
+        assert!(check_total_quota(MAX_TOTAL_EXTRACT_BYTES).is_ok());
+        assert!(check_total_quota(MAX_TOTAL_EXTRACT_BYTES + 1).is_err());
+    }
+
+    #[test]
+    fn dir_mtime_restoration_sorts_by_depth_not_string_length() {
+        let t = SystemTime::UNIX_EPOCH;
+        let mut v = vec![
+            (PathBuf::from("/deep/a/b/c"), t),
+            (PathBuf::from("/shallow_but_long_name_1234567890"), t),
+        ];
+        sort_dir_mtimes_deepest_first(&mut v);
+        assert_eq!(v[0].0, PathBuf::from("/deep/a/b/c"));
     }
 }

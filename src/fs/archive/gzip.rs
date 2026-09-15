@@ -56,15 +56,28 @@ impl GzipHandler {
 
     /// Streams `reader` into `file` in fixed-size chunks, reporting each chunk
     /// as processed bytes. Never holds the whole payload in memory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the decompressed output exceeds `limit` bytes
+    /// (zip-bomb guard) or an I/O error occurs.
     fn write_streamed<R: Read>(
         reader: &mut R,
         file: &mut File,
         progress: &TaskProgressContext,
+        limit: u64,
     ) -> std::io::Result<()> {
         let mut buf = vec![0u8; IO_BUFFER_SIZE];
+        let mut total = 0u64;
         loop {
             let n = reader.read(&mut buf)?;
             if n > 0 {
+                total += n as u64;
+                if total > limit {
+                    return Err(std::io::Error::other(format!(
+                        "decompressed archive exceeds the {limit} byte limit"
+                    )));
+                }
                 file.write_all(&buf[..n])?;
                 progress
                     .processed_bytes
@@ -178,7 +191,12 @@ impl ArchiveFormat for GzipHandler {
         let mut file = File::create(&target)
             .with_context(|| format!("Failed to create {}", target.display()))?;
 
-        if let Err(e) = Self::write_streamed(&mut decoder, &mut file, progress) {
+        if let Err(e) = Self::write_streamed(
+            &mut decoder,
+            &mut file,
+            progress,
+            super::common::MAX_TOTAL_EXTRACT_BYTES,
+        ) {
             // Don't leave a partial file behind on failure.
             let _ = std::fs::remove_file(&target);
             return Err(e.into());
