@@ -79,6 +79,7 @@ pub mod win_clipboard {
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
     use windows::Win32::Foundation::{GlobalFree, HANDLE, HGLOBAL};
     use windows::Win32::System::DataExchange::{
         CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, RegisterClipboardFormatW,
@@ -106,6 +107,11 @@ pub mod win_clipboard {
     }
 
     impl WindowsFileClipboard {
+        /// Total time a clipboard write may block, including retries on a locked clipboard.
+        const SET_BUDGET: Duration = Duration::from_millis(500);
+        /// Total time a clipboard read may block while the clipboard is locked.
+        const READ_BUDGET: Duration = Duration::from_millis(300);
+
         #[must_use]
         pub fn new() -> Self {
             Self {
@@ -203,6 +209,41 @@ pub mod win_clipboard {
         Ok(hglobal.0 as isize)
     }
 
+    unsafe fn alloc_drop_effect(effect: u32) -> anyhow::Result<isize> {
+        let hglobal = unsafe {
+            GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, std::mem::size_of::<u32>())
+                .map_err(|e| anyhow::anyhow!("GlobalAlloc for DropEffect failed: {e}"))?
+        };
+        if hglobal.0.is_null() {
+            anyhow::bail!("GlobalAlloc for DropEffect failed");
+        }
+        let ptr = unsafe { GlobalLock(hglobal) };
+        if ptr.is_null() {
+            unsafe {
+                let _ = GlobalFree(Some(hglobal));
+            }
+            anyhow::bail!("GlobalLock for DropEffect failed");
+        }
+        unsafe {
+            *ptr.cast::<u32>() = effect;
+            let _ = GlobalUnlock(hglobal);
+        }
+        Ok(hglobal.0 as isize)
+    }
+
+    /// Frees a global memory block the clipboard did not take ownership of.
+    ///
+    /// # Safety
+    ///
+    /// `handle` must be a valid HGLOBAL not owned by the clipboard, or zero.
+    unsafe fn free_global(handle: isize) {
+        if handle != 0 {
+            unsafe {
+                let _ = GlobalFree(Some(HGLOBAL(handle as *mut _)));
+            }
+        }
+    }
+
     unsafe fn read_u32_from_hglobal(hglobal: isize) -> Option<u32> {
         if hglobal == 0 {
             return None;
@@ -229,22 +270,20 @@ pub mod win_clipboard {
     struct ClipboardGuard;
 
     impl ClipboardGuard {
-        fn open() -> anyhow::Result<Self> {
-            unsafe {
-                let mut attempts = 0;
-                loop {
-                    if OpenClipboard(None).is_ok() {
-                        return Ok(Self);
-                    }
-                    attempts += 1;
-                    if attempts >= 20 {
-                        break;
-                    }
-                    // Increase sleep duration slightly each time
-                    std::thread::sleep(std::time::Duration::from_millis(attempts * 5));
+        /// Opens the clipboard, retrying with exponential backoff until `deadline` while it is
+        /// locked by another owner. The total wait is bounded by the deadline.
+        fn open_until(deadline: Instant) -> anyhow::Result<Self> {
+            let mut backoff = Duration::from_millis(10);
+            loop {
+                if unsafe { OpenClipboard(None) }.is_ok() {
+                    return Ok(Self);
                 }
-                OpenClipboard(None).context("OpenClipboard failed after 20 retries")?;
-                Ok(Self)
+                let now = Instant::now();
+                if now >= deadline {
+                    anyhow::bail!("OpenClipboard failed: clipboard is locked by another process");
+                }
+                std::thread::sleep(backoff.min(deadline - now));
+                backoff = (backoff * 2).min(Duration::from_millis(100));
             }
         }
     }
@@ -257,42 +296,76 @@ pub mod win_clipboard {
         }
     }
 
-    impl WindowsFileClipboard {
-        fn try_set_clipboard(data: &FileClipboardData) -> anyhow::Result<()> {
-            let _guard = ClipboardGuard::open()?;
-            unsafe {
-                EmptyClipboard().context("EmptyClipboard failed")?;
-
-                let buf = paths_to_dropfiles_buffer(&data.paths);
-                let hglobal = alloc_global_from_bytes(&buf)?;
-                SetClipboardData(CF_HDROP, Some(HANDLE(hglobal as *mut _)))
-                    .context("SetClipboardData CF_HDROP failed")?;
-
-                let format = RegisterClipboardFormatW(w!("Preferred DropEffect"));
-                if format != 0 {
-                    let hglobal_effect =
-                        GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, std::mem::size_of::<u32>())
-                            .map_err(|e| {
-                                anyhow::anyhow!("GlobalAlloc for DropEffect failed: {e}")
-                            })?;
-
-                    if !hglobal_effect.0.is_null() {
-                        let ptr = GlobalLock(hglobal_effect);
-                        if ptr.is_null() {
-                            let _ = GlobalFree(Some(hglobal_effect));
-                        } else {
-                            *ptr.cast::<u32>() = to_drop_effect(data.action);
-                            let _ = GlobalUnlock(hglobal_effect);
-                            if let Err(e) = SetClipboardData(format, Some(HANDLE(hglobal_effect.0)))
-                            {
-                                let _ = GlobalFree(Some(hglobal_effect));
-                                return Err(anyhow::anyhow!("SetClipboardData format failed: {e}"));
-                            }
-                        }
-                    }
-                }
+    /// Frees both buffers when neither has been handed to the clipboard.
+    unsafe fn free_unplaced(hdrop: isize, effect_handle: Option<isize>) {
+        unsafe {
+            free_global(hdrop);
+            if let Some(h) = effect_handle {
+                free_global(h);
             }
-            Ok(())
+        }
+    }
+
+    /// Opens the clipboard, empties it, and places the pre-allocated buffers.
+    ///
+    /// On any failure, frees every buffer the clipboard did not take ownership of.
+    /// Once `SetClipboardData` succeeds for a buffer, the clipboard owns it.
+    unsafe fn place_clipboard_data(
+        hdrop: isize,
+        effect_format: u32,
+        effect_handle: Option<isize>,
+        deadline: Instant,
+    ) -> anyhow::Result<()> {
+        let _guard = match ClipboardGuard::open_until(deadline) {
+            Ok(guard) => guard,
+            Err(e) => {
+                unsafe {
+                    free_unplaced(hdrop, effect_handle);
+                }
+                return Err(e);
+            }
+        };
+
+        if let Err(e) = unsafe { EmptyClipboard() } {
+            unsafe {
+                free_unplaced(hdrop, effect_handle);
+            }
+            return Err(anyhow::Error::new(e).context("EmptyClipboard failed"));
+        }
+
+        if let Err(e) = unsafe { SetClipboardData(CF_HDROP, Some(HANDLE(hdrop as *mut _))) } {
+            // The clipboard did not take ownership of the HDROP buffer.
+            unsafe {
+                free_unplaced(hdrop, effect_handle);
+            }
+            return Err(anyhow::Error::new(e).context("SetClipboardData CF_HDROP failed"));
+        }
+        // From here on the clipboard owns `hdrop`; only the DropEffect buffer may be freed.
+
+        if effect_format != 0
+            && let Some(h) = effect_handle
+            && let Err(e) = unsafe { SetClipboardData(effect_format, Some(HANDLE(h as *mut _))) }
+        {
+            unsafe {
+                free_global(h);
+            }
+            return Err(anyhow::Error::new(e).context("SetClipboardData DropEffect failed"));
+        }
+        Ok(())
+    }
+
+    impl WindowsFileClipboard {
+        fn try_set_clipboard(data: &FileClipboardData, deadline: Instant) -> anyhow::Result<()> {
+            // Allocate all data before opening the clipboard so it is only held while writing.
+            let buf = paths_to_dropfiles_buffer(&data.paths);
+            let hdrop = unsafe { alloc_global_from_bytes(&buf) }?;
+            let effect_format = unsafe { RegisterClipboardFormatW(w!("Preferred DropEffect")) };
+            let effect_handle = if effect_format != 0 {
+                Some(unsafe { alloc_drop_effect(to_drop_effect(data.action)) }?)
+            } else {
+                None
+            };
+            unsafe { place_clipboard_data(hdrop, effect_format, effect_handle, deadline) }
         }
     }
 
@@ -301,19 +374,10 @@ pub mod win_clipboard {
             // Update in-process cache
             *self.cache.lock().unwrap() = Some(data.clone());
 
-            // Retry the entire clipboard operation to handle contention during parallel tests
-            let mut last_error = None;
-            for attempt in 0..5 {
-                if attempt > 0 {
-                    std::thread::sleep(std::time::Duration::from_millis(attempt * 50));
-                }
-
-                match Self::try_set_clipboard(&data) {
-                    Ok(()) => return Ok(()),
-                    Err(e) => last_error = Some(e),
-                }
-            }
-            Err(last_error.unwrap_or_else(|| anyhow::anyhow!("Clipboard set failed")))
+            // Bound the total wait (open retries + write) so the UI thread is never
+            // blocked for more than SET_BUDGET even while the clipboard is locked.
+            let deadline = Instant::now() + Self::SET_BUDGET;
+            Self::try_set_clipboard(&data, deadline)
         }
 
         fn get(&mut self) -> anyhow::Result<Option<FileClipboardData>> {
@@ -321,7 +385,8 @@ pub mod win_clipboard {
             let mut action = FileClipboardAction::Copy;
 
             // Try to read from OS clipboard (e.g. from Explorer)
-            if let Ok(_guard) = ClipboardGuard::open() {
+            let read_deadline = Instant::now() + Self::READ_BUDGET;
+            if let Ok(_guard) = ClipboardGuard::open_until(read_deadline) {
                 unsafe {
                     // ifs must not be collapsed
                     #[allow(clippy::collapsible_if)]
@@ -381,11 +446,122 @@ pub mod win_clipboard {
 
         fn clear(&mut self) -> anyhow::Result<()> {
             *self.cache.lock().unwrap() = None;
-            let _guard = ClipboardGuard::open()?;
+            let deadline = Instant::now() + Self::SET_BUDGET;
+            let _guard = ClipboardGuard::open_until(deadline)?;
             unsafe {
                 EmptyClipboard().context("EmptyClipboard failed")?;
             }
             Ok(())
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::io::BufRead;
+        use windows::Win32::Foundation::GetLastError;
+
+        fn test_data() -> FileClipboardData {
+            FileClipboardData {
+                action: FileClipboardAction::Copy,
+                paths: vec![PathBuf::from("C:\\temp\\clipboard-test.txt")],
+                source_provider: Arc::new(crate::fs::fs_local::LocalFs::new()),
+            }
+        }
+
+        /// Regression test: a locked clipboard used to cost up to ~6-7 s of blocking retries.
+        #[test]
+        fn set_is_bounded_when_clipboard_is_locked() {
+            // A separate process must own the clipboard the legacy way (real window handle):
+            // modern-mode `OpenClipboard(0)` calls may succeed concurrently on recent Windows.
+            let script = r###"
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -MemberDefinition @'
+[DllImport("user32.dll")] public static extern bool OpenClipboard(int hWnd);
+[DllImport("user32.dll")] public static extern bool CloseClipboard();
+'@ -Name W32 -Namespace Clip
+$f = New-Object System.Windows.Forms.Form
+$f.Visible = $false
+$ok = $false
+for ($i = 0; $i -lt 50; $i++) {
+    $ok = [Clip.W32]::OpenClipboard([int]$f.Handle)
+    if ($ok) { break }
+    Start-Sleep -Milliseconds 100
+}
+if ($ok) {
+    Write-Output "HOLDING"
+    Start-Sleep -Milliseconds 8000
+    [Clip.W32]::CloseClipboard() | Out-Null
+}
+"###;
+            let mut child = match std::process::Command::new("powershell.exe")
+                .args(["-NoProfile", "-NonInteractive", "-Command", script])
+                .stdout(std::process::Stdio::piped())
+                .spawn()
+            {
+                Ok(child) => child,
+                Err(_) => return, // no PowerShell in this environment: skip
+            };
+
+            // Wait for the holder to confirm it owns the clipboard (EOF means skip).
+            let mut held = false;
+            if let Some(out) = child.stdout.as_mut() {
+                let mut reader = std::io::BufReader::new(out);
+                let mut line = String::new();
+                held = reader.read_line(&mut line).is_ok() && line.contains("HOLDING");
+            }
+            if !held {
+                let _ = child.wait();
+                return;
+            }
+
+            let mut cb = WindowsFileClipboard::new();
+            let start = Instant::now();
+            let result = cb.set(test_data());
+            let elapsed = start.elapsed();
+
+            assert!(
+                result.is_err(),
+                "set() must fail while the clipboard is locked"
+            );
+            assert!(
+                elapsed <= Duration::from_secs(1),
+                "set() blocked for {elapsed:?}; clipboard writes must finish within a few hundred ms"
+            );
+
+            let _ = child.wait();
+        }
+
+        /// Verifies the alloc/free helpers used by the leak fix on a `SetClipboardData` failure.
+        #[test]
+        fn global_alloc_free_roundtrip() {
+            let buf = paths_to_dropfiles_buffer(&[
+                PathBuf::from("C:\\temp\\a.txt"),
+                PathBuf::from("C:\\temp\\b.txt"),
+            ]);
+            let handle = unsafe { alloc_global_from_bytes(&buf) }.expect("GlobalAlloc failed");
+            assert_ne!(handle, 0);
+
+            let h = HGLOBAL(handle as *mut _);
+            assert_eq!(unsafe { GlobalSize(h) }, buf.len());
+            let ptr = unsafe { GlobalLock(h) };
+            assert!(!ptr.is_null());
+            let slice = unsafe { std::slice::from_raw_parts(ptr.cast::<u8>(), buf.len()) };
+            assert_eq!(slice, buf.as_slice());
+            let _ = unsafe { GlobalUnlock(h) };
+
+            // The leak fix relies on this handle being freed when the clipboard refuses
+            // the data. The crate's GlobalFree wrapper reports a NULL return as an error,
+            // but the API returns NULL ("previous handle") on success, so verify with
+            // the thread's last-error value instead.
+            let _ = unsafe { GlobalFree(Some(h)) };
+            assert_eq!(
+                unsafe { GetLastError() },
+                windows::Win32::Foundation::WIN32_ERROR(0)
+            );
+
+            // Zero must be a no-op so error paths can call it unconditionally.
+            unsafe { free_global(0) };
         }
     }
 }
