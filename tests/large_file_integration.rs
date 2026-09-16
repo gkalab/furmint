@@ -28,9 +28,19 @@ async fn test_large_file_no_duplication() {
     let limit = 5 * 1024 * 1024; // 5MB
     let file_size = std::fs::metadata(&test_file).unwrap().len();
 
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<fm::state::ContentLoadResult>();
+    state.text.set_content_load_channel(tx);
+
     state
         .load_content(&test_file, &provider, Some(file_size), limit)
         .await;
+
+    // Indexing runs in a background task; collect its result
+    let res = tokio::time::timeout(std::time::Duration::from_secs(30), rx.recv())
+        .await
+        .expect("timed out waiting for large file index")
+        .expect("channel closed");
+    state.handle_content_load_result(res);
 
     assert!(state.text.large_file_reader.is_some());
     assert!(state.text.large_file_indexer.is_some());

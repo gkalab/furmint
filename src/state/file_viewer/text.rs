@@ -8,6 +8,10 @@ pub struct ContentLoadResult {
     pub path: PathBuf,
     pub content: Vec<String>,
     pub archive_rows: Option<Vec<crate::fs::archive::preview::ArchiveTreeRow>>,
+    pub large_file: Option<(
+        crate::large_text::file_reader::FileReader,
+        crate::large_text::line_indexer::LineIndexer,
+    )>,
     pub language: lumis::languages::Language,
 }
 
@@ -499,6 +503,7 @@ impl TextViewerState {
                             path: result_path,
                             content: Vec::new(),
                             archive_rows: None,
+                            large_file: None,
                             language: lumis::languages::Language::default(),
                         }
                     } else {
@@ -511,6 +516,7 @@ impl TextViewerState {
                             path: result_path,
                             content,
                             archive_rows: Some(rows),
+                            large_file: None,
                             language: lumis::languages::Language::default(),
                         }
                     }
@@ -520,6 +526,69 @@ impl TextViewerState {
                     path: result_path,
                     content: vec![format!("Error scanning archive: {e}")],
                     archive_rows: None,
+                    large_file: None,
+                    language: lumis::languages::Language::default(),
+                },
+            };
+            let _ = tx.send(load_result);
+        });
+    }
+
+    /// Indexes a large local file in a blocking task so the UI event loop is not blocked.
+    ///
+    /// The result (reader + line index) is delivered via the content load channel; stale
+    /// results are dropped via `load_id`/path checks and the cancel flag.
+    pub fn spawn_large_file_index(
+        &mut self,
+        path: &std::path::Path,
+        encoding: &'static encoding_rs::Encoding,
+        size: u64,
+        limit_bytes: u64,
+        cancel_flag: Arc<AtomicBool>,
+    ) {
+        self.content_load_id += 1;
+        let load_id = self.content_load_id;
+        let path = path.to_path_buf();
+        let Some(tx) = self.content_load_tx.clone() else {
+            return;
+        };
+        tokio::spawn(async move {
+            let result_path = path.clone();
+            let index = tokio::task::spawn_blocking(move || {
+                let reader = crate::large_text::file_reader::FileReader::new(path, encoding)?;
+                let mut indexer = crate::large_text::line_indexer::LineIndexer::new();
+                indexer.index_file(&reader);
+                Ok::<_, anyhow::Error>((reader, indexer))
+            })
+            .await
+            .unwrap_or_else(|e| Err(anyhow::anyhow!(e.to_string())));
+
+            if cancel_flag.load(Ordering::Relaxed) {
+                return;
+            }
+
+            let load_result = match index {
+                Ok((reader, indexer)) => ContentLoadResult {
+                    load_id,
+                    path: result_path,
+                    content: Vec::new(),
+                    archive_rows: None,
+                    large_file: Some((reader, indexer)),
+                    language: lumis::languages::Language::default(),
+                },
+                Err(e) => ContentLoadResult {
+                    load_id,
+                    path: result_path,
+                    content: vec![
+                        format!(
+                            "File too large to display (size: {}, limit: {})",
+                            crate::fs::utils::format_size(Some(size), false, false),
+                            crate::fs::utils::format_size(Some(limit_bytes), false, false)
+                        ),
+                        format!("Indexing failed: {e}"),
+                    ],
+                    archive_rows: None,
+                    large_file: None,
                     language: lumis::languages::Language::default(),
                 },
             };

@@ -910,7 +910,16 @@ async fn test_update_viewer_content_loads_large_file() {
     }]);
     app.panels.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
     app.file_viewer.is_visible = true;
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<fm::state::ContentLoadResult>();
+    app.file_viewer.text.set_content_load_channel(tx);
     update_viewer_content(&mut app).await;
+
+    // Indexing runs in a background task; collect its result
+    let res = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
+        .await
+        .expect("timed out waiting for large file index")
+        .expect("channel closed");
+    app.file_viewer.handle_content_load_result(res);
 
     // Should NOT have error message in content
     assert!(app.file_viewer.text.content.is_empty());

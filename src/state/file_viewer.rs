@@ -235,18 +235,14 @@ impl FileViewerState {
             && s > limit_u64
         {
             if provider.is_local() {
-                // Try vendored large_text for local files
+                // Try vendored large_text for local files — index in background to avoid
+                // blocking the UI event loop
                 let encoding = crate::large_text::file_reader::detect_encoding(&chunk);
-                if let Ok(reader) =
-                    crate::large_text::file_reader::FileReader::new(path.to_path_buf(), encoding)
-                {
-                    let mut indexer = crate::large_text::line_indexer::LineIndexer::new();
-                    indexer.index_file(&reader);
-                    self.text.large_file_reader = Some(reader);
-                    self.text.large_file_indexer = Some(indexer);
-                    self.text.language = lumis::languages::Language::default(); // Disable syntax highlighting
-                    return;
-                }
+                self.is_loading = true;
+                let flag = self.new_cancel_flag();
+                self.text
+                    .spawn_large_file_index(path, encoding, s, limit_u64, flag);
+                return;
             }
 
             self.text.content = vec![format!(
@@ -297,6 +293,10 @@ impl FileViewerState {
         self.text.content = res.content;
         self.text.archive_rows = res.archive_rows;
         self.text.language = res.language;
+        if let Some((reader, indexer)) = res.large_file {
+            self.text.large_file_reader = Some(reader);
+            self.text.large_file_indexer = Some(indexer);
+        }
     }
 
     /// The active search query, if any.
