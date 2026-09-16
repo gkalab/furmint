@@ -52,6 +52,11 @@ impl LineIndexer {
     }
 
     #[must_use]
+    pub fn offsets(&self) -> &[usize] {
+        &self.line_offsets
+    }
+
+    #[must_use]
     pub fn get_line_range(&self, line_num: usize) -> Option<(usize, usize)> {
         if line_num >= self.line_offsets.len() {
             return None;

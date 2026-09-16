@@ -154,6 +154,58 @@ fn test_search_empty() {
 }
 
 #[test]
+fn test_search_large_file_chunked() {
+    let temp_file = tempfile::NamedTempFile::new().unwrap();
+    let test_file = temp_file.path().to_path_buf();
+
+    // ~3.3MB / 100k lines so the search crosses 2MB decode chunks.
+    let mut content = String::new();
+    for i in 0..100_000 {
+        match i {
+            500 => content.push_str("first marker here"),
+            50_000 => content.push_str("middle marker here"),
+            99_999 => content.push_str("last marker here"),
+            _ => content.push_str("filler line for testing purposes"),
+        }
+        content.push('\n');
+    }
+    std::fs::write(&test_file, &content).unwrap();
+
+    let reader =
+        fm::large_text::file_reader::FileReader::new(test_file, encoding_rs::UTF_8).unwrap();
+    let mut indexer = fm::large_text::line_indexer::LineIndexer::new();
+    indexer.index_file(&reader);
+
+    let mut state = FileViewerState::new(true, "test");
+    state.area = ratatui::layout::Rect::new(0, 0, 80, 20);
+    state.text.content = Vec::new();
+    state.text.large_file_reader = Some(reader);
+    state.text.large_file_indexer = Some(indexer);
+
+    state.search("marker");
+    assert_eq!(state.text.current_search_match, Some((500, 6, 12)));
+
+    state.search_next();
+    assert_eq!(state.text.current_search_match, Some((50_000, 7, 13)));
+
+    state.search_next();
+    assert_eq!(state.text.current_search_match, Some((99_999, 5, 11)));
+
+    state.search_next(); // wraps to top
+    assert_eq!(state.text.current_search_match, Some((500, 6, 12)));
+
+    state.search_prev(); // wraps to bottom
+    assert_eq!(state.text.current_search_match, Some((99_999, 5, 11)));
+
+    state.search_prev();
+    assert_eq!(state.text.current_search_match, Some((50_000, 7, 13)));
+
+    // No match: full-file scan.
+    assert!(!state.search("nomatch"));
+    assert_eq!(state.text.current_search_match, None);
+}
+
+#[test]
 fn test_search_prev() {
     let mut state = FileViewerState::new(true, "test");
     state.area = ratatui::layout::Rect::new(0, 0, 80, 20);

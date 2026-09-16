@@ -290,12 +290,16 @@ impl TextViewerState {
         }
     }
 
+    /// Whether a line is inside the visible viewport (two lines are reserved
+    /// for the bottom bars, matching [`Self::max_scroll_offset`]).
+    fn match_visible(&self, line: usize, area: ratatui::layout::Rect) -> bool {
+        let visible_lines = area.height.saturating_sub(2) as usize;
+        line >= self.scroll_offset && line < self.scroll_offset + visible_lines
+    }
+
     fn jump_to_match_with_context(&mut self, line_idx: usize, area: ratatui::layout::Rect) {
-        let viewport_height = area.height as usize;
         // If the match is already visible on the current page, don't scroll.
-        if line_idx >= self.scroll_offset
-            && line_idx < self.scroll_offset + viewport_height.saturating_sub(1)
-        {
+        if self.match_visible(line_idx, area) {
             return;
         }
         // Leave 4 lines above for context, clamped so we never scroll past the content.
@@ -312,12 +316,11 @@ impl TextViewerState {
             return false;
         };
 
-        let viewport_height = area.height as usize;
         let (start_line, start_char) = match self.current_search_match {
             Some((line, _, end_char)) => {
                 // If current match is visible, search after it.
                 // Otherwise, search from the current scroll offset.
-                if line >= self.scroll_offset && line < self.scroll_offset + viewport_height {
+                if self.match_visible(line, area) {
                     (line, end_char)
                 } else {
                     (self.scroll_offset, 0)
@@ -343,12 +346,11 @@ impl TextViewerState {
             return false;
         };
 
-        let viewport_height = area.height as usize;
         let (start_line, start_char) = match self.current_search_match {
             Some((line, start_char, _)) => {
                 // If current match is visible, search before it.
                 // Otherwise, search from the current scroll offset.
-                if line >= self.scroll_offset && line < self.scroll_offset + viewport_height {
+                if self.match_visible(line, area) {
                     (line, start_char)
                 } else {
                     (self.scroll_offset, 0)
@@ -379,10 +381,30 @@ impl TextViewerState {
         if total == 0 {
             return None;
         }
+        let mut found: Option<(usize, usize, usize)> = None;
+        if start_line >= total {
+            // Start position is past the end (e.g. scrolled past EOF):
+            // scan the whole file from the beginning.
+            self.for_each_line(0, total, |i, line| {
+                if let Some(m) = re.find(line) {
+                    let start_c = line[..m.start()].chars().count();
+                    let end_c = start_c + line[m.start()..m.end()].chars().count();
+                    found = Some((i, start_c, end_c));
+                    true
+                } else {
+                    false
+                }
+            });
+            return found;
+        }
 
         // 1. Current line after start_char
-        if let Some(line) = self.get_line(start_line) {
-            let byte_idx = line.chars().take(start_char).map(char::len_utf8).sum();
+        self.for_each_line(start_line, start_line + 1, |i, line| {
+            let byte_idx = line
+                .chars()
+                .take(start_char)
+                .map(char::len_utf8)
+                .sum::<usize>();
             if byte_idx < line.len()
                 && let Some(m) = re.find(&line[byte_idx..])
             {
@@ -390,38 +412,47 @@ impl TextViewerState {
                 let m_end = byte_idx + m.end();
                 let start_c = line[..m_start].chars().count();
                 let end_c = start_c + line[m_start..m_end].chars().count();
-                return Some((start_line, start_c, end_c));
+                found = Some((i, start_c, end_c));
+                true
+            } else {
+                false
             }
+        });
+        if found.is_some() {
+            return found;
         }
 
         // 2. Subsequent lines
-        for i in (start_line + 1)..total {
-            if let Some(line) = self.get_line(i)
-                && let Some(m) = re.find(&line)
-            {
+        self.for_each_line(start_line + 1, total, |i, line| {
+            if let Some(m) = re.find(line) {
                 let start_c = line[..m.start()].chars().count();
                 let end_c = start_c + line[m.start()..m.end()].chars().count();
-                return Some((i, start_c, end_c));
+                found = Some((i, start_c, end_c));
+                true
+            } else {
+                false
             }
+        });
+        if found.is_some() {
+            return found;
         }
 
         // 3. Wrap around: 0 to start_line
-        for i in 0..=start_line {
-            if let Some(line) = self.get_line(i)
-                && let Some(m) = re.find(&line)
-            {
-                // Check if this match is before our starting point if it's the same line
-                let m_start_byte = m.start();
-                let start_c = line[..m_start_byte].chars().count();
-
-                if i < start_line || start_c < start_char {
-                    let end_c = start_c + line[m_start_byte..m.end()].chars().count();
-                    return Some((i, start_c, end_c));
-                }
+        self.for_each_line(0, start_line + 1, |i, line| {
+            let Some(m) = re.find(line) else {
+                return false;
+            };
+            // Check if this match is before our starting point if it's the same line
+            let start_c = line[..m.start()].chars().count();
+            if i < start_line || start_c < start_char {
+                let end_c = start_c + line[m.start()..m.end()].chars().count();
+                found = Some((i, start_c, end_c));
+                true
+            } else {
+                false
             }
-        }
-
-        None
+        });
+        found
     }
 
     fn find_prev_match(
@@ -434,46 +465,191 @@ impl TextViewerState {
         if total == 0 {
             return None;
         }
+        let start_line = start_line.min(total - 1);
 
         // 1. Current line before start_char
-        if let Some(line) = self.get_line(start_line) {
-            let byte_limit = line.chars().take(start_char).map(char::len_utf8).sum();
+        let mut found: Option<(usize, usize, usize)> = None;
+        self.for_each_line(start_line, start_line + 1, |i, line| {
+            let byte_limit = line
+                .chars()
+                .take(start_char)
+                .map(char::len_utf8)
+                .sum::<usize>();
             if byte_limit > 0
                 && let Some(m) = re.find_iter(&line[..byte_limit]).last()
             {
                 let start_c = line[..m.start()].chars().count();
                 let end_c = start_c + line[m.start()..m.end()].chars().count();
-                return Some((start_line, start_c, end_c));
+                found = Some((i, start_c, end_c));
+                true
+            } else {
+                false
             }
+        });
+        if found.is_some() {
+            return found;
         }
 
         // 2. Previous lines
-        for i in (0..start_line).rev() {
-            if let Some(line) = self.get_line(i)
-                && let Some(m) = re.find_iter(&line).last()
-            {
-                let start_c = line[..m.start()].chars().count();
-                let end_c = start_c + line[m.start()..m.end()].chars().count();
-                return Some((i, start_c, end_c));
-            }
+        if start_line > 0 {
+            self.for_each_line_rev(start_line - 1, 0, |i, line| {
+                if let Some(m) = re.find_iter(line).last() {
+                    let start_c = line[..m.start()].chars().count();
+                    let end_c = start_c + line[m.start()..m.end()].chars().count();
+                    found = Some((i, start_c, end_c));
+                    true
+                } else {
+                    false
+                }
+            });
+        }
+        if found.is_some() {
+            return found;
         }
 
         // 3. Wrap around: bottom to start_line
-        for i in (start_line..total).rev() {
-            if let Some(line) = self.get_line(i)
-                && let Some(m) = re.find_iter(&line).last()
-            {
-                let m_start_byte = m.start();
-                let start_c = line[..m_start_byte].chars().count();
-
-                if i > start_line || start_c > start_char {
-                    let end_c = start_c + line[m_start_byte..m.end()].chars().count();
-                    return Some((i, start_c, end_c));
-                }
+        self.for_each_line_rev(total - 1, start_line, |i, line| {
+            let Some(m) = re.find_iter(line).last() else {
+                return false;
+            };
+            let start_c = line[..m.start()].chars().count();
+            if i > start_line || start_c > start_char {
+                let end_c = start_c + line[m.start()..m.end()].chars().count();
+                found = Some((i, start_c, end_c));
+                true
+            } else {
+                false
             }
+        });
+        found
+    }
+
+    /// Byte window decoded at once when searching an indexed file.
+    const SEARCH_CHUNK_BYTES: usize = 2 * 1024 * 1024;
+
+    /// Calls `f(line_idx, line)` for lines `start_line..end_line` in order and
+    /// returns the first line index where `f` returned `true`, if any.
+    ///
+    /// Small-file lines are borrowed; indexed files are decoded in large
+    /// contiguous windows (bounded by the requested line range) instead of
+    /// one decode + allocation per line.
+    fn for_each_line<F>(&self, start_line: usize, end_line: usize, mut f: F) -> Option<usize>
+    where
+        F: FnMut(usize, &str) -> bool,
+    {
+        let total = self.total_lines();
+        let start_line = start_line.min(end_line).min(total);
+        let end_line = end_line.min(total);
+        if start_line >= end_line {
+            return None;
         }
 
-        None
+        if let (Some(indexer), Some(reader)) = (&self.large_file_indexer, &self.large_file_reader) {
+            let offsets = indexer.offsets();
+            let file_len = reader.len();
+            let mut cursor = start_line;
+            while cursor < end_line {
+                let byte_start = offsets[cursor];
+                // Last line that starts within the decode window.
+                let target = byte_start.saturating_add(Self::SEARCH_CHUNK_BYTES);
+                let k = match offsets.binary_search(&target) {
+                    Ok(j) => j,
+                    Err(j) => j.saturating_sub(1),
+                }
+                .min(end_line);
+                let byte_end = if k + 1 < offsets.len() {
+                    offsets[k + 1]
+                } else {
+                    file_len
+                };
+                let chunk = reader.get_chunk(byte_start, byte_end);
+                for (local, line) in chunk.split_terminator('\n').enumerate() {
+                    let idx = cursor + local;
+                    if idx >= end_line {
+                        break;
+                    }
+                    if f(idx, line) {
+                        return Some(idx);
+                    }
+                }
+                cursor = k + 1;
+            }
+            // Synthetic empty final line (file ends with a newline).
+            if end_line == total && offsets.last() == Some(&file_len) && f(total - 1, "") {
+                return Some(total - 1);
+            }
+            None
+        } else {
+            for i in start_line..end_line {
+                if f(i, &self.content[i]) {
+                    return Some(i);
+                }
+            }
+            None
+        }
+    }
+
+    /// Calls `f(line_idx, line)` for lines `start_line, start_line - 1, ...,
+    /// end_line` (inclusive) in reverse order.
+    fn for_each_line_rev<F>(&self, start_line: usize, end_line: usize, mut f: F) -> Option<usize>
+    where
+        F: FnMut(usize, &str) -> bool,
+    {
+        let total = self.total_lines();
+        let start_line = start_line.min(total.saturating_sub(1));
+        let end_line = end_line.min(total);
+        if start_line < end_line {
+            return None;
+        }
+
+        if let (Some(indexer), Some(reader)) = (&self.large_file_indexer, &self.large_file_reader) {
+            let offsets = indexer.offsets();
+            let file_len = reader.len();
+            let mut cursor = start_line;
+            // Synthetic empty final line (file ends with a newline).
+            if offsets.last() == Some(&file_len) && cursor == total - 1 {
+                if f(total - 1, "") {
+                    return Some(total - 1);
+                }
+                cursor -= 1;
+            }
+            while cursor >= end_line {
+                let byte_end = if cursor + 1 < offsets.len() {
+                    offsets[cursor + 1]
+                } else {
+                    file_len
+                };
+                // First line that starts at or after the window start.
+                let target = byte_end.saturating_sub(Self::SEARCH_CHUNK_BYTES);
+                let mut j = match offsets.binary_search(&target) {
+                    Ok(x) | Err(x) => x,
+                };
+                if j > cursor {
+                    j = cursor;
+                }
+                let byte_start = offsets[j];
+                let chunk = reader.get_chunk(byte_start, byte_end);
+                let lines: Vec<&str> = chunk.split_terminator('\n').collect();
+                for (local, line) in lines.iter().enumerate().rev() {
+                    let idx = j + local;
+                    if idx < end_line {
+                        break;
+                    }
+                    if f(idx, line) {
+                        return Some(idx);
+                    }
+                }
+                cursor = j.checked_sub(1)?;
+            }
+            None
+        } else {
+            for i in (end_line..=start_line).rev() {
+                if f(i, &self.content[i]) {
+                    return Some(i);
+                }
+            }
+            None
+        }
     }
 
     pub fn spawn_archive_scan(&mut self, path: &std::path::Path, cancel_flag: Arc<AtomicBool>) {
