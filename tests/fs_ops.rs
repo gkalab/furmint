@@ -318,6 +318,7 @@ async fn test_recursive_copy_nested() {
     let cancel = Arc::new(AtomicBool::new(false));
     let total_bytes = 0; // Mock doesn't track size
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let subtree_counts = fm::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
         src_fs: &fs,
         dest_fs: &fs,
@@ -332,6 +333,7 @@ async fn test_recursive_copy_nested() {
         processed: &processed,
         processed_bytes: &processed_bytes,
         decision_rx: &decision_rx,
+        subtree_counts: &subtree_counts,
     };
     let mut decision_state = DecisionState {
         overwrite_all: false,
@@ -374,6 +376,7 @@ async fn test_recursive_copy_overwrite_all() {
     let decision_rx = Arc::new(Mutex::new(drx_real));
     let total_bytes = 0;
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let subtree_counts = fm::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
         src_fs: &fs,
         dest_fs: &fs,
@@ -388,6 +391,7 @@ async fn test_recursive_copy_overwrite_all() {
         processed: &processed,
         processed_bytes: &processed_bytes,
         decision_rx: &decision_rx,
+        subtree_counts: &subtree_counts,
     };
     let mut decision_state = DecisionState {
         overwrite_all: false,
@@ -438,6 +442,7 @@ async fn test_recursive_copy_cancel() {
     let decision_rx = Arc::new(Mutex::new(drx_real));
     let total_bytes = 0;
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let subtree_counts = fm::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
         src_fs: &fs,
         dest_fs: &fs,
@@ -452,6 +457,7 @@ async fn test_recursive_copy_cancel() {
         processed: &processed,
         processed_bytes: &processed_bytes,
         decision_rx: &decision_rx,
+        subtree_counts: &subtree_counts,
     };
     let mut decision_state = DecisionState {
         overwrite_all: false,
@@ -501,6 +507,7 @@ async fn test_recursive_copy_skip_all() {
     let decision_rx = Arc::new(Mutex::new(drx_real));
     let total_bytes = 0;
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let subtree_counts = fm::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
         src_fs: &fs,
         dest_fs: &fs,
@@ -515,6 +522,7 @@ async fn test_recursive_copy_skip_all() {
         processed: &processed,
         processed_bytes: &processed_bytes,
         decision_rx: &decision_rx,
+        subtree_counts: &subtree_counts,
     };
     let mut decision_state = DecisionState {
         overwrite_all: false,
@@ -561,6 +569,7 @@ async fn test_mock_simple_move_conflict_overwrite() {
     let decision_rx = Arc::new(Mutex::new(decision_rx_real));
     let total_bytes = 0;
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let subtree_counts = fm::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
         src_fs: &fs,
         dest_fs: &fs,
@@ -575,6 +584,7 @@ async fn test_mock_simple_move_conflict_overwrite() {
         processed: &processed,
         processed_bytes: &processed_bytes,
         decision_rx: &decision_rx,
+        subtree_counts: &subtree_counts,
     };
     let mut decision_state = DecisionState {
         overwrite_all: false,
@@ -625,6 +635,7 @@ async fn test_recursive_op_retry() {
     let decision_rx = Arc::new(Mutex::new(decision_rx_real));
     let total_bytes = 0;
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let subtree_counts = fm::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
         src_fs: &fs,
         dest_fs: &fs,
@@ -639,6 +650,7 @@ async fn test_recursive_op_retry() {
         processed: &processed,
         processed_bytes: &processed_bytes,
         decision_rx: &decision_rx,
+        subtree_counts: &subtree_counts,
     };
     let mut decision_state = DecisionState {
         overwrite_all: false,
@@ -687,6 +699,7 @@ async fn test_recursive_op_error_skip_all() {
     let total_bytes = 0;
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let cancel = Arc::new(AtomicBool::new(false));
+    let subtree_counts = fm::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
         src_fs: &fs,
         dest_fs: &fs,
@@ -701,6 +714,7 @@ async fn test_recursive_op_error_skip_all() {
         processed: &processed,
         processed_bytes: &processed_bytes,
         decision_rx: &decision_rx,
+        subtree_counts: &subtree_counts,
     };
     let mut decision_state = DecisionState {
         overwrite_all: false,
@@ -753,6 +767,7 @@ async fn test_recursive_op_error_cancel() {
     let total_bytes = 0;
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let cancel = Arc::new(AtomicBool::new(false));
+    let subtree_counts = fm::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
         src_fs: &fs,
         dest_fs: &fs,
@@ -767,6 +782,7 @@ async fn test_recursive_op_error_cancel() {
         processed: &processed,
         processed_bytes: &processed_bytes,
         decision_rx: &decision_rx,
+        subtree_counts: &subtree_counts,
     };
     let mut decision_state = DecisionState {
         overwrite_all: false,
@@ -822,6 +838,7 @@ async fn test_recursive_op_error_skip() {
     let total_bytes = 0;
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let cancel = Arc::new(AtomicBool::new(false));
+    let subtree_counts = fm::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
         src_fs: &fs,
         dest_fs: &fs,
@@ -836,6 +853,7 @@ async fn test_recursive_op_error_skip() {
         processed: &processed,
         processed_bytes: &processed_bytes,
         decision_rx: &decision_rx,
+        subtree_counts: &subtree_counts,
     };
     let mut decision_state = DecisionState {
         overwrite_all: false,
@@ -883,6 +901,7 @@ async fn test_move_rename_optimization_no_conflict() {
     let cancel = Arc::new(AtomicBool::new(false));
     let total_bytes = 0;
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let subtree_counts = fm::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
         src_fs: &fs,
         dest_fs: &fs,
@@ -897,6 +916,7 @@ async fn test_move_rename_optimization_no_conflict() {
         processed: &processed,
         processed_bytes: &processed_bytes,
         decision_rx: &decision_rx,
+        subtree_counts: &subtree_counts,
     };
     let mut decision_state = DecisionState {
         overwrite_all: false,
@@ -944,6 +964,7 @@ async fn test_move_rename_optimization_directory() {
     let decision_rx = Arc::new(Mutex::new(drx_real));
     let total_bytes = 0;
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let subtree_counts = fm::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
         src_fs: &fs,
         dest_fs: &fs,
@@ -958,6 +979,7 @@ async fn test_move_rename_optimization_directory() {
         processed: &processed,
         processed_bytes: &processed_bytes,
         decision_rx: &decision_rx,
+        subtree_counts: &subtree_counts,
     };
     let mut decision_state = DecisionState {
         overwrite_all: false,
@@ -979,7 +1001,9 @@ async fn test_move_rename_optimization_directory() {
         }
     }
 
-    assert_eq!(last_p, 2); // With increment = count - 1 = 2, and total = 3, last_p ends at 2 because the first update sets it to 2 and subsequent updates don't happen (p != total)
+    // The rename moved the whole subtree, so all 3 items (dir + 2 files)
+    // are credited at once and the bar reaches total.
+    assert_eq!(last_p, 3);
     assert!(progress_events >= 1);
 
     assert!(!fs.exists(&src_dir).await);
@@ -1009,6 +1033,7 @@ async fn test_handle_directory_dest_exists_as_dir_merge() {
     let cancel = Arc::new(AtomicBool::new(false));
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
+    let subtree_counts = fm::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
         src_fs: &fs,
         dest_fs: &fs,
@@ -1023,6 +1048,7 @@ async fn test_handle_directory_dest_exists_as_dir_merge() {
         processed: &processed,
         processed_bytes: &processed_bytes,
         decision_rx: &decision_rx,
+        subtree_counts: &subtree_counts,
     };
 
     let mut decision_state = DecisionState::new();
@@ -1054,6 +1080,7 @@ async fn test_handle_directory_download_success() {
     let cancel = Arc::new(AtomicBool::new(false));
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
+    let subtree_counts = fm::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
         src_fs: &fs,
         dest_fs: &fs,
@@ -1068,6 +1095,7 @@ async fn test_handle_directory_download_success() {
         processed: &processed,
         processed_bytes: &processed_bytes,
         decision_rx: &decision_rx,
+        subtree_counts: &subtree_counts,
     };
 
     let mut decision_state = DecisionState::new();
@@ -1098,6 +1126,7 @@ async fn test_handle_directory_download_failure() {
     let cancel = Arc::new(AtomicBool::new(false));
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
+    let subtree_counts = fm::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
         src_fs: &fs,
         dest_fs: &fs,
@@ -1112,6 +1141,7 @@ async fn test_handle_directory_download_failure() {
         processed: &processed,
         processed_bytes: &processed_bytes,
         decision_rx: &decision_rx,
+        subtree_counts: &subtree_counts,
     };
 
     let mut decision_state = DecisionState::new();
@@ -1150,6 +1180,7 @@ async fn test_handle_directory_read_dir_error() {
     let cancel = Arc::new(AtomicBool::new(false));
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
+    let subtree_counts = fm::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
         src_fs: &fs,
         dest_fs: &fs,
@@ -1164,6 +1195,7 @@ async fn test_handle_directory_read_dir_error() {
         processed: &processed,
         processed_bytes: &processed_bytes,
         decision_rx: &decision_rx,
+        subtree_counts: &subtree_counts,
     };
 
     let mut decision_state = DecisionState::new();
@@ -1193,6 +1225,7 @@ async fn test_handle_directory_create_dir_error() {
     let cancel = Arc::new(AtomicBool::new(false));
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
+    let subtree_counts = fm::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
         src_fs: &fs,
         dest_fs: &fs,
@@ -1207,6 +1240,7 @@ async fn test_handle_directory_create_dir_error() {
         processed: &processed,
         processed_bytes: &processed_bytes,
         decision_rx: &decision_rx,
+        subtree_counts: &subtree_counts,
     };
 
     let mut decision_state = DecisionState::new();
@@ -1235,6 +1269,7 @@ async fn test_handle_directory_dest_exists_as_file_skip() {
     let cancel = Arc::new(AtomicBool::new(false));
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
+    let subtree_counts = fm::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
         src_fs: &fs,
         dest_fs: &fs,
@@ -1249,6 +1284,7 @@ async fn test_handle_directory_dest_exists_as_file_skip() {
         processed: &processed,
         processed_bytes: &processed_bytes,
         decision_rx: &decision_rx,
+        subtree_counts: &subtree_counts,
     };
 
     let mut decision_state = DecisionState::new();
@@ -1286,6 +1322,7 @@ async fn test_handle_directory_dest_exists_as_file_cancel() {
     let cancel = Arc::new(AtomicBool::new(false));
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
+    let subtree_counts = fm::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
         src_fs: &fs,
         dest_fs: &fs,
@@ -1300,6 +1337,7 @@ async fn test_handle_directory_dest_exists_as_file_cancel() {
         processed: &processed,
         processed_bytes: &processed_bytes,
         decision_rx: &decision_rx,
+        subtree_counts: &subtree_counts,
     };
 
     let mut decision_state = DecisionState::new();
@@ -1339,6 +1377,7 @@ async fn test_handle_directory_download_fallback() {
     let cancel = Arc::new(AtomicBool::new(false));
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
+    let subtree_counts = fm::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
         src_fs: &fs,
         dest_fs: &fs,
@@ -1353,6 +1392,7 @@ async fn test_handle_directory_download_fallback() {
         processed: &processed,
         processed_bytes: &processed_bytes,
         decision_rx: &decision_rx,
+        subtree_counts: &subtree_counts,
     };
 
     let mut decision_state = DecisionState::new();

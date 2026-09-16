@@ -523,6 +523,7 @@ struct ProcessPathContext<'a> {
         &'a Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<crate::tasks::TaskDecision>>>,
     processed_items: &'a Arc<std::sync::atomic::AtomicUsize>,
     processed_bytes: &'a Arc<std::sync::atomic::AtomicU64>,
+    subtree_counts: &'a crate::fs::ops::SubtreeCounts,
 }
 
 struct RsyncFsContext<'a> {
@@ -654,10 +655,33 @@ async fn process_single_path(
         processed: ctx.processed_items,
         processed_bytes: ctx.processed_bytes,
         decision_rx: ctx.decision_rx,
+        subtree_counts: ctx.subtree_counts,
     };
     crate::fs::ops::recursive_op(ops_ctx, decision_state)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Precompute the task totals and the per-path subtree counts in a single
+/// walk of the source (the map lets the rename-move optimization credit a
+/// whole renamed subtree without a second walk). Skipped for rsync-eligible
+/// transfers: rsync provides its own byte-level progress and walking remote
+/// trees is slow, so only the top-level item count is used.
+async fn compute_task_totals(
+    src_provider: &Arc<dyn FileSystemProvider>,
+    paths: &[PathBuf],
+    use_rsync: bool,
+) -> (usize, u64, crate::fs::ops::SubtreeCounts) {
+    if use_rsync {
+        (paths.len(), 0, crate::fs::ops::SubtreeCounts::new())
+    } else {
+        let subtree_counts = crate::fs::ops::count_subtrees(src_provider.as_ref(), paths).await;
+        let (count, bytes) = paths.iter().fold((0usize, 0u64), |(c, b), p| {
+            let (ic, ib) = subtree_counts.get(p).copied().unwrap_or((0, 0));
+            (c + ic, b + ib)
+        });
+        (count, bytes, subtree_counts)
+    }
 }
 
 pub fn spawn_copy_move_task(
@@ -699,15 +723,9 @@ pub fn spawn_copy_move_task(
                 action,
             );
 
-            // Pre-calculation of total items using the source filesystem
-            // Skip this for rsync-eligible transfers to avoid slow remote directory traversal
-            // (rsync provides its own byte-level progress)
-            let (total_items, total_bytes) = if use_rsync {
-                // For rsync, just count top-level items - rsync handles progress internally
-                (paths.len(), 0)
-            } else {
-                crate::fs::ops::count_items_and_size(src_provider.as_ref(), &paths).await
-            };
+            // Precompute totals and per-path subtree counts in a single walk.
+            let (total_items, total_bytes, subtree_counts) =
+                compute_task_totals(&src_provider, &paths, use_rsync).await;
             let processed_items = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
             let processed_bytes = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
 
@@ -753,6 +771,7 @@ pub fn spawn_copy_move_task(
                 decision_rx: &decision_rx,
                 processed_items: &processed_items,
                 processed_bytes: &processed_bytes,
+                subtree_counts: &subtree_counts,
             };
 
             for src in &paths {

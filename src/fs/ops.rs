@@ -31,6 +31,46 @@ pub async fn count_items(fs: &dyn FileSystemProvider, paths: &[std::path::PathBu
     count_items_and_size(fs, paths).await.0
 }
 
+/// Per-path stats from a single walk of the tree:
+/// `(item count including the path itself, total size in bytes)`.
+pub type SubtreeCounts = std::collections::HashMap<std::path::PathBuf, (usize, u64)>;
+
+/// Walk `paths` once, recording the subtree item count and total size of
+/// every visited path. Callers can then credit a whole renamed/moved subtree
+/// for progress without walking it a second time.
+pub async fn count_subtrees(
+    fs: &dyn FileSystemProvider,
+    paths: &[std::path::PathBuf],
+) -> SubtreeCounts {
+    let mut map = SubtreeCounts::new();
+    for path in paths {
+        Box::pin(count_subtree(fs, path, &mut map)).await;
+    }
+    map
+}
+
+async fn count_subtree(
+    fs: &dyn FileSystemProvider,
+    path: &std::path::Path,
+    map: &mut SubtreeCounts,
+) -> (usize, u64) {
+    let mut count = 1; // Count the item itself
+    let mut total_size = 0u64;
+    if fs.is_dir(path).await {
+        if let Ok(children) = fs.read_dir(path).await {
+            for child in children {
+                let (c, s) = Box::pin(count_subtree(fs, &child, map)).await;
+                count += c;
+                total_size += s;
+            }
+        }
+    } else if let Ok(size) = fs.get_size(path).await {
+        total_size += size;
+    }
+    map.insert(path.to_path_buf(), (count, total_size));
+    (count, total_size)
+}
+
 pub struct DecisionState {
     pub overwrite_all: bool,
     pub skip_all: bool,
@@ -84,6 +124,9 @@ pub struct RecursiveOpContext<'a> {
     pub decision_rx: &'a std::sync::Arc<
         tokio::sync::Mutex<tokio::sync::mpsc::Receiver<crate::tasks::TaskDecision>>,
     >,
+    /// Per-path subtree counts from the pre-operation walk. An empty map is
+    /// acceptable: counts are then recomputed on demand.
+    pub subtree_counts: &'a SubtreeCounts,
 }
 
 // Internal enum for stack
@@ -106,15 +149,17 @@ async fn try_rename_move_optimization(
     if ctx.action == crate::state::CopyMoveAction::Move && same_fs {
         let dest_exists = ctx.dest_fs.exists(dest).await;
         if !dest_exists && ctx.src_fs.rename(src, dest).await.is_ok() {
-            // Successfully moved! Update progress.
-            // count_items includes the root, but we've already counted it.
-            // Children will be processed individually, so we add count - 1.
-            let count = count_items(ctx.dest_fs, &[dest.to_path_buf()]).await;
-            let increment = count.saturating_sub(1);
+            // Successfully moved! The rename carried the entire subtree in one
+            // go and nothing below it will be processed individually, so credit
+            // every item in it (the subtree root included).
+            let count = match ctx.subtree_counts.get(src) {
+                Some(&(count, _)) => count,
+                None => count_items(ctx.dest_fs, &[dest.to_path_buf()]).await,
+            };
             let p = ctx
                 .processed
-                .fetch_add(increment, std::sync::atomic::Ordering::Relaxed)
-                + increment;
+                .fetch_add(count, std::sync::atomic::Ordering::Relaxed)
+                + count;
             let _ = ctx.tx.send(crate::tasks::UiEvent::Task(
                 crate::tasks::TaskEvent::UpdateProgress {
                     task_id: ctx.id,
@@ -297,7 +342,10 @@ async fn handle_archive_directory(
     dest_exists: bool,
     progress: &TaskProgressContext,
 ) -> Result<()> {
-    let tree_count = count_items(ctx.src_fs, &[src.to_path_buf()]).await;
+    let tree_count = match ctx.subtree_counts.get(src) {
+        Some(&(count, _)) => count,
+        None => count_items(ctx.src_fs, &[src.to_path_buf()]).await,
+    };
     let mark_processed = |ctx: &RecursiveOpContext<'_>| {
         let p = ctx
             .processed

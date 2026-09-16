@@ -16,7 +16,7 @@ use secrecy::SecretString;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
 use std::time::SystemTime;
 
 /// Identifier for a filesystem context.
@@ -73,6 +73,21 @@ pub struct TaskProgressContext {
 /// Files at or below this size are copied with a single whole-file
 /// read/write; larger files are streamed in chunks.
 const WHOLE_FILE_COPY_LIMIT: u64 = 32 * 1024 * 1024;
+
+/// Build the temporary file path for an in-progress copy of `dst`:
+/// `<dst>.<random>.tmp` in the same directory, so committing is a plain
+/// rename. The per-process-random suffix keeps the name from clashing with a
+/// real file. Returns `None` when `dst` has no parent directory, in which
+/// case callers must copy to `dst` directly.
+fn temp_copy_path(dst: &Path) -> Option<PathBuf> {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let parent = dst.parent()?;
+    let name = dst.file_name()?.to_str()?;
+    let mut hasher = DefaultHasher::new();
+    dst.hash(&mut hasher);
+    Some(parent.join(format!("{name}.{0:x}.tmp", hasher.finish())))
+}
 
 /// Unified async filesystem operations.
 #[async_trait]
@@ -226,6 +241,10 @@ pub trait FileSystemProvider: Send + Sync {
     /// Whole-file copies are used up to `WHOLE_FILE_COPY_LIMIT`; larger
     /// files are streamed in optimal-size chunks.
     ///
+    /// The copy is written to a temporary file in the destination directory
+    /// and renamed into place on success, so a cancelled or failed copy never
+    /// leaves a partial file at `dst`.
+    ///
     /// # Errors
     ///
     /// Returns an error if the copy fails.
@@ -248,17 +267,66 @@ pub trait FileSystemProvider: Send + Sync {
         let mtime = info.modified;
         let perms = info.permissions;
 
-        if total_size <= WHOLE_FILE_COPY_LIMIT {
-            let data = self.read_file(&src_buf).await?;
-            if cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                return Ok(());
+        let tmp_buf = temp_copy_path(&dst_buf);
+        let target = tmp_buf.clone().unwrap_or_else(|| dst_buf.clone());
+
+        let progress = TaskProgressContext {
+            id,
+            tx: tx.clone(),
+            cancel: cancel.clone(),
+            processed_bytes: Arc::new(AtomicU64::new(0)),
+            processed_items: Arc::new(AtomicUsize::new(0)),
+        };
+        let completed = self
+            .copy_to_target(&src_buf, &target, total_size, &progress, perms)
+            .await;
+
+        match completed {
+            Ok(true) => {
+                if let Some(tmp) = tmp_buf {
+                    if let Err(e) = self.rename(&tmp, &dst_buf).await {
+                        let _ = self.delete(&tmp, false).await;
+                        return Err(e);
+                    }
+                    if let Some(mt) = mtime {
+                        self.set_modified_time(&dst_buf, mt).await;
+                    }
+                }
             }
-            self.write_file_with_permissions(&dst_buf, &data, perms)
+            Ok(false) => {} // Cancelled: nothing committed.
+            Err(e) => {
+                if tmp_buf.is_some() {
+                    let _ = self.delete(&target, false).await;
+                }
+                return Err(e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Transfer `src` to `target`, reporting byte progress.
+    /// Returns `Ok(true)` when the transfer finished, `Ok(false)` when it was
+    /// cancelled before anything was committed, `Err` on failure.
+    async fn copy_to_target(
+        &self,
+        src: &Path,
+        target: &Path,
+        total_size: u64,
+        progress: &TaskProgressContext,
+        perms: Option<u32>,
+    ) -> Result<bool> {
+        if total_size <= WHOLE_FILE_COPY_LIMIT {
+            let data = self.read_file(src).await?;
+            if progress.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                return Ok(false);
+            }
+            self.write_file_with_permissions(target, &data, perms)
                 .await?;
             let processed = data.len() as u64;
-            let _ = tx.send(crate::tasks::UiEvent::Task(
+            let _ = progress.tx.send(crate::tasks::UiEvent::Task(
                 crate::tasks::TaskEvent::UpdateByteProgress {
-                    task_id: id,
+                    task_id: progress.id,
                     processed,
                     total: total_size.max(processed),
                 },
@@ -267,8 +335,9 @@ pub trait FileSystemProvider: Send + Sync {
             let chunk_size = crate::fs::utils::calculate_optimal_chunk_size(total_size);
             let mut offset = 0u64;
             loop {
-                if cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                    return Ok(());
+                if progress.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                    let _ = self.delete(target, false).await;
+                    return Ok(false);
                 }
                 let remaining = total_size.saturating_sub(offset);
                 let len = if remaining == 0 {
@@ -276,15 +345,15 @@ pub trait FileSystemProvider: Send + Sync {
                 } else {
                     std::cmp::min(chunk_size, usize::try_from(remaining).unwrap_or(usize::MAX))
                 };
-                let chunk = self.read_file_at(&src_buf, offset, len).await?;
+                let chunk = self.read_file_at(src, offset, len).await?;
                 if chunk.is_empty() {
                     break;
                 }
-                self.write_file_at(&dst_buf, offset, &chunk).await?;
+                self.write_file_at(target, offset, &chunk).await?;
                 offset += chunk.len() as u64;
-                let _ = tx.send(crate::tasks::UiEvent::Task(
+                let _ = progress.tx.send(crate::tasks::UiEvent::Task(
                     crate::tasks::TaskEvent::UpdateByteProgress {
-                        task_id: id,
+                        task_id: progress.id,
                         processed: offset,
                         total: total_size.max(offset),
                     },
@@ -292,18 +361,13 @@ pub trait FileSystemProvider: Send + Sync {
             }
 
             if offset == 0 {
-                self.create_file(&dst_buf).await?;
+                self.create_file(target).await?;
             }
             if let Some(mode) = perms {
-                let _ = self.set_permissions(&dst_buf, mode).await;
+                let _ = self.set_permissions(target, mode).await;
             }
         }
-
-        if let Some(mt) = mtime {
-            self.set_modified_time(&dst_buf, mt).await;
-        }
-
-        Ok(())
+        Ok(true)
     }
 
     /// Get a display prefix for the tab title (e.g., "[SSH]", "[ZIP]", or "").
@@ -434,10 +498,134 @@ pub trait FileSystemProvider: Send + Sync {
 mod tests {
     use super::*;
     use crate::fs::fs_local::LocalFs;
-    use std::sync::atomic::AtomicBool;
+    use crate::fs::utils::FileEntry;
+    use std::sync::atomic::{AtomicBool, AtomicUsize};
 
     fn fs() -> LocalFs {
         LocalFs::new()
+    }
+
+    /// Names of files in `dir` other than `dst_name` itself that share its
+    /// name as a prefix (i.e. stray temp files from a copy).
+    fn leftover_temps(dir: &Path, dst_name: &str) -> Vec<String> {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .filter_map(|e| {
+                e.file_name()
+                    .to_str()
+                    .filter(|n| n.starts_with(dst_name) && *n != dst_name)
+                    .map(str::to_owned)
+            })
+            .collect()
+    }
+
+    /// `LocalFs` with knobs to inject cancellation or a write failure into
+    /// the chunked-write path of a copy.
+    #[derive(Clone)]
+    struct FlakyCopyFs {
+        inner: LocalFs,
+        cancel: Arc<AtomicBool>,
+        writes: Arc<AtomicUsize>,
+        /// Store `cancel` after this many successful writes (0 = disabled).
+        cancel_after: usize,
+        /// Fail once this many writes have succeeded (`usize::MAX` = disabled).
+        fail_after: usize,
+    }
+
+    #[async_trait]
+    impl FileSystemProvider for FlakyCopyFs {
+        async fn write_file_at(&self, path: &Path, offset: u64, data: &[u8]) -> Result<()> {
+            let n = self
+                .writes
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if n >= self.fail_after {
+                return Err(anyhow::anyhow!("injected write failure"));
+            }
+            self.inner.write_file_at(path, offset, data).await?;
+            if self.cancel_after > 0 && n + 1 >= self.cancel_after {
+                self.cancel
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            Ok(())
+        }
+
+        async fn list_dir(&self, path: &Path) -> Result<Vec<FileEntry>> {
+            self.inner.list_dir(path).await
+        }
+        async fn create_dir(&self, path: &Path) -> Result<()> {
+            self.inner.create_dir(path).await
+        }
+        async fn create_dir_all(&self, path: &Path) -> Result<()> {
+            self.inner.create_dir_all(path).await
+        }
+        async fn create_file(&self, path: &Path) -> Result<()> {
+            self.inner.create_file(path).await
+        }
+        async fn delete(&self, path: &Path, recursive: bool) -> Result<()> {
+            self.inner.delete(path, recursive).await
+        }
+        async fn rename(&self, from: &Path, to: &Path) -> Result<()> {
+            self.inner.rename(from, to).await
+        }
+        async fn read_file(&self, path: &Path) -> Result<Vec<u8>> {
+            self.inner.read_file(path).await
+        }
+        async fn read_file_at(&self, path: &Path, offset: u64, len: usize) -> Result<Vec<u8>> {
+            self.inner.read_file_at(path, offset, len).await
+        }
+        async fn write_file(&self, path: &Path, data: &[u8]) -> Result<()> {
+            self.inner.write_file(path, data).await
+        }
+        async fn exists(&self, path: &Path) -> bool {
+            self.inner.exists(path).await
+        }
+        async fn is_dir(&self, path: &Path) -> bool {
+            self.inner.is_dir(path).await
+        }
+        async fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
+            self.inner.canonicalize(path).await
+        }
+        async fn get_file_info(&self, path: &Path) -> Option<FileMetadata> {
+            self.inner.get_file_info(path).await
+        }
+        async fn get_permissions(&self, path: &Path) -> Option<u32> {
+            self.inner.get_permissions(path).await
+        }
+        async fn set_permissions(&self, path: &Path, mode: u32) -> bool {
+            self.inner.set_permissions(path, mode).await
+        }
+        async fn get_modified_time(&self, path: &Path) -> Option<SystemTime> {
+            self.inner.get_modified_time(path).await
+        }
+        async fn set_modified_time(&self, path: &Path, mtime: SystemTime) -> bool {
+            self.inner.set_modified_time(path, mtime).await
+        }
+        fn context_key(&self) -> ContextKey {
+            self.inner.context_key()
+        }
+        fn display_prefix(&self) -> &str {
+            self.inner.display_prefix()
+        }
+        fn is_local(&self) -> bool {
+            self.inner.is_local()
+        }
+        fn display_path(&self, path: &Path) -> String {
+            self.inner.display_path(path)
+        }
+        async fn calc_dir_size(&self, path: &Path) -> Result<u64> {
+            self.inner.calc_dir_size(path).await
+        }
+    }
+
+    fn flaky_copy_fs(cancel_after: usize, fail_after: usize) -> FlakyCopyFs {
+        FlakyCopyFs {
+            inner: LocalFs::new(),
+            cancel: Arc::new(AtomicBool::new(false)),
+            writes: Arc::new(AtomicUsize::new(0)),
+            cancel_after,
+            fail_after,
+        }
     }
 
     fn byte_events(events: Vec<crate::tasks::UiEvent>) -> Vec<(u64, u64)> {
@@ -480,6 +668,10 @@ mod tests {
             "small file should emit a single progress event"
         );
         assert_eq!(std::fs::read(&dst).unwrap(), data);
+        assert!(
+            leftover_temps(dir.path(), "small_copy.bin").is_empty(),
+            "no temp file may remain after a successful copy"
+        );
     }
 
     #[tokio::test]
@@ -518,6 +710,10 @@ mod tests {
             );
         }
         assert_eq!(std::fs::read(&dst).unwrap(), data);
+        assert!(
+            leftover_temps(dir.path(), "big_copy.bin").is_empty(),
+            "no temp file may remain after a successful copy"
+        );
     }
 
     #[tokio::test]
@@ -549,5 +745,52 @@ mod tests {
             .await
             .unwrap();
         assert!(!dst.exists());
+    }
+
+    #[tokio::test]
+    async fn test_copy_with_progress_cancel_mid_chunk_leaves_no_partial() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("big.bin");
+        let dst = dir.path().join("big_copy.bin");
+        // 33MB => 8MB chunks => the copy is cancelled after chunk 2 of 5.
+        std::fs::write(&src, vec![0u8; 33 * 1024 * 1024]).unwrap();
+
+        let flaky = flaky_copy_fs(2, usize::MAX);
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        flaky
+            .copy_with_progress(&src, &dst, 1, &tx, &flaky.cancel)
+            .await
+            .unwrap();
+
+        assert!(
+            !dst.exists(),
+            "cancelled copy must not commit the destination"
+        );
+        assert!(
+            leftover_temps(dir.path(), "big_copy.bin").is_empty(),
+            "cancelled copy must remove its temp file"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_copy_with_progress_write_failure_leaves_no_partial() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("big.bin");
+        let dst = dir.path().join("big_copy.bin");
+        // 33MB => 8MB chunks; the second chunk write fails.
+        std::fs::write(&src, vec![0u8; 33 * 1024 * 1024]).unwrap();
+
+        let flaky = flaky_copy_fs(0, 1);
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let res = flaky
+            .copy_with_progress(&src, &dst, 1, &tx, &flaky.cancel)
+            .await;
+        assert!(res.is_err(), "the injected write failure must surface");
+
+        assert!(!dst.exists(), "failed copy must not commit the destination");
+        assert!(
+            leftover_temps(dir.path(), "big_copy.bin").is_empty(),
+            "failed copy must remove its temp file"
+        );
     }
 }

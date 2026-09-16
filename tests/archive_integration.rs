@@ -1234,6 +1234,7 @@ async fn test_recursive_op_copies_directory_tree_to_7z() {
     let decision_rx = Arc::new(tokio::sync::Mutex::new(decision_rx));
 
     let total = 6; // src dir + top.txt + sub1 + a.txt + sub2 + b.txt
+    let subtree_counts = fm::fs::ops::SubtreeCounts::new();
     let ctx = fm::fs::ops::RecursiveOpContext {
         src_fs: &src_fs,
         dest_fs: &dest_fs,
@@ -1248,6 +1249,7 @@ async fn test_recursive_op_copies_directory_tree_to_7z() {
         processed: &processed,
         processed_bytes: &processed_bytes,
         decision_rx: &decision_rx,
+        subtree_counts: &subtree_counts,
     };
     let mut decision_state = fm::fs::ops::DecisionState::new();
     fm::fs::ops::recursive_op(ctx, &mut decision_state)

@@ -68,6 +68,7 @@ fn build_ctx<'a>(
     local: &'a LocalFs,
     dest: &'a Path,
     h: &'a Harness,
+    subtree_counts: &'a fm::fs::ops::SubtreeCounts,
 ) -> RecursiveOpContext<'a> {
     RecursiveOpContext {
         src_fs: archive,
@@ -83,6 +84,7 @@ fn build_ctx<'a>(
         processed: &h.processed,
         processed_bytes: &h.processed_bytes,
         decision_rx: &h.decision_rx,
+        subtree_counts,
     }
 }
 
@@ -104,7 +106,8 @@ async fn run_copy_with(decision: TaskDecision) -> (Vec<UiEvent>, usize, u64, Str
     let (archive, local, h) = setup(&archive_path, &dest_root, tx);
 
     let dest = dest_root.join("payload");
-    let ctx = build_ctx(&archive, &local, &dest, &h);
+    let subtree_counts = fm::fs::ops::SubtreeCounts::new();
+    let ctx = build_ctx(&archive, &local, &dest, &h, &subtree_counts);
     h.decision_tx.send(decision).await.unwrap();
     recursive_op(ctx, &mut DecisionState::new()).await.unwrap();
 

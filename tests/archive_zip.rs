@@ -117,6 +117,7 @@ async fn test_zip_copy_dir_preserves_timestamp() {
 
     let decision_rx = std::sync::Arc::new(tokio::sync::Mutex::new(tokio::sync::mpsc::channel(1).1));
 
+    let subtree_counts = fm::fs::ops::SubtreeCounts::new();
     let ctx = fm::fs::ops::RecursiveOpContext {
         src_fs: &src_fs,
         dest_fs: &dest_fs,
@@ -131,6 +132,7 @@ async fn test_zip_copy_dir_preserves_timestamp() {
         processed: &progress.processed_items,
         processed_bytes: &progress.processed_bytes,
         decision_rx: &decision_rx,
+        subtree_counts: &subtree_counts,
     };
 
     let mut decision_state = fm::fs::ops::DecisionState::new();
