@@ -164,7 +164,14 @@ async fn handle_file(
     }
 
     if ctx.action == crate::state::CopyMoveAction::Move && perform {
-        let _ = ctx.src_fs.delete(src, false).await;
+        // The file was already copied to the destination. If we fail to remove the
+        // source, a Move would silently degrade into a Copy, so surface the error.
+        if let Err(e) = ctx.src_fs.delete(src, false).await {
+            return Err(anyhow!(
+                "Failed to delete source {} after move: {e}",
+                src.display()
+            ));
+        }
     }
 
     // Update progress
