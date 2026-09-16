@@ -460,7 +460,7 @@ pub async fn execute_toggle_console(app: &mut AppState) -> anyhow::Result<()> {
     }
 
     // 1. Suspend the TUI (input polling, screen, mouse, watcher)
-    let mut suspended = SuspendedUi::enter(app);
+    let mut suspended = SuspendedUi::enter_cleared(app);
 
     // 2. Run shell
     println!("\r\n--- Dropping to shell. Type 'exit' to return to fm ---\r\n");

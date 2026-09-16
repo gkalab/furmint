@@ -22,23 +22,41 @@ pub fn clear_terminal_screen() -> std::io::Result<()> {
 /// [`Drop for SuspendedUi`].
 pub struct SuspendedUi {
     mouse_was_enabled: bool,
+    #[cfg_attr(not(test), allow(dead_code))]
+    screen_cleared: bool,
 }
 
 impl SuspendedUi {
     /// Suspends the interactive parts of `app` before spawning an external
-    /// program: aborts the input polling task, clears the screen, disables
-    /// mouse capture, and unregisters all watched paths.
+    /// program: aborts the input polling task, disables mouse capture, and
+    /// unregisters all watched paths. The screen is left untouched so a
+    /// graphical editor/viewer appears on top of the still-visible TUI.
     pub fn enter(app: &mut AppState) -> Self {
+        Self::enter_impl(app, false)
+    }
+
+    /// Same as [`SuspendedUi::enter`], but also clears the screen, for
+    /// foreground programs that take over the terminal (e.g. a shell).
+    pub fn enter_cleared(app: &mut AppState) -> Self {
+        Self::enter_impl(app, true)
+    }
+
+    fn enter_impl(app: &mut AppState, clear: bool) -> Self {
         if let Some(handle) = app.input_polling_handle.take() {
             handle.abort();
         }
-        let _ = clear_terminal_screen();
+        if clear {
+            let _ = clear_terminal_screen();
+        }
         let mouse_was_enabled = app.global.mouse.unwrap_or(true);
         if mouse_was_enabled {
             let _ = disable_mouse_capture();
         }
         Self::unwatch_all(app);
-        Self { mouse_was_enabled }
+        Self {
+            mouse_was_enabled,
+            screen_cleared: clear,
+        }
     }
 
     /// Restores mouse capture and re-syncs the file watchers after the
@@ -70,5 +88,27 @@ impl Drop for SuspendedUi {
     /// [`SuspendedUi::restore`] for a full restore.
     fn drop(&mut self) {
         self.reenable_mouse();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_enter_keeps_screen_visible() {
+        let mut app = AppState::test_default();
+        let suspended = SuspendedUi::enter(&mut app);
+        assert!(
+            !suspended.screen_cleared,
+            "enter() must not clear the screen, graphical editors expect the TUI to stay visible"
+        );
+    }
+
+    #[test]
+    fn test_enter_cleared_clears_screen() {
+        let mut app = AppState::test_default();
+        let suspended = SuspendedUi::enter_cleared(&mut app);
+        assert!(suspended.screen_cleared);
     }
 }
