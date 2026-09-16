@@ -22,6 +22,14 @@ pub struct ArchiveFs {
     // Store children for fast directory listing: "folder" -> ["folder/sub", "folder/file.txt"]
     tree: Arc<Mutex<HashMap<PathBuf, Vec<PathBuf>>>>,
     handler: Arc<dyn ArchiveFormat>,
+    // Single-entry cache of the last decoded member, so chunked reads
+    // (e.g. copy_with_progress) don't re-decode the whole member per chunk.
+    read_cache: Arc<Mutex<Option<DecodedFile>>>,
+}
+
+struct DecodedFile {
+    path: String,
+    data: Vec<u8>,
 }
 
 impl ArchiveFs {
@@ -40,6 +48,7 @@ impl ArchiveFs {
             entries,
             tree,
             handler,
+            read_cache: Arc::new(Mutex::new(None)),
         };
 
         fs.scan_archive()?;
@@ -48,12 +57,11 @@ impl ArchiveFs {
 
     #[must_use]
     /// Gets an archive entry by path.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the entries mutex cannot be locked.
     pub fn get_entry(&self, path: &Path) -> Option<ArchiveEntry> {
-        let entries = self.entries.lock().unwrap();
+        let entries = self
+            .entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         entries.get(path).cloned()
     }
 
@@ -102,8 +110,18 @@ impl ArchiveFs {
 
     fn scan_archive(&self) -> Result<()> {
         let (entries, tree) = self.handler.scan()?;
-        *self.entries.lock().unwrap() = entries;
-        *self.tree.lock().unwrap() = tree;
+        *self
+            .entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = entries;
+        *self
+            .tree
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = tree;
+        *self
+            .read_cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
         Ok(())
     }
 
@@ -118,20 +136,16 @@ impl ArchiveFs {
     }
 
     fn list_dir_sync(&self, path: &Path) -> Vec<FileEntry> {
-        let rel_path = if path.has_root() {
-            path.strip_prefix("/").unwrap_or(path)
-        } else {
-            path
-        };
+        let search_path = Self::resolve_internal_path(path);
 
-        let search_path = if rel_path == Path::new("") {
-            Path::new(".")
-        } else {
-            rel_path
-        };
-
-        let tree = self.tree.lock().unwrap();
-        let entries_map = self.entries.lock().unwrap();
+        let tree = self
+            .tree
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let entries_map = self
+            .entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         let mut result = Vec::new();
 
@@ -148,7 +162,7 @@ impl ArchiveFs {
             });
         }
 
-        if let Some(children) = tree.get(search_path) {
+        if let Some(children) = tree.get(&search_path) {
             for child_path in children {
                 if let Some(entry) = entries_map.get(child_path) {
                     result.push(entry.file_entry.clone());
@@ -177,7 +191,13 @@ impl ArchiveFs {
         // Archives cannot create parent entries dynamically; if the path does
         // not exist yet, try to create the entry but never fail the operation.
         let resolved = Self::resolve_internal_path(path);
-        if self.entries.lock().unwrap().contains_key(&resolved) || resolved == Path::new(".") {
+        if self
+            .entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .contains_key(&resolved)
+            || resolved == Path::new(".")
+        {
             return;
         }
         let _ = self.create_dir_sync(path);
@@ -224,20 +244,44 @@ impl ArchiveFs {
         Ok(())
     }
 
-    fn read_file_sync(&self, path: &Path) -> Result<Vec<u8>> {
-        let rel_path = if path.has_root() {
-            path.strip_prefix("/").unwrap_or(path)
-        } else {
-            path
-        };
-        let path_str = rel_path.to_string_lossy().replace('\\', "/");
-        let path_str = path_str.trim_end_matches('/');
+    /// Decodes `path` from the archive, serving repeated reads of the same
+    /// member from a single-entry in-memory cache.
+    fn read_decoded(&self, path: &Path) -> Result<Vec<u8>> {
+        let p_str = Self::resolve_internal_path(path)
+            .to_string_lossy()
+            .to_string();
+        let mut cache = self
+            .read_cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match cache.take() {
+            Some(cached) if cached.path == p_str => Ok(cached.data),
+            Some(cached) => {
+                *cache = Some(cached);
+                let data = self.handler.read_file(&p_str)?;
+                *cache = Some(DecodedFile {
+                    path: p_str,
+                    data: data.clone(),
+                });
+                Ok(data)
+            }
+            None => {
+                let data = self.handler.read_file(&p_str)?;
+                *cache = Some(DecodedFile {
+                    path: p_str,
+                    data: data.clone(),
+                });
+                Ok(data)
+            }
+        }
+    }
 
-        self.handler.read_file(path_str)
+    fn read_file_sync(&self, path: &Path) -> Result<Vec<u8>> {
+        self.read_decoded(path)
     }
 
     fn read_file_at_sync(&self, path: &Path, offset: u64, len: usize) -> Result<Vec<u8>> {
-        let data = self.read_file_sync(path)?;
+        let data = self.read_decoded(path)?;
         let start = usize::try_from(offset).unwrap_or(data.len());
         if start >= data.len() {
             return Ok(Vec::new());
@@ -273,7 +317,11 @@ impl ArchiveFs {
 
     fn exists_sync(&self, path: &Path) -> bool {
         let p = Self::resolve_internal_path(path);
-        self.entries.lock().unwrap().contains_key(&p) || p == Path::new(".")
+        self.entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .contains_key(&p)
+            || p == Path::new(".")
     }
 
     fn is_dir_sync(&self, path: &Path) -> bool {
@@ -284,7 +332,7 @@ impl ArchiveFs {
         } else {
             self.entries
                 .lock()
-                .unwrap()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .get(&p)
                 .is_some_and(|e| e.file_entry.is_dir)
         }
@@ -312,7 +360,10 @@ impl ArchiveFs {
         if p == Path::new(".") {
             return None;
         }
-        let entries = self.entries.lock().unwrap();
+        let entries = self
+            .entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let entry = entries.get(p)?;
         Some(FileMetadata {
             size: entry.file_entry.size.unwrap_or(0),
@@ -350,7 +401,7 @@ impl ArchiveFs {
         }
         self.entries
             .lock()
-            .unwrap()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .get(p)
             .and_then(|e| e.file_entry.modified)
     }
@@ -370,6 +421,40 @@ impl ArchiveFs {
         } else {
             false
         }
+    }
+
+    fn calc_dir_size_sync(&self, path: &Path) -> u64 {
+        let target = Self::resolve_internal_path(path);
+        let tree = self
+            .tree
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let entries = self
+            .entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        match entries.get(&target) {
+            Some(entry) if !entry.file_entry.is_dir => return entry.file_entry.size.unwrap_or(0),
+            _ => {}
+        }
+
+        let mut total = 0u64;
+        let mut stack = vec![target];
+        while let Some(dir) = stack.pop() {
+            if let Some(children) = tree.get(&dir) {
+                for child in children {
+                    if let Some(entry) = entries.get(child) {
+                        if entry.file_entry.is_dir {
+                            stack.push(child.clone());
+                        } else if let Some(size) = entry.file_entry.size {
+                            total = total.saturating_add(size);
+                        }
+                    }
+                }
+            }
+        }
+        total
     }
 }
 
@@ -555,8 +640,14 @@ impl FileSystemProvider for ArchiveFs {
         }
     }
 
-    async fn calc_dir_size(&self, _path: &Path) -> anyhow::Result<u64> {
-        Ok(0)
+    async fn calc_dir_size(&self, path: &Path) -> anyhow::Result<u64> {
+        let fs = self.clone();
+        let path = path.to_path_buf();
+        Ok(
+            tokio::task::spawn_blocking(move || fs.calc_dir_size_sync(&path))
+                .await
+                .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?,
+        )
     }
 
     async fn copy_from_local(
