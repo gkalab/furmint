@@ -139,10 +139,22 @@ impl client::Handler for SshClientHandler {
     ) -> std::result::Result<bool, Self::Error> {
         let public_key = key.public_key();
         let fingerprint = public_key.fingerprint(ssh_key::HashAlg::Sha256).to_string();
-        let raw = public_key.to_openssh().unwrap_or_else(|_| String::new());
+        // Surface a diagnostic if the server key cannot be encoded to the
+        // OpenSSH form: returning Ok(false) here would abort the connection
+        // with a bare "UnknownKey" error and no explanation.
+        let raw = match public_key.to_openssh() {
+            Ok(r) => r,
+            Err(e) => {
+                self.checker
+                    .set_diag(format!("failed to encode server key for host check: {e}"));
+                return Err(russh::Error::Inconsistent);
+            }
+        };
         let key_line = raw.split_whitespace().take(2).collect::<Vec<_>>().join(" ");
         if key_line.is_empty() {
-            return Ok(false);
+            self.checker
+                .set_diag("server presented an empty or unencodable public key".to_string());
+            return Err(russh::Error::Inconsistent);
         }
         // Re-read file in case it was changed externally between the
         // SshManager reload and this handshake.
@@ -275,10 +287,11 @@ impl SftpFs {
                     }
                     .into());
                 }
-                return Err(SshConnectError {
-                    detail: format!("SSH connect failed: {e}"),
-                }
-                .into());
+                let detail = match checker.take_diag() {
+                    Some(d) => format!("SSH connect failed: {d}"),
+                    None => format!("SSH connect failed: {e}"),
+                };
+                return Err(SshConnectError { detail }.into());
             }
         };
 
@@ -354,10 +367,11 @@ impl SftpFs {
                     }
                     .into());
                 }
-                return Err(SshConnectError {
-                    detail: format!("SSH connect failed: {e}"),
-                }
-                .into());
+                let detail = match checker.take_diag() {
+                    Some(d) => format!("SSH connect failed: {d}"),
+                    None => format!("SSH connect failed: {e}"),
+                };
+                return Err(SshConnectError { detail }.into());
             }
         };
 

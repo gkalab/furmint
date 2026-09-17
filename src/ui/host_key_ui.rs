@@ -105,8 +105,13 @@ pub fn handle_host_key_popup_event(
             app.popups
                 .set_popup_visible(crate::app::PopupKind::HostKey, false);
 
-            // Append to known_hosts
-            let _ = app.ssh_manager.known_hosts().append(&host, port, &key_line);
+            // Append to known_hosts. A failed persist (permissions/full disk)
+            // must not silently pretend the host is now trusted: warn and
+            // continue connecting.
+            if let Err(e) = app.ssh_manager.known_hosts().append(&host, port, &key_line) {
+                let msg = format!("Host key not saved for {host}:{port}: {e}");
+                app.active_tab_mut().error = Some(msg);
+            }
 
             // Re-spawn the same connection
             if key_auth {

@@ -10,6 +10,7 @@ test-utils = []
 anyhow = "1.0"
 arboard = "3.6"
 async-trait = "0.1"
+base64 = "0.22"
 bzip2 = "0.6"
 chrono = "0.4"
 cpio = "0.4"
@@ -48,6 +49,7 @@ rand = "0.10"
 ratatui = { version = "0.30.2", features = ["termina"] }
 ratatui-image = { version = "11.0", default-features = false, features = ["tokio", "image-defaults"] }
 regex = "1.13"
+ring = "0.17"
 russh = { version = "0.63", default-features = false, features = ["ring", "rsa", "flate2"] }
 russh-sftp = "3.0"
 secrecy = "0.10"
@@ -79,6 +81,7 @@ windows = { version = "0.62", features = [
     "Win32_System_Com",
     "Win32_System_DataExchange",
     "Win32_System_Memory",
+    "Win32_Storage_FileSystem",
     "Win32_System_Threading",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
