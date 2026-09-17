@@ -495,10 +495,12 @@ fn extract_symlink_entry<R: std::io::Read>(
 ) -> anyhow::Result<()> {
     let mut link_target = Vec::new();
     {
-        let mut limited = std::io::Take::new(reader).take(MAX_SYMLINK_TARGET + 1);
-        limited.read_to_end(&mut link_target)?;
+        let mut limited = reader.take(MAX_SYMLINK_TARGET + 1);
+        std::io::Read::read_to_end(&mut limited, &mut link_target)?;
     }
-    if link_target.len() > MAX_SYMLINK_TARGET as usize {
+    let max_symlink_target =
+        usize::try_from(MAX_SYMLINK_TARGET).expect("symlink limit fits in usize");
+    if link_target.len() > max_symlink_target {
         return Err(anyhow!("unsafe symlink target in archive: {name}"));
     }
     let link_target_str = String::from_utf8_lossy(&link_target);
