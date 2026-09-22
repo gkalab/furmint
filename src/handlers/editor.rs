@@ -3,8 +3,105 @@
 use crate::app::AppState;
 use crate::fs::fs_provider::FileSystemProvider;
 use crate::handlers::suspended_ui::SuspendedUi;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+/// Prefix for remote-editing temp files in the system temp dir.
+const TEMP_FILE_PREFIX: &str = "fm";
+
+/// RAII guard that removes a temp file when dropped, unless the path is
+/// explicitly released first.
+pub struct TempFileGuard(Option<PathBuf>);
+
+impl TempFileGuard {
+    #[must_use]
+    pub fn new(path: PathBuf) -> Self {
+        Self(Some(path))
+    }
+
+    /// Returns the path to the temp file.
+    ///
+    /// # Panics
+    ///
+    /// Panics if [`release`](Self::release) has already been called.
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        self.0.as_deref().expect("guard already released")
+    }
+
+    /// Takes ownership of the path without removing the file.
+    #[must_use]
+    pub fn release(mut self) -> PathBuf {
+        // `Drop` runs afterwards with `self.0 == None`, so nothing is removed
+        self.0.take().unwrap_or_default()
+    }
+}
+
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        if let Some(path) = self.0.take() {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+}
+
+/// Removes remote-editing temp files left behind by dead processes.
+///
+/// Temp files are named `fm_{pid}_{nonce}_{filename}`. A file is removed when
+/// its owning pid no longer exists, or when it has not been modified for a
+/// day (safety net against pid reuse).
+pub(crate) fn sweep_stale_temp_files() {
+    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+        return;
+    };
+    let this_pid = std::process::id();
+    for entry in entries.flatten() {
+        let Ok(name) = entry.file_name().into_string() else {
+            continue;
+        };
+        let Some(rest) = name.strip_prefix(format!("{TEMP_FILE_PREFIX}_").as_str()) else {
+            continue;
+        };
+        let Some((pid_str, _)) = rest.split_once('_') else {
+            continue;
+        };
+        let Ok(pid) = pid_str.parse::<u32>() else {
+            continue;
+        };
+        if pid == this_pid {
+            continue;
+        }
+        let path = entry.path();
+        let owner_alive = process_alive(pid);
+        let stale = std::fs::metadata(&path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|age| age > std::time::Duration::from_hours(24));
+        if owner_alive && !stale {
+            continue;
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+}
+
+#[cfg(unix)]
+fn process_alive(pid: u32) -> bool {
+    let Ok(pid) = i32::try_from(pid) else {
+        return false;
+    };
+    if pid <= 0 {
+        // 0 and negative pids are special/invalid to kill(), not real processes
+        return false;
+    }
+    // SAFETY: signal 0 only probes whether the process exists; nothing is sent
+    unsafe { libc::kill(pid, 0) == 0 }
+}
+
+#[cfg(not(unix))]
+fn process_alive(_pid: u32) -> bool {
+    false
+}
 
 pub async fn handle_edit(app: &mut AppState) {
     if let Some(entry) = app.active_tab().current_entry().cloned()
@@ -64,14 +161,19 @@ pub(crate) async fn edit_file_remote(
     let original_checksum_array: [u8; 16] = original_checksum.into();
 
     let temp_dir = std::env::temp_dir();
-    if !temp_dir.exists() {
-        std::fs::create_dir_all(&temp_dir)?;
-    }
     let nonce = rand::random::<u64>();
-    let temp_path = temp_dir.join(format!("fm_{nonce:x}_{filename}"));
-    tokio::fs::write(&temp_path, &data).await?;
+    let temp_path = temp_dir.join(format!(
+        "{TEMP_FILE_PREFIX}_{}_{nonce:x}_{filename}",
+        std::process::id()
+    ));
+    let temp_guard = TempFileGuard::new(temp_path.clone());
+    if let Err(e) = tokio::fs::write(&temp_path, &data).await {
+        // The guard removes any partially-written file
+        return Err(anyhow::anyhow!("Failed to write temp file: {e}"));
+    }
 
     if in_terminal {
+        let temp_path = temp_guard.release();
         app.pending_action = Some(crate::app::PendingAction::OpenEditorRemote {
             temp_path,
             remote_path: remote_path_buf,
@@ -80,12 +182,15 @@ pub(crate) async fn edit_file_remote(
         });
     } else {
         // Spawn the editor first, then show popup so it renders immediately
-        let mut child = spawn_editor_no_wait(cmd, &temp_path)?;
+        let child = spawn_editor_detached(cmd, &temp_path)?;
 
-        // Show popup NOW while editor is running
+        // Show popup NOW while editor is running. The popup state owns the
+        // temp file (guard) and the editor child; both are cleaned up when it
+        // closes.
         app.popups.remote_edit = crate::state::RemoteEditState {
             is_visible: false,
-            temp_path: temp_path.clone(),
+            temp_guard: Some(temp_guard),
+            editor_child: Some(child),
             remote_path: remote_path_buf,
             filename,
             provider: provider.clone(),
@@ -96,13 +201,6 @@ pub(crate) async fn edit_file_remote(
         };
         app.popups
             .set_popup_visible(crate::app::PopupKind::RemoteEdit, true);
-
-        // Spawn the wait in a blocking task so the TUI can redraw
-        // We don't actually need to wait here - the popup will handle the upload
-        // when the user clicks OK
-        tokio::task::spawn_blocking(move || {
-            let _ = child.wait();
-        });
     }
 
     Ok(())
@@ -128,135 +226,104 @@ pub async fn execute_open_editor_remote(
         )
     };
 
+    let guard = TempFileGuard::new(temp_path);
+
     // Suspend the TUI while the editor runs
     let mut suspended = SuspendedUi::enter(app);
 
-    let edit_result = launch_and_wait_for_editor(&temp_path, cmd.as_deref(), in_terminal).await;
+    let edit_result = tokio::task::spawn_blocking({
+        let path = guard.path().to_path_buf();
+        move || run_editor(cmd.as_deref(), &path, in_terminal)
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("Editor task failed: {e}"));
 
     suspended.restore(app);
 
-    if let Err(e) = edit_result {
-        let _ = tokio::fs::remove_file(&temp_path).await;
-        return Err(e);
-    }
+    // On error the guard is dropped, removing the temp file. The outer Result
+    // is the spawn-join error; the inner is the editor's own exit status.
+    let editor_result = edit_result?;
+    editor_result?;
 
     // Check if file was modified before uploading
-    let edited_data = tokio::fs::read(&temp_path).await?;
+    let edited_data = tokio::fs::read(guard.path()).await?;
     let edited_checksum = md5::compute(&edited_data);
 
-    if edited_checksum.0 == original_checksum {
-        // No changes - skip upload
-        let _ = std::fs::remove_file(&temp_path);
+    let upload_result = if edited_checksum.0 == original_checksum {
+        None
     } else {
-        upload_edited_file(&temp_path, &remote_path, provider, &edited_data).await?;
+        Some(upload_edited_file(&remote_path, provider, &edited_data).await)
+    };
+
+    if let Some(Err(e)) = upload_result {
+        // Keep the edited file so the user's changes survive a failed upload
+        let kept = guard.release();
+        return Err(anyhow::anyhow!(
+            "Error uploading file: {e} (edited file kept at {})",
+            kept.display()
+        ));
     }
 
+    // The guard removes the temp file on success and when no changes were made
     Ok(())
 }
 
-async fn launch_and_wait_for_editor(
-    file_path: &Path,
-    cmd: Option<&str>,
-    in_terminal: bool,
-) -> anyhow::Result<()> {
-    if let Some(cmd_str) = cmd {
-        let (program, mut args) = crate::config::parse_command(cmd_str);
-        if program.is_empty() {
-            return Err(anyhow::anyhow!("Invalid editor command"));
-        }
-        args.push(file_path.to_string_lossy().to_string());
-
-        if in_terminal {
-            tokio::task::spawn_blocking(move || {
-                std::process::Command::new(&program)
-                    .args(&args)
-                    .status()
-                    .map_err(|e| anyhow::anyhow!("Failed to run editor: {e}"))
-            })
-            .await??;
-            Ok(())
-        } else {
-            let mut child = std::process::Command::new(&program)
-                .args(&args)
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()?;
-            let status = child.wait()?;
-            if status.success() {
-                Ok(())
-            } else {
-                Err(anyhow::anyhow!("Editor exited with status: {status}"))
+/// Resolves the editor program and arguments for `file_path`, falling back to
+/// the default editor when no command is configured.
+fn resolve_editor(cmd: Option<&str>, file_path: &Path) -> anyhow::Result<(String, Vec<String>)> {
+    let (program, mut args) = match cmd {
+        Some(cmd_str) => {
+            let (program, args) = crate::config::parse_command(cmd_str);
+            if program.is_empty() {
+                return Err(anyhow::anyhow!("Invalid editor command"));
             }
+            (program, args)
         }
-    } else {
-        let file_path_buf = file_path.to_path_buf();
-        tokio::task::spawn_blocking(move || {
-            crate::handlers::editor::open_in_default_editor(&file_path_buf)
-        })
-        .await??;
-        Ok(())
-    }
+        None => (get_default_editor(), Vec::new()),
+    };
+    args.push(file_path.to_string_lossy().to_string());
+    Ok((program, args))
 }
 
-fn spawn_editor_no_wait(
+/// Spawns a detached editor (null stdio) and returns the child.
+fn spawn_editor_detached(
     cmd: Option<&str>,
     file_path: &Path,
 ) -> anyhow::Result<std::process::Child> {
-    if let Some(cmd_str) = cmd {
-        let (program, mut args) = crate::config::parse_command(cmd_str);
-        if program.is_empty() {
-            return Err(anyhow::anyhow!("Invalid editor command"));
-        }
-        args.push(file_path.to_string_lossy().to_string());
-
-        let child = std::process::Command::new(&program)
-            .args(&args)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()?;
-        Ok(child)
-    } else {
-        Err(anyhow::anyhow!("No editor command configured"))
-    }
+    let (program, args) = resolve_editor(cmd, file_path)?;
+    std::process::Command::new(&program)
+        .args(&args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| anyhow::anyhow!("Failed to launch editor: {e}"))
 }
 
-fn launch_and_wait_for_editor_sync(
-    file_path: &Path,
-    cmd: Option<&str>,
-    in_terminal: bool,
-) -> anyhow::Result<()> {
-    if let Some(cmd_str) = cmd {
-        let (program, mut args) = crate::config::parse_command(cmd_str);
-        if program.is_empty() {
-            return Err(anyhow::anyhow!("Invalid editor command"));
-        }
-        args.push(file_path.to_string_lossy().to_string());
-
-        if in_terminal {
-            let status = std::process::Command::new(&program)
-                .args(&args)
-                .status()
-                .map_err(|e| anyhow::anyhow!("Failed to run editor: {e}"));
-            status?;
-            Ok(())
-        } else {
-            std::process::Command::new(&program)
-                .args(&args)
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()?;
-            Ok(())
-        }
-    } else {
-        open_in_default_editor(file_path)
+/// Runs the editor until it exits.
+///
+/// With `in_terminal` the editor inherits the terminal; otherwise it is
+/// detached. Call from a blocking context.
+fn run_editor(cmd: Option<&str>, file_path: &Path, in_terminal: bool) -> anyhow::Result<()> {
+    let (program, args) = resolve_editor(cmd, file_path)?;
+    let mut command = std::process::Command::new(&program);
+    command.args(&args);
+    if !in_terminal {
+        command
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
     }
+    let status = command
+        .status()
+        .map_err(|e| anyhow::anyhow!("Failed to run editor: {e}"))?;
+    if !status.success() {
+        return Err(anyhow::anyhow!("Editor exited with status: {status}"));
+    }
+    Ok(())
 }
 
 async fn upload_edited_file(
-    temp_path: &Path,
     remote_path: &Path,
     provider: Arc<dyn FileSystemProvider>,
     edited_data: &[u8],
@@ -265,27 +332,7 @@ async fn upload_edited_file(
 
     provider
         .write_file_with_permissions(remote_path, edited_data, original_perms)
-        .await?;
-
-    let _ = tokio::fs::remove_file(temp_path).await;
-
-    Ok(())
-}
-
-/// Opens a file in the default editor.
-///
-/// # Errors
-///
-/// Returns an error if the editor cannot be launched.
-pub fn open_in_default_editor(file_path: &std::path::Path) -> anyhow::Result<()> {
-    use std::process::Command;
-    let editor = get_default_editor();
-    let status = Command::new(editor).arg(file_path).status();
-    match status {
-        Ok(s) if s.success() => Ok(()),
-        Ok(s) => Err(anyhow::anyhow!("Editor exited with status: {s}")),
-        Err(e) => Err(anyhow::anyhow!("Failed to launch editor: {e}")),
-    }
+        .await
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -333,10 +380,11 @@ pub async fn open_file_in_editor_with_env_handling(
         let cmd = app.editor_cfg.command.clone();
         let in_terminal = app.editor_cfg.in_terminal.unwrap_or(true);
         move || {
-            if let Some(cmd_str) = cmd {
-                launch_and_wait_for_editor_sync(&path, Some(&cmd_str), in_terminal)
+            if in_terminal {
+                run_editor(cmd.as_deref(), &path, true)
             } else {
-                open_in_default_editor(&path)
+                // Detached editor: keep the TUI responsive while it runs
+                spawn_editor_detached(cmd.as_deref(), &path).map(drop)
             }
         }
     })
@@ -384,9 +432,9 @@ pub async fn handle_remote_edit_event(code: termina::event::KeyCode, app: &mut A
             false
         }
         KeyCode::Enter | KeyCode::Char('c' | 'C') | KeyCode::Escape => {
-            let temp_path = app.popups.remote_edit.temp_path.clone();
-            let _ = tokio::fs::remove_file(&temp_path).await;
-            app.popups.reset_popup(crate::app::PopupKind::RemoteEdit);
+            // Removes the temp file, deferring removal until the detached
+            // editor exits if it is still running
+            app.popups.close_remote_edit();
             false
         }
         _ => false,
@@ -394,7 +442,16 @@ pub async fn handle_remote_edit_event(code: termina::event::KeyCode, app: &mut A
 }
 
 async fn do_remote_edit_upload(app: &mut AppState) {
-    let temp_path = app.popups.remote_edit.temp_path.clone();
+    let Some(temp_path) = app
+        .popups
+        .remote_edit
+        .temp_guard
+        .as_ref()
+        .map(|g| g.path().to_path_buf())
+    else {
+        app.popups.close_remote_edit();
+        return;
+    };
     let remote_path = app.popups.remote_edit.remote_path.clone();
     let provider = app.popups.remote_edit.provider.clone();
     let original_checksum = app.popups.remote_edit.original_checksum;
@@ -402,7 +459,7 @@ async fn do_remote_edit_upload(app: &mut AppState) {
     let edited_data = match tokio::fs::read(&temp_path).await {
         Ok(c) => c,
         Err(e) => {
-            app.popups.reset_popup(crate::app::PopupKind::RemoteEdit);
+            app.popups.close_remote_edit();
             app.active_tab_mut().error = Some(format!("Error reading edited file: {e}"));
             app.refresh_active_tabs().await;
             return;
@@ -414,13 +471,31 @@ async fn do_remote_edit_upload(app: &mut AppState) {
     let result = if edited_checksum.0 == original_checksum {
         None
     } else {
-        Some(upload_edited_file(&temp_path, &remote_path, provider, &edited_data).await)
+        Some(upload_edited_file(&remote_path, provider, &edited_data).await)
     };
 
-    app.popups.reset_popup(crate::app::PopupKind::RemoteEdit);
-
-    if let Some(Err(e)) = result {
-        app.active_tab_mut().error = Some(e.to_string());
+    match result {
+        Some(Err(e)) => {
+            // Keep the edited file so the user's changes survive a failed upload
+            let kept = app
+                .popups
+                .remote_edit
+                .temp_guard
+                .take()
+                .map(TempFileGuard::release);
+            app.popups.close_remote_edit();
+            let message = match kept {
+                Some(path) => format!(
+                    "Error uploading file: {e} (edited file kept at {})",
+                    path.display()
+                ),
+                None => format!("Error uploading file: {e}"),
+            };
+            app.active_tab_mut().error = Some(message);
+        }
+        _ => {
+            app.popups.close_remote_edit();
+        }
     }
     app.refresh_active_tabs().await;
 }
@@ -651,7 +726,8 @@ mod tests {
         let mock_fs = Arc::new(MockFileSystem::new());
         app.popups.remote_edit = crate::state::RemoteEditState {
             is_visible: true,
-            temp_path: temp_path.clone(),
+            temp_guard: Some(TempFileGuard::new(temp_path.clone())),
+            editor_child: None,
             remote_path: std::path::PathBuf::from("/remote/test.txt"),
             filename: "test.txt".to_string(),
             provider: mock_fs,
@@ -681,7 +757,8 @@ mod tests {
         let original_checksum = md5::compute(original_content).0;
         app.popups.remote_edit = crate::state::RemoteEditState {
             is_visible: true,
-            temp_path: temp_path.clone(),
+            temp_guard: Some(TempFileGuard::new(temp_path.clone())),
+            editor_child: None,
             remote_path: std::path::PathBuf::from("/remote/test.txt"),
             filename: "test.txt".to_string(),
             provider: mock_fs.clone(),
@@ -706,21 +783,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_spawn_editor_no_wait_empty_command() {
-        let result = spawn_editor_no_wait(None, std::path::Path::new("/tmp/test.txt"));
+    async fn test_spawn_editor_detached_invalid_command() {
+        let result = spawn_editor_detached(Some(""), std::path::Path::new("/tmp/test.txt"));
         assert!(result.is_err());
         assert!(
             result
                 .unwrap_err()
                 .to_string()
-                .contains("No editor command")
+                .contains("Invalid editor command")
         );
     }
 
     #[tokio::test]
-    async fn test_spawn_editor_no_wait_invalid_command() {
-        let result = spawn_editor_no_wait(Some(""), std::path::Path::new("/tmp/test.txt"));
-        assert!(result.is_err());
+    async fn test_resolve_editor_default() {
+        let (program, args) = resolve_editor(None, std::path::Path::new("/tmp/test.txt")).unwrap();
+        assert!(!program.is_empty());
+        assert_eq!(args, vec!["/tmp/test.txt".to_string()]);
     }
 
     #[tokio::test]
@@ -761,7 +839,7 @@ mod tests {
         tokio::fs::write(&temp_path, content).await.unwrap();
 
         let mock_fs = Arc::new(MockFileSystem::new());
-        upload_edited_file(&temp_path, &remote_path, mock_fs.clone(), content)
+        upload_edited_file(&remote_path, mock_fs.clone(), content)
             .await
             .unwrap();
 
@@ -773,7 +851,6 @@ mod tests {
         );
         let written_data = mock_fs.write_data.lock().unwrap().clone().unwrap();
         assert_eq!(written_data, content);
-        assert!(!temp_path.exists());
     }
 
     #[tokio::test]
@@ -788,7 +865,7 @@ mod tests {
         let mock_fs = Arc::new(MockFileSystem::new());
         mock_fs.permissions_result.lock().unwrap().replace(0o755);
 
-        upload_edited_file(&temp_path, &remote_path, mock_fs.clone(), content)
+        upload_edited_file(&remote_path, mock_fs.clone(), content)
             .await
             .unwrap();
 
@@ -814,7 +891,7 @@ mod tests {
             .write_error
             .store(true, std::sync::atomic::Ordering::SeqCst);
 
-        let result = upload_edited_file(&temp_path, &remote_path, mock_fs.clone(), content).await;
+        let result = upload_edited_file(&remote_path, mock_fs.clone(), content).await;
 
         assert!(result.is_err());
         assert!(temp_path.exists());
@@ -822,9 +899,51 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_spawn_editor_no_wait_valid_command() {
-        let result = spawn_editor_no_wait(Some("true"), std::path::Path::new("/tmp/test.txt"));
+    async fn test_spawn_editor_detached_valid_command() {
+        let result = spawn_editor_detached(Some("true"), std::path::Path::new("/tmp/test.txt"));
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_temp_file_guard_removes_on_drop() {
+        let path = std::env::temp_dir().join("fm_test_guard_drop.txt");
+        std::fs::write(&path, b"x").unwrap();
+        {
+            let _guard = TempFileGuard::new(path.clone());
+        }
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn test_temp_file_guard_release_keeps_file() {
+        let path = std::env::temp_dir().join("fm_test_guard_release.txt");
+        std::fs::write(&path, b"x").unwrap();
+        let released = TempFileGuard::new(path.clone()).release();
+        assert_eq!(released, path);
+        assert!(path.exists());
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn test_sweep_stale_temp_files() {
+        let temp_dir = std::env::temp_dir();
+        // pid u32::MAX is never a real pid; its file must be swept
+        let dead_file = temp_dir.join(format!("fm_{}_dead.txt", u32::MAX));
+        std::fs::write(&dead_file, b"x").unwrap();
+        // Our own pid must be left alone
+        let alive_file = temp_dir.join(format!("fm_{}_alive.txt", std::process::id()));
+        std::fs::write(&alive_file, b"x").unwrap();
+        // Unrelated files must be left alone
+        let other_file = temp_dir.join("fm_test_sweep_not_ours.txt");
+        std::fs::write(&other_file, b"x").unwrap();
+
+        sweep_stale_temp_files();
+
+        assert!(!dead_file.exists());
+        assert!(alive_file.exists());
+        assert!(other_file.exists());
+        let _ = std::fs::remove_file(&alive_file);
+        let _ = std::fs::remove_file(&other_file);
     }
 
     #[tokio::test]
@@ -843,7 +962,8 @@ mod tests {
         let original_checksum = md5::compute(original_content).0;
         app.popups.remote_edit = crate::state::RemoteEditState {
             is_visible: true,
-            temp_path: temp_path.clone(),
+            temp_guard: Some(TempFileGuard::new(temp_path.clone())),
+            editor_child: None,
             remote_path: std::path::PathBuf::from("/remote/test.txt"),
             filename: "test.txt".to_string(),
             provider: mock_fs.clone(),
@@ -858,6 +978,7 @@ mod tests {
         assert!(!result);
         assert!(!app.popups.remote_edit.is_visible);
         assert!(app.panels.left.active_tab().error.is_some());
+        // The edited file is intentionally kept on failed upload
         assert!(temp_path.exists());
         tokio::fs::remove_file(&temp_path).await.unwrap();
     }

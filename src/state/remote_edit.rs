@@ -1,9 +1,13 @@
 use std::path::PathBuf;
+use std::process::Child;
 use std::sync::Arc;
+
+use crate::handlers::editor::TempFileGuard;
 
 pub struct RemoteEditState {
     pub is_visible: bool,
-    pub temp_path: PathBuf,
+    pub temp_guard: Option<TempFileGuard>,
+    pub editor_child: Option<Child>,
     pub remote_path: PathBuf,
     pub filename: String,
     pub provider: Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
@@ -18,7 +22,8 @@ impl RemoteEditState {
     pub fn new() -> Self {
         Self {
             is_visible: false,
-            temp_path: PathBuf::new(),
+            temp_guard: None,
+            editor_child: None,
             remote_path: PathBuf::new(),
             filename: String::new(),
             provider: Arc::new(crate::fs::fs_local::LocalFs::new()),
@@ -31,7 +36,8 @@ impl RemoteEditState {
 
     pub fn reset(&mut self) {
         self.is_visible = false;
-        self.temp_path = PathBuf::new();
+        self.temp_guard = None;
+        self.editor_child = None;
         self.remote_path = PathBuf::new();
         self.filename.clear();
         self.provider = Arc::new(crate::fs::fs_local::LocalFs::new());
@@ -39,6 +45,26 @@ impl RemoteEditState {
         self.focused_button = 0;
         self.popup_area = ratatui::layout::Rect::default();
         self.button_areas.clear();
+    }
+
+    /// Closes the popup, guaranteeing the temp file is removed.
+    ///
+    /// If a detached editor is still running, removal is deferred until it
+    /// exits so the file is not unlinked from under it.
+    pub fn close(&mut self) {
+        let child = self.editor_child.take();
+        let guard = self.temp_guard.take();
+        if let Some(mut child) = child
+            && matches!(child.try_wait(), Ok(None))
+        {
+            std::thread::spawn(move || {
+                let _ = child.wait();
+                drop(guard);
+            });
+        } else {
+            drop(guard);
+        }
+        self.reset();
     }
 }
 

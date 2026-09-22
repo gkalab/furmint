@@ -340,7 +340,13 @@ async fn test_handle_create_file_remote_uses_remote_edit_workflow() {
     assert_eq!(app.popups.remote_edit.remote_path, expected_remote_path);
 
     // A temp file should exist on the local filesystem (not the remote path)
-    let temp_path = app.popups.remote_edit.temp_path.clone();
+    let temp_path = app
+        .popups
+        .remote_edit
+        .temp_guard
+        .as_ref()
+        .map(|g| g.path().to_path_buf())
+        .expect("remote edit popup should own a temp file");
     assert!(
         temp_path.exists(),
         "Temp file should exist on local filesystem"
@@ -354,6 +360,12 @@ async fn test_handle_create_file_remote_uses_remote_edit_workflow() {
     fm::handlers::editor::handle_remote_edit_event(termina::event::KeyCode::Escape, &mut app).await;
 
     assert!(!app.popups.remote_edit.is_visible);
+    // While the detached editor is still running, the temp file is removed by
+    // a background thread once it exits; wait for that to complete.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while temp_path.exists() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
     assert!(!temp_path.exists(), "Temp file should be cleaned up");
 }
 

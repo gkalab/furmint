@@ -155,6 +155,13 @@ impl Popups {
         }
     }
 
+    /// Closes the remote-edit popup, guaranteeing the temp file is removed
+    /// (after the detached editor exits, if it is still running).
+    pub fn close_remote_edit(&mut self) {
+        self.set_popup_visible(PopupKind::RemoteEdit, false);
+        self.remote_edit.close();
+    }
+
     /// Returns `true` if any popup is currently visible.
     #[must_use]
     pub fn any_visible(&self) -> bool {

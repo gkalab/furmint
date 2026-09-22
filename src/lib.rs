@@ -151,6 +151,9 @@ fn setup_terminal() -> Result<(Terminal<TerminaBackend<PlatformTerminal>>, Event
 ///
 /// Returns an error if the application fails to initialize or run.
 pub async fn run() -> Result<()> {
+    // Clean up remote-editing temp files left behind by dead processes
+    crate::handlers::editor::sweep_stale_temp_files();
+
     let InitializedApp {
         mut app,
         palette,
