@@ -176,7 +176,6 @@ impl TestAppBuilder {
                     self.task_tx
                         .unwrap_or_else(|| tokio::sync::mpsc::unbounded_channel().0),
                 ),
-                task_decision_txs: std::collections::HashMap::new(),
                 show_task_manager: false,
             },
             ssh_manager: Arc::new(crate::ssh_manager::SshManager::default()),

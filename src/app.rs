@@ -215,8 +215,6 @@ pub struct OsServices {
 
 pub struct TaskState {
     pub task_manager: crate::tasks::TaskManager,
-    pub task_decision_txs:
-        std::collections::HashMap<usize, tokio::sync::mpsc::Sender<crate::tasks::TaskDecision>>,
     pub show_task_manager: bool,
 }
 
@@ -336,7 +334,6 @@ impl AppState {
             popups: crate::app::Popups::new(),
             tasks: TaskState {
                 task_manager: ctx.task_manager,
-                task_decision_txs: std::collections::HashMap::new(),
                 show_task_manager: false,
             },
             bookmark_store: ctx.bookmark_store,

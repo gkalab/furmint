@@ -810,5 +810,8 @@ pub fn spawn_copy_move_task(
         });
 
     // Store decision tx
-    app.tasks.task_decision_txs.insert(id, decision_tx);
+    app.tasks
+        .task_manager
+        .task_decision_txs
+        .insert(id, decision_tx);
 }

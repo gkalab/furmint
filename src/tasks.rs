@@ -6,7 +6,7 @@
 //! [`crate::handlers::popup_misc::dispatch_ui_event`], which routes each event
 //! to its subsystem handler.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc;
@@ -204,6 +204,8 @@ pub struct TaskManager {
     next_id: usize,
     event_tx: mpsc::UnboundedSender<UiEvent>,
     selected_index: usize,
+    /// Decision senders for copy/move tasks, keyed by task ID.
+    pub task_decision_txs: HashMap<usize, mpsc::Sender<TaskDecision>>,
 }
 
 impl TaskManager {
@@ -214,6 +216,7 @@ impl TaskManager {
             next_id: 1,
             event_tx,
             selected_index: 0,
+            task_decision_txs: HashMap::new(),
         }
     }
 
@@ -369,6 +372,7 @@ impl TaskManager {
             match status {
                 TaskStatus::Completed | TaskStatus::Failed(_) | TaskStatus::Cancelled => {
                     task.completed_at = Some(std::time::Instant::now());
+                    self.task_decision_txs.remove(&id);
                 }
                 TaskStatus::Running => {
                     task.completed_at = None;
@@ -385,6 +389,8 @@ impl TaskManager {
                 now.duration_since(completed_at) < std::time::Duration::from_secs(10)
             })
         });
+        self.task_decision_txs
+            .retain(|id, _| self.tasks.contains_key(id));
 
         let len = self.tasks.len();
         if len == 0 {
