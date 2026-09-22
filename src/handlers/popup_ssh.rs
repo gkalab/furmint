@@ -405,6 +405,18 @@ fn start_ssh_auth(app: &mut AppState) {
     }
 }
 
+/// Task status for a task whose public-key connection attempt failed.
+///
+/// Authentication failures lead to a password prompt, so they are not
+/// reported as failures; other errors are surfaced with their message.
+fn key_connect_task_status(e: &crate::ssh_manager::SshError) -> TaskStatus {
+    if matches!(e, crate::ssh_manager::SshError::Auth(_)) {
+        TaskStatus::Completed
+    } else {
+        TaskStatus::Failed(e.to_string())
+    }
+}
+
 pub fn spawn_ssh_connect_with_keys(
     app: &mut AppState,
     host: String,
@@ -447,10 +459,9 @@ pub fn spawn_ssh_connect_with_keys(
                     })));
                 }
                 Err(e) => {
-                    let err = e.to_string();
                     let _ = tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
                         task_id: id,
-                        status: TaskStatus::Failed(err),
+                        status: key_connect_task_status(&e),
                     }));
                     if let crate::ssh_manager::SshError::HostKey {
                         host: hk_host,
@@ -891,17 +902,23 @@ fn spawn_pubkey_reconnect(app: &mut AppState, session_id: &str) {
                     })));
                 }
                 Err(e) => {
-                    // Key auth failed: offer a password fallback
                     if matches!(e, crate::ssh_manager::SshError::Auth(_)) {
+                        // Key auth failed: offer a password fallback. A password
+                        // prompt follows, so don't flash a failure message.
                         let _ = tx.send(UiEvent::Ssh(SshEvent::ReconnectFailed {
                             session_id: session_id.clone(),
                             error: e.to_string(),
                         }));
+                        let _ = tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
+                            task_id: id,
+                            status: TaskStatus::Completed,
+                        }));
+                    } else {
+                        let _ = tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
+                            task_id: id,
+                            status: TaskStatus::Failed(format!("Reconnection failed: {e}")),
+                        }));
                     }
-                    let _ = tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
-                        task_id: id,
-                        status: TaskStatus::Failed(format!("Reconnection failed: {e}")),
-                    }));
                 }
             }
         },
@@ -1065,6 +1082,37 @@ mod tests {
         assert_eq!(
             app.popups.ssh_connection.error.as_deref(),
             Some("Invalid connection string format")
+        );
+    }
+
+    #[test]
+    fn auth_failures_are_not_reported_as_task_failures() {
+        use crate::ssh_manager::{AuthError, NetworkError, SshError};
+
+        // A password prompt follows auth failures, so no failure message.
+        assert_eq!(
+            key_connect_task_status(&SshError::Auth(AuthError::NoAuthMethodsAvailable)),
+            TaskStatus::Completed
+        );
+        assert_eq!(
+            key_connect_task_status(&SshError::Auth(AuthError::KeyAuthFailed)),
+            TaskStatus::Completed
+        );
+        assert_eq!(
+            key_connect_task_status(&SshError::Auth(AuthError::AgentError(
+                "agent died".to_string()
+            ))),
+            TaskStatus::Completed
+        );
+
+        // Other failures are surfaced with their message.
+        assert_eq!(
+            key_connect_task_status(&SshError::Network(NetworkError::ConnectionRefused)),
+            TaskStatus::Failed("Network error: Connection refused".to_string())
+        );
+        assert_eq!(
+            key_connect_task_status(&SshError::Connection("boom".to_string())),
+            TaskStatus::Failed("Connection error: boom".to_string())
         );
     }
 }
