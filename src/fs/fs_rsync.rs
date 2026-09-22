@@ -5,6 +5,12 @@ use secrecy::ExposeSecret;
 #[cfg(unix)]
 use std::path::Path;
 #[cfg(unix)]
+use std::sync::atomic::AtomicBool;
+#[cfg(unix)]
+use std::sync::{Arc, Mutex, PoisonError};
+#[cfg(unix)]
+use std::time::{Duration, Instant};
+#[cfg(unix)]
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 /// Detect if rsync should be used for this transfer
@@ -48,6 +54,15 @@ pub fn should_use_rsync(
     false
 }
 
+/// How long rsync may go silent before the transfer is considered wedged
+/// (dead network, unresponsive remote) and the child is killed.
+#[cfg(unix)]
+const RSYNC_IDLE_TIMEOUT: Duration = Duration::from_mins(10);
+
+/// Maximum amount of rsync stderr kept for error reporting.
+#[cfg(unix)]
+const STDERR_CAP: usize = 64 * 1024;
+
 /// Execute rsync for local → remote or remote → local file transfer
 /// Uses SSH agent or key-based authentication to avoid password prompts
 /// Returns Ok(()) if rsync succeeded, Err if it failed or is not applicable
@@ -64,87 +79,172 @@ pub async fn rsync_transfer(
     progress_ctx: &crate::fs::fs_provider::TaskProgressContext,
 ) -> Result<()> {
     let mut cmd = build_rsync_command(src_fs, dest_fs, src, dest).await?;
+    // If this future is dropped while rsync is still running (task aborted),
+    // don't leave an orphaned child behind.
+    cmd.kill_on_drop(true);
 
     // Signal that rsync is starting
-    let _ = progress_ctx.tx.send(crate::tasks::UiEvent::Task(
-        crate::tasks::TaskEvent::SetRsyncMode {
-            task_id: progress_ctx.id,
-            rsync: true,
-        },
-    ));
+    send_rsync_mode(progress_ctx, true);
 
     let mut child = cmd
         .spawn()
         .map_err(|e| anyhow!("Failed to spawn rsync: {e}"))?;
 
-    // Monitor progress from stdout
+    // Drain stderr concurrently. If it were only read after `wait()`, a
+    // 64 KB pipe buffer of rsync warnings would fill up, block the child,
+    // and deadlock the whole transfer.
+    let stderr_buf: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+    let stderr_task = {
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| anyhow!("Failed to capture rsync stderr"))?;
+        tokio::spawn(drain_stderr(stderr, stderr_buf.clone()))
+    };
+
     let stdout = child
         .stdout
         .take()
         .ok_or_else(|| anyhow!("Failed to capture rsync stdout"))?;
     let mut reader = BufReader::new(stdout).lines();
 
-    let progress_task = tokio::spawn({
-        let progress_ctx = progress_ctx.clone();
+    // Any output from rsync counts as activity for the idle watchdog.
+    let last_activity: Arc<Mutex<Instant>> = Arc::new(Mutex::new(Instant::now()));
+
+    // Watchdog: fires `watch` as soon as cancel is requested, or when rsync
+    // has been silent for RSYNC_IDLE_TIMEOUT. `watch_kind` records which one.
+    let watch = Arc::new(tokio::sync::Notify::new());
+    let watch_kind: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
+    let watchdog = tokio::spawn({
+        let cancel = progress_ctx.cancel.clone();
+        let last_activity = last_activity.clone();
+        let watch = watch.clone();
+        let watch_kind = watch_kind.clone();
         async move {
-            while let Ok(Some(line)) = reader.next_line().await {
-                if progress_ctx
-                    .cancel
-                    .load(std::sync::atomic::Ordering::Relaxed)
+            let cancelled = loop {
+                tokio::time::sleep(Duration::from_millis(250)).await;
+                if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                    break true;
+                }
+                if last_activity
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .elapsed()
+                    > RSYNC_IDLE_TIMEOUT
                 {
-                    break;
+                    break false;
                 }
-
-                // Parse rsync progress output
-                // Format: "  1,234,567  45%  123.45kB/s    0:00:12"
-                if let Some(parsed) = parse_rsync_progress(&line) {
-                    let _ = progress_ctx.tx.send(crate::tasks::UiEvent::Task(
-                        crate::tasks::TaskEvent::UpdateByteProgress {
-                            task_id: progress_ctx.id,
-                            processed: parsed.bytes_transferred,
-                            total: parsed.total_bytes,
-                        },
-                    ));
-
-                    progress_ctx.processed_bytes.store(
-                        parsed.bytes_transferred,
-                        std::sync::atomic::Ordering::Relaxed,
-                    );
-                }
-            }
+            };
+            watch_kind.store(cancelled, std::sync::atomic::Ordering::SeqCst);
+            watch.notify_one();
         }
     });
 
-    // Wait for rsync to complete
-    let status = child
-        .wait()
-        .await
-        .map_err(|e| anyhow!("Failed to wait for rsync: {e}"))?;
+    let mut stdout_open = true;
+    let wait_result = loop {
+        tokio::select! {
+            res = child.wait() => break res.map_err(|e| anyhow!("Failed to wait for rsync: {e}")),
+            () = watch.notified() => {
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                if watch_kind.load(std::sync::atomic::Ordering::SeqCst) {
+                    break Err(anyhow!("rsync transfer cancelled"));
+                }
+                break Err(anyhow!(
+                    "rsync transfer stalled: no output for {} seconds",
+                    RSYNC_IDLE_TIMEOUT.as_secs()
+                ));
+            }
+            line_res = reader.next_line(), if stdout_open => {
+                match line_res {
+                Ok(Some(line)) => {
+                    *last_activity.lock().unwrap_or_else(PoisonError::into_inner) = Instant::now();
+                    handle_rsync_line(progress_ctx, &line);
+                }
+                    // stdout closed: rsync is exiting. Keep waiting, still
+                    // guarded by the cancel/idle watchdog.
+                    _ => stdout_open = false,
+                }
+            }
+        }
+    };
 
-    progress_task.abort();
+    watchdog.abort();
+    stderr_task.abort();
 
     // Signal that rsync has finished
-    let _ = progress_ctx.tx.send(crate::tasks::UiEvent::Task(
-        crate::tasks::TaskEvent::SetRsyncMode {
-            task_id: progress_ctx.id,
-            rsync: false,
-        },
-    ));
+    send_rsync_mode(progress_ctx, false);
+
+    let status = wait_result?;
 
     if !status.success() {
-        let stderr = child.stderr.take();
-        let error_msg = if let Some(mut stderr) = stderr {
-            use tokio::io::AsyncReadExt;
-            let mut error_buf = String::new();
-            let _ = stderr.read_to_string(&mut error_buf).await;
-            error_buf
-        } else {
+        let error_msg = stderr_buf
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .trim()
+            .to_string();
+        let error_msg = if error_msg.is_empty() {
             "Unknown error".to_string()
+        } else {
+            error_msg
         };
         return Err(anyhow!("rsync failed with status {status}: {error_msg}"));
     }
 
     Ok(())
+}
+
+/// Toggles the rsync progress display mode on the task UI.
+#[cfg(unix)]
+fn send_rsync_mode(progress_ctx: &crate::fs::fs_provider::TaskProgressContext, active: bool) {
+    let _ = progress_ctx.tx.send(crate::tasks::UiEvent::Task(
+        crate::tasks::TaskEvent::SetRsyncMode {
+            task_id: progress_ctx.id,
+            rsync: active,
+        },
+    ));
+}
+
+/// Reads rsync stderr until EOF, keeping only the last `STDERR_CAP` bytes
+/// for error reporting.
+#[cfg(unix)]
+async fn drain_stderr(mut stderr: tokio::process::ChildStderr, buf: Arc<Mutex<String>>) {
+    use tokio::io::AsyncReadExt;
+    let mut chunk = [0u8; 4096];
+    loop {
+        match stderr.read(&mut chunk).await {
+            Ok(0) | Err(_) => break,
+            Ok(n) => {
+                let mut out = buf.lock().unwrap_or_else(PoisonError::into_inner);
+                out.push_str(&String::from_utf8_lossy(&chunk[..n]));
+                if out.len() > STDERR_CAP {
+                    let drop = out.len() - STDERR_CAP;
+                    out.drain(..drop);
+                }
+            }
+        }
+    }
+}
+
+/// Sends the progress carried by a single rsync output line to the task UI.
+#[cfg(unix)]
+fn handle_rsync_line(progress_ctx: &crate::fs::fs_provider::TaskProgressContext, line: &str) {
+    // Parse rsync progress output
+    // Format: "  1,234,567  45%  123.45kB/s    0:00:12"
+    if let Some(parsed) = parse_rsync_progress(line) {
+        let _ = progress_ctx.tx.send(crate::tasks::UiEvent::Task(
+            crate::tasks::TaskEvent::UpdateByteProgress {
+                task_id: progress_ctx.id,
+                processed: parsed.bytes_transferred,
+                total: parsed.total_bytes,
+            },
+        ));
+
+        progress_ctx.processed_bytes.store(
+            parsed.bytes_transferred,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+    }
 }
 
 #[cfg(not(unix))]
@@ -164,23 +264,34 @@ pub async fn rsync_transfer(
 }
 
 /// Get SSH options for rsync to use existing SSH authentication
-/// This tells rsync to use SSH agent or available keys without prompting for passwords
+/// This tells rsync to use SSH agent, available keys, or the stored
+/// password without prompting
 #[cfg(unix)]
 fn get_ssh_options(
-    _fs: &dyn crate::fs::fs_provider::FileSystemProvider,
+    fs: &dyn crate::fs::fs_provider::FileSystemProvider,
     has_password: bool,
 ) -> String {
     // Use SSH with the following options:
+    // - Port=<port>: Match the port of the existing connection (rsync's
+    //   remote spec has no port field, so defaulting to 22 would break
+    //   non-standard connections)
     // - BatchMode=yes: Never prompt for password (fail instead) - ONLY if no password provided
     // - StrictHostKeyChecking=no: Auto-accept host keys (for convenience)
     // - UserKnownHostsFile=/dev/null: Don't save host keys
     // - LogLevel=ERROR: Reduce noise
     // - ConnectTimeout=10: Don't wait forever
     //
-    // This ensures rsync uses only SSH agent or key-based auth from the existing session
+    // This ensures rsync uses only SSH agent, key-based auth, or the stored
+    // password from the existing session
+    let port_flag = match fs.context_key() {
+        crate::fs::fs_provider::ContextKey::Ssh { port, .. } if port != 22 => {
+            format!(" -o Port={port}")
+        }
+        _ => String::new(),
+    };
     let batch_mode = if has_password { "no" } else { "yes" };
     format!(
-        "ssh -o BatchMode={batch_mode} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=10"
+        "ssh{port_flag} -o BatchMode={batch_mode} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=10"
     )
 }
 
