@@ -77,17 +77,28 @@ impl BookmarkStore {
         }
     }
 
-    pub fn add(&mut self, path: PathBuf) -> bool {
+    /// Adds a local bookmark.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the store cannot be persisted to disk.
+    pub fn add(&mut self, path: PathBuf) -> Result<bool> {
         self.add_with_ssh(path, None, None, None)
     }
 
+    /// Adds a bookmark (optionally remote). Returns `Ok(true)` if it was added,
+    /// `Ok(false)` if an identical bookmark already exists.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the store cannot be persisted to disk.
     pub fn add_with_ssh(
         &mut self,
         path: PathBuf,
         ssh_user: Option<String>,
         ssh_host: Option<String>,
         ssh_port: Option<u16>,
-    ) -> bool {
+    ) -> Result<bool> {
         let already = self.entries.iter().any(|e| {
             e.path == path
                 && e.ssh_user == ssh_user
@@ -95,7 +106,7 @@ impl BookmarkStore {
                 && e.ssh_port == ssh_port
         });
         if already {
-            return false;
+            return Ok(false);
         }
         self.entries.push(BookmarkEntry {
             path,
@@ -103,28 +114,44 @@ impl BookmarkStore {
             ssh_host,
             ssh_port,
         });
-        let _ = self.save();
-        true
+        self.save()?;
+        Ok(true)
     }
 
-    pub fn remove(&mut self, index: usize) -> bool {
+    /// Removes the bookmark at `index`. Returns `Ok(true)` if a bookmark was
+    /// removed, `Ok(false)` if the index is out of range.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the store cannot be persisted to disk.
+    pub fn remove(&mut self, index: usize) -> Result<bool> {
         if index < self.entries.len() {
             self.entries.remove(index);
-            let _ = self.save();
-            true
+            self.save()?;
+            Ok(true)
         } else {
-            false
+            Ok(false)
         }
     }
 
-    /// Remove a bookmark by path. Returns `true` if found and removed.
-    pub fn remove_by_path(&mut self, path: &Path) -> bool {
-        if let Some(idx) = self.entries.iter().position(|e| e.path == path) {
+    /// Remove a bookmark by `(path, is_remote)`. A local and a remote bookmark
+    /// can share the same path, so the path alone is not a unique key.
+    /// Returns `Ok(true)` if found and removed, `Ok(false)` if not.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the store cannot be persisted to disk.
+    pub fn remove_by_path(&mut self, path: &Path, is_remote: bool) -> Result<bool> {
+        if let Some(idx) = self
+            .entries
+            .iter()
+            .position(|e| e.path == path && e.is_remote() == is_remote)
+        {
             self.entries.remove(idx);
-            let _ = self.save();
-            true
+            self.save()?;
+            Ok(true)
         } else {
-            false
+            Ok(false)
         }
     }
 
@@ -199,7 +226,7 @@ impl BookmarkStore {
     /// Returns an error if the bookmarks cannot be saved to disk.
     pub fn save(&self) -> Result<()> {
         let content = serde_json::to_string_pretty(&self.entries)?;
-        fs::write(&self.path, content)?;
+        crate::paths::atomic_write(&self.path, &content)?;
         Ok(())
     }
 }
@@ -221,9 +248,9 @@ mod tests {
         let p1 = PathBuf::from("/home/user/docs");
         let p2 = PathBuf::from("/var/log");
 
-        assert!(store.add(p1.clone()));
-        assert!(!store.add(p1.clone())); // Duplicate
-        assert!(store.add(p2.clone()));
+        assert!(store.add(p1.clone()).unwrap());
+        assert!(!store.add(p1.clone()).unwrap()); // Duplicate
+        assert!(store.add(p2.clone()).unwrap());
         assert_eq!(store.entries.len(), 2);
 
         assert!(store.contains(&p1));
@@ -233,7 +260,7 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0], p2);
 
-        assert!(store.remove(0));
+        assert!(store.remove(0).unwrap());
         assert_eq!(store.entries.len(), 1);
         assert!(!store.contains(&p1));
 
@@ -251,17 +278,56 @@ mod tests {
 
         let p1 = PathBuf::from("/home/user/docs");
         let p2 = PathBuf::from("/var/log");
-        store.add(p1.clone());
-        store.add(p2.clone());
+        store.add(p1.clone()).unwrap();
+        store.add(p2.clone()).unwrap();
 
-        assert!(store.remove_by_path(&p1));
+        assert!(store.remove_by_path(&p1, false).unwrap());
         assert_eq!(store.entries.len(), 1);
         assert!(!store.contains(&p1));
         assert!(store.contains(&p2));
 
         // Removing non-existent path returns false
-        assert!(!store.remove_by_path(&p1));
-        assert!(!store.remove_by_path(&PathBuf::from("/does/not/exist")));
+        assert!(!store.remove_by_path(&p1, false).unwrap());
+        assert!(
+            !store
+                .remove_by_path(&PathBuf::from("/does/not/exist"), false)
+                .unwrap()
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_remove_by_path_distinguishes_local_and_remote() -> Result<()> {
+        let dir = tempdir()?;
+        let file_path = dir.path().join("bookmarks.json");
+        let mut store = BookmarkStore {
+            entries: Vec::new(),
+            path: file_path,
+        };
+
+        let path = PathBuf::from("/home/user/src");
+        // Local and remote bookmarks share the same path.
+        store.add(path.clone()).unwrap();
+        store
+            .add_with_ssh(
+                path.clone(),
+                Some("u".to_string()),
+                Some("host".to_string()),
+                None,
+            )
+            .unwrap();
+        assert_eq!(store.entries.len(), 2);
+
+        // Removing the local one must leave the remote one intact.
+        assert!(store.remove_by_path(&path, false).unwrap());
+        assert_eq!(store.entries.len(), 1);
+        assert!(store.find_entry(&path, true).is_some());
+        assert!(store.find_entry(&path, false).is_none());
+
+        // And vice-versa.
+        assert!(store.remove_by_path(&path, true).unwrap());
+        assert_eq!(store.entries.len(), 0);
 
         Ok(())
     }
@@ -277,29 +343,41 @@ mod tests {
 
         let path = PathBuf::from("/home/user/src");
         // Local bookmark
-        assert!(store.add(path.clone()));
+        assert!(store.add(path.clone()).unwrap());
         // Remote bookmark with the same path is distinct
-        assert!(store.add_with_ssh(
-            path.clone(),
-            Some("someuser".to_string()),
-            Some("host".to_string()),
-            None,
-        ));
-        assert!(store.add_with_ssh(
-            path.clone(),
-            Some("otheruser".to_string()),
-            Some("host".to_string()),
-            Some(2222),
-        ));
+        assert!(
+            store
+                .add_with_ssh(
+                    path.clone(),
+                    Some("someuser".to_string()),
+                    Some("host".to_string()),
+                    None,
+                )
+                .unwrap()
+        );
+        assert!(
+            store
+                .add_with_ssh(
+                    path.clone(),
+                    Some("otheruser".to_string()),
+                    Some("host".to_string()),
+                    Some(2222),
+                )
+                .unwrap()
+        );
         assert_eq!(store.entries.len(), 3);
 
         // Dedup: same user/host/path rejected
-        assert!(!store.add_with_ssh(
-            path.clone(),
-            Some("someuser".to_string()),
-            Some("host".to_string()),
-            None,
-        ));
+        assert!(
+            !store
+                .add_with_ssh(
+                    path.clone(),
+                    Some("someuser".to_string()),
+                    Some("host".to_string()),
+                    None,
+                )
+                .unwrap()
+        );
         assert_eq!(store.entries.len(), 3);
 
         Ok(())
@@ -347,13 +425,15 @@ mod tests {
             path: file_path.clone(),
         };
 
-        store.add(PathBuf::from("/home/user/local"));
-        store.add_with_ssh(
-            PathBuf::from("/var/remote"),
-            Some("bob".to_string()),
-            Some("example.com".to_string()),
-            Some(22),
-        );
+        store.add(PathBuf::from("/home/user/local")).unwrap();
+        store
+            .add_with_ssh(
+                PathBuf::from("/var/remote"),
+                Some("bob".to_string()),
+                Some("example.com".to_string()),
+                Some(22),
+            )
+            .unwrap();
 
         let content = serde_json::to_string_pretty(&store.entries)?;
         let reloaded: Vec<BookmarkEntry> = serde_json::from_str(&content)?;
@@ -383,12 +463,14 @@ mod tests {
             path: file_path,
         };
 
-        store.add_with_ssh(
-            PathBuf::from("/home/user/src"),
-            Some("someuser".to_string()),
-            Some("myserver".to_string()),
-            None,
-        );
+        store
+            .add_with_ssh(
+                PathBuf::from("/home/user/src"),
+                Some("someuser".to_string()),
+                Some("myserver".to_string()),
+                None,
+            )
+            .unwrap();
         let results = store.fuzzy_search("myserver");
         assert_eq!(results.len(), 1);
         assert_eq!(results[0], PathBuf::from("/home/user/src"));

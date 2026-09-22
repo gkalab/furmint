@@ -78,6 +78,42 @@ impl DirectoryHistory {
                 visit_count: 1,
                 last_visited: now,
             });
+
+        // Keep in-memory entries bounded so a long session cannot grow them
+        // without limit (the on-disk copy was already capped on save).
+        self.prune();
+    }
+
+    /// Prune every in-memory context down to its per-context entry limit,
+    /// keeping the highest-scoring entries.
+    pub fn prune(&mut self) {
+        for (ctx, entries) in &mut self.entries {
+            let limit = if ctx == "local" {
+                Self::MAX_LOCAL_HISTORY_ENTRIES
+            } else {
+                Self::MAX_REMOTE_HISTORY_ENTRIES
+            };
+            if entries.len() > limit {
+                *entries = Self::prune_context(entries, limit);
+            }
+        }
+    }
+
+    /// Returns a new map holding only the top-`limit` entries by score.
+    fn prune_context(
+        entries: &HashMap<PathBuf, DirEntry>,
+        limit: usize,
+    ) -> HashMap<PathBuf, DirEntry> {
+        let mut scored: Vec<_> = entries
+            .iter()
+            .map(|(path, entry)| (path, Self::calculate_score(entry)))
+            .collect();
+        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        scored
+            .into_iter()
+            .take(limit)
+            .filter_map(|(path, _)| entries.get(path).map(|e| (path.clone(), e.clone())))
+            .collect()
     }
 
     /// Get all directories sorted by score (frequency + recency) for a context
@@ -195,6 +231,8 @@ impl DirectoryHistory {
         if let Ok(loaded) = serde_json::from_str::<DirectoryHistory>(&content) {
             self.entries = loaded.entries;
         }
+        // Re-apply limits in case a file written by an older version holds more.
+        self.prune();
         Ok(())
     }
 
@@ -223,22 +261,9 @@ impl DirectoryHistory {
                 Self::MAX_REMOTE_HISTORY_ENTRIES
             };
 
-            // Collect entries for this context and calculate scores
-            let mut context_entries: Vec<_> = entries
-                .iter()
-                .map(|(path, entry)| (path, entry, Self::calculate_score(entry)))
-                .collect();
-
-            // Sort by score descending
-            context_entries
-                .sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
-
-            // Take top N and rebuild the map for this context
-            let mut pruned_map = HashMap::new();
-            for (path, entry, _) in context_entries.into_iter().take(limit) {
-                pruned_map.insert(path.clone(), entry.clone());
-            }
-
+            // In-memory entries are kept bounded by `prune`, but re-apply the
+            // cap defensively so an oversized on-disk map can never be persisted.
+            let pruned_map = Self::prune_context(entries, limit);
             if !pruned_map.is_empty() {
                 filtered_entries.insert(ctx.clone(), pruned_map);
             }
@@ -249,7 +274,7 @@ impl DirectoryHistory {
         };
 
         let content = serde_json::to_string_pretty(&data)?;
-        fs::write(&self.cache_file, content)?;
+        crate::paths::atomic_write(&self.cache_file, &content)?;
         Ok(())
     }
 }

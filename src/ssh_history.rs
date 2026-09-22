@@ -104,7 +104,7 @@ impl SshConnectionHistory {
     /// Returns an error if the history cannot be serialized or written.
     pub fn save(&self) -> anyhow::Result<()> {
         let content = serde_json::to_string_pretty(&self.connections)?;
-        fs::write(&self.path, content)?;
+        crate::paths::atomic_write(&self.path, &content)?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

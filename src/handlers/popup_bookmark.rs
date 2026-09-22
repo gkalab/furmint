@@ -1,5 +1,6 @@
 use crate::app::AppState;
 use crate::state::{ConfirmationAction, ConfirmationState};
+use std::path::PathBuf;
 use std::time::Instant;
 use termina::event::{KeyCode, Modifiers};
 
@@ -78,15 +79,21 @@ pub fn handle_bookmark_add(app: &mut AppState) {
     }
     .display_string();
 
-    if app
+    match app
         .bookmark_store
         .add_with_ssh(current_dir, ssh_user, ssh_host, ssh_port)
     {
-        app.active_tab_mut().status_msg =
-            Some((format!("Bookmark added: {display}"), Instant::now()));
-    } else {
-        app.active_tab_mut().status_msg =
-            Some((format!("Already bookmarked: {display}"), Instant::now()));
+        Ok(true) => {
+            app.active_tab_mut().status_msg =
+                Some((format!("Bookmark added: {display}"), Instant::now()));
+        }
+        Ok(false) => {
+            app.active_tab_mut().status_msg =
+                Some((format!("Already bookmarked: {display}"), Instant::now()));
+        }
+        Err(e) => {
+            app.active_tab_mut().error = Some(format!("Failed to save bookmark: {e}"));
+        }
     }
 }
 
@@ -101,7 +108,9 @@ pub async fn handle_bookmark_event(
         match get_choice_with_selection(code, &mut conf.selected_no) {
             ChoiceResult::Confirmed => {
                 if let ConfirmationAction::DeleteBookmark(idx) = conf.action {
-                    app.bookmark_store.remove(idx);
+                    if let Err(e) = app.bookmark_store.remove(idx) {
+                        app.active_tab_mut().error = Some(format!("Failed to save bookmarks: {e}"));
+                    }
                     // Refresh the filtered list
                     refresh_bookmark_list(app);
                     // Adjust selection if it's now out of bounds
@@ -261,33 +270,39 @@ async fn handle_bookmark_enter(app: &mut AppState) {
             return;
         }
 
+        // Remote entries return above, so this is always the local branch.
         let selected_path = entry.path;
-        match crate::handlers::navigation::navigate_with_fallback(
-            app.active_tab_mut(),
-            &selected_path,
-        )
-        .await
-        {
-            Ok(navigated_path) => {
-                if navigated_path != selected_path {
-                    app.bookmark_store.remove_by_path(&selected_path);
-                    app.active_tab_mut().status_msg = Some((
-                        format!(
-                            "'{}' not found, navigated to '{}'",
-                            selected_path.display(),
-                            navigated_path.display()
-                        ),
-                        Instant::now(),
-                    ));
-                }
-            }
-            Err(e) => {
-                app.active_tab_mut().error = Some(format!("Error: {e}"));
-                app.bookmark_store.remove_by_path(&selected_path);
-            }
-        }
+        navigate_local_bookmark(app, selected_path).await;
     }
     app.popups
         .set_popup_visible(crate::app::PopupKind::Bookmark, false);
     app.popups.reset_popup(crate::app::PopupKind::Bookmark);
+}
+
+/// Navigates to a local bookmark, removing it if the path had to fall back.
+async fn navigate_local_bookmark(app: &mut AppState, path: PathBuf) {
+    match crate::handlers::navigation::navigate_with_fallback(app.active_tab_mut(), &path).await {
+        Ok(navigated_path) => {
+            if navigated_path != path {
+                if let Err(se) = app.bookmark_store.remove_by_path(&path, false) {
+                    app.active_tab_mut().error = Some(format!("Failed to save bookmarks: {se}"));
+                }
+                app.active_tab_mut().status_msg = Some((
+                    format!(
+                        "'{}' not found, navigated to '{}'",
+                        path.display(),
+                        navigated_path.display()
+                    ),
+                    Instant::now(),
+                ));
+            }
+        }
+        Err(e) => {
+            app.active_tab_mut().error = Some(format!("Error: {e}"));
+            if let Err(se) = app.bookmark_store.remove_by_path(&path, false) {
+                app.active_tab_mut().error =
+                    Some(format!("Error: {e}; also failed to save bookmarks: {se}"));
+            }
+        }
+    }
 }

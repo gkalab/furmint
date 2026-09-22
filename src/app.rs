@@ -375,12 +375,7 @@ impl AppState {
 
         let path = Self::get_state_file_path()?;
         let content = serde_json::to_string_pretty(&state)?;
-        let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, &content)?;
-        if path.exists() {
-            std::fs::remove_file(&path)?;
-        }
-        std::fs::rename(&tmp, &path)?;
+        crate::paths::atomic_write(&path, &content)?;
         Ok(())
     }
 
