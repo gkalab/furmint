@@ -57,7 +57,7 @@ impl SshConnectionHistory {
     pub fn test_default() -> Self {
         Self {
             connections: Vec::new(),
-            path: PathBuf::from("/tmp/ssh_history_test.json"),
+            path: std::env::temp_dir().join("ssh_history_test.json"),
         }
     }
     pub fn add(&mut self, mut info: SshConnectionInfo) {

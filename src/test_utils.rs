@@ -179,7 +179,7 @@ impl TestAppBuilder {
                 show_task_manager: false,
             },
             ssh_manager: Arc::new(crate::ssh_manager::SshManager::default()),
-            dir_history: crate::dir_history::DirectoryHistory::new().unwrap(),
+            dir_history: crate::dir_history::DirectoryHistory::test_default(),
             watcher: None,
             remote_watcher: None,
             input_polling_handle: None,

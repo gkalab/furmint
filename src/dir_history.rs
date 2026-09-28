@@ -53,6 +53,20 @@ impl DirectoryHistory {
         Ok(state_dir.join("dir_history.json"))
     }
 
+    /// Creates a `DirectoryHistory` pointed at a per-process temp file so
+    /// tests never read or write the developer's real history cache.
+    #[cfg(any(test, feature = "test-utils"))]
+    #[must_use]
+    pub fn test_default() -> Self {
+        let dir =
+            std::env::temp_dir().join(format!("furmint-test-dir-history-{}", std::process::id()));
+        let _ = fs::create_dir_all(&dir);
+        Self {
+            entries: HashMap::new(),
+            cache_file: dir.join("dir_history.json"),
+        }
+    }
+
     /// Record a visit to a directory within a specific context
     ///
     /// # Panics

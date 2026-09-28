@@ -73,7 +73,7 @@ impl BookmarkStore {
     pub fn test_default() -> Self {
         Self {
             entries: Vec::new(),
-            path: PathBuf::from("/tmp/bookmarks_test.json"),
+            path: std::env::temp_dir().join("bookmarks_test.json"),
         }
     }
 
