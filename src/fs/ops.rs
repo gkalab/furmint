@@ -147,7 +147,7 @@ async fn try_rename_move_optimization(
 ) -> Result<bool> {
     let same_fs = ctx.src_fs.context_key() == ctx.dest_fs.context_key();
     if ctx.action == crate::state::CopyMoveAction::Move && same_fs {
-        let dest_exists = ctx.dest_fs.exists(dest).await;
+        let dest_exists = ctx.dest_fs.stat_path(dest).await.is_some();
         if !dest_exists && ctx.src_fs.rename(src, dest).await.is_ok() {
             // Successfully moved! The rename carried the entire subtree in one
             // go and nothing below it will be processed individually, so credit
@@ -180,7 +180,7 @@ async fn handle_file(
     dest: &std::path::Path,
 ) -> Result<bool> {
     let mut perform = true;
-    let dest_exists = ctx.dest_fs.exists(dest).await;
+    let dest_exists = ctx.dest_fs.stat_path(dest).await.is_some();
 
     if dest_exists {
         match resolve_conflict(ctx, decision_state, dest).await? {
@@ -297,8 +297,9 @@ async fn handle_directory(
         processed_items: ctx.processed.clone(),
     };
 
-    let dest_exists = ctx.dest_fs.exists(dest).await;
-    let dest_is_dir = dest_exists && ctx.dest_fs.is_dir(dest).await;
+    let dest_stat = ctx.dest_fs.stat_path(dest).await;
+    let dest_is_dir = dest_stat.unwrap_or(false);
+    let dest_exists = dest_stat.is_some();
 
     // For archive destinations, hand off the whole directory at once so the
     // entire tree is added in a single batched rewrite (archives cannot append).

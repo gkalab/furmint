@@ -31,6 +31,87 @@ pub fn disable_mouse_capture() -> std::io::Result<()> {
     std::io::stdout().flush()
 }
 
+/// Returns `true` if `name` resolves to an executable file: either a path
+/// (containing a separator) to an existing executable, or a bare command name
+/// found on `PATH`.
+///
+/// Uses plain stat calls only, never spawns a process, so it is safe to call
+/// from the UI thread in a loop.
+fn terminal_available(name: &str) -> bool {
+    let path = std::path::Path::new(name);
+    #[cfg(unix)]
+    {
+        if name.contains('/') {
+            return is_executable(path);
+        }
+    }
+    #[cfg(windows)]
+    {
+        if name.contains('/') || name.contains('\\') {
+            return path.is_file();
+        }
+    }
+    let Some(paths) = std::env::var_os("PATH") else {
+        return false;
+    };
+    std::env::split_paths(&paths).any(|dir| {
+        let candidate = dir.join(name);
+        #[cfg(windows)]
+        {
+            // Try the bare name plus each PATHEXT extension (.exe, .cmd, ...).
+            if candidate.is_file() {
+                return true;
+            }
+            let exts: Vec<String> = std::env::var("PATHEXT")
+                .ok()
+                .map(|p| {
+                    p.split(';')
+                        .filter(|e| !e.is_empty())
+                        .map(str::to_lowercase)
+                        .collect()
+                })
+                .unwrap_or_default();
+            return exts
+                .iter()
+                .any(|ext| dir.join(format!("{name}{ext}")))
+                .is_file();
+        }
+        #[cfg(not(windows))]
+        is_executable(&candidate)
+    })
+}
+
+/// Returns `true` if `path` is a regular file with any executable bit set.
+#[cfg(unix)]
+fn is_executable(path: &std::path::Path) -> bool {
+    if let Ok(meta) = std::fs::metadata(path) {
+        use std::os::unix::fs::PermissionsExt;
+        meta.is_file() && (meta.permissions().mode() & 0o111) != 0
+    } else {
+        false
+    }
+}
+
+/// Spawns `cmd` detached from the UI loop and reaps it on exit so a closed
+/// terminal does not linger as a zombie process on Unix. The reaper thread
+/// exits together with the child.
+fn spawn_detached(cmd: &mut Command) -> std::io::Result<()> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let mut child = cmd.spawn()?;
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+        Ok(())
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // Windows has no zombie processes; dropping the Child handle is fine.
+        cmd.spawn()?;
+        Ok(())
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn spawn_terminal_linux(
     dir: &std::path::Path,
@@ -76,6 +157,12 @@ fn spawn_terminal_linux(
 
     for (terminal, opt_args) in &terminals {
         tried_terms.push(terminal.clone());
+        // Cheap existence check without spawning the terminal itself
+        // (a `--version` probe would run the real binary on the UI thread,
+        // which is slow for GUI terminals and may even open a window).
+        if !terminal_available(terminal) {
+            continue;
+        }
         let mut cmd = Command::new(terminal);
         cmd.current_dir(dir);
         if args.is_empty() {
@@ -123,22 +210,17 @@ fn spawn_terminal_linux(
                 }
             }
         }
-        // Check if the terminal exists and works
-        if Command::new(terminal).arg("--version").output().is_ok()
-            || terminal == "x-terminal-emulator"
-        {
-            if let Some(pw) = &sshpass {
-                use secrecy::ExposeSecret;
-                cmd.env("SSHPASS", pw.expose_secret());
-            }
-            match cmd.spawn() {
-                Ok(_) => return Ok(()),
-                Err(e) => {
-                    // On error, propagate the error context back to the caller for UI display
-                    return Err(anyhow::anyhow!(format!(
-                        "Failed to spawn terminal {terminal}: {e}"
-                    )));
-                }
+        if let Some(pw) = &sshpass {
+            use secrecy::ExposeSecret;
+            cmd.env("SSHPASS", pw.expose_secret());
+        }
+        match spawn_detached(&mut cmd) {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                // On error, propagate the error context back to the caller for UI display
+                return Err(anyhow::anyhow!(format!(
+                    "Failed to spawn terminal {terminal}: {e}"
+                )));
             }
         }
     }
@@ -173,15 +255,16 @@ fn spawn_terminal_macos(
                 cmd.arg(arg);
             }
         }
-        cmd.current_dir(dir).spawn()?;
+        cmd.current_dir(dir);
+        spawn_detached(&mut cmd)?;
     } else if let Some(term) = configured_terminal {
-        Command::new("open").arg("-a").arg(term).arg(dir).spawn()?;
+        let mut cmd = Command::new("open");
+        cmd.arg("-a").arg(term).arg(dir);
+        spawn_detached(&mut cmd)?;
     } else {
-        Command::new("open")
-            .arg("-a")
-            .arg("Terminal")
-            .arg(dir)
-            .spawn()?;
+        let mut cmd = Command::new("open");
+        cmd.arg("-a").arg("Terminal").arg(dir);
+        spawn_detached(&mut cmd)?;
     }
     Ok(())
 }

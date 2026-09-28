@@ -576,6 +576,24 @@ impl FileSystemProvider for ArchiveFs {
             .unwrap_or(false)
     }
 
+    async fn stat_path(&self, path: &Path) -> Option<bool> {
+        let fs = self.clone();
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || {
+            let p = Self::resolve_internal_path(&path);
+            if p == Path::new(".") {
+                return Some(true);
+            }
+            fs.entries
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .get(&p)
+                .map(|e| e.file_entry.is_dir)
+        })
+        .await
+        .unwrap_or(None)
+    }
+
     async fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
         let fs = self.clone();
         let path = path.to_path_buf();

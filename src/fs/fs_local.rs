@@ -99,12 +99,42 @@ fn delete_sync(path: &Path, recursive: bool) -> Result<()> {
 fn rename_sync(from: &Path, to: &Path) -> Result<()> {
     #[cfg(target_os = "windows")]
     {
-        if to.exists() && to.is_file() {
-            std::fs::remove_file(to)?;
+        if to.is_dir() {
+            // MoveFileExW cannot replace an existing directory; a plain
+            // rename keeps the previous behaviour (fails if occupied).
+            fs::rename(from, to)?;
+        } else {
+            // File or missing destination: replace atomically in a single
+            // syscall, avoiding the exists/remove/rename TOCTOU window.
+            use std::os::windows::ffi::OsStrExt;
+            let from_w: Vec<u16> = from
+                .as_os_str()
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+            let to_w: Vec<u16> = to
+                .as_os_str()
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+            let ok = unsafe {
+                winapi::um::fileapi::MoveFileExW(
+                    from_w.as_ptr(),
+                    to_w.as_ptr(),
+                    winapi::um::winbase::MOVEFILE_REPLACE_EXISTING,
+                )
+            };
+            if !ok {
+                return Err(std::io::Error::last_os_error().into());
+            }
         }
+        return Ok(());
     }
-    fs::rename(from, to)?;
-    Ok(())
+    #[cfg(not(target_os = "windows"))]
+    {
+        fs::rename(from, to)?;
+        Ok(())
+    }
 }
 
 fn read_file_at_sync(path: &Path, offset: u64, len: usize) -> Result<Vec<u8>> {
@@ -194,9 +224,11 @@ fn set_modified_time_sync(path: &Path, mtime: std::time::SystemTime) -> bool {
         let Ok(duration) = mtime.duration_since(std::time::UNIX_EPOCH) else {
             return false;
         };
-        let sec = duration.as_secs();
-        let sec = i64::try_from(sec).unwrap_or(i64::MAX);
-        let sec = sec as libc::time_t;
+        // Checked casts so an out-of-range mtime fails instead of
+        // truncating (on 32-bit targets time_t is i32).
+        let Ok(sec) = libc::time_t::try_from(duration.as_secs()) else {
+            return false;
+        };
         let nsec = libc::c_long::from(duration.subsec_nanos());
         let Ok(path_cstr) = std::ffi::CString::new(path.to_string_lossy().as_bytes()) else {
             return false;
@@ -325,6 +357,12 @@ impl FileSystemProvider for LocalFs {
         tokio::task::spawn_blocking(move || path.is_dir())
             .await
             .unwrap_or(false)
+    }
+
+    async fn stat_path(&self, path: &Path) -> Option<bool> {
+        // A local stat is a fast syscall; answer both questions inline with a
+        // single call instead of two spawn_blocking hops.
+        fs::metadata(path).ok().map(|m| m.is_dir())
     }
 
     async fn canonicalize(&self, path: &Path) -> Result<PathBuf> {

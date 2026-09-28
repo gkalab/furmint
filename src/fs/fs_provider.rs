@@ -392,6 +392,19 @@ pub trait FileSystemProvider: Send + Sync {
     /// Check if path is a directory.
     async fn is_dir(&self, path: &Path) -> bool;
 
+    /// Check existence and directory-ness in a single stat-like call.
+    ///
+    /// Returns `None` if the path does not exist, otherwise `Some(is_dir)`.
+    /// The default implementation falls back to separate `exists`/`is_dir`
+    /// calls; local providers override this to answer both with one stat.
+    async fn stat_path(&self, path: &Path) -> Option<bool> {
+        if self.exists(path).await {
+            Some(self.is_dir(path).await)
+        } else {
+            None
+        }
+    }
+
     /// Get the canonical/absolute path.
     ///
     /// # Errors
