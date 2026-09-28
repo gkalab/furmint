@@ -26,8 +26,8 @@ pub fn strip_extended_prefix(path: PathBuf) -> PathBuf {
     path
 }
 
-/// Empties the user trash. Returns the number of items removed (on Windows
-/// the item count recorded before emptying), or an error.
+/// Empties the user trash. Returns the number of removed items on supported
+/// platforms (0 on Windows, where the API reports no count), or an error.
 ///
 /// # Errors
 ///
@@ -50,10 +50,6 @@ fn empty_trash_sync() -> std::result::Result<usize, String> {
                 SHERB_NOCONFIRMATION, SHERB_NOPROGRESSUI, SHERB_NOSOUND, SHEmptyRecycleBinW,
             };
 
-            // SHEmptyRecycleBinW does not report how many items it deleted,
-            // so count the Recycle Bin contents across all drives first.
-            let removed = count_trash_items();
-
             let hwnd: HWND = std::ptr::null_mut();
             let psz_root: *const u16 = std::ptr::null(); // all drives
 
@@ -62,7 +58,7 @@ fn empty_trash_sync() -> std::result::Result<usize, String> {
 
             // E_UNEXPECTED (0x8000ffff) is returned when the Recycle Bin is already empty.
             if SUCCEEDED(res) || res == winapi::shared::winerror::E_UNEXPECTED {
-                Ok(removed)
+                Ok(0)
             } else {
                 Err(format!("Failed: SHEmptyRecycleBinW error code {res:#x}"))
             }
@@ -121,27 +117,6 @@ fn empty_trash_sync() -> std::result::Result<usize, String> {
     {
         Err("Not supported on this OS".to_string())
     }
-}
-
-/// Counts the items currently in the Recycle Bin across all drive letters.
-#[cfg(target_os = "windows")]
-fn count_trash_items() -> usize {
-    let mut count = 0usize;
-    for letter in 'A'..='Z' {
-        let recycle_bin = std::path::Path::new(&format!("{letter}:\\$RECYCLE.BIN"));
-        let Ok(sids) = std::fs::read_dir(recycle_bin) else {
-            continue;
-        };
-        // $RECYCLE.BIN holds one subdirectory per user SID; each trashed
-        // item is a top-level entry in one of them.
-        for sid in sids.flatten() {
-            let Ok(items) = std::fs::read_dir(sid.path()) else {
-                continue;
-            };
-            count += items.filter(|e| e.is_ok()).count();
-        }
-    }
-    count
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

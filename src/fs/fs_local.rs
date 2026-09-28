@@ -118,11 +118,11 @@ fn rename_sync(from: &Path, to: &Path) -> Result<()> {
                 .chain(std::iter::once(0))
                 .collect();
             let ok = unsafe {
-                winapi::um::fileapi::MoveFileExW(
+                winapi::um::winbase::MoveFileExW(
                     from_w.as_ptr(),
                     to_w.as_ptr(),
                     winapi::um::winbase::MOVEFILE_REPLACE_EXISTING,
-                )
+                ) != 0
             };
             if !ok {
                 return Err(std::io::Error::last_os_error().into());

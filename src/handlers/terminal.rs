@@ -37,6 +37,7 @@ pub fn disable_mouse_capture() -> std::io::Result<()> {
 ///
 /// Uses plain stat calls only, never spawns a process, so it is safe to call
 /// from the UI thread in a loop.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn terminal_available(name: &str) -> bool {
     let path = std::path::Path::new(name);
     #[cfg(unix)]
@@ -71,10 +72,8 @@ fn terminal_available(name: &str) -> bool {
                         .collect()
                 })
                 .unwrap_or_default();
-            return exts
-                .iter()
-                .any(|ext| dir.join(format!("{name}{ext}")))
-                .is_file();
+            exts.iter()
+                .any(|ext| dir.join(format!("{name}{ext}")).is_file())
         }
         #[cfg(not(windows))]
         is_executable(&candidate)
@@ -95,6 +94,7 @@ fn is_executable(path: &std::path::Path) -> bool {
 /// Spawns `cmd` detached from the UI loop and reaps it on exit so a closed
 /// terminal does not linger as a zombie process on Unix. The reaper thread
 /// exits together with the child.
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
 fn spawn_detached(cmd: &mut Command) -> std::io::Result<()> {
     #[cfg(not(target_os = "windows"))]
     {
