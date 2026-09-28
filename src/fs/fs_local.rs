@@ -128,7 +128,7 @@ fn rename_sync(from: &Path, to: &Path) -> Result<()> {
                 return Err(std::io::Error::last_os_error().into());
             }
         }
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(target_os = "windows"))]
     {
