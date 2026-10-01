@@ -3,7 +3,6 @@ use fm::app_state::tabs::PanelSide;
 use fm::fs::utils::FileEntry;
 use fm::handlers::mouse::{calculate_scroll_from_y, handle_mouse_event, scrollbar_thumb_rows};
 use fm::state::EmptyTrashState;
-use fm::ui::ui_utils::compute_button_rects;
 use ratatui::layout::Rect;
 use std::path::PathBuf;
 use termina::event::{Modifiers, MouseButton, MouseEvent, MouseEventKind};
@@ -59,28 +58,17 @@ fn file_entries(count: usize) -> Vec<FileEntry> {
         .collect()
 }
 
+/// Button areas of a confirmation popup of the given size on an 80x24 terminal.
+/// Matches what the real draw code produces (see `draw_confirmation_popup`).
+fn confirmation_button_areas(width: u16, height: u16) -> Vec<Rect> {
+    fm::ui::ui_utils::confirmation_button_areas(width, height, Rect::new(0, 0, 80, 24))
+}
+
 /// Simulates the button layout used by the empty-trash confirmation popup
-/// at terminal size 80×24. Popup is 60×7, centered; buttons "(N)o" and "(Y)es"
+/// at terminal size 80x24. Popup is 60x7, centered; buttons "(N)o" and "(Y)es"
 /// are drawn in the bottom row. These values must match what the real draw code produces.
 fn empty_trash_button_areas() -> Vec<Rect> {
-    // centered_rect_absolute(60, 7, Rect { width: 80, height: 24 }) → (10, 8, 60, 7)
-    let _popup_area = Rect::new(10, 8, 60, 7);
-    let content_area = Rect {
-        x: 12,
-        y: 9,
-        width: 56,
-        height: 6,
-    };
-    let inner_layout = ratatui::prelude::Layout::default()
-        .direction(ratatui::prelude::Direction::Vertical)
-        .horizontal_margin(2)
-        .constraints([
-            ratatui::prelude::Constraint::Length(1),
-            ratatui::prelude::Constraint::Min(2),
-            ratatui::prelude::Constraint::Length(3),
-        ])
-        .split(content_area);
-    compute_button_rects(&["(N)o", "(Y)es"], inner_layout[2])
+    confirmation_button_areas(60, 6)
 }
 
 #[tokio::test]
@@ -327,6 +315,225 @@ async fn test_empty_trash_mouse_wheel_ignored() {
     // The popup state should be unchanged
     assert!(app.popups.empty_trash.is_visible);
     assert!(app.popups.empty_trash.selected_no);
+}
+
+#[tokio::test]
+async fn test_ssh_history_remove_confirmation_mouse_click() {
+    let mut app = AppState::test_default();
+
+    app.ssh_history
+        .connections
+        .push(fm::ssh_history::SshConnectionInfo {
+            name: Some("server".to_string()),
+            connection_string: "user@localhost:22".to_string(),
+            user: "user".to_string(),
+            host: "localhost".to_string(),
+            port: 22,
+            path: None,
+            sort_column: None,
+            sort_direction: None,
+        });
+
+    // Open the SSH connection dialog with an active "remove from history"
+    // confirmation and simulate a draw pass having populated the button areas.
+    app.popups
+        .set_popup_visible(fm::app::PopupKind::SshConnection, true);
+    let mut confirmation = fm::state::ConfirmationState::new(
+        "Remove 'user@localhost:22' from history?".to_string(),
+        true,
+        fm::state::ConfirmationAction::DeleteSshHistory(0),
+    );
+    confirmation.button_areas = confirmation_button_areas(66, 6);
+    app.popups.ssh_connection.confirmation = Some(confirmation);
+
+    let yes_btn = app
+        .popups
+        .ssh_connection
+        .confirmation
+        .as_ref()
+        .unwrap()
+        .button_areas[1];
+    let click_x = yes_btn.x + 2;
+    let click_y = yes_btn.y + 1;
+
+    // --- Mouse Down on Yes ---
+    handle_mouse_event(
+        &mut app,
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: click_x,
+            row: click_y,
+            modifiers: Modifiers::empty(),
+        },
+    )
+    .await;
+
+    assert_eq!(app.mouse.mouse_button_down_index, Some(1));
+    assert!(
+        !app.popups
+            .ssh_connection
+            .confirmation
+            .as_ref()
+            .unwrap()
+            .selected_no,
+        "Yes should be selected after clicking it"
+    );
+
+    // --- Mouse Up on Yes ---
+    handle_mouse_event(
+        &mut app,
+        MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: click_x,
+            row: click_y,
+            modifiers: Modifiers::empty(),
+        },
+    )
+    .await;
+
+    assert!(app.popups.ssh_connection.confirmation.is_none());
+    assert!(
+        app.ssh_history.connections.is_empty(),
+        "history entry should be removed after clicking Yes"
+    );
+}
+
+#[tokio::test]
+async fn test_ssh_history_remove_confirmation_released_outside_keeps_entry() {
+    let mut app = AppState::test_default();
+    app.ssh_history
+        .connections
+        .push(fm::ssh_history::SshConnectionInfo {
+            name: Some("server".to_string()),
+            connection_string: "user@localhost:22".to_string(),
+            user: "user".to_string(),
+            host: "localhost".to_string(),
+            port: 22,
+            path: None,
+            sort_column: None,
+            sort_direction: None,
+        });
+
+    app.popups
+        .set_popup_visible(fm::app::PopupKind::SshConnection, true);
+    let mut confirmation = fm::state::ConfirmationState::new(
+        "Remove 'user@localhost:22' from history?".to_string(),
+        true,
+        fm::state::ConfirmationAction::DeleteSshHistory(0),
+    );
+    confirmation.button_areas = confirmation_button_areas(66, 6);
+    app.popups.ssh_connection.confirmation = Some(confirmation);
+
+    let yes_btn = app
+        .popups
+        .ssh_connection
+        .confirmation
+        .as_ref()
+        .unwrap()
+        .button_areas[1];
+
+    // Down on Yes, up elsewhere: the entry must be kept
+    handle_mouse_event(
+        &mut app,
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: yes_btn.x + 2,
+            row: yes_btn.y + 1,
+            modifiers: Modifiers::empty(),
+        },
+    )
+    .await;
+    handle_mouse_event(
+        &mut app,
+        MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 0,
+            row: 0,
+            modifiers: Modifiers::empty(),
+        },
+    )
+    .await;
+
+    assert!(app.popups.ssh_connection.confirmation.is_some());
+    assert_eq!(app.ssh_history.connections.len(), 1);
+}
+
+#[tokio::test]
+async fn test_bookmark_remove_confirmation_mouse_click() {
+    let mut app = AppState::test_default();
+
+    app.bookmark_store
+        .entries
+        .push(fm::bookmarks::BookmarkEntry {
+            path: PathBuf::from("/home/user"),
+            ssh_user: None,
+            ssh_host: None,
+            ssh_port: None,
+        });
+
+    // Open the bookmark list with an active "remove bookmark" confirmation and
+    // simulate a draw pass having populated the button areas.
+    app.popups
+        .set_popup_visible(fm::app::PopupKind::Bookmark, true);
+    app.popups.bookmark.list.is_visible = true;
+    let mut confirmation = fm::state::ConfirmationState::new(
+        "Remove bookmark '/home/user'?".to_string(),
+        true,
+        fm::state::ConfirmationAction::DeleteBookmark(0),
+    );
+    confirmation.button_areas = confirmation_button_areas(60, 6);
+    app.popups.bookmark.confirmation = Some(confirmation);
+
+    let yes_btn = app
+        .popups
+        .bookmark
+        .confirmation
+        .as_ref()
+        .unwrap()
+        .button_areas[1];
+    let click_x = yes_btn.x + 2;
+    let click_y = yes_btn.y + 1;
+
+    // --- Mouse Down on Yes ---
+    handle_mouse_event(
+        &mut app,
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: click_x,
+            row: click_y,
+            modifiers: Modifiers::empty(),
+        },
+    )
+    .await;
+
+    assert_eq!(app.mouse.mouse_button_down_index, Some(1));
+    assert!(
+        !app.popups
+            .bookmark
+            .confirmation
+            .as_ref()
+            .unwrap()
+            .selected_no,
+        "Yes should be selected after clicking it"
+    );
+
+    // --- Mouse Up on Yes ---
+    handle_mouse_event(
+        &mut app,
+        MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: click_x,
+            row: click_y,
+            modifiers: Modifiers::empty(),
+        },
+    )
+    .await;
+
+    assert!(app.popups.bookmark.confirmation.is_none());
+    assert!(
+        app.bookmark_store.entries.is_empty(),
+        "bookmark should be removed after clicking Yes"
+    );
 }
 
 #[tokio::test]

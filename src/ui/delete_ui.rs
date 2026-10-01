@@ -29,36 +29,25 @@ pub fn draw_delete_popup(f: &mut ratatui::Frame, state: &mut DeleteState, palett
     let popup_area = crate::ui::ui_utils::centered_rect_absolute(66, 7, f.area());
     state.popup_area = popup_area;
 
-    let confirmation_state = crate::state::ConfirmationState {
+    let mut confirmation_state = crate::state::ConfirmationState {
         is_visible: true,
         message,
         truncate: true,
         action: crate::state::ConfirmationAction::None,
         selected_no: state.selected_no,
+        button_areas: Vec::new(),
     };
 
-    crate::ui::ui_utils::draw_confirmation_popup(f, &confirmation_state, palette, 66, 6, bg_color);
+    crate::ui::ui_utils::draw_confirmation_popup(
+        f,
+        &mut confirmation_state,
+        palette,
+        66,
+        6,
+        bg_color,
+    );
 
-    // Compute button areas matching draw_confirmation_popup's layout
-    let content_area = Rect {
-        x: popup_area.x + 2,
-        y: popup_area.y + 1,
-        width: popup_area.width.saturating_sub(4),
-        height: popup_area.height.saturating_sub(1),
-    };
-
-    let inner_layout = ratatui::prelude::Layout::default()
-        .direction(ratatui::prelude::Direction::Vertical)
-        .horizontal_margin(2)
-        .constraints([
-            ratatui::prelude::Constraint::Length(1),
-            ratatui::prelude::Constraint::Min(2),
-            ratatui::prelude::Constraint::Length(3),
-        ])
-        .split(content_area);
-
-    state.button_areas =
-        crate::ui::ui_utils::compute_button_rects(&["(N)o", "(Y)es"], inner_layout[2]);
+    state.button_areas = crate::ui::ui_utils::confirmation_button_areas(66, 6, f.area());
 }
 
 #[cfg(test)]

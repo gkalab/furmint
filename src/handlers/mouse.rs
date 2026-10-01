@@ -1,8 +1,8 @@
 use crate::app::{AppState, DragTarget, PopupKind};
 use crate::app_state::tabs::PanelSide;
 use crate::state::{
-    ConflictState, DeleteState, EmptyTrashState, ErrorState, HostKeyState, QuitConfirmationState,
-    RemoteEditState, RenameState,
+    BookmarkState, ConflictState, DeleteState, EmptyTrashState, ErrorState, HostKeyState,
+    QuitConfirmationState, RemoteEditState, RenameState, SshConnectionState,
 };
 use ratatui::layout::Rect;
 use std::time::{Duration, Instant};
@@ -97,24 +97,41 @@ async fn handle_fuzzy_search_mouse(app: &mut AppState, event: MouseEvent, is_dou
 async fn handle_popup_mouse(app: &mut AppState, event: MouseEvent, is_double_click: bool) {
     match event.kind {
         MouseEventKind::Down(MouseButton::Left) => {
-            if check_and_start_scrollbar_drag(app, event.column, event.row).await {
+            // An active confirmation overlay is modal: clicks and scrollbar
+            // grabs on the popup behind it are ignored.
+            let confirmation_overlay = (app.popups.ssh_connection.is_visible
+                && app.popups.ssh_connection.confirmation.is_some())
+                || (app.popups.bookmark.list.is_visible
+                    && app.popups.bookmark.confirmation.is_some());
+
+            if !confirmation_overlay
+                && check_and_start_scrollbar_drag(app, event.column, event.row).await
+            {
                 return;
             }
             if app.popups.ssh_connection.is_visible {
-                crate::handlers::popup_ssh::handle_ssh_connection_mouse_click(
-                    app,
-                    event.column,
-                    event.row,
-                    is_double_click,
-                );
+                if app.popups.ssh_connection.confirmation.is_some() {
+                    handle_popup_down(app, event.column, event.row);
+                } else {
+                    crate::handlers::popup_ssh::handle_ssh_connection_mouse_click(
+                        app,
+                        event.column,
+                        event.row,
+                        is_double_click,
+                    );
+                }
             } else if app.popups.bookmark.list.is_visible {
-                crate::handlers::popup_bookmark::handle_bookmark_mouse_click(
-                    app,
-                    event.column,
-                    event.row,
-                    is_double_click,
-                )
-                .await;
+                if app.popups.bookmark.confirmation.is_some() {
+                    handle_popup_down(app, event.column, event.row);
+                } else {
+                    crate::handlers::popup_bookmark::handle_bookmark_mouse_click(
+                        app,
+                        event.column,
+                        event.row,
+                        is_double_click,
+                    )
+                    .await;
+                }
             } else {
                 handle_popup_down(app, event.column, event.row);
             }
@@ -249,6 +266,38 @@ impl ButtonPopup for HostKeyState {
     }
 }
 
+impl ButtonPopup for SshConnectionState {
+    fn is_active(&self) -> bool {
+        self.is_visible && self.confirmation.is_some()
+    }
+    fn button_areas(&self) -> &[Rect] {
+        self.confirmation
+            .as_ref()
+            .map_or(&[], |confirmation| &confirmation.button_areas)
+    }
+    fn set_focused_button(&mut self, index: usize) {
+        if let Some(confirmation) = &mut self.confirmation {
+            confirmation.selected_no = index == 0;
+        }
+    }
+}
+
+impl ButtonPopup for BookmarkState {
+    fn is_active(&self) -> bool {
+        self.list.is_visible && self.confirmation.is_some()
+    }
+    fn button_areas(&self) -> &[Rect] {
+        self.confirmation
+            .as_ref()
+            .map_or(&[], |confirmation| &confirmation.button_areas)
+    }
+    fn set_focused_button(&mut self, index: usize) {
+        if let Some(confirmation) = &mut self.confirmation {
+            confirmation.selected_no = index == 0;
+        }
+    }
+}
+
 /// The button popups in hit-test priority order.
 fn button_popup_table(app: &AppState) -> Vec<(PopupKind, &dyn ButtonPopup)> {
     let popups = &app.popups;
@@ -270,6 +319,11 @@ fn button_popup_table(app: &AppState) -> Vec<(PopupKind, &dyn ButtonPopup)> {
             &popups.empty_trash as &dyn ButtonPopup,
         ),
         (PopupKind::HostKey, &popups.host_key as &dyn ButtonPopup),
+        (
+            PopupKind::SshConnection,
+            &popups.ssh_connection as &dyn ButtonPopup,
+        ),
+        (PopupKind::Bookmark, &popups.bookmark as &dyn ButtonPopup),
     ]
 }
 
@@ -305,6 +359,14 @@ fn button_popup_table_mut(app: &mut AppState) -> Vec<(PopupKind, &mut dyn Button
         (
             PopupKind::HostKey,
             &mut popups.host_key as &mut dyn ButtonPopup,
+        ),
+        (
+            PopupKind::SshConnection,
+            &mut popups.ssh_connection as &mut dyn ButtonPopup,
+        ),
+        (
+            PopupKind::Bookmark,
+            &mut popups.bookmark as &mut dyn ButtonPopup,
         ),
     ]
 }
@@ -395,6 +457,23 @@ async fn handle_popup_up(app: &mut AppState, x: u16, y: u16) {
         }
         PopupKind::HostKey => {
             crate::ui::host_key_ui::handle_host_key_popup_event(KeyCode::Enter, app);
+        }
+        PopupKind::SshConnection => {
+            // `handle_ssh_connection_event` routes Enter to the active
+            // confirmation overlay before anything else.
+            crate::handlers::popup_ssh::handle_ssh_connection_event(
+                app,
+                KeyCode::Enter,
+                Modifiers::NONE,
+            );
+        }
+        PopupKind::Bookmark => {
+            crate::handlers::popup_bookmark::handle_bookmark_event(
+                KeyCode::Enter,
+                Modifiers::NONE,
+                app,
+            )
+            .await;
         }
         _ => {}
     }

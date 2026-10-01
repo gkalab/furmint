@@ -232,7 +232,7 @@ fn draw_history_list(
             chunk,
         );
     }
-    if let Some(confirmation) = &app.popups.ssh_connection.confirmation {
+    if let Some(confirmation) = app.popups.ssh_connection.confirmation.as_mut() {
         let bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
         crate::ui::ui_utils::draw_confirmation_popup(f, confirmation, palette, 66, 6, bg_color);
     }

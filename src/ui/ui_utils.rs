@@ -755,9 +755,32 @@ pub fn draw_input_popup(
     }
 }
 
+/// Screen areas of the "(N)o"/"(Y)es" buttons for a confirmation popup of the
+/// given size, matching the geometry used by `draw_confirmation_popup`.
+#[must_use]
+pub fn confirmation_button_areas(width: u16, height: u16, screen: Rect) -> Vec<Rect> {
+    let popup_area = centered_rect_absolute(width, height + 1, screen);
+    let content_area = Rect {
+        x: popup_area.x + 2,
+        y: popup_area.y + 1,
+        width: popup_area.width.saturating_sub(4),
+        height: popup_area.height.saturating_sub(1),
+    };
+    let inner_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .horizontal_margin(2)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Min(2),
+            Constraint::Length(3),
+        ])
+        .split(content_area);
+    compute_button_rects(&["(N)o", "(Y)es"], inner_layout[2])
+}
+
 pub fn draw_confirmation_popup(
     f: &mut ratatui::Frame,
-    state: &crate::state::ConfirmationState,
+    state: &mut crate::state::ConfirmationState,
     palette: &ThemePalette,
     width: u16,
     height: u16,
@@ -821,6 +844,9 @@ pub fn draw_confirmation_popup(
         bg_color,
         focused,
     );
+
+    // Remember the button geometry so mouse hit-testing matches the rendering.
+    state.button_areas = confirmation_button_areas(width, height, f.area());
 }
 
 fn draw_input_text_and_cursor(
