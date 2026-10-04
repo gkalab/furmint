@@ -32,8 +32,8 @@ jobs:
       - name: Install Rust target
         run: rustup target add ${{ matrix.target }}
 
-      - name: Install Zig
-        uses: mlugg/setup-zig@v1
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2
 
       - name: Install cargo-zigbuild
         run: cargo install cargo-zigbuild --locked
