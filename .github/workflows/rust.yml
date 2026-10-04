@@ -43,20 +43,18 @@ jobs:
 
       - name: Package release binary
         run: |
-          VERSION="${GITHUB_REF_NAME}"
-
           mkdir dist
           cp target/${{ matrix.target }}/release/fm dist/
 
           tar -C dist -czf \
-            "furmint-${VERSION}-${{ matrix.target }}.tar.gz" \
+            "furmint-${{ github.ref_name }}-${{ matrix.target }}.tar.gz" \
             fm
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: furmint-${{ matrix.target }}
-          path: furmint-${GITHUB_REF_NAME}-${{ matrix.target }}.tar.gz
+          path: furmint-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
 
   build-windows:
     name: Build Windows Release Binary
@@ -117,8 +115,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          generate_release_notes: false
           files: |
-            artifacts/furmint-x86_64-unknown-linux-musl/furmint-${{ github.ref_name }}-x86_64-unknown-linux-musl.tar.gz
-            artifacts/furmint-aarch64-unknown-linux-musl/furmint-${{ github.ref_name }}-aarch64-unknown-linux-musl.tar.gz
-            artifacts/furmint-x86_64-pc-windows-msvc/furmint-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip
+            artifacts/**/*.tar.gz
+            artifacts/**/*.zip
