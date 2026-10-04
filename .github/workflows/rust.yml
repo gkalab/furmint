@@ -2,18 +2,27 @@ name: Rust
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
+    tags:
+      - "v*"
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
   workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-musl:
-    name: Build MUSL Release Binary
+  build-linux:
+    name: Build ${{ matrix.target }}
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
 
     steps:
       - uses: actions/checkout@v4
@@ -21,23 +30,34 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install Rust target
-        run: rustup target add x86_64-unknown-linux-musl
+        run: rustup target add ${{ matrix.target }}
 
-      - name: Install musl tools
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Install Zig
+        uses: mlugg/setup-zig@v1
 
-      - name: Build MUSL release binary
-        run: cargo build --release --target x86_64-unknown-linux-musl
+      - name: Install cargo-zigbuild
+        run: cargo install cargo-zigbuild --locked
 
-      - name: Upload MUSL binary artifact
+      - name: Build release binary
+        run: cargo zigbuild --release --target ${{ matrix.target }}
+
+      - name: Package release binary
+        run: |
+          mkdir dist
+          cp target/${{ matrix.target }}/release/fm dist/
+          tar -C dist -czf furmint-${{ matrix.target }}.tar.gz fm
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: x86_64-unknown-linux-musl
-          path: target/x86_64-unknown-linux-musl/release/fm
+          name: furmint-${{ matrix.target }}
+          path: furmint-${{ matrix.target }}.tar.gz
 
   build-windows:
     name: Build Windows Release Binary
     runs-on: windows-latest
+
+    if: github.event_name != 'pull_request'
 
     steps:
       - uses: actions/checkout@v4
@@ -50,8 +70,47 @@ jobs:
       - name: Build Windows release binary
         run: cargo build --release --target x86_64-pc-windows-msvc
 
-      - name: Upload Windows binary artifact
+      - name: Package Windows binary
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist -Force
+          Copy-Item target/x86_64-pc-windows-msvc/release/fm.exe dist/
+          Compress-Archive `
+            -Path dist/fm.exe `
+            -DestinationPath furmint-x86_64-pc-windows-msvc.zip
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: x86_64-pc-windows-msvc
-          path: target/x86_64-pc-windows-msvc/release/fm.exe
+          name: furmint-x86_64-pc-windows-msvc
+          path: furmint-x86_64-pc-windows-msvc.zip
+
+  release:
+    name: Publish Release
+    needs:
+      - build-linux
+      - build-windows
+    runs-on: ubuntu-latest
+
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/furmint-x86_64-unknown-linux-musl/furmint-x86_64-unknown-linux-musl.tar.gz
+            artifacts/furmint-aarch64-unknown-linux-musl/furmint-aarch64-unknown-linux-musl.tar.gz
+            artifacts/furmint-x86_64-pc-windows-msvc/furmint-x86_64-pc-windows-msvc.zip
