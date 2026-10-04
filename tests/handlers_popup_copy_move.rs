@@ -288,6 +288,73 @@ async fn test_handle_paste_validation_same_path() {
     std::fs::remove_file(&file_path).ok();
 }
 
+/// Poll for a file to appear (the copy task runs on a spawned tokio task).
+async fn wait_for_file(path: &std::path::Path, deadline_secs: u64) -> bool {
+    let start = std::time::Instant::now();
+    while !path.exists() {
+        if start.elapsed() > std::time::Duration::from_secs(deadline_secs) {
+            return false;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    true
+}
+
+#[tokio::test]
+async fn test_handle_copy_move_relative_parent_dir_resolves_against_active_tab() {
+    let root = std::env::temp_dir().join("fm_rel_parent_test");
+    let _ = std::fs::remove_dir_all(&root);
+    let src_dir = root.join("a");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    let src_file = src_dir.join("file.txt");
+    std::fs::File::create(&src_file).unwrap();
+
+    let mut app = minimal_state_with_entries(PanelSide::Left, vec![], vec![], 0, 0);
+    app.panels.left.active_tab_mut().current_dir = src_dir;
+    app.popups
+        .set_popup_visible(fm::app::PopupKind::CopyMove, true);
+    app.popups.copy_move.source_paths = vec![src_file];
+    app.popups.copy_move.destination_input = "..".to_string();
+
+    handle_copy_move_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
+
+    // ".." must resolve against the active tab's current dir, not the process cwd
+    let expected = root.join("file.txt");
+    assert!(
+        wait_for_file(&expected, 5).await,
+        "file was not copied to the parent of the active tab's current directory"
+    );
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[tokio::test]
+async fn test_handle_copy_move_relative_subdir_resolves_against_active_tab() {
+    let root = std::env::temp_dir().join("fm_rel_subdir_test");
+    let _ = std::fs::remove_dir_all(&root);
+    let other_dir = root.join("other");
+    let target_dir = root.join("target");
+    std::fs::create_dir_all(&target_dir).unwrap();
+    std::fs::create_dir_all(&other_dir).unwrap();
+    std::fs::File::create(other_dir.join("a.txt")).unwrap();
+
+    let mut app = minimal_state_with_entries(PanelSide::Left, vec![], vec![], 0, 0);
+    app.panels.left.active_tab_mut().current_dir = other_dir.clone();
+    app.popups
+        .set_popup_visible(fm::app::PopupKind::CopyMove, true);
+    app.popups.copy_move.source_paths = vec![other_dir.join("a.txt")];
+    app.popups.copy_move.destination_input = "../target".to_string();
+
+    handle_copy_move_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
+
+    assert!(
+        wait_for_file(&target_dir.join("a.txt"), 5).await,
+        "file was not copied to ../target relative to the active tab's current directory"
+    );
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
 #[tokio::test]
 async fn test_handle_paste_clears_clipboard_on_move() {
     let temp_dir = std::env::temp_dir().canonicalize().unwrap();

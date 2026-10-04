@@ -449,17 +449,20 @@ pub async fn handle_copy_move_event(
                 std::path::PathBuf::from(dest_input)
             };
             let dest_provider = app.inactive_tab().provider.clone();
+            let resolved = if dest_path.is_absolute() {
+                dest_path.clone()
+            } else {
+                app.active_tab().current_dir.join(&dest_path)
+            };
             let dest_abs = if dest_provider.is_local() {
-                if let Ok(p) = dest_path.canonicalize() {
+                if let Ok(p) = resolved.canonicalize() {
                     crate::fs::utils::strip_extended_prefix(p)
-                } else if dest_path.is_absolute() {
-                    dest_path.clone()
                 } else {
-                    app.active_tab().current_dir.join(&dest_path)
+                    resolved
                 }
             } else {
-                // For remote, treat as absolute Unix path
-                dest_path.clone()
+                // For remote, paths are absolute Unix paths
+                resolved
             };
             let src_provider = app.active_tab().provider.clone();
             if let Err(err) = validate_copy_move(
