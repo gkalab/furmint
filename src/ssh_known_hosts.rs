@@ -265,7 +265,7 @@ impl KnownHosts {
         let kept_lines = self.read_lines_without_host(&host_key);
 
         // Choose new entry format: hashed if the file already uses hashing.
-        let use_hash = self.entries.read().ok().is_some_and(|e| e.uses_hashing);
+        let use_hash = self.entries.read().is_ok_and(|e| e.uses_hashing);
         let new_host_field = if use_hash {
             let salt: Vec<u8> = (0..20).map(|_| rand::random::<u8>()).collect();
             let mac = hmac_sha1(&salt, host_key.as_bytes());

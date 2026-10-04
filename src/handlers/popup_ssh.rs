@@ -812,24 +812,15 @@ pub fn handle_ssh_connection_mouse_click(
 }
 
 fn set_ssh_cursor_from_click(app: &mut AppState, field: SshField, click_x: u16) {
-    let text_len;
-    let field_idx;
-
-    match field {
-        SshField::ConnectionString => {
-            text_len = app.popups.ssh_connection.connection_string.chars().count();
-            field_idx = 0;
-        }
-        SshField::Name => {
-            text_len = app.popups.ssh_connection.name.chars().count();
-            field_idx = 1;
-        }
-        SshField::Port => {
-            text_len = app.popups.ssh_connection.port.chars().count();
-            field_idx = 2;
-        }
+    let (text_len, field_idx) = match field {
+        SshField::ConnectionString => (
+            app.popups.ssh_connection.connection_string.chars().count(),
+            0,
+        ),
+        SshField::Name => (app.popups.ssh_connection.name.chars().count(), 1),
+        SshField::Port => (app.popups.ssh_connection.port.chars().count(), 2),
         SshField::History => return,
-    }
+    };
 
     let Some(area) = app
         .popups

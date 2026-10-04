@@ -90,6 +90,7 @@ fn temp_copy_path(dst: &Path) -> Option<PathBuf> {
 }
 
 /// Unified async filesystem operations.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait FileSystemProvider: Send + Sync {
     /// List directory contents, returning file entries.

@@ -133,6 +133,7 @@ pub(crate) struct SshClientHandler {
 impl client::Handler for SshClientHandler {
     type Error = russh::Error;
 
+    #[allow(clippy::unused_async_trait_impl)]
     async fn check_server_key(
         &mut self,
         key: &PublicKeyOrCertificate,
