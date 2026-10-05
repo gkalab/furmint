@@ -1,5 +1,7 @@
 Furmint (fm), a terminal file manager with dual-panel interface, tabs, and SSH/SFTP support.
 
+[Furmint](resources/demo.png)
+
 ## AI Disclosure
 This project started out as a vibe coding experiment and AI is heavily used for development.
 
@@ -10,12 +12,12 @@ Although I use it everyday, be aware that this is beta software - don't trust it
 Why yet another file manager? 
 I’ve always wanted a cross-platform TUI file manager (Windows/Linux) with a dual-panel interface like Midnight Commander, 
 but with tabs and a different, more modern look.
-[fman] (https://fman.io/) was an inspiration for the GoTo on steroids (Ctrl+P) feature, [Yazi] (https://github.com/sxyazi/yazi) for the image preview.
+[fman](https://fman.io/) was an inspiration for the GoTo on steroids (Ctrl+P) feature, [Yazi](https://github.com/sxyazi/yazi) for the image preview.
 
 ## Alternatives
 If you're looking for a stable, open-source, cross-platform, dual-panel file manager, there is
-[Midnight Commander] (https://github.com/MidnightCommander/mc) - TUI
-[Double Commander](https://github.com/doublecmd/doublecmd) - GUI
+- TUI: [Midnight Commander](https://github.com/MidnightCommander/mc)
+- GUI: [Double Commander](https://github.com/doublecmd/doublecmd)
 
 ## Key Features
 - Single file executable
@@ -24,8 +26,13 @@ If you're looking for a stable, open-source, cross-platform, dual-panel file man
 - SSH/SFTP remote connections
 
 ## Installation
+
+Download a prebuilt binary from the [latest release](https://github.com/gkalab/furmint/releases/latest) and place it in your $PATH.
+
+You can also clone this repository and install with cargo:
+
 ```bash
-cargo install fm
+cargo install --path .
 ```
 
 ## Usage
