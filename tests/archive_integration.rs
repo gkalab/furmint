@@ -116,7 +116,8 @@ async fn test_zip_extract_attributes() {
     let dest_dir = temp_dir.path().join("extracted_zip_attributes");
     std::fs::create_dir_all(&dest_dir).unwrap();
 
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
+    let (raw_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 0,
         tx,
@@ -319,7 +320,8 @@ async fn test_archive_fs_read_and_download_zip() {
     let dest_dir = temp_dir.path().join("extracted_zip");
     std::fs::create_dir_all(&dest_dir).unwrap();
 
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
+    let (raw_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 0,
         tx,
@@ -383,7 +385,8 @@ async fn test_archive_fs_read_and_download_tar_gz() {
     let dest_dir = temp_dir.path().join("extracted_tar");
     std::fs::create_dir_all(&dest_dir).unwrap();
 
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
+    let (raw_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 0,
         tx,
@@ -433,7 +436,8 @@ async fn test_archive_fs_read_and_download_plain_gz() {
     let dest_dir = temp_dir.path().join("extracted_gz");
     std::fs::create_dir_all(&dest_dir).unwrap();
 
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
+    let (raw_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 0,
         tx,
@@ -506,10 +510,11 @@ async fn test_archive_download_empty_dir_and_nesting() {
     let dest_dir = temp_dir.path().join("extracted_nesting");
     std::fs::create_dir_all(&dest_dir).unwrap();
 
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
+    let (raw_tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 123,
-        tx,
+        tx: tx.clone(),
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
@@ -529,16 +534,25 @@ async fn test_archive_download_empty_dir_and_nesting() {
         "nested content"
     );
 
-    // Verify progress pulse
+    // Verify the progress pulse the UI applies. Progress events are coalesced
+    // keep-latest on the bus, so the snapshot notification carries the newest
+    // value — resolve it the way `dispatch_ui_event` does.
     let mut item_count = 0;
     while let Ok(event) = rx.try_recv() {
-        if let fm::tasks::UiEvent::Task(fm::tasks::TaskEvent::UpdateProgress {
-            task_id: id,
+        let event = match event {
+            fm::tasks::UiEvent::TaskSnapshot { task_id, field } => tx
+                .take_coalesced(task_id, field)
+                .unwrap_or_else(|| panic!("snapshot for task {task_id} had no pending value")),
+            fm::tasks::UiEvent::Task(e) => e,
+            _ => continue,
+        };
+        if let fm::tasks::TaskEvent::UpdateProgress {
+            task_id: tid,
             processed: p,
             ..
-        }) = event
+        } = event
         {
-            assert_eq!(id, 123);
+            assert_eq!(tid, 123);
             item_count = p;
         }
     }
@@ -570,7 +584,8 @@ async fn test_archive_download_cancellation() {
     let dest_dir = temp_dir.path().join("extracted_cancel");
     std::fs::create_dir_all(&dest_dir).unwrap();
 
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
+    let (raw_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let cancel_flag = Arc::new(AtomicBool::new(false));
     let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 789,
@@ -622,7 +637,8 @@ async fn test_zip_timestamp_preservation() {
 
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
     let local_fs = LocalFs::new();
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let (raw_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let progress = TaskProgressContext {
         id: 0,
         tx,
@@ -714,7 +730,8 @@ async fn test_tar_timestamp_preservation() {
 
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
     let local_fs = LocalFs::new();
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let (raw_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let progress = TaskProgressContext {
         id: 1,
         tx,
@@ -800,7 +817,8 @@ async fn test_archive_fs_download_tar_gz_optimized() {
     // 3. Test download (optimized extraction from temp tar)
     let dest_file = temp_dir.path().join("extracted_hello.txt");
 
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
+    let (raw_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 0,
         tx,
@@ -856,7 +874,8 @@ async fn test_archive_fs_read_and_download_xz() {
     let dest_dir = temp_dir.path().join("extracted_xz");
     std::fs::create_dir_all(&dest_dir).unwrap();
 
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
+    let (raw_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 0,
         tx,
@@ -990,7 +1009,8 @@ async fn test_archive_fs_read_and_download_rpm() {
     let dest_dir = temp_dir.path().join("extracted_rpm");
     std::fs::create_dir_all(&dest_dir).unwrap();
 
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
+    let (raw_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let progress = fm::fs::fs_provider::TaskProgressContext {
         id: 0,
         tx,
@@ -1060,7 +1080,8 @@ async fn test_zip_delete_and_add() {
     }
 
     let local_fs = fm::fs::fs_local::LocalFs::new();
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let (raw_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let progress = TaskProgressContext {
         id: 99,
         tx,
@@ -1170,7 +1191,8 @@ async fn test_zip_copy_directory_batch() {
     let src_fs = LocalFs::new();
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
 
-    let (tx, _rx) = mpsc::unbounded_channel();
+    let (raw_tx, _rx) = mpsc::unbounded_channel();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let progress = TaskProgressContext {
         id: 77,
         tx,
@@ -1226,7 +1248,8 @@ async fn test_recursive_op_copies_directory_tree_to_7z() {
     let src_fs = LocalFs::new();
     let dest_fs = ArchiveFs::new(&archive_path).unwrap();
 
-    let (tx, _rx) = mpsc::unbounded_channel();
+    let (raw_tx, _rx) = mpsc::unbounded_channel();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let cancel = Arc::new(AtomicBool::new(false));
     let processed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
@@ -1281,7 +1304,8 @@ async fn recursive_copy(
     dest: &Path,
     total: usize,
 ) -> Result<(), String> {
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (raw_tx, mut rx) = mpsc::unbounded_channel();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let cancel = Arc::new(AtomicBool::new(false));
     let processed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));

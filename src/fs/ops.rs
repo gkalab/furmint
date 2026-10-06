@@ -115,7 +115,7 @@ pub struct RecursiveOpContext<'a> {
     pub dest: &'a std::path::Path,
     pub action: crate::state::CopyMoveAction,
     pub cancel: &'a std::sync::Arc<std::sync::atomic::AtomicBool>,
-    pub tx: &'a tokio::sync::mpsc::UnboundedSender<crate::tasks::UiEvent>,
+    pub tx: &'a crate::tasks::EventBus,
     pub id: usize,
     pub total: usize,
     pub total_bytes: u64,
@@ -160,7 +160,7 @@ async fn try_rename_move_optimization(
                 .processed
                 .fetch_add(count, std::sync::atomic::Ordering::Relaxed)
                 + count;
-            let _ = ctx.tx.send(crate::tasks::UiEvent::Task(
+            ctx.tx.send(crate::tasks::UiEvent::Task(
                 crate::tasks::TaskEvent::UpdateProgress {
                     task_id: ctx.id,
                     processed: p,
@@ -192,7 +192,7 @@ async fn handle_file(
 
     if perform {
         // Update current file
-        let _ = ctx.tx.send(crate::tasks::UiEvent::Task(
+        ctx.tx.send(crate::tasks::UiEvent::Task(
             crate::tasks::TaskEvent::UpdateCurrentFile {
                 task_id: ctx.id,
                 filename: src
@@ -240,7 +240,7 @@ pub fn recursive_op<'a>(
         }];
 
         // Send initial progress update
-        let _ = ctx.tx.send(crate::tasks::UiEvent::Task(
+        ctx.tx.send(crate::tasks::UiEvent::Task(
             crate::tasks::TaskEvent::UpdateProgress {
                 task_id: ctx.id,
                 processed: ctx.processed.load(std::sync::atomic::Ordering::Relaxed),
@@ -352,7 +352,7 @@ async fn handle_archive_directory(
             .processed
             .fetch_add(tree_count, std::sync::atomic::Ordering::Relaxed)
             + tree_count;
-        let _ = ctx.tx.send(crate::tasks::UiEvent::Task(
+        ctx.tx.send(crate::tasks::UiEvent::Task(
             crate::tasks::TaskEvent::UpdateProgress {
                 task_id: ctx.id,
                 processed: p,
@@ -434,7 +434,7 @@ async fn handle_copy_to_local_with_existing_dir(
                 let _ = ctx.dest_fs.set_modified_time(dest, mtime).await;
             }
             let p = ctx.processed.load(std::sync::atomic::Ordering::Relaxed);
-            let _ = ctx.tx.send(crate::tasks::UiEvent::Task(
+            ctx.tx.send(crate::tasks::UiEvent::Task(
                 crate::tasks::TaskEvent::UpdateProgress {
                     task_id: ctx.id,
                     processed: p,
@@ -464,7 +464,7 @@ async fn handle_copy_to_local_direct(
                 let _ = ctx.dest_fs.set_modified_time(dest, mtime).await;
             }
             let p = ctx.processed.load(std::sync::atomic::Ordering::Relaxed);
-            let _ = ctx.tx.send(crate::tasks::UiEvent::Task(
+            ctx.tx.send(crate::tasks::UiEvent::Task(
                 crate::tasks::TaskEvent::UpdateProgress {
                     task_id: ctx.id,
                     processed: p,
@@ -579,7 +579,7 @@ async fn resolve_conflict(
     }
 
     // Ask user
-    let _ = ctx.tx.send(crate::tasks::UiEvent::Alert(
+    ctx.tx.send(crate::tasks::UiEvent::Alert(
         crate::tasks::AlertEvent::Conflict {
             task_id: ctx.id,
             path: dest.to_path_buf(),
@@ -602,7 +602,7 @@ async fn resolve_conflict(
         }
         Some(crate::tasks::TaskDecision::Cancel) => {
             ctx.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
-            let _ = ctx.tx.send(crate::tasks::UiEvent::Task(
+            ctx.tx.send(crate::tasks::UiEvent::Task(
                 crate::tasks::TaskEvent::UpdateStatus {
                     task_id: ctx.id,
                     status: crate::tasks::TaskStatus::Cancelled,
@@ -688,7 +688,7 @@ async fn perform_file_copy(
         } else {
             // Other, cross-filesystem copies - should currently not be reached.
             // Warn in UI just in case this ever triggers.
-            let _ = ctx.tx.send(crate::tasks::UiEvent::Alert(
+            ctx.tx.send(crate::tasks::UiEvent::Alert(
                 crate::tasks::AlertEvent::TaskError {
                     task_id: ctx.id,
                     path: "<unsupported>".to_string(),
@@ -714,7 +714,7 @@ async fn perform_file_copy(
                     perform = false;
                     break;
                 }
-                let _ = ctx.tx.send(crate::tasks::UiEvent::Alert(
+                ctx.tx.send(crate::tasks::UiEvent::Alert(
                     crate::tasks::AlertEvent::TaskError {
                         task_id: ctx.id,
                         path: src.display().to_string(),
@@ -731,7 +731,7 @@ async fn perform_file_copy(
                     }
                     Some(crate::tasks::TaskDecision::Cancel) => {
                         ctx.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
-                        let _ = ctx.tx.send(crate::tasks::UiEvent::Task(
+                        ctx.tx.send(crate::tasks::UiEvent::Task(
                             crate::tasks::TaskEvent::UpdateStatus {
                                 task_id: ctx.id,
                                 status: crate::tasks::TaskStatus::Cancelled,
@@ -760,7 +760,7 @@ fn update_progress_if_needed(
     if now.duration_since(decision_state.last_update) > std::time::Duration::from_millis(100)
         || p == ctx.total
     {
-        let _ = ctx.tx.send(crate::tasks::UiEvent::Task(
+        ctx.tx.send(crate::tasks::UiEvent::Task(
             crate::tasks::TaskEvent::UpdateProgress {
                 task_id: ctx.id,
                 processed: p,

@@ -5,10 +5,14 @@
 //! grouped per subsystem; the sole dispatcher is
 //! [`crate::handlers::popup_misc::dispatch_ui_event`], which routes each event
 //! to its subsystem handler.
+//!
+//! Workers publish through [`EventBus`] rather than the raw channel. The bus
+//! coalesces the idempotent progress fields keep-latest, so a producer that
+//! outruns the UI cannot grow the queue without bound.
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
@@ -69,6 +73,42 @@ pub enum TaskEvent {
         task_id: usize,
         rsync: bool,
     },
+}
+
+impl TaskEvent {
+    /// The `(task, field)` slot this event updates, if it is a coalescible
+    /// progress snapshot.
+    ///
+    /// `UpdateStatus` has no slot: the UI has to observe every status change
+    /// exactly as sent, so it is never coalesced.
+    #[must_use]
+    pub fn snapshot_slot(&self) -> Option<(usize, TaskField)> {
+        match self {
+            Self::UpdateProgress { task_id, .. } => Some((*task_id, TaskField::Progress)),
+            Self::UpdateByteProgress { task_id, .. } => Some((*task_id, TaskField::ByteProgress)),
+            Self::UpdateCurrentFile { task_id, .. } => Some((*task_id, TaskField::CurrentFile)),
+            Self::SetRsyncMode { task_id, .. } => Some((*task_id, TaskField::Rsync)),
+            Self::UpdateStatus { .. } => None,
+        }
+    }
+}
+
+/// A task field that is reported as an idempotent snapshot.
+///
+/// An event for one of these fields means "set field `F` of task `T` to `V`",
+/// so an intermediate value is worthless the moment a newer one is sent.
+/// [`EventBus`] therefore keeps only the newest value per field per task
+/// instead of queueing every step of a burst.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TaskField {
+    /// Item counts (`TaskEvent::UpdateProgress`).
+    Progress,
+    /// Byte counts (`TaskEvent::UpdateByteProgress`).
+    ByteProgress,
+    /// The file currently being processed (`TaskEvent::UpdateCurrentFile`).
+    CurrentFile,
+    /// Whether rsync's own progress line is shown (`TaskEvent::SetRsyncMode`).
+    Rsync,
 }
 
 /// SSH connection lifecycle: connect, reconnect, errors, host-key prompts.
@@ -147,6 +187,97 @@ pub enum UiEvent {
     Ssh(SshEvent),
     Fs(FsEvent),
     Alert(AlertEvent),
+    /// A coalesced progress notification. The value it stands for lives in the
+    /// [`EventBus`] slot named here and must be fetched with
+    /// [`EventBus::take_coalesced`] before it can be applied. At most one of
+    /// these is ever queued per `(task_id, field)`.
+    TaskSnapshot {
+        task_id: usize,
+        field: TaskField,
+    },
+}
+
+/// Publisher handle for the app-level UI event bus.
+///
+/// Background tasks report through this instead of the raw channel so that
+/// progress reporting cannot grow the queue without bound. The four
+/// idempotent task fields ([`TaskField`]) are coalesced keep-latest, so a
+/// producer that outruns the UI — a recursive copy emitting one
+/// `UpdateCurrentFile` per file, an rsync or SFTP byte stream — costs at most
+/// one queued event per field per task instead of one per update. Everything
+/// else (status changes, SSH prompts, filesystem results, conflict/error
+/// alerts) is queued verbatim, because the UI must act on each of them.
+///
+/// `send` never blocks and never fails: once the consumer is gone, events are
+/// dropped exactly as an unbounded channel drops them.
+#[derive(Clone, Debug)]
+pub struct EventBus {
+    tx: mpsc::UnboundedSender<UiEvent>,
+    /// Newest not-yet-taken value per coalescible `(task, field)`. A key is
+    /// present exactly while its [`UiEvent::TaskSnapshot`] notification is
+    /// queued, so this map needs no cleanup of its own: taking the value (or
+    /// dropping the bus) is the only way an entry goes away.
+    pending: Arc<Mutex<HashMap<(usize, TaskField), TaskEvent>>>,
+}
+
+impl EventBus {
+    /// Wraps the channel shared with the UI event loop.
+    #[must_use]
+    pub fn new(tx: mpsc::UnboundedSender<UiEvent>) -> Self {
+        Self {
+            tx,
+            pending: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Queues `event` for the UI thread.
+    ///
+    /// A coalescible progress event stores its value in the `(task, field)`
+    /// slot and only queues a [`UiEvent::TaskSnapshot`] when no notification
+    /// for that slot is outstanding yet. The queued notification therefore
+    /// always picks up the newest value, and the queue stays bounded by the
+    /// number of live tasks no matter how many updates arrive.
+    pub fn send(&self, event: UiEvent) {
+        let UiEvent::Task(task_event) = event else {
+            let _ = self.tx.send(event);
+            return;
+        };
+        let Some(slot) = task_event.snapshot_slot() else {
+            let _ = self.tx.send(UiEvent::Task(task_event));
+            return;
+        };
+
+        let mut pending = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
+        if pending.insert(slot, task_event).is_some() {
+            // A notification for this slot is already queued and will pick up
+            // the value stored above.
+            return;
+        }
+        drop(pending);
+        let _ = self.tx.send(UiEvent::TaskSnapshot {
+            task_id: slot.0,
+            field: slot.1,
+        });
+    }
+
+    /// Returns true once the consumer is gone and events are being discarded.
+    #[must_use]
+    pub fn is_closed(&self) -> bool {
+        self.tx.is_closed()
+    }
+
+    /// Takes the value behind a [`UiEvent::TaskSnapshot`], if still pending.
+    ///
+    /// Removing the value is what lets the next update for the same field
+    /// queue a fresh notification, so the dispatcher calls this *before*
+    /// applying the value.
+    #[must_use]
+    pub fn take_coalesced(&self, task_id: usize, field: TaskField) -> Option<TaskEvent> {
+        self.pending
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&(task_id, field))
+    }
 }
 
 #[derive(Clone)]
@@ -202,7 +333,7 @@ pub enum TaskDecision {
 pub struct TaskManager {
     tasks: BTreeMap<usize, Task>,
     next_id: usize,
-    event_tx: mpsc::UnboundedSender<UiEvent>,
+    event_tx: EventBus,
     selected_index: usize,
     /// Decision senders for copy/move tasks, keyed by task ID.
     pub task_decision_txs: HashMap<usize, mpsc::Sender<TaskDecision>>,
@@ -214,15 +345,22 @@ impl TaskManager {
         Self {
             tasks: BTreeMap::new(),
             next_id: 1,
-            event_tx,
+            event_tx: EventBus::new(event_tx),
             selected_index: 0,
             task_decision_txs: HashMap::new(),
         }
     }
 
     #[must_use]
-    pub fn get_tx(&self) -> mpsc::UnboundedSender<UiEvent> {
+    pub fn get_tx(&self) -> EventBus {
         self.event_tx.clone()
+    }
+
+    /// Takes the value behind a pending [`UiEvent::TaskSnapshot`] notification,
+    /// as the dispatcher does before applying it.
+    #[must_use]
+    pub fn take_coalesced(&self, task_id: usize, field: TaskField) -> Option<TaskEvent> {
+        self.event_tx.take_coalesced(task_id, field)
     }
 
     /// Selected index in display order (newest first).
@@ -240,7 +378,7 @@ impl TaskManager {
     /// event bus.
     pub fn spawn_task<F, Fut>(&mut self, name: &str, f: F) -> usize
     where
-        F: FnOnce(Arc<AtomicBool>, mpsc::UnboundedSender<UiEvent>, usize) -> Fut + Send + 'static,
+        F: FnOnce(Arc<AtomicBool>, EventBus, usize) -> Fut + Send + 'static,
         Fut: std::future::Future<Output = ()> + Send + 'static,
     {
         let id = self.next_id;
@@ -563,5 +701,236 @@ mod tests {
         assert_eq!(tm.ordered_ids(), vec![id1]);
         assert_eq!(tm.get_selected_task_id(), Some(id1));
         assert_eq!(tm.selected_index(), 0);
+    }
+
+    fn update_progress(task_id: usize, processed: usize) -> UiEvent {
+        UiEvent::Task(TaskEvent::UpdateProgress {
+            task_id,
+            processed,
+            total: 1_000_000,
+        })
+    }
+
+    fn current_file(task_id: usize, filename: &str) -> UiEvent {
+        UiEvent::Task(TaskEvent::UpdateCurrentFile {
+            task_id,
+            filename: filename.to_string(),
+        })
+    }
+
+    fn drain(rx: &mut mpsc::UnboundedReceiver<UiEvent>) -> Vec<UiEvent> {
+        let mut events = Vec::new();
+        while let Ok(e) = rx.try_recv() {
+            events.push(e);
+        }
+        events
+    }
+
+    /// The `(task, field)` slot of every queued event, failing on anything that
+    /// is not a coalesced notification.
+    fn snapshot_slots(events: Vec<UiEvent>) -> Vec<(usize, TaskField)> {
+        events
+            .into_iter()
+            .map(|e| match e {
+                UiEvent::TaskSnapshot { task_id, field } => (task_id, field),
+                other => panic!("expected a snapshot, got {other:?}"),
+            })
+            .collect()
+    }
+
+    /// The bus must not grow with the number of updates a producer sends: a
+    /// fast progress reporter against a stalled UI would otherwise queue every
+    /// intermediate value.
+    #[tokio::test]
+    async fn test_bus_coalesces_progress_burst_into_one_event() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let bus = EventBus::new(tx);
+
+        // 100k per-file progress updates, the shape of a large recursive copy
+        // (ops.rs sends UpdateCurrentFile once per file, unthrottled).
+        for i in 0..100_000 {
+            bus.send(current_file(1, &format!("file{i}.bin")));
+        }
+
+        let events = drain(&mut rx);
+        assert_eq!(
+            snapshot_slots(events),
+            vec![(1, TaskField::CurrentFile)],
+            "a progress burst must collapse to a single notification"
+        );
+    }
+
+    /// Coalescing must not lose the newest value: the UI has to end up with the
+    /// latest progress, not the first one it saw.
+    #[tokio::test]
+    async fn test_bus_keeps_latest_progress_value() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let bus = EventBus::new(tx);
+
+        for i in 1..=500 {
+            bus.send(update_progress(1, i));
+        }
+
+        assert_eq!(drain(&mut rx).len(), 1);
+        assert!(matches!(
+            bus.take_coalesced(1, TaskField::Progress),
+            Some(TaskEvent::UpdateProgress {
+                task_id: 1,
+                processed: 500,
+                total: 1_000_000,
+            })
+        ));
+    }
+
+    /// Different tasks and different fields must not collapse into each other.
+    #[tokio::test]
+    async fn test_bus_coalesces_per_task_and_field() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let bus = EventBus::new(tx);
+
+        for i in 0..10 {
+            bus.send(update_progress(1, i));
+            bus.send(update_progress(2, i));
+            bus.send(current_file(1, "a.bin"));
+            bus.send(UiEvent::Task(TaskEvent::SetRsyncMode {
+                task_id: 2,
+                rsync: i % 2 == 0,
+            }));
+        }
+
+        let mut snapshots = snapshot_slots(drain(&mut rx));
+        snapshots.dedup();
+        assert_eq!(
+            snapshots,
+            vec![
+                (1, TaskField::Progress),
+                (2, TaskField::Progress),
+                (1, TaskField::CurrentFile),
+                (2, TaskField::Rsync),
+            ],
+            "one notification per (task, field), queued in first-update order"
+        );
+        assert!(matches!(
+            bus.take_coalesced(2, TaskField::Rsync),
+            Some(TaskEvent::SetRsyncMode { rsync: false, .. })
+        ));
+        assert!(matches!(
+            bus.take_coalesced(1, TaskField::Progress),
+            Some(TaskEvent::UpdateProgress { processed: 9, .. })
+        ));
+    }
+
+    /// Taking a value must re-arm the slot, so progress keeps flowing instead of
+    /// stalling on the first notification.
+    #[tokio::test]
+    async fn test_bus_slot_rearms_after_dispatch() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let bus = EventBus::new(tx);
+
+        bus.send(update_progress(1, 1));
+        assert_eq!(drain(&mut rx).len(), 1);
+        assert!(matches!(
+            bus.take_coalesced(1, TaskField::Progress),
+            Some(TaskEvent::UpdateProgress { processed: 1, .. })
+        ));
+
+        bus.send(update_progress(1, 2));
+        assert_eq!(
+            snapshot_slots(drain(&mut rx)),
+            vec![(1, TaskField::Progress)]
+        );
+        assert!(matches!(
+            bus.take_coalesced(1, TaskField::Progress),
+            Some(TaskEvent::UpdateProgress { processed: 2, .. })
+        ));
+    }
+
+    /// One-shot events must never be dropped or reordered behind the coalesced
+    /// ones: conflict and error popups, SSH prompts and status changes all
+    /// depend on being observed exactly as sent.
+    #[tokio::test]
+    async fn test_bus_queues_one_shot_events_verbatim() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let bus = EventBus::new(tx);
+
+        for i in 0..1_000 {
+            bus.send(update_progress(1, i));
+        }
+        bus.send(UiEvent::Alert(AlertEvent::TaskError {
+            task_id: 1,
+            path: "/tmp/x".to_string(),
+            message: "boom".to_string(),
+        }));
+        bus.send(UiEvent::Task(TaskEvent::UpdateStatus {
+            task_id: 1,
+            status: TaskStatus::Completed,
+        }));
+
+        let events = drain(&mut rx);
+        assert_eq!(events.len(), 3, "one snapshot plus two one-shot events");
+        assert!(matches!(events[0], UiEvent::TaskSnapshot { .. }));
+        assert!(matches!(
+            events[1],
+            UiEvent::Alert(AlertEvent::TaskError { .. })
+        ));
+        // The status change stays behind the progress it terminates, so the UI
+        // applies the final progress before marking the task finished.
+        assert!(matches!(
+            events[2],
+            UiEvent::Task(TaskEvent::UpdateStatus {
+                status: TaskStatus::Completed,
+                ..
+            })
+        ));
+        assert!(matches!(
+            bus.take_coalesced(1, TaskField::Progress),
+            Some(TaskEvent::UpdateProgress { processed: 999, .. })
+        ));
+    }
+
+    /// `send` must stay usable after the event loop is gone.
+    #[tokio::test]
+    async fn test_bus_send_after_consumer_dropped() {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let bus = EventBus::new(tx);
+        drop(rx);
+
+        assert!(bus.is_closed());
+        bus.send(current_file(1, "a.bin"));
+        bus.send(UiEvent::Task(TaskEvent::UpdateStatus {
+            task_id: 1,
+            status: TaskStatus::Completed,
+        }));
+        // The value stays pending, so a slot is never stranded without a way to
+        // observe it if a consumer ever returns.
+        assert!(matches!(
+            bus.take_coalesced(1, TaskField::CurrentFile),
+            Some(TaskEvent::UpdateCurrentFile { .. })
+        ));
+    }
+
+    /// `TaskManager` hands the same coalescing bus to its workers, and resolves
+    /// snapshot notifications through it.
+    #[tokio::test]
+    async fn test_task_manager_resolves_snapshots() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut tm = TaskManager::new(tx);
+        let id = tm.spawn_task("task1", |_c, _tx, _id| async {});
+
+        let bus = tm.get_tx();
+        bus.send(update_progress(id, 7));
+        bus.send(update_progress(id, 9));
+
+        let UiEvent::TaskSnapshot { task_id, field } = drain(&mut rx).remove(0) else {
+            panic!("expected a coalesced snapshot");
+        };
+        assert_eq!((task_id, field), (id, TaskField::Progress));
+
+        let Some(TaskEvent::UpdateProgress { processed, .. }) = tm.take_coalesced(task_id, field)
+        else {
+            panic!("snapshot had no pending value");
+        };
+        tm.update_task_progress(id, processed, 1_000_000);
+        assert_eq!(tm.get_tasks()[0].progress, Some((9, 1_000_000)));
     }
 }

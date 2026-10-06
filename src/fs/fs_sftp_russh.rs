@@ -1042,7 +1042,7 @@ impl FileSystemProvider for SftpFs {
             progress
                 .processed_bytes
                 .fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
-            let _ = progress.tx.send(crate::tasks::UiEvent::Task(
+            progress.tx.send(crate::tasks::UiEvent::Task(
                 crate::tasks::TaskEvent::UpdateByteProgress {
                     task_id: progress.id,
                     processed: offset,
@@ -1123,7 +1123,7 @@ impl FileSystemProvider for SftpFs {
             progress
                 .processed_bytes
                 .fetch_add(chunk.len() as u64, std::sync::atomic::Ordering::Relaxed);
-            let _ = progress.tx.send(crate::tasks::UiEvent::Task(
+            progress.tx.send(crate::tasks::UiEvent::Task(
                 crate::tasks::TaskEvent::UpdateByteProgress {
                     task_id: progress.id,
                     processed: offset,

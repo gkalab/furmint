@@ -197,7 +197,7 @@ pub async fn rsync_transfer(
 /// Toggles the rsync progress display mode on the task UI.
 #[cfg(unix)]
 fn send_rsync_mode(progress_ctx: &crate::fs::fs_provider::TaskProgressContext, active: bool) {
-    let _ = progress_ctx.tx.send(crate::tasks::UiEvent::Task(
+    progress_ctx.tx.send(crate::tasks::UiEvent::Task(
         crate::tasks::TaskEvent::SetRsyncMode {
             task_id: progress_ctx.id,
             rsync: active,
@@ -232,7 +232,7 @@ fn handle_rsync_line(progress_ctx: &crate::fs::fs_provider::TaskProgressContext,
     // Parse rsync progress output
     // Format: "  1,234,567  45%  123.45kB/s    0:00:12"
     if let Some(parsed) = parse_rsync_progress(line) {
-        let _ = progress_ctx.tx.send(crate::tasks::UiEvent::Task(
+        progress_ctx.tx.send(crate::tasks::UiEvent::Task(
             crate::tasks::TaskEvent::UpdateByteProgress {
                 task_id: progress_ctx.id,
                 processed: parsed.bytes_transferred,

@@ -8,7 +8,7 @@ use std::time::{Duration, UNIX_EPOCH};
 fn make_progress() -> fm::fs::fs_provider::TaskProgressContext {
     fm::fs::fs_provider::TaskProgressContext {
         id: 1,
-        tx: tokio::sync::mpsc::unbounded_channel().0,
+        tx: fm::tasks::EventBus::new(tokio::sync::mpsc::unbounded_channel().0),
         cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         processed_bytes: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),

@@ -269,7 +269,7 @@ impl FileSystemProvider for MockFileSystem {
         src: &Path,
         dst: &Path,
         _id: usize,
-        _tx: &tokio::sync::mpsc::UnboundedSender<UiEvent>,
+        _tx: &fm::tasks::EventBus,
         _cancel: &Arc<AtomicBool>,
     ) -> anyhow::Result<()> {
         self.copy(src, dst).await
@@ -311,7 +311,8 @@ async fn test_recursive_copy_nested() {
         );
     }
 
-    let (tx, _rx) = mpsc::unbounded_channel();
+    let (raw_tx, _rx) = mpsc::unbounded_channel();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let (_dtx, drx_real) = mpsc::channel(1);
     let processed = Arc::new(AtomicUsize::new(0));
     let decision_rx = Arc::new(Mutex::new(drx_real));
@@ -370,7 +371,8 @@ async fn test_recursive_copy_overwrite_all() {
         files.insert(dest_root.join("f2.txt"), FakeEntry { is_dir: false });
     }
 
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (raw_tx, mut rx) = mpsc::unbounded_channel();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let (dtx, drx_real) = mpsc::channel(1);
     let processed = Arc::new(AtomicUsize::new(0));
     let decision_rx = Arc::new(Mutex::new(drx_real));
@@ -436,7 +438,8 @@ async fn test_recursive_copy_cancel() {
         files.insert(dest_root.join("f2.txt"), FakeEntry { is_dir: false });
     }
 
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (raw_tx, mut rx) = mpsc::unbounded_channel();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let (dtx, drx_real) = mpsc::channel(1);
     let processed = Arc::new(AtomicUsize::new(0));
     let decision_rx = Arc::new(Mutex::new(drx_real));
@@ -501,7 +504,8 @@ async fn test_recursive_copy_skip_all() {
         files.insert(dest_root.join("f1.txt"), FakeEntry { is_dir: false });
     }
 
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (raw_tx, mut rx) = mpsc::unbounded_channel();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let (dtx, drx_real) = mpsc::channel(1);
     let processed = Arc::new(AtomicUsize::new(0));
     let decision_rx = Arc::new(Mutex::new(drx_real));
@@ -563,7 +567,8 @@ async fn test_mock_simple_move_conflict_overwrite() {
         .await
         .insert(dst.clone(), FakeEntry { is_dir: false }); // Simulate existing dest
 
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (raw_tx, mut rx) = mpsc::unbounded_channel();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let (decision_tx, decision_rx_real) = mpsc::channel(1);
     let processed = Arc::new(AtomicUsize::new(0));
     let decision_rx = Arc::new(Mutex::new(decision_rx_real));
@@ -629,7 +634,8 @@ async fn test_recursive_op_retry() {
         *fails = 1;
     }
 
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (raw_tx, mut rx) = mpsc::unbounded_channel();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let (decision_tx, decision_rx_real) = mpsc::channel(1);
     let processed = Arc::new(AtomicUsize::new(0));
     let decision_rx = Arc::new(Mutex::new(decision_rx_real));
@@ -692,7 +698,8 @@ async fn test_recursive_op_error_skip_all() {
         *fails = 2;
     }
 
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (raw_tx, mut rx) = mpsc::unbounded_channel();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let (dtx, drx_real) = mpsc::channel(1);
     let processed = Arc::new(AtomicUsize::new(0));
     let decision_rx = Arc::new(Mutex::new(drx_real));
@@ -760,7 +767,8 @@ async fn test_recursive_op_error_cancel() {
         *fails = 2;
     }
 
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (raw_tx, mut rx) = mpsc::unbounded_channel();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let (dtx, drx_real) = mpsc::channel(1);
     let processed = Arc::new(AtomicUsize::new(0));
     let decision_rx = Arc::new(Mutex::new(drx_real));
@@ -831,7 +839,8 @@ async fn test_recursive_op_error_skip() {
         *fails = 2;
     }
 
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (raw_tx, mut rx) = mpsc::unbounded_channel();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let (dtx, drx_real) = mpsc::channel(1);
     let processed = Arc::new(AtomicUsize::new(0));
     let decision_rx = Arc::new(Mutex::new(drx_real));
@@ -894,7 +903,8 @@ async fn test_move_rename_optimization_no_conflict() {
         .await
         .insert(src.clone(), FakeEntry { is_dir: false });
 
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (raw_tx, mut rx) = mpsc::unbounded_channel();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let (_dtx, drx_real) = mpsc::channel(1);
     let processed = Arc::new(AtomicUsize::new(0));
     let decision_rx = Arc::new(Mutex::new(drx_real));
@@ -958,7 +968,8 @@ async fn test_move_rename_optimization_directory() {
         files.insert(src_dir.join("file2.txt"), FakeEntry { is_dir: false });
     }
 
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (raw_tx, mut rx) = mpsc::unbounded_channel();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let (_dtx, drx_real) = mpsc::channel(1);
     let processed = Arc::new(AtomicUsize::new(0));
     let decision_rx = Arc::new(Mutex::new(drx_real));
@@ -991,11 +1002,20 @@ async fn test_move_rename_optimization_directory() {
 
     assert!(res.is_ok());
 
-    // Verify progress update
+    // Verify the progress update the UI applies. Progress events are coalesced
+    // keep-latest on the bus, so the snapshot notification carries the newest
+    // value — resolve it the way `dispatch_ui_event` does.
     let mut progress_events = 0;
     let mut last_p = 0;
     while let Ok(event) = rx.try_recv() {
-        if let UiEvent::Task(TaskEvent::UpdateProgress { processed: p, .. }) = event {
+        let event = match event {
+            UiEvent::TaskSnapshot { task_id, field } => tx
+                .take_coalesced(task_id, field)
+                .unwrap_or_else(|| panic!("snapshot for task {task_id} had no pending value")),
+            UiEvent::Task(e) => e,
+            _ => continue,
+        };
+        if let TaskEvent::UpdateProgress { processed: p, .. } = event {
             progress_events += 1;
             last_p = p;
         }
@@ -1026,7 +1046,8 @@ async fn test_handle_directory_dest_exists_as_dir_merge() {
         files.insert(dest_root.join("existing.txt"), FakeEntry { is_dir: false });
     }
 
-    let (tx, _rx) = mpsc::unbounded_channel();
+    let (raw_tx, _rx) = mpsc::unbounded_channel();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let (_dtx, drx_real) = mpsc::channel(1);
     let processed = Arc::new(AtomicUsize::new(0));
     let decision_rx = Arc::new(Mutex::new(drx_real));
@@ -1073,7 +1094,8 @@ async fn test_handle_directory_download_success() {
 
     *fs.download_result.lock().await = Some(Ok(()));
 
-    let (tx, _rx) = mpsc::unbounded_channel();
+    let (raw_tx, _rx) = mpsc::unbounded_channel();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let (_dtx, drx_real) = mpsc::channel(1);
     let processed = Arc::new(AtomicUsize::new(0));
     let decision_rx = Arc::new(Mutex::new(drx_real));
@@ -1119,7 +1141,8 @@ async fn test_handle_directory_download_failure() {
 
     *fs.download_result.lock().await = Some(Err(anyhow::anyhow!("Download failed")));
 
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (raw_tx, mut rx) = mpsc::unbounded_channel();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let (dtx, drx_real) = mpsc::channel(1);
     let processed = Arc::new(AtomicUsize::new(0));
     let decision_rx = Arc::new(Mutex::new(drx_real));
@@ -1173,7 +1196,8 @@ async fn test_handle_directory_read_dir_error() {
 
     *fs.fail_next_read_dir.lock().await = true;
 
-    let (tx, _rx) = mpsc::unbounded_channel();
+    let (raw_tx, _rx) = mpsc::unbounded_channel();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let (_dtx, drx_real) = mpsc::channel(1);
     let processed = Arc::new(AtomicUsize::new(0));
     let decision_rx = Arc::new(Mutex::new(drx_real));
@@ -1218,7 +1242,8 @@ async fn test_handle_directory_create_dir_error() {
 
     *fs.fail_next_create_dir.lock().await = 1;
 
-    let (tx, _rx) = mpsc::unbounded_channel();
+    let (raw_tx, _rx) = mpsc::unbounded_channel();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let (_dtx, drx_real) = mpsc::channel(1);
     let processed = Arc::new(AtomicUsize::new(0));
     let decision_rx = Arc::new(Mutex::new(drx_real));
@@ -1262,7 +1287,8 @@ async fn test_handle_directory_dest_exists_as_file_skip() {
         files.insert(dest_root.clone(), FakeEntry { is_dir: false });
     }
 
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (raw_tx, mut rx) = mpsc::unbounded_channel();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let (dtx, drx_real) = mpsc::channel(1);
     let processed = Arc::new(AtomicUsize::new(0));
     let decision_rx = Arc::new(Mutex::new(drx_real));
@@ -1315,7 +1341,8 @@ async fn test_handle_directory_dest_exists_as_file_cancel() {
         files.insert(dest_root.clone(), FakeEntry { is_dir: false });
     }
 
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (raw_tx, mut rx) = mpsc::unbounded_channel();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let (dtx, drx_real) = mpsc::channel(1);
     let processed = Arc::new(AtomicUsize::new(0));
     let decision_rx = Arc::new(Mutex::new(drx_real));
@@ -1370,7 +1397,8 @@ async fn test_handle_directory_download_fallback() {
     // copy_to_local returns None, triggering fallback to recursive logic
     *fs.download_result.lock().await = None;
 
-    let (tx, _rx) = mpsc::unbounded_channel();
+    let (raw_tx, _rx) = mpsc::unbounded_channel();
+    let tx = fm::tasks::EventBus::new(raw_tx);
     let (_dtx, drx_real) = mpsc::channel(1);
     let processed = Arc::new(AtomicUsize::new(0));
     let decision_rx = Arc::new(Mutex::new(drx_real));

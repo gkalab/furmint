@@ -294,14 +294,14 @@ async fn ensure_dest_directory(
     dest_fs: &dyn FileSystemProvider,
     dest_path: &std::path::Path,
     treat_as_dir: bool,
-    tx: &tokio::sync::mpsc::UnboundedSender<crate::tasks::UiEvent>,
+    tx: &crate::tasks::EventBus,
     id: usize,
 ) -> bool {
     if treat_as_dir {
         if !dest_fs.exists(dest_path).await
             && let Err(e) = dest_fs.create_dir_all(dest_path).await
         {
-            let _ = tx.send(crate::tasks::UiEvent::Task(
+            tx.send(crate::tasks::UiEvent::Task(
                 crate::tasks::TaskEvent::UpdateStatus {
                     task_id: id,
                     status: crate::tasks::TaskStatus::Failed(format!(
@@ -328,7 +328,7 @@ async fn handle_rsync_conflict(
     decision_rx: &std::sync::Arc<
         tokio::sync::Mutex<tokio::sync::mpsc::Receiver<crate::tasks::TaskDecision>>,
     >,
-    tx: &tokio::sync::mpsc::UnboundedSender<crate::tasks::UiEvent>,
+    tx: &crate::tasks::EventBus,
     cancel: &std::sync::Arc<std::sync::atomic::AtomicBool>,
     id: usize,
 ) -> Option<bool> {
@@ -346,7 +346,7 @@ async fn handle_rsync_conflict(
     }
 
     // Ask user about conflict
-    let _ = tx.send(crate::tasks::UiEvent::Alert(
+    tx.send(crate::tasks::UiEvent::Alert(
         crate::tasks::AlertEvent::Conflict {
             task_id: id,
             path: target.to_path_buf(),
@@ -368,7 +368,7 @@ async fn handle_rsync_conflict(
         }
         Some(crate::tasks::TaskDecision::Cancel) => {
             cancel.store(true, std::sync::atomic::Ordering::Relaxed);
-            let _ = tx.send(crate::tasks::UiEvent::Task(
+            tx.send(crate::tasks::UiEvent::Task(
                 crate::tasks::TaskEvent::UpdateStatus {
                     task_id: id,
                     status: crate::tasks::TaskStatus::Cancelled,
@@ -407,7 +407,7 @@ async fn try_rsync_directory(
                 .processed_items
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
                 + 1;
-            let _ = ctx.task.tx.send(crate::tasks::UiEvent::Task(
+            ctx.task.tx.send(crate::tasks::UiEvent::Task(
                 crate::tasks::TaskEvent::UpdateProgress {
                     task_id: ctx.task.id,
                     processed: p,
@@ -442,7 +442,7 @@ async fn try_rsync_directory(
                     .processed_items
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
                     + 1;
-                let _ = ctx.task.tx.send(crate::tasks::UiEvent::Task(
+                ctx.task.tx.send(crate::tasks::UiEvent::Task(
                     crate::tasks::TaskEvent::UpdateProgress {
                         task_id: ctx.task.id,
                         processed: p,
@@ -555,7 +555,7 @@ struct ProcessPathContext<'a> {
     id: usize,
     total_items: usize,
     total_bytes: u64,
-    tx: &'a tokio::sync::mpsc::UnboundedSender<crate::tasks::UiEvent>,
+    tx: &'a crate::tasks::EventBus,
     cancel: &'a Arc<std::sync::atomic::AtomicBool>,
     decision_rx:
         &'a Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<crate::tasks::TaskDecision>>>,
@@ -575,7 +575,7 @@ struct RsyncTaskContext<'a> {
     decision_rx: &'a std::sync::Arc<
         tokio::sync::Mutex<tokio::sync::mpsc::Receiver<crate::tasks::TaskDecision>>,
     >,
-    tx: &'a tokio::sync::mpsc::UnboundedSender<crate::tasks::UiEvent>,
+    tx: &'a crate::tasks::EventBus,
     cancel: &'a std::sync::Arc<std::sync::atomic::AtomicBool>,
     processed_items: &'a std::sync::Arc<std::sync::atomic::AtomicUsize>,
     processed_bytes: &'a std::sync::Arc<std::sync::atomic::AtomicU64>,
@@ -604,7 +604,7 @@ impl<'a> RsyncTaskContext<'a> {
         decision_rx: &'a std::sync::Arc<
             tokio::sync::Mutex<tokio::sync::mpsc::Receiver<crate::tasks::TaskDecision>>,
         >,
-        tx: &'a tokio::sync::mpsc::UnboundedSender<crate::tasks::UiEvent>,
+        tx: &'a crate::tasks::EventBus,
         cancel: &'a std::sync::Arc<std::sync::atomic::AtomicBool>,
         processed_items: &'a std::sync::Arc<std::sync::atomic::AtomicUsize>,
         processed_bytes: &'a std::sync::Arc<std::sync::atomic::AtomicU64>,
@@ -822,14 +822,14 @@ pub fn spawn_copy_move_task(
             }
 
             if cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                let _ = tx.send(crate::tasks::UiEvent::Task(
+                tx.send(crate::tasks::UiEvent::Task(
                     crate::tasks::TaskEvent::UpdateStatus {
                         task_id: id,
                         status: crate::tasks::TaskStatus::Cancelled,
                     },
                 ));
             } else if failures.is_empty() {
-                let _ = tx.send(crate::tasks::UiEvent::Task(
+                tx.send(crate::tasks::UiEvent::Task(
                     crate::tasks::TaskEvent::UpdateStatus {
                         task_id: id,
                         status: crate::tasks::TaskStatus::Completed,
@@ -838,7 +838,7 @@ pub fn spawn_copy_move_task(
             } else {
                 // ... error handling
                 let msg = format!("Failed with {} errors", failures.len());
-                let _ = tx.send(crate::tasks::UiEvent::Task(
+                tx.send(crate::tasks::UiEvent::Task(
                     crate::tasks::TaskEvent::UpdateStatus {
                         task_id: id,
                         status: crate::tasks::TaskStatus::Failed(msg),

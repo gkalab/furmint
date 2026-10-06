@@ -5,12 +5,12 @@ use fm::fs::fs_archive::ArchiveFs;
 use fm::fs::fs_local::LocalFs;
 use fm::fs::ops::{DecisionState, RecursiveOpContext, recursive_op};
 use fm::state::CopyMoveAction;
-use fm::tasks::{AlertEvent, TaskDecision, UiEvent};
+use fm::tasks::{AlertEvent, EventBus, TaskDecision, UiEvent};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
-use tokio::sync::mpsc::{Receiver, Sender, UnboundedSender};
+use tokio::sync::mpsc::{Receiver, Sender};
 
 fn make_archive_with_payload(path: &Path) {
     let file = std::fs::File::create(path).unwrap();
@@ -25,7 +25,7 @@ fn make_archive_with_payload(path: &Path) {
 
 struct Harness {
     dest_file: PathBuf,
-    tx: UnboundedSender<UiEvent>,
+    tx: EventBus,
     decision_tx: Sender<TaskDecision>,
     decision_rx: Arc<tokio::sync::Mutex<Receiver<TaskDecision>>>,
     cancel: Arc<AtomicBool>,
@@ -35,11 +35,7 @@ struct Harness {
 
 /// Sets up an archive -> local copy of the `payload` directory where the
 /// destination directory already exists and contains a file.
-fn setup(
-    archive_path: &Path,
-    dest_root: &Path,
-    tx: UnboundedSender<UiEvent>,
-) -> (ArchiveFs, LocalFs, Harness) {
+fn setup(archive_path: &Path, dest_root: &Path, tx: EventBus) -> (ArchiveFs, LocalFs, Harness) {
     let archive = ArchiveFs::new(archive_path).unwrap();
     let local = LocalFs::new();
 
@@ -102,8 +98,8 @@ async fn run_copy_with(decision: TaskDecision) -> (Vec<UiEvent>, usize, u64, Str
     let archive_path = tmp.path().join("payload.zip");
     make_archive_with_payload(&archive_path);
     let dest_root = tmp.path().join("dest");
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<UiEvent>();
-    let (archive, local, h) = setup(&archive_path, &dest_root, tx);
+    let (raw_tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<UiEvent>();
+    let (archive, local, h) = setup(&archive_path, &dest_root, EventBus::new(raw_tx));
 
     let dest = dest_root.join("payload");
     let subtree_counts = fm::fs::ops::SubtreeCounts::new();

@@ -64,7 +64,7 @@ pub struct FileMetadata {
 #[derive(Clone)]
 pub struct TaskProgressContext {
     pub id: usize,
-    pub tx: tokio::sync::mpsc::UnboundedSender<crate::tasks::UiEvent>,
+    pub tx: crate::tasks::EventBus,
     pub cancel: Arc<AtomicBool>,
     pub processed_bytes: Arc<std::sync::atomic::AtomicU64>,
     pub processed_items: Arc<std::sync::atomic::AtomicUsize>,
@@ -234,6 +234,7 @@ pub trait FileSystemProvider: Send + Sync {
     /// Returns an error if the copy fails.
     async fn copy(&self, src: &Path, dst: &Path) -> Result<()> {
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let tx = crate::tasks::EventBus::new(tx);
         let cancel = Arc::new(AtomicBool::new(false));
         self.copy_with_progress(src, dst, 0, &tx, &cancel).await
     }
@@ -254,7 +255,7 @@ pub trait FileSystemProvider: Send + Sync {
         src: &Path,
         dst: &Path,
         id: usize,
-        tx: &tokio::sync::mpsc::UnboundedSender<crate::tasks::UiEvent>,
+        tx: &crate::tasks::EventBus,
         cancel: &Arc<AtomicBool>,
     ) -> Result<()> {
         let src_buf = src.to_path_buf();
@@ -325,7 +326,7 @@ pub trait FileSystemProvider: Send + Sync {
             self.write_file_with_permissions(target, &data, perms)
                 .await?;
             let processed = data.len() as u64;
-            let _ = progress.tx.send(crate::tasks::UiEvent::Task(
+            progress.tx.send(crate::tasks::UiEvent::Task(
                 crate::tasks::TaskEvent::UpdateByteProgress {
                     task_id: progress.id,
                     processed,
@@ -352,7 +353,7 @@ pub trait FileSystemProvider: Send + Sync {
                 }
                 self.write_file_at(target, offset, &chunk).await?;
                 offset += chunk.len() as u64;
-                let _ = progress.tx.send(crate::tasks::UiEvent::Task(
+                progress.tx.send(crate::tasks::UiEvent::Task(
                     crate::tasks::TaskEvent::UpdateByteProgress {
                         task_id: progress.id,
                         processed: offset,
@@ -669,18 +670,41 @@ mod tests {
         }
     }
 
-    fn byte_events(events: Vec<crate::tasks::UiEvent>) -> Vec<(u64, u64)> {
+    /// The `(processed, total)` byte-progress values the UI would apply for
+    /// `events`, resolving coalesced snapshot notifications the same way the
+    /// dispatcher does.
+    fn byte_events(
+        bus: &crate::tasks::EventBus,
+        events: Vec<crate::tasks::UiEvent>,
+    ) -> Vec<(u64, u64)> {
         events
             .into_iter()
             .filter_map(|e| match e {
-                crate::tasks::UiEvent::Task(crate::tasks::TaskEvent::UpdateByteProgress {
+                crate::tasks::UiEvent::TaskSnapshot { task_id, field } => {
+                    bus.take_coalesced(task_id, field)
+                }
+                crate::tasks::UiEvent::Task(e) => Some(e),
+                _ => None,
+            })
+            .filter_map(|e| match e {
+                crate::tasks::TaskEvent::UpdateByteProgress {
                     task_id: _,
                     processed,
                     total,
-                }) => Some((processed, total)),
+                } => Some((processed, total)),
                 _ => None,
             })
             .collect()
+    }
+
+    fn drain(
+        rx: &mut tokio::sync::mpsc::UnboundedReceiver<crate::tasks::UiEvent>,
+    ) -> Vec<crate::tasks::UiEvent> {
+        let mut events = Vec::new();
+        while let Ok(e) = rx.try_recv() {
+            events.push(e);
+        }
+        events
     }
 
     #[tokio::test]
@@ -693,16 +717,13 @@ mod tests {
         std::fs::write(&src, &data).unwrap();
 
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let bus = crate::tasks::EventBus::new(tx);
         let cancel = Arc::new(AtomicBool::new(false));
-        fs().copy_with_progress(&src, &dst, 7, &tx, &cancel)
+        fs().copy_with_progress(&src, &dst, 7, &bus, &cancel)
             .await
             .unwrap();
 
-        let mut events = Vec::new();
-        while let Ok(e) = rx.try_recv() {
-            events.push(e);
-        }
-        let progress = byte_events(events);
+        let progress = byte_events(&bus, drain(&mut rx));
         assert_eq!(
             progress,
             vec![(data.len() as u64, data.len() as u64)],
@@ -720,36 +741,40 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("big.bin");
         let dst = dir.path().join("big_copy.bin");
-        // 33MB file (> WHOLE_FILE_COPY_LIMIT) => 8MB chunks => multiple progress events
+        // 33MB file (> WHOLE_FILE_COPY_LIMIT) => 8MB chunks => multiple writes
         let len = 33 * 1024 * 1024;
         let data: Vec<u8> = (0..len).map(|i| (i % 251).try_into().unwrap()).collect();
         std::fs::write(&src, &data).unwrap();
 
+        let flaky = flaky_copy_fs(usize::MAX, usize::MAX);
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let bus = crate::tasks::EventBus::new(tx);
         let cancel = Arc::new(AtomicBool::new(false));
-        fs().copy_with_progress(&src, &dst, 7, &tx, &cancel)
+        flaky
+            .copy_with_progress(&src, &dst, 7, &bus, &cancel)
             .await
             .unwrap();
 
-        let mut events = Vec::new();
-        while let Ok(e) = rx.try_recv() {
-            events.push(e);
-        }
-        let progress = byte_events(events);
         assert!(
-            progress.len() >= 2,
-            "expected multiple progress events, got {progress:?}"
+            flaky.writes.load(std::sync::atomic::Ordering::Relaxed) >= 2,
+            "a 33MB file must take the chunked path, not a single whole-file write"
         );
+
+        // The per-chunk updates are coalesced keep-latest, so the burst the UI
+        // sees resolves to exactly one notification carrying the final value.
+        let events = drain(&mut rx);
+        assert!(
+            events
+                .iter()
+                .all(|e| matches!(e, crate::tasks::UiEvent::TaskSnapshot { .. })),
+            "expected only coalesced notifications, got {events:?}"
+        );
+        let progress = byte_events(&bus, events);
         assert_eq!(
-            progress.last().unwrap(),
-            &(data.len() as u64, data.len() as u64)
+            progress,
+            vec![(data.len() as u64, data.len() as u64)],
+            "the coalesced progress must be the newest value, not a stale one"
         );
-        for window in progress.windows(2) {
-            assert!(
-                window[0].0 < window[1].0,
-                "progress not monotonic: {progress:?}"
-            );
-        }
         assert_eq!(std::fs::read(&dst).unwrap(), data);
         assert!(
             leftover_temps(dir.path(), "big_copy.bin").is_empty(),
@@ -765,8 +790,9 @@ mod tests {
         std::fs::write(&src, b"").unwrap();
 
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let bus = crate::tasks::EventBus::new(tx);
         let cancel = Arc::new(AtomicBool::new(false));
-        fs().copy_with_progress(&src, &dst, 1, &tx, &cancel)
+        fs().copy_with_progress(&src, &dst, 1, &bus, &cancel)
             .await
             .unwrap();
         assert!(dst.exists());
@@ -781,8 +807,9 @@ mod tests {
         std::fs::write(&src, vec![0u8; 1024]).unwrap();
 
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let bus = crate::tasks::EventBus::new(tx);
         let cancel = Arc::new(AtomicBool::new(true));
-        fs().copy_with_progress(&src, &dst, 1, &tx, &cancel)
+        fs().copy_with_progress(&src, &dst, 1, &bus, &cancel)
             .await
             .unwrap();
         assert!(!dst.exists());
@@ -798,8 +825,9 @@ mod tests {
 
         let flaky = flaky_copy_fs(2, usize::MAX);
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let bus = crate::tasks::EventBus::new(tx);
         flaky
-            .copy_with_progress(&src, &dst, 1, &tx, &flaky.cancel)
+            .copy_with_progress(&src, &dst, 1, &bus, &flaky.cancel)
             .await
             .unwrap();
 
@@ -823,8 +851,9 @@ mod tests {
 
         let flaky = flaky_copy_fs(0, 1);
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let bus = crate::tasks::EventBus::new(tx);
         let res = flaky
-            .copy_with_progress(&src, &dst, 1, &tx, &flaky.cancel)
+            .copy_with_progress(&src, &dst, 1, &bus, &flaky.cancel)
             .await;
         assert!(res.is_err(), "the injected write failure must surface");
 

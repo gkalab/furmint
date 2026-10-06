@@ -64,7 +64,7 @@ pub fn handle_confirm_delete(app: &mut AppState) {
             let mut failures = Vec::new();
             for (i, path) in paths.iter().enumerate() {
                 if cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                    let _ = tx.send(crate::tasks::UiEvent::Task(
+                    tx.send(crate::tasks::UiEvent::Task(
                         crate::tasks::TaskEvent::UpdateStatus {
                             task_id: id,
                             status: crate::tasks::TaskStatus::Cancelled,
@@ -89,7 +89,7 @@ pub fn handle_confirm_delete(app: &mut AppState) {
                     Ok(()) => success += 1,
                     Err(e) => failures.push(format!("{}: {e}", path.display())),
                 }
-                let _ = tx.send(crate::tasks::UiEvent::Task(
+                tx.send(crate::tasks::UiEvent::Task(
                     crate::tasks::TaskEvent::UpdateProgress {
                         task_id: id,
                         processed: i + 1,
@@ -98,7 +98,7 @@ pub fn handle_confirm_delete(app: &mut AppState) {
                 ));
             }
             if failures.is_empty() {
-                let _ = tx.send(crate::tasks::UiEvent::Task(
+                tx.send(crate::tasks::UiEvent::Task(
                     crate::tasks::TaskEvent::UpdateStatus {
                         task_id: id,
                         status: crate::tasks::TaskStatus::Completed,
@@ -110,7 +110,7 @@ pub fn handle_confirm_delete(app: &mut AppState) {
                 } else {
                     format!("Failed: {}", failures[0])
                 };
-                let _ = tx.send(crate::tasks::UiEvent::Task(
+                tx.send(crate::tasks::UiEvent::Task(
                     crate::tasks::TaskEvent::UpdateStatus {
                         task_id: id,
                         status: crate::tasks::TaskStatus::Failed(error_msg),

@@ -438,7 +438,7 @@ pub fn spawn_ssh_connect_with_keys(
                 } => None,
             };
             let Some(result) = result else {
-                let _ = tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
+                tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
                     task_id: id,
                     status: TaskStatus::Cancelled,
                 }));
@@ -447,11 +447,11 @@ pub fn spawn_ssh_connect_with_keys(
             match result {
                 Ok((session_id, fs)) => {
                     let path_for_ctx = target_path.clone().map(std::path::PathBuf::from);
-                    let _ = tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
+                    tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
                         task_id: id,
                         status: TaskStatus::Completed,
                     }));
-                    let _ = tx.send(UiEvent::Ssh(SshEvent::Connected(SshContext {
+                    tx.send(UiEvent::Ssh(SshEvent::Connected(SshContext {
                         provider: Arc::new(fs),
                         path: path_for_ctx,
                         name: connection_name.clone(),
@@ -459,7 +459,7 @@ pub fn spawn_ssh_connect_with_keys(
                     })));
                 }
                 Err(e) => {
-                    let _ = tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
+                    tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
                         task_id: id,
                         status: key_connect_task_status(&e),
                     }));
@@ -471,7 +471,7 @@ pub fn spawn_ssh_connect_with_keys(
                         key_line,
                     } = e
                     {
-                        let _ = tx.send(UiEvent::Ssh(SshEvent::HostKey {
+                        tx.send(UiEvent::Ssh(SshEvent::HostKey {
                             host: hk_host,
                             port: hk_port,
                             user,
@@ -484,7 +484,7 @@ pub fn spawn_ssh_connect_with_keys(
                             connection_name,
                         }));
                     } else {
-                        let _ = tx.send(UiEvent::Ssh(SshEvent::Error {
+                        tx.send(UiEvent::Ssh(SshEvent::Error {
                             host,
                             user,
                             error: e,
@@ -518,7 +518,7 @@ pub fn spawn_ssh_connect_with_password(
                 } => None,
             };
             let Some(result) = result else {
-                let _ = tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
+                tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
                     task_id: id,
                     status: TaskStatus::Cancelled,
                 }));
@@ -527,11 +527,11 @@ pub fn spawn_ssh_connect_with_password(
             match result {
                 Ok((session_id, fs)) => {
                     let path_for_ctx = target_path.clone().map(std::path::PathBuf::from);
-                    let _ = tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
+                    tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
                         task_id: id,
                         status: TaskStatus::Completed,
                     }));
-                    let _ = tx.send(UiEvent::Ssh(SshEvent::Connected(SshContext {
+                    tx.send(UiEvent::Ssh(SshEvent::Connected(SshContext {
                         provider: Arc::new(fs),
                         path: path_for_ctx,
                         name: connection_name.clone(),
@@ -539,7 +539,7 @@ pub fn spawn_ssh_connect_with_password(
                     })));
                 }
                 Err(e) => {
-                    let _ = tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
+                    tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
                         task_id: id,
                         status: TaskStatus::Failed(e.to_string()),
                     }));
@@ -551,7 +551,7 @@ pub fn spawn_ssh_connect_with_password(
                         key_line,
                     } = e
                     {
-                        let _ = tx.send(UiEvent::Ssh(SshEvent::HostKey {
+                        tx.send(UiEvent::Ssh(SshEvent::HostKey {
                             host: hk_host,
                             port: hk_port,
                             user: user.clone(),
@@ -564,7 +564,7 @@ pub fn spawn_ssh_connect_with_password(
                             connection_name: connection_name.clone(),
                         }));
                     } else {
-                        let _ = tx.send(UiEvent::Ssh(SshEvent::Error {
+                        tx.send(UiEvent::Ssh(SshEvent::Error {
                             host,
                             user,
                             error: e,
@@ -678,7 +678,7 @@ fn reconnect_ssh(app: &mut AppState, session_id: String, password: SecretString)
             };
 
             let Some(result) = result else {
-                let _ = tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
+                tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
                     task_id: id,
                     status: TaskStatus::Cancelled,
                 }));
@@ -687,11 +687,11 @@ fn reconnect_ssh(app: &mut AppState, session_id: String, password: SecretString)
 
             match result {
                 Ok((new_session_id, fs)) => {
-                    let _ = tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
+                    tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
                         task_id: id,
                         status: TaskStatus::Completed,
                     }));
-                    let _ = tx.send(UiEvent::Ssh(SshEvent::Reconnected(SshContext {
+                    tx.send(UiEvent::Ssh(SshEvent::Reconnected(SshContext {
                         provider: Arc::new(fs),
                         path: Some(current_dir),
                         name: connection_name,
@@ -699,11 +699,11 @@ fn reconnect_ssh(app: &mut AppState, session_id: String, password: SecretString)
                     })));
                 }
                 Err(e) => {
-                    let _ = tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
+                    tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
                         task_id: id,
                         status: TaskStatus::Failed(format!("Reconnection failed: {e}")),
                     }));
-                    let _ = tx.send(UiEvent::Ssh(SshEvent::ReconnectFailed {
+                    tx.send(UiEvent::Ssh(SshEvent::ReconnectFailed {
                         session_id: old_session_id.clone(),
                         error: e.to_string(),
                     }));
@@ -872,7 +872,7 @@ fn spawn_pubkey_reconnect(app: &mut AppState, session_id: &str) {
             };
 
             let Some(result) = result else {
-                let _ = tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
+                tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
                     task_id: id,
                     status: TaskStatus::Cancelled,
                 }));
@@ -881,11 +881,11 @@ fn spawn_pubkey_reconnect(app: &mut AppState, session_id: &str) {
 
             match result {
                 Ok((new_session_id, fs)) => {
-                    let _ = tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
+                    tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
                         task_id: id,
                         status: TaskStatus::Completed,
                     }));
-                    let _ = tx.send(UiEvent::Ssh(SshEvent::Reconnected(SshContext {
+                    tx.send(UiEvent::Ssh(SshEvent::Reconnected(SshContext {
                         provider: Arc::new(fs),
                         path: Some(current_dir),
                         name: connection_name,
@@ -896,16 +896,16 @@ fn spawn_pubkey_reconnect(app: &mut AppState, session_id: &str) {
                     if matches!(e, crate::ssh_manager::SshError::Auth(_)) {
                         // Key auth failed: offer a password fallback. A password
                         // prompt follows, so don't flash a failure message.
-                        let _ = tx.send(UiEvent::Ssh(SshEvent::ReconnectFailed {
+                        tx.send(UiEvent::Ssh(SshEvent::ReconnectFailed {
                             session_id: session_id.clone(),
                             error: e.to_string(),
                         }));
-                        let _ = tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
+                        tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
                             task_id: id,
                             status: TaskStatus::Completed,
                         }));
                     } else {
-                        let _ = tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
+                        tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
                             task_id: id,
                             status: TaskStatus::Failed(format!("Reconnection failed: {e}")),
                         }));
@@ -965,7 +965,7 @@ pub fn handle_reconnect_ssh(app: &mut AppState) {
                 let Some(result) = result else {
                     // Restore the cache entry so a later retry can reuse it
                     ssh_manager.cache_password(&session_id, pw);
-                    let _ = tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
+                    tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
                         task_id: id,
                         status: TaskStatus::Cancelled,
                     }));
@@ -974,11 +974,11 @@ pub fn handle_reconnect_ssh(app: &mut AppState) {
 
                 match result {
                     Ok((new_session_id, fs)) => {
-                        let _ = tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
+                        tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
                             task_id: id,
                             status: TaskStatus::Completed,
                         }));
-                        let _ = tx.send(UiEvent::Ssh(SshEvent::Reconnected(SshContext {
+                        tx.send(UiEvent::Ssh(SshEvent::Reconnected(SshContext {
                             provider: Arc::new(fs),
                             path: Some(current_dir),
                             name: connection_name,
@@ -990,12 +990,12 @@ pub fn handle_reconnect_ssh(app: &mut AppState) {
                         ssh_manager.cache_password(&session_id, pw);
                         // Check if it's an authentication failure
                         if matches!(e, crate::ssh_manager::SshError::Auth(_)) {
-                            let _ = tx.send(UiEvent::Ssh(SshEvent::ReconnectFailed {
+                            tx.send(UiEvent::Ssh(SshEvent::ReconnectFailed {
                                 session_id: session_id.clone(),
                                 error: e.to_string(),
                             }));
                         }
-                        let _ = tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
+                        tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
                             task_id: id,
                             status: TaskStatus::Failed(format!("Reconnection failed: {e}")),
                         }));

@@ -587,13 +587,13 @@ pub fn handle_extraction_entry<R: std::io::Read>(
     if p.is_multiple_of(10)
         || now.duration_since(*last_update) > std::time::Duration::from_millis(100)
     {
-        let _ = opts.progress.tx.send(crate::tasks::UiEvent::Task(
+        opts.progress.tx.send(crate::tasks::UiEvent::Task(
             crate::tasks::TaskEvent::UpdateCurrentFile {
                 task_id: opts.progress.id,
                 filename: rel_name_str,
             },
         ));
-        let _ = opts.progress.tx.send(crate::tasks::UiEvent::Task(
+        opts.progress.tx.send(crate::tasks::UiEvent::Task(
             crate::tasks::TaskEvent::UpdateProgress {
                 task_id: opts.progress.id,
                 processed: p,
@@ -617,6 +617,7 @@ mod tests {
 
     fn test_progress() -> TaskProgressContext {
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<UiEvent>();
+        let tx = crate::tasks::EventBus::new(tx);
         TaskProgressContext {
             id: 1,
             tx,

@@ -27,6 +27,14 @@ pub(crate) fn handle_quit_popup_event(code: KeyCode, app: &mut AppState) -> bool
 pub async fn dispatch_ui_event(event: crate::tasks::UiEvent, app: &mut crate::app::AppState) {
     match event {
         crate::tasks::UiEvent::Task(e) => dispatch_task_event(e, app).await,
+        crate::tasks::UiEvent::TaskSnapshot { task_id, field } => {
+            // Coalesced progress: the bus collapsed a burst of updates for this
+            // (task, field) into one notification, which carries the newest
+            // value. Everything queued after it is still applied in order.
+            if let Some(e) = app.tasks.task_manager.take_coalesced(task_id, field) {
+                dispatch_task_event(e, app).await;
+            }
+        }
         crate::tasks::UiEvent::Ssh(e) => dispatch_ssh_event(e, app).await,
         crate::tasks::UiEvent::Fs(e) => dispatch_fs_event(e, app).await,
         crate::tasks::UiEvent::Alert(e) => dispatch_alert_event(e, app),

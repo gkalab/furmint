@@ -447,7 +447,7 @@ impl AppState {
                             .list_dir(&current_dir)
                             .await
                             .map_err(|e| e.to_string());
-                        let _ = tx.send(crate::tasks::UiEvent::Fs(
+                        tx.send(crate::tasks::UiEvent::Fs(
                             crate::tasks::FsEvent::RemoteReloadCompleted {
                                 side,
                                 tab_index,
@@ -478,7 +478,7 @@ impl AppState {
                 let result = crate::fs::utils::empty_trash().await;
                 match result {
                     Ok(_num) => {
-                        let _ = tx.send(crate::tasks::UiEvent::Task(
+                        tx.send(crate::tasks::UiEvent::Task(
                             crate::tasks::TaskEvent::UpdateStatus {
                                 task_id: id,
                                 status: crate::tasks::TaskStatus::Completed,
@@ -486,7 +486,7 @@ impl AppState {
                         ));
                     }
                     Err(e) => {
-                        let _ = tx.send(crate::tasks::UiEvent::Task(
+                        tx.send(crate::tasks::UiEvent::Task(
                             crate::tasks::TaskEvent::UpdateStatus {
                                 task_id: id,
                                 status: crate::tasks::TaskStatus::Failed(e),

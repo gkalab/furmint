@@ -329,7 +329,7 @@ async fn handle_open_archive(app: &mut AppState, path: &PathBuf, filename: Strin
 }
 
 async fn run_archive_open_task(
-    tx: tokio::sync::mpsc::UnboundedSender<crate::tasks::UiEvent>,
+    tx: crate::tasks::EventBus,
     id: usize,
     side_index: usize,
     path_clone: std::path::PathBuf,
@@ -344,7 +344,7 @@ async fn run_archive_open_task(
         Ok(Ok(archive_fs)) => {
             let provider = Arc::new(archive_fs);
             let wrapper = crate::tasks::ProviderWrapper(provider);
-            let _ = tx.send(crate::tasks::UiEvent::Fs(
+            tx.send(crate::tasks::UiEvent::Fs(
                 crate::tasks::FsEvent::ArchiveLoaded {
                     side_index,
                     provider: wrapper,
@@ -352,7 +352,7 @@ async fn run_archive_open_task(
                     path: path_for_event,
                 },
             ));
-            let _ = tx.send(crate::tasks::UiEvent::Task(
+            tx.send(crate::tasks::UiEvent::Task(
                 crate::tasks::TaskEvent::UpdateStatus {
                     task_id: id,
                     status: crate::tasks::TaskStatus::Completed,
@@ -360,14 +360,14 @@ async fn run_archive_open_task(
             ));
         }
         Ok(Err(e)) => {
-            let _ = tx.send(crate::tasks::UiEvent::Alert(
+            tx.send(crate::tasks::UiEvent::Alert(
                 crate::tasks::AlertEvent::TaskError {
                     task_id: id,
                     path: path_clone.to_string_lossy().to_string(),
                     message: e.to_string(),
                 },
             ));
-            let _ = tx.send(crate::tasks::UiEvent::Task(
+            tx.send(crate::tasks::UiEvent::Task(
                 crate::tasks::TaskEvent::UpdateStatus {
                     task_id: id,
                     status: crate::tasks::TaskStatus::Failed(e.to_string()),
@@ -376,7 +376,7 @@ async fn run_archive_open_task(
         }
         Err(e) => {
             // Join error
-            let _ = tx.send(crate::tasks::UiEvent::Task(
+            tx.send(crate::tasks::UiEvent::Task(
                 crate::tasks::TaskEvent::UpdateStatus {
                     task_id: id,
                     status: crate::tasks::TaskStatus::Failed(e.to_string()),
