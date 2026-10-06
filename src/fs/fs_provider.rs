@@ -465,6 +465,10 @@ pub trait FileSystemProvider: Send + Sync {
     /// Optimized copy to local filesystem (e.g., download).
     /// Returns `None` if this provider has no optimized path for the given
     /// destination filesystem.
+    ///
+    /// A cancelled transfer returns `Ok(())`, not `Err`: the caller reads an
+    /// error as a failure and offers a retry, whereas `Ok(())` simply ends the
+    /// operation. Any partially written destination must be removed first.
     async fn copy_to_local(
         &self,
         _src: &Path,
@@ -478,6 +482,9 @@ pub trait FileSystemProvider: Send + Sync {
     /// Optimized copy from local to another filesystem (e.g., upload).
     /// Returns `None` if this provider has no optimized path for the given
     /// source filesystem.
+    ///
+    /// As in [`FileSystemProvider::copy_to_local`], a cancelled transfer
+    /// returns `Ok(())` and must leave no partial destination behind.
     async fn copy_from_local(
         &self,
         _src_fs: &dyn FileSystemProvider,
@@ -495,6 +502,9 @@ pub trait FileSystemProvider: Send + Sync {
     /// rather than the local filesystem, so the source may be remote or another
     /// archive. Returns `None` if this provider has no optimized path for the
     /// given source filesystem.
+    ///
+    /// As in [`FileSystemProvider::copy_to_local`], a cancelled transfer
+    /// returns `Ok(())` and must leave no partial destination behind.
     async fn copy_from_source(
         &self,
         _src_fs: &dyn FileSystemProvider,

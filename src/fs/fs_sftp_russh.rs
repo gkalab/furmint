@@ -232,6 +232,13 @@ impl std::fmt::Display for PubkeyAuthError {
 
 impl std::error::Error for PubkeyAuthError {}
 
+/// A single SSH session with an SFTP subsystem on top. The session owns one
+/// transport for its whole lifetime: when that transport dies, every method
+/// keeps failing until the session is replaced. Recovery is deliberately *not*
+/// handled here — `SshManager::reconnect_session` rebuilds a fresh `SftpFs`
+/// (re-authenticating, with password caching and backoff) and the app swaps it
+/// into the tab, so reconnect never has to happen behind a provider call that
+/// may need a password prompt or a host-key decision.
 pub struct SftpFs {
     session: Arc<client::Handle<SshClientHandler>>,
     sftp: Arc<SftpSession>,
@@ -243,6 +250,63 @@ pub struct SftpFs {
 }
 
 impl SftpFs {
+    /// Upper bound on how long the remote `du` behind `calc_dir_size` may run.
+    /// The session's `inactivity_timeout` does not cover this case: the server
+    /// keeps answering keepalives while `du` walks a stalled mount, so without
+    /// an explicit bound a size calculation could hang forever.
+    const DU_TIMEOUT: Duration = Duration::from_secs(120);
+
+    /// Establish the SSH transport (TCP connect plus KEX and handshake) and map
+    /// failures onto the shared error types. Both authentication paths build on
+    /// this; only the authentication step itself differs between them.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HostKeyMismatch`] if the server key is unknown or changed, or
+    /// [`SshConnectError`] for any other transport failure.
+    async fn connect_transport(
+        host: &str,
+        port: u16,
+        read_timeout_secs: u64,
+        keepalive_interval: u32,
+        checker: Arc<HostKeyChecker>,
+    ) -> Result<client::Handle<SshClientHandler>> {
+        let config = Arc::new(client::Config {
+            inactivity_timeout: Some(Duration::from_secs(read_timeout_secs)),
+            keepalive_interval: Some(Duration::from_secs(u64::from(keepalive_interval))),
+            ..Default::default()
+        });
+        let checker_clone = Arc::clone(&checker);
+        match client::connect(
+            config,
+            (host, port),
+            SshClientHandler {
+                checker: checker_clone,
+            },
+        )
+        .await
+        {
+            Ok(h) => Ok(h),
+            Err(e) => {
+                if matches!(e, russh::Error::UnknownKey)
+                    && let Some(presented) = checker.take_presented()
+                {
+                    return Err(HostKeyMismatch {
+                        presented_fp: presented.fingerprint,
+                        stored_fp: presented.stored_fp,
+                        key_line: presented.key_line,
+                    }
+                    .into());
+                }
+                let detail = match checker.take_diag() {
+                    Some(d) => format!("SSH connect failed: {d}"),
+                    None => format!("SSH connect failed: {e}"),
+                };
+                Err(SshConnectError { detail }.into())
+            }
+        }
+    }
+
     /// Connect with password authentication and return a ready `SftpFs`.
     ///
     /// Takes the owned `SecretString` so the same zeroized buffer can be
@@ -259,42 +323,11 @@ impl SftpFs {
         password: SecretString,
         read_timeout_secs: u64,
         keepalive_interval: u32,
-        checker: std::sync::Arc<crate::ssh_known_hosts::HostKeyChecker>,
+        checker: Arc<HostKeyChecker>,
     ) -> Result<Self> {
-        let config = Arc::new(client::Config {
-            inactivity_timeout: Some(Duration::from_secs(read_timeout_secs)),
-            keepalive_interval: Some(Duration::from_secs(u64::from(keepalive_interval))),
-            ..Default::default()
-        });
-        let checker_clone = std::sync::Arc::clone(&checker);
-        let handle = match client::connect(
-            config,
-            (host, port),
-            SshClientHandler {
-                checker: checker_clone,
-            },
-        )
-        .await
-        {
-            Ok(h) => h,
-            Err(e) => {
-                if matches!(e, russh::Error::UnknownKey)
-                    && let Some(presented) = checker.take_presented()
-                {
-                    return Err(HostKeyMismatch {
-                        presented_fp: presented.fingerprint,
-                        stored_fp: presented.stored_fp,
-                        key_line: presented.key_line,
-                    }
-                    .into());
-                }
-                let detail = match checker.take_diag() {
-                    Some(d) => format!("SSH connect failed: {d}"),
-                    None => format!("SSH connect failed: {e}"),
-                };
-                return Err(SshConnectError { detail }.into());
-            }
-        };
+        let handle =
+            Self::connect_transport(host, port, read_timeout_secs, keepalive_interval, checker)
+                .await?;
 
         let mut guard = ConnGuard::new(handle);
         {
@@ -339,42 +372,11 @@ impl SftpFs {
         user: &str,
         read_timeout_secs: u64,
         keepalive_interval: u32,
-        checker: std::sync::Arc<crate::ssh_known_hosts::HostKeyChecker>,
+        checker: Arc<HostKeyChecker>,
     ) -> Result<Self> {
-        let config = Arc::new(client::Config {
-            inactivity_timeout: Some(Duration::from_secs(read_timeout_secs)),
-            keepalive_interval: Some(Duration::from_secs(u64::from(keepalive_interval))),
-            ..Default::default()
-        });
-        let checker_clone = std::sync::Arc::clone(&checker);
-        let handle = match client::connect(
-            config,
-            (host, port),
-            SshClientHandler {
-                checker: checker_clone,
-            },
-        )
-        .await
-        {
-            Ok(h) => h,
-            Err(e) => {
-                if matches!(e, russh::Error::UnknownKey)
-                    && let Some(presented) = checker.take_presented()
-                {
-                    return Err(HostKeyMismatch {
-                        presented_fp: presented.fingerprint,
-                        stored_fp: presented.stored_fp,
-                        key_line: presented.key_line,
-                    }
-                    .into());
-                }
-                let detail = match checker.take_diag() {
-                    Some(d) => format!("SSH connect failed: {d}"),
-                    None => format!("SSH connect failed: {e}"),
-                };
-                return Err(SshConnectError { detail }.into());
-            }
-        };
+        let handle =
+            Self::connect_transport(host, port, read_timeout_secs, keepalive_interval, checker)
+                .await?;
 
         let mut guard = ConnGuard::new(handle);
         let mut agent_rejected = false;
@@ -936,18 +938,35 @@ impl FileSystemProvider for SftpFs {
             .await
             .map_err(|e| anyhow!("Failed to exec du: {e}"))?;
 
-        let mut output = Vec::new();
-        loop {
-            match channel.wait().await {
-                Some(russh::ChannelMsg::Data { data }) => {
-                    output.extend_from_slice(&data);
+        let output = tokio::time::timeout(Self::DU_TIMEOUT, async {
+            let mut output = Vec::new();
+            loop {
+                match channel.wait().await {
+                    Some(russh::ChannelMsg::Data { data }) => {
+                        output.extend_from_slice(&data);
+                    }
+                    Some(russh::ChannelMsg::ExitStatus { .. } | russh::ChannelMsg::Eof) | None => {
+                        break;
+                    }
+                    _ => {}
                 }
-                Some(russh::ChannelMsg::ExitStatus { .. } | russh::ChannelMsg::Eof) | None => break,
-                _ => {}
             }
-        }
+            output
+        })
+        .await
+        .map_err(|_| {
+            anyhow!(
+                "Size calculation timed out after {}s (remote filesystem unresponsive?)",
+                Self::DU_TIMEOUT.as_secs()
+            )
+        })?;
 
         let out = String::from_utf8_lossy(&output);
+        if out.trim().is_empty() {
+            return Err(anyhow!(
+                "Remote `du` produced no output (command unavailable or connection lost)"
+            ));
+        }
         let size_str = out.split('\t').next().unwrap_or("0").trim();
         let size: u64 = size_str
             .parse()
@@ -964,6 +983,10 @@ impl FileSystemProvider for SftpFs {
     ) -> Option<anyhow::Result<()>> {
         let src_str = normalize_sftp_path(src);
         let dest_path = dest.to_path_buf();
+
+        if progress.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            return Some(Ok(()));
+        }
 
         let (total_size, perms, is_dir) = match self.sftp.metadata(src_str.as_str()).await {
             Ok(m) => (
@@ -999,7 +1022,12 @@ impl FileSystemProvider for SftpFs {
 
         loop {
             if progress.cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                return Some(Err(anyhow!("Operation cancelled")));
+                // Cancellation is not a failure: an `Err` here would raise the
+                // error dialog and offer a retry for a transfer the user just
+                // stopped. Remove the partial destination first so no truncated
+                // file is left behind.
+                let _ = dest_fs.delete(&dest_path, false).await;
+                return Some(Ok(()));
             }
             let n = match src_file.read(&mut buf).await {
                 Ok(0) => break,
@@ -1039,6 +1067,10 @@ impl FileSystemProvider for SftpFs {
         let dest_str = normalize_sftp_path(dest);
         let src_path = src.to_path_buf();
 
+        if progress.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            return Some(Ok(()));
+        }
+
         if src_fs.is_dir(&src_path).await {
             return None;
         }
@@ -1068,7 +1100,10 @@ impl FileSystemProvider for SftpFs {
         let mut offset = 0u64;
         loop {
             if progress.cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                return Some(Err(anyhow!("Operation cancelled")));
+                // Cancellation is not a failure (see `copy_to_local`): drop the
+                // half-written destination and let the caller wind down.
+                let _ = self.sftp.remove_file(dest_str.as_str()).await;
+                return Some(Ok(()));
             }
             let len = std::cmp::min(
                 chunk_size,
