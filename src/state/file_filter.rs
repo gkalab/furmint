@@ -29,8 +29,12 @@ const CASE_INSENSITIVE: bool = false;
 ///
 /// Returns `globset::Error` if the pattern is not a valid glob.
 pub fn compile_glob(pattern: &str) -> Result<GlobMatcher, globset::Error> {
+    // Explicitly enable `\` as an escape on all platforms: globset disables
+    // it by default on Windows (where `\` is a path separator) and would
+    // otherwise treat it as one.
     Ok(GlobBuilder::new(pattern)
         .case_insensitive(CASE_INSENSITIVE)
+        .backslash_escape(true)
         .build()?
         .compile_matcher())
 }
@@ -271,8 +275,8 @@ mod tests {
 
     #[test]
     fn test_escape_glob() {
-        assert!(matches(r"a\*b", "a*b"));
-        assert!(!matches(r"a\*b", "axb"));
+        assert!(matches(r"a\[b", "a[b"));
+        assert!(!matches(r"a\[b", "axb"));
     }
 
     #[test]
