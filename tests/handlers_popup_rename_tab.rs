@@ -24,6 +24,23 @@ mod tests {
         assert!(!app.popups.rename_tab.is_visible);
     }
 
+    /// `Popups::any_visible` gates the quit confirmation and mouse routing, so
+    /// opening a popup must register it there too. This used to silently fail
+    /// because `handle_init_rename_tab` set `is_visible` behind `Popups`' back.
+    #[test]
+    fn test_init_rename_tab_marks_popup_visible() {
+        let mut app = create_test_app();
+        assert!(!app.popups.any_visible());
+
+        handle_init_rename_tab(&mut app);
+
+        assert!(app.popups.any_visible());
+        assert!(fm::app::PopupKind::RenameTab.is_visible(&app.popups));
+
+        handle_rename_tab_event(KeyCode::Escape, Modifiers::NONE, &mut app);
+        assert!(!app.popups.any_visible());
+    }
+
     #[test]
     fn test_rename_tab_enter_applies_name() {
         let mut app = create_test_app();

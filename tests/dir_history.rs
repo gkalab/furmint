@@ -47,7 +47,7 @@ fn test_fuzzy_search() {
     history.record_visit("local", &PathBuf::from("/var/log"));
 
     let results = history.fuzzy_search("local", "hm");
-    assert!(!results.is_empty());
+    assert_ne!(results, [] as [(std::path::PathBuf, i64); 0]);
     assert!(
         results
             .iter()

@@ -21,158 +21,119 @@ pub struct ArchiveCacheEntry {
     pub closed_at: Option<std::time::Instant>,
 }
 
-pub struct Popups {
-    pub rename: RenameState,
-    pub rename_tab: RenameTabState,
-    pub create_directory: CreateDirectoryState,
-    pub delete: DeleteState,
-    pub empty_trash: EmptyTrashState,
-    pub copy_move: CopyMoveState,
-    pub conflict: ConflictState,
-    pub error: ErrorState,
-    pub quit_confirmation: QuitConfirmationState,
-    pub create_file: CreateFileState,
-    pub help: HelpState,
-    pub drive_select: DriveSelectState,
-    pub ssh_connection: SshConnectionState,
-    pub ssh_password: SshPasswordState,
-    pub host_key: HostKeyState,
-    pub remote_edit: RemoteEditState,
-    pub bookmark: BookmarkState,
-    pub viewer_search: FileViewerSearchState,
-    /// Bitmask of currently-visible popups.
-    visible: u32,
+/// Declares every popup owned by [`Popups`].
+///
+/// Each row is `Variant: field: Type`, optionally followed by `: subfield` when
+/// the popup keeps its `is_visible` flag on a nested field (the bookmark popup
+/// owns a `FilterableListState`). This single table is the only place a popup
+/// needs to be registered: the struct fields, [`Popups::new`], the
+/// [`PopupKind`] enum and every `PopupKind` dispatch are all derived from it,
+/// so adding a popup can no longer leave a `match` arm behind.
+///
+/// Every popup state must expose a `pub is_visible: bool` and an inherent
+/// `pub fn reset(&mut self)`.
+macro_rules! declare_popups {
+    ($(
+        $variant:ident : $field:ident : $ty:ty $(: $sub:ident)?
+    ),* $(,)?) => {
+        pub struct Popups {
+            $( pub $field: $ty, )*
+        }
+
+        /// Identifies a single popup in the [`Popups`] struct for visibility tracking.
+        #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+        pub enum PopupKind {
+            $( $variant, )*
+        }
+
+        impl Popups {
+            #[must_use]
+            pub fn new() -> Self {
+                Self {
+                    $( $field: <$ty>::new(), )*
+                }
+            }
+
+            /// Sets the visibility of a popup. This is the single entry point
+            /// for changing popup visibility: the flag lives on the popup's own
+            /// state, so it can never drift out of sync.
+            pub fn set_popup_visible(&mut self, popup: PopupKind, visible: bool) {
+                match popup {
+                    $( PopupKind::$variant => self.$field$(.$sub)?.is_visible = visible, )*
+                }
+            }
+
+            /// Hides a popup and clears its contents.
+            pub fn reset_popup(&mut self, popup: PopupKind) {
+                match popup {
+                    $(
+                        PopupKind::$variant => {
+                            self.$field$(.$sub)?.is_visible = false;
+                            self.$field.reset();
+                        }
+                    )*
+                }
+            }
+
+            /// Closes the remote-edit popup, guaranteeing the temp file is removed
+            /// (after the detached editor exits, if it is still running).
+            pub fn close_remote_edit(&mut self) {
+                self.set_popup_visible(PopupKind::RemoteEdit, false);
+                self.remote_edit.close();
+            }
+
+            /// Returns `true` if any popup is currently visible.
+            #[must_use]
+            pub fn any_visible(&self) -> bool {
+                let mut any = false;
+                $( any |= self.$field$(.$sub)?.is_visible; )*
+                any
+            }
+        }
+
+        impl Default for Popups {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+
+        impl PopupKind {
+            /// Every popup kind, in declaration order.
+            pub fn all() -> impl Iterator<Item = Self> {
+                [$( Self::$variant ),*].into_iter()
+            }
+
+            /// Returns `true` if this popup is currently visible in `popups`.
+            #[must_use]
+            pub fn is_visible(self, popups: &Popups) -> bool {
+                match self {
+                    $( Self::$variant => popups.$field$(.$sub)?.is_visible, )*
+                }
+            }
+        }
+    };
 }
 
-/// Identifies a single popup in the [`Popups`] struct for visibility tracking.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum PopupKind {
-    Rename,
-    RenameTab,
-    CreateDirectory,
-    Delete,
-    EmptyTrash,
-    CopyMove,
-    Conflict,
-    Error,
-    QuitConfirmation,
-    CreateFile,
-    Help,
-    DriveSelect,
-    SshConnection,
-    SshPassword,
-    HostKey,
-    RemoteEdit,
-    Bookmark,
-    ViewerSearch,
-}
-
-impl PopupKind {
-    const fn bit(self) -> u32 {
-        1 << (self as u32)
-    }
-}
-
-impl Popups {
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            rename: RenameState::new(),
-            rename_tab: RenameTabState::new(),
-            create_directory: CreateDirectoryState::new(),
-            delete: DeleteState::new(),
-            empty_trash: EmptyTrashState::new(),
-            copy_move: CopyMoveState::new(),
-            conflict: ConflictState::new(),
-            error: ErrorState::new(),
-            quit_confirmation: QuitConfirmationState::new(),
-            create_file: CreateFileState::new(),
-            help: HelpState::new(),
-            drive_select: DriveSelectState::new(),
-            ssh_connection: SshConnectionState::new(),
-            ssh_password: SshPasswordState::new(),
-            host_key: HostKeyState::new(),
-            remote_edit: RemoteEditState::new(),
-            bookmark: BookmarkState::new(),
-            viewer_search: FileViewerSearchState::new(),
-            visible: 0,
-        }
-    }
-
-    /// Sets the visibility of a popup, mirroring the change into both the
-    /// `visible` bitmask and the popup's own `is_visible` flag. This is
-    /// the single entry point for changing popup visibility.
-    pub fn set_popup_visible(&mut self, popup: PopupKind, visible: bool) {
-        if visible {
-            self.visible |= popup.bit();
-        } else {
-            self.visible &= !popup.bit();
-        }
-        match popup {
-            PopupKind::Rename => self.rename.is_visible = visible,
-            PopupKind::RenameTab => self.rename_tab.is_visible = visible,
-            PopupKind::CreateDirectory => self.create_directory.is_visible = visible,
-            PopupKind::Delete => self.delete.is_visible = visible,
-            PopupKind::EmptyTrash => self.empty_trash.is_visible = visible,
-            PopupKind::CopyMove => self.copy_move.is_visible = visible,
-            PopupKind::Conflict => self.conflict.is_visible = visible,
-            PopupKind::Error => self.error.is_visible = visible,
-            PopupKind::QuitConfirmation => self.quit_confirmation.is_visible = visible,
-            PopupKind::CreateFile => self.create_file.is_visible = visible,
-            PopupKind::Help => self.help.is_visible = visible,
-            PopupKind::DriveSelect => self.drive_select.is_visible = visible,
-            PopupKind::SshConnection => self.ssh_connection.is_visible = visible,
-            PopupKind::SshPassword => self.ssh_password.is_visible = visible,
-            PopupKind::HostKey => self.host_key.is_visible = visible,
-            PopupKind::RemoteEdit => self.remote_edit.is_visible = visible,
-            PopupKind::Bookmark => self.bookmark.list.is_visible = visible,
-            PopupKind::ViewerSearch => self.viewer_search.is_visible = visible,
-        }
-    }
-
-    /// Hides a popup and, if it has dedicated reset logic, clears its contents.
-    pub fn reset_popup(&mut self, popup: PopupKind) {
-        self.set_popup_visible(popup, false);
-        match popup {
-            PopupKind::Rename => self.rename.reset(),
-            PopupKind::RenameTab => self.rename_tab.reset(),
-            PopupKind::CreateDirectory => self.create_directory.reset(),
-            PopupKind::Delete => self.delete.reset(),
-            PopupKind::CopyMove => self.copy_move.reset(),
-            PopupKind::Conflict => self.conflict.reset(),
-            PopupKind::Error => self.error.reset(),
-            PopupKind::QuitConfirmation => self.quit_confirmation.reset(),
-            PopupKind::CreateFile => self.create_file.reset(),
-            PopupKind::Help => self.help.reset(),
-            PopupKind::DriveSelect => self.drive_select.reset(),
-            PopupKind::RemoteEdit => self.remote_edit.reset(),
-            PopupKind::Bookmark => self.bookmark.reset(),
-            PopupKind::EmptyTrash
-            | PopupKind::SshConnection
-            | PopupKind::SshPassword
-            | PopupKind::HostKey
-            | PopupKind::ViewerSearch => {}
-        }
-    }
-
-    /// Closes the remote-edit popup, guaranteeing the temp file is removed
-    /// (after the detached editor exits, if it is still running).
-    pub fn close_remote_edit(&mut self) {
-        self.set_popup_visible(PopupKind::RemoteEdit, false);
-        self.remote_edit.close();
-    }
-
-    /// Returns `true` if any popup is currently visible.
-    #[must_use]
-    pub fn any_visible(&self) -> bool {
-        self.visible != 0
-    }
-}
-
-impl Default for Popups {
-    fn default() -> Self {
-        Self::new()
-    }
+declare_popups! {
+    Rename: rename: RenameState,
+    RenameTab: rename_tab: RenameTabState,
+    CreateDirectory: create_directory: CreateDirectoryState,
+    Delete: delete: DeleteState,
+    EmptyTrash: empty_trash: EmptyTrashState,
+    CopyMove: copy_move: CopyMoveState,
+    Conflict: conflict: ConflictState,
+    Error: error: ErrorState,
+    QuitConfirmation: quit_confirmation: QuitConfirmationState,
+    CreateFile: create_file: CreateFileState,
+    Help: help: HelpState,
+    DriveSelect: drive_select: DriveSelectState,
+    SshConnection: ssh_connection: SshConnectionState,
+    SshPassword: ssh_password: SshPasswordState,
+    HostKey: host_key: HostKeyState,
+    RemoteEdit: remote_edit: RemoteEditState,
+    // The bookmark popup's visibility flag lives on its nested filterable list.
+    Bookmark: bookmark: BookmarkState: list,
+    ViewerSearch: viewer_search: FileViewerSearchState,
 }
 
 #[derive(Clone)]

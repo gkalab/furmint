@@ -76,8 +76,8 @@ fn test_multi_tab_search_timeout() {
     app.panels.active = PanelSide::Right;
 
     // Before reset
-    assert!(!app.panels.left.tabs[0].search.buffer.is_empty());
-    assert!(!app.panels.right.tabs[0].search.buffer.is_empty());
+    assert_ne!(app.panels.left.tabs[0].search.buffer, "");
+    assert_ne!(app.panels.right.tabs[0].search.buffer, "");
 
     // Run reset logic
     fm::handlers::navigation::reset_expired_search(&mut app);

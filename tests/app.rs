@@ -1,4 +1,4 @@
-use fm::app::AppState;
+use fm::app::{AppState, PopupKind};
 use fm::app_state::tabs::{
     IncrementalSearch, PanelSide, SortColumn, SortDirection, SortSettings, Tab, TabManager,
 };
@@ -124,6 +124,49 @@ async fn test_help_state_reset() {
     s.is_visible = true;
     s.reset();
     assert!(!s.is_visible);
+}
+
+/// The popup table is the single source of truth: every `PopupKind` must flip
+/// exactly one real flag and be reflected by `any_visible`. A popup wired into
+/// the enum but not the table would break this.
+#[test]
+fn popup_visibility_matches_any_visible_for_every_kind() {
+    let kinds: Vec<PopupKind> = PopupKind::all().collect();
+    assert_eq!(kinds.len(), 18);
+
+    for kind in kinds {
+        let mut popups = fm::app::Popups::new();
+        assert!(!popups.any_visible(), "{kind:?} should start hidden");
+
+        popups.set_popup_visible(kind, true);
+        assert!(kind.is_visible(&popups), "{kind:?} did not become visible");
+        assert!(
+            popups.any_visible(),
+            "{kind:?} is visible but any_visible() says otherwise"
+        );
+
+        popups.set_popup_visible(kind, false);
+        assert!(!kind.is_visible(&popups), "{kind:?} did not become hidden");
+        assert!(
+            !popups.any_visible(),
+            "{kind:?} is hidden but any_visible() says otherwise"
+        );
+    }
+}
+
+/// `reset_popup` must hide the popup regardless of how many were open, and must
+/// leave the rest untouched.
+#[test]
+fn reset_popup_only_clears_the_requested_kind() {
+    for kind in PopupKind::all() {
+        let mut popups = fm::app::Popups::new();
+        popups.set_popup_visible(kind, true);
+
+        popups.reset_popup(kind);
+
+        assert!(!kind.is_visible(&popups), "{kind:?} still visible");
+        assert!(!popups.any_visible(), "{kind:?} survived reset_popup");
+    }
 }
 
 #[tokio::test]

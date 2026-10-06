@@ -646,18 +646,17 @@ async fn test_esc_resets_search() {
 
     handle_type_char(&mut app, 'b').await;
     assert_eq!(app.panels.left.active_tab().cursor, 1);
-    assert!(!app.panels.left.active_tab().search.buffer.is_empty());
+    assert_ne!(app.panels.left.active_tab().search.buffer, "");
 
     reset_search(&mut app);
 
-    assert!(app.panels.left.active_tab().search.buffer.is_empty());
-    assert!(
+    assert_eq!(app.panels.left.active_tab().search.buffer, "");
+    assert_eq!(
         app.panels
             .left
             .active_tab()
             .search
-            .matching_indices
-            .is_empty()
+            .matching_indices, [] as [usize; 0]
     );
     assert_eq!(app.panels.left.active_tab().search.position, 0);
     assert!(app.panels.left.active_tab().search.last_type_time.is_none());
@@ -745,7 +744,7 @@ async fn test_timeout_resets_search_state() {
     handle_type_char(&mut app, 'b').await;
 
     // Verify search is active
-    assert!(!app.panels.left.active_tab().search.buffer.is_empty());
+    assert_ne!(app.panels.left.active_tab().search.buffer, "");
     assert_eq!(
         app.panels.left.active_tab().search.matching_indices.len(),
         2
@@ -763,14 +762,13 @@ async fn test_timeout_resets_search_state() {
     reset_search(&mut app);
 
     // Verify search state is cleared
-    assert!(app.panels.left.active_tab().search.buffer.is_empty());
-    assert!(
+    assert_eq!(app.panels.left.active_tab().search.buffer, "");
+    assert_eq!(
         app.panels
             .left
             .active_tab()
             .search
-            .matching_indices
-            .is_empty()
+            .matching_indices, [] as [usize; 0]
     );
     assert_eq!(app.panels.left.active_tab().search.position, 0);
     assert!(app.panels.left.active_tab().search.last_type_time.is_none());
@@ -804,7 +802,7 @@ async fn test_periodic_reset_expired_search() {
     handle_type_char(&mut app, 'b').await;
 
     // Verify search is active
-    assert!(!app.panels.left.active_tab().search.buffer.is_empty());
+    assert_ne!(app.panels.left.active_tab().search.buffer, "");
     assert_eq!(
         app.panels.left.active_tab().search.matching_indices.len(),
         2
@@ -821,14 +819,13 @@ async fn test_periodic_reset_expired_search() {
     reset_expired_search(&mut app);
 
     // Verify search state is cleared
-    assert!(app.panels.left.active_tab().search.buffer.is_empty());
-    assert!(
+    assert_eq!(app.panels.left.active_tab().search.buffer, "");
+    assert_eq!(
         app.panels
             .left
             .active_tab()
             .search
-            .matching_indices
-            .is_empty()
+            .matching_indices, [] as [usize; 0]
     );
     assert_eq!(app.panels.left.active_tab().search.position, 0);
 }
@@ -863,7 +860,7 @@ async fn test_handle_type_char_populates_highlights() {
     }
 
     let panel = app.active_tab();
-    assert!(!panel.search.matching_indices.is_empty());
+    assert_ne!(panel.search.matching_indices, [] as [usize; 0]);
     assert!(panel.search.highlights.contains_key(&0)); // "test_file.txt" is at index 0
     let highlights = panel.search.highlights.get(&0).unwrap();
     assert_eq!(highlights, &vec![0, 1, 2, 3]);
@@ -877,7 +874,7 @@ async fn test_handle_type_char_populates_highlights() {
     handle_type_char(&mut app, 'f').await;
 
     let panel = app.active_tab();
-    assert!(!panel.search.matching_indices.is_empty());
+    assert_ne!(panel.search.matching_indices, [] as [usize; 0]);
     assert!(panel.search.highlights.contains_key(&0));
     let highlights = panel.search.highlights.get(&0).unwrap();
     // Fuzzy match should highlight 't' (0) and 'f' (5)
@@ -922,7 +919,7 @@ async fn test_update_viewer_content_loads_large_file() {
     app.file_viewer.handle_content_load_result(res);
 
     // Should NOT have error message in content
-    assert!(app.file_viewer.text.content.is_empty());
+    assert_eq!(app.file_viewer.text.content, [] as [std::string::String; 0]);
     // Should have large file components initialized
     assert!(app.file_viewer.text.large_file_reader.is_some());
     assert!(app.file_viewer.text.large_file_indexer.is_some());

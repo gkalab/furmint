@@ -21,16 +21,6 @@ impl RenameTabState {
     }
 }
 
-impl crate::state::PopupState for RenameTabState {
-    fn reset(&mut self) {
-        self.reset();
-    }
-
-    fn set_visible(&mut self, visible: bool) {
-        self.is_visible = visible;
-    }
-}
-
 impl Default for RenameTabState {
     fn default() -> Self {
         Self::new()

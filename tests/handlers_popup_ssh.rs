@@ -344,5 +344,5 @@ async fn test_handle_reconnect_ssh_sets_up_password_prompt() {
     assert_eq!(app.popups.ssh_password.session_id, "test_session");
     assert_eq!(app.popups.ssh_password.host, "example.com");
     assert_eq!(app.popups.ssh_password.user, "testuser");
-    assert!(app.popups.ssh_password.password.expose_secret().is_empty());
+    assert_eq!(app.popups.ssh_password.password.expose_secret(), "");
 }

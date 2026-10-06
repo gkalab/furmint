@@ -44,6 +44,14 @@ impl SshConnectionState {
             history_area: None,
         }
     }
+
+    /// Deliberately keeps every field: dismissing the SSH dialog must not
+    /// discard the connection string, because escaping the password prompt
+    /// reopens this popup pre-filled (see `handlers::popup_ssh`). The popup is
+    /// fully re-initialized on open instead.
+    pub fn reset(&mut self) {
+        self.is_visible = false;
+    }
 }
 
 impl Default for SshConnectionState {
@@ -81,6 +89,12 @@ impl SshPasswordState {
             cursor_position: 0,
             from_bookmark: false,
         }
+    }
+
+    /// Deliberately keeps every field: `SshError::Auth` re-initializes host,
+    /// user, password, error and cursor when the popup is (re)opened.
+    pub fn reset(&mut self) {
+        self.is_visible = false;
     }
 }
 

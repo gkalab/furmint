@@ -15,6 +15,13 @@ impl EmptyTrashState {
             button_areas: Vec::new(),
         }
     }
+
+    pub fn reset(&mut self) {
+        self.is_visible = false;
+        self.selected_no = true;
+        self.popup_area = ratatui::layout::Rect::default();
+        self.button_areas.clear();
+    }
 }
 
 impl Default for EmptyTrashState {

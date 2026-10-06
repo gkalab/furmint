@@ -66,7 +66,7 @@ impl HostKeyState {
         self.is_visible = true;
     }
 
-    pub fn hide(&mut self) {
+    pub fn reset(&mut self) {
         self.is_visible = false;
     }
 }

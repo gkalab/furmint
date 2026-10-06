@@ -29,16 +29,6 @@ impl CreateFileState {
     }
 }
 
-impl crate::state::PopupState for CreateFileState {
-    fn reset(&mut self) {
-        self.reset();
-    }
-
-    fn set_visible(&mut self, visible: bool) {
-        self.is_visible = visible;
-    }
-}
-
 impl Default for CreateFileState {
     fn default() -> Self {
         Self::new()

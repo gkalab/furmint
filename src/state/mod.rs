@@ -40,8 +40,3 @@ pub use remote_edit::RemoteEditState;
 pub use rename::RenameState;
 pub use rename_tab::RenameTabState;
 pub use ssh::{SshConnectionState, SshPasswordState};
-
-pub trait PopupState {
-    fn reset(&mut self);
-    fn set_visible(&mut self, visible: bool);
-}
