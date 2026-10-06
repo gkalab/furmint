@@ -1,5 +1,5 @@
 use super::common::{self, ArchiveEntryMetadata};
-use super::{ArchiveFormat, ScanResult};
+use super::{ArchiveFormat, NewEntry, PlannedDir, PlannedFile, ScanResult};
 use crate::fs::fs_provider::TaskProgressContext;
 use anyhow::{Context, Result};
 use sevenz_rust2::{ArchiveEntry, ArchiveReader, ArchiveWriter, NtTime, Password};
@@ -302,43 +302,61 @@ impl SevenZHandler {
         files: &[(&Path, &str)],
         directories: &[(&str, Option<SystemTime>)],
     ) -> Result<()> {
-        let mut prepared_files: Vec<(PathBuf, String, Option<SystemTime>)> = Vec::new();
-        let mut prepared_dirs: Vec<(String, SystemTime)> = Vec::new();
-        let mut skip: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let planned_files: Vec<PlannedFile<'_>> = files
+            .iter()
+            .map(|(src, dest)| PlannedFile::from_file(dest, src))
+            .collect();
+        let planned_dirs: Vec<PlannedDir> = directories
+            .iter()
+            .map(|(dest, mtime)| PlannedDir::new(dest, *mtime))
+            .collect();
+        self.do_add_planned(&planned_files, &planned_dirs)
+    }
 
-        for (src, dest) in files {
-            let dest_norm = common::normalize_path(dest);
-            let dest_norm_str = dest_norm.to_string_lossy().to_string();
-            skip.insert(dest_norm_str.clone());
-            let mtime = std::fs::metadata(src).and_then(|m| m.modified()).ok();
-            prepared_files.push((src.to_path_buf(), dest_norm_str, mtime));
-        }
+    fn do_add_memory_entries(&self, entries: &[NewEntry]) -> Result<()> {
+        let mut files: Vec<PlannedFile<'_>> = Vec::with_capacity(entries.len());
+        let mut directories: Vec<PlannedDir> = Vec::new();
 
-        for (dest, mtime) in directories {
-            let mut dest_str = dest.to_string();
-            if !dest_str.ends_with('/') {
-                dest_str.push('/');
+        for entry in entries {
+            if let Some(data) = &entry.data {
+                files.push(PlannedFile::from_memory(
+                    &entry.dest,
+                    data,
+                    entry.mtime,
+                    entry.mode,
+                ));
+            } else {
+                directories.push(PlannedDir::new(&entry.dest, entry.mtime));
             }
-            let dest_norm = common::normalize_path(&dest_str);
-            let dest_norm_str = dest_norm.to_string_lossy().to_string();
-            skip.insert(dest_norm_str.clone());
-            prepared_dirs.push((dest_norm_str, mtime.unwrap_or_else(SystemTime::now)));
         }
+
+        self.do_add_planned(&files, &directories)
+    }
+
+    /// Rewrites the archive, dropping entries whose destination is being
+    /// replaced and appending everything in one pass.
+    fn do_add_planned(&self, files: &[PlannedFile<'_>], directories: &[PlannedDir]) -> Result<()> {
+        let skip: std::collections::HashSet<String> = files
+            .iter()
+            .map(|f| f.dest().to_string())
+            .chain(directories.iter().map(|d| d.dest().to_string()))
+            .collect();
 
         self.rewrite_and_finish(
             |entry, data, writer| {
-                let name_norm = common::normalize_path(entry.name());
-                let name_norm_str = name_norm.to_string_lossy().to_string();
+                let name_norm = common::normalize_path(entry.name())
+                    .to_string_lossy()
+                    .to_string();
 
-                if !skip.contains(&name_norm_str) {
+                if !skip.contains(&name_norm) {
                     Self::push_entry(writer, entry, data)?;
                 }
                 Ok(())
             },
             |writer| {
-                for (dest, mtime) in prepared_dirs {
-                    let mut entry = ArchiveEntry::new_directory(&dest);
-                    Self::set_entry_mtime(&mut entry, mtime);
+                for dir in directories {
+                    let mut entry = ArchiveEntry::new_directory(dir.dest());
+                    Self::set_entry_mtime(&mut entry, dir.mtime().unwrap_or_else(SystemTime::now));
                     #[cfg(unix)]
                     {
                         entry.windows_attributes = 0o040_755;
@@ -346,21 +364,24 @@ impl SevenZHandler {
                     }
                     writer.push_archive_entry(entry, None::<&mut dyn Read>)?;
                 }
-                for (src, dest, mtime) in prepared_files {
-                    let mut entry = ArchiveEntry::from_path(&src, dest);
+                for planned in files {
+                    #[cfg_attr(not(unix), allow(unused_variables))]
+                    let (mtime, mode) = planned
+                        .resolve_meta()
+                        .map_err(|e| sevenz_rust2::Error::Other(e.to_string().into()))?;
+                    let mut entry = ArchiveEntry::new_file(planned.dest());
                     if let Some(mtime) = mtime {
                         Self::set_entry_mtime(&mut entry, mtime);
                     }
                     #[cfg(unix)]
-                    if let Ok(meta) = std::fs::metadata(&src) {
-                        use std::os::unix::fs::PermissionsExt;
-                        entry.windows_attributes = meta.permissions().mode();
+                    {
+                        entry.windows_attributes = mode;
                         entry.has_windows_attributes = true;
                     }
-                    let file = File::open(&src).map_err(|e| {
-                        sevenz_rust2::Error::Io(e, src.to_string_lossy().to_string().into())
-                    })?;
-                    writer.push_archive_entry(entry, Some(file))?;
+                    let mut data = planned
+                        .open()
+                        .map_err(|e| sevenz_rust2::Error::Other(e.to_string().into()))?;
+                    writer.push_archive_entry(entry, Some(&mut data))?;
                 }
                 Ok(())
             },
@@ -521,6 +542,15 @@ impl ArchiveFormat for SevenZHandler {
         directories: &[(&str, Option<SystemTime>)],
     ) -> Result<()> {
         self.do_add_entries(files, directories)
+    }
+
+    /// Adds in-memory entries to the archive in a single rewrite.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any entry cannot be added or the archive cannot be rewritten.
+    fn add_entries(&self, entries: &[NewEntry]) -> Result<()> {
+        self.do_add_memory_entries(entries)
     }
 
     /// Sets the modified time of a file or directory within the archive.

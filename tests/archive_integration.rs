@@ -1272,3 +1272,195 @@ async fn test_recursive_op_copies_directory_tree_to_7z() {
     );
     assert_eq!(processed.load(Ordering::Relaxed), total);
 }
+
+/// Runs one `recursive_op` copy from `src_fs` to `dest_fs`.
+async fn recursive_copy(
+    src_fs: &dyn FileSystemProvider,
+    dest_fs: &dyn FileSystemProvider,
+    src: &Path,
+    dest: &Path,
+    total: usize,
+) -> Result<(), String> {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let processed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let (_, decision_rx) = mpsc::channel(8);
+    let decision_rx = Arc::new(tokio::sync::Mutex::new(decision_rx));
+    let subtree_counts = fm::fs::ops::SubtreeCounts::new();
+
+    let ctx = fm::fs::ops::RecursiveOpContext {
+        src_fs,
+        dest_fs,
+        src,
+        dest,
+        action: fm::state::CopyMoveAction::Copy,
+        cancel: &cancel,
+        tx: &tx,
+        id: 1,
+        total,
+        total_bytes: 0,
+        processed: &processed,
+        processed_bytes: &processed_bytes,
+        decision_rx: &decision_rx,
+        subtree_counts: &subtree_counts,
+    };
+    let mut decision_state = fm::fs::ops::DecisionState::new();
+    let res = fm::fs::ops::recursive_op(ctx, &mut decision_state).await;
+
+    // Surface task errors reported through the event channel as test failures.
+    while let Ok(ev) = rx.try_recv() {
+        if let UiEvent::Alert(AlertEvent::TaskError { message, .. }) = ev {
+            return Err(message);
+        }
+    }
+    res.map_err(|e| e.to_string())
+}
+
+/// Creates an archive at `path` containing `files` (and any parent directories).
+fn make_archive(path: &Path, files: &[(&str, &[u8])]) {
+    let parent = path.parent().unwrap();
+    std::fs::create_dir_all(parent).unwrap();
+    let file = File::create(path).unwrap();
+    let mut zip = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default();
+    for (name, data) in files {
+        zip.start_file(*name, options).unwrap();
+        zip.write_all(data).unwrap();
+    }
+    zip.finish().unwrap();
+}
+
+#[tokio::test]
+async fn test_copy_file_between_two_archives() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("src.zip");
+    let dest_path = temp_dir.path().join("dest.zip");
+    make_archive(&src_path, &[("a.txt", b"hello")]);
+    make_archive(&dest_path, &[]);
+
+    let src_fs = ArchiveFs::new(&src_path).unwrap();
+    let dest_fs = ArchiveFs::new(&dest_path).unwrap();
+
+    recursive_copy(&src_fs, &dest_fs, Path::new("a.txt"), Path::new("a.txt"), 1)
+        .await
+        .unwrap();
+
+    assert!(dest_fs.exists(Path::new("a.txt")).await);
+    assert_eq!(
+        dest_fs.read_file(Path::new("a.txt")).await.unwrap(),
+        b"hello"
+    );
+}
+
+#[tokio::test]
+async fn test_copy_directory_between_two_archives() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("src.zip");
+    let dest_path = temp_dir.path().join("dest.zip");
+    make_archive(
+        &src_path,
+        &[("tree/top.txt", b"top"), ("tree/sub/deep.txt", b"deep")],
+    );
+    make_archive(&dest_path, &[("existing.txt", b"keep")]);
+
+    let src_fs = ArchiveFs::new(&src_path).unwrap();
+    let dest_fs = ArchiveFs::new(&dest_path).unwrap();
+
+    // tree + top.txt + sub + deep.txt
+    recursive_copy(&src_fs, &dest_fs, Path::new("tree"), Path::new("tree"), 4)
+        .await
+        .unwrap();
+
+    for path in ["tree/top.txt", "tree/sub/deep.txt"] {
+        assert!(dest_fs.exists(Path::new(path)).await, "{path} missing");
+    }
+    assert_eq!(
+        dest_fs
+            .read_file(Path::new("tree/sub/deep.txt"))
+            .await
+            .unwrap(),
+        b"deep"
+    );
+    // Pre-existing entries survive.
+    assert_eq!(
+        dest_fs.read_file(Path::new("existing.txt")).await.unwrap(),
+        b"keep"
+    );
+}
+
+#[tokio::test]
+async fn test_copy_directory_between_two_7z_archives() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("src.7z");
+    let dest_path = temp_dir.path().join("dest.7z");
+    {
+        let file = File::create(&src_path).unwrap();
+        let mut writer = sevenz_rust2::ArchiveWriter::new(file).unwrap();
+        let entry = sevenz_rust2::ArchiveEntry::new_file("tree/one.txt");
+        let mut data: &[u8] = b"seven";
+        writer.push_archive_entry(entry, Some(&mut data)).unwrap();
+        writer.finish().unwrap();
+    }
+    let local = LocalFs::new();
+    local.create_file(&dest_path).await.unwrap();
+
+    let src_fs = ArchiveFs::new(&src_path).unwrap();
+    let dest_fs = ArchiveFs::new(&dest_path).unwrap();
+
+    recursive_copy(&src_fs, &dest_fs, Path::new("tree"), Path::new("tree"), 2)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        dest_fs.read_file(Path::new("tree/one.txt")).await.unwrap(),
+        b"seven"
+    );
+}
+
+/// Archive entry names must use forward slashes so the archives stay readable
+/// on other platforms (`normalize_path` would leak `\` on Windows).
+#[tokio::test]
+async fn test_copied_entries_use_forward_slashes() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("slashes_src.zip");
+    let dest_path = temp_dir.path().join("slashes_dest.zip");
+    make_archive(&src_path, &[("a/b/c.txt", b"nested")]);
+    make_archive(&dest_path, &[]);
+
+    let src_fs = ArchiveFs::new(&src_path).unwrap();
+    let dest_fs = ArchiveFs::new(&dest_path).unwrap();
+
+    recursive_copy(&src_fs, &dest_fs, Path::new("a"), Path::new("x"), 2)
+        .await
+        .unwrap();
+
+    let file = File::open(&dest_path).unwrap();
+    let mut archive = zip::ZipArchive::new(file).unwrap();
+    let mut names: Vec<String> = (0..archive.len())
+        .map(|i| archive.by_index(i).unwrap().name().to_string())
+        .collect();
+    names.sort();
+    assert_eq!(names, vec!["x/", "x/b/", "x/b/c.txt"]);
+}
+
+#[tokio::test]
+async fn test_copy_directory_between_zip_and_7z() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("src.zip");
+    let dest_path = temp_dir.path().join("dest.7z");
+    make_archive(&src_path, &[("tree/top.txt", b"top")]);
+    LocalFs::new().create_file(&dest_path).await.unwrap();
+
+    let src_fs = ArchiveFs::new(&src_path).unwrap();
+    let dest_fs = ArchiveFs::new(&dest_path).unwrap();
+
+    recursive_copy(&src_fs, &dest_fs, Path::new("tree"), Path::new("tree"), 2)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        dest_fs.read_file(Path::new("tree/top.txt")).await.unwrap(),
+        b"top"
+    );
+}

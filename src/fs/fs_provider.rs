@@ -488,6 +488,23 @@ pub trait FileSystemProvider: Send + Sync {
         None
     }
 
+    /// Optimized copy from any source filesystem into this one (e.g. adding a
+    /// whole tree to an archive, or moving entries between two archives).
+    ///
+    /// Unlike `copy_from_local`, the source is read through the provider API
+    /// rather than the local filesystem, so the source may be remote or another
+    /// archive. Returns `None` if this provider has no optimized path for the
+    /// given source filesystem.
+    async fn copy_from_source(
+        &self,
+        _src_fs: &dyn FileSystemProvider,
+        _src: &Path,
+        _dest: &Path,
+        _progress: &TaskProgressContext,
+    ) -> Option<anyhow::Result<()>> {
+        None
+    }
+
     /// Capability probe for `copy_to_local`: returns `true` if this provider
     /// has an optimized path for transferring `src` to a destination on
     /// `dest_fs`. Must not perform the transfer, so callers can check

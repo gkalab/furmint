@@ -1,3 +1,4 @@
+use crate::fs::archive::NewEntry;
 use crate::fs::archive::{ArchiveFormat, get_archive_handler};
 use crate::fs::fs_provider::{FileMetadata, FileSystemProvider, TaskProgressContext};
 use crate::fs::utils::FileEntry;
@@ -6,6 +7,11 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+
+/// Cap on how much entry data is decoded into memory before the destination
+/// archive is rewritten. Archives can only be rewritten wholesale, so a batch
+/// boundary costs one full rewrite.
+const ADD_BATCH_BUDGET: usize = 64 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct ArchiveEntry {
@@ -105,6 +111,22 @@ impl ArchiveFs {
             PathBuf::from(".")
         } else {
             PathBuf::from(resolved.join("/"))
+        }
+    }
+
+    /// The archive-internal destination for `path`: relative to the root, forward
+    /// slashes, no trailing slash. The root itself maps to an empty string.
+    ///
+    /// # Panics
+    ///
+    /// This function never panics.
+    #[must_use]
+    fn archive_internal_dest(path: &Path) -> String {
+        let resolved = Self::resolve_internal_path(path);
+        if resolved == Path::new(".") {
+            String::new()
+        } else {
+            resolved.to_string_lossy().to_string()
         }
     }
 
@@ -456,6 +478,104 @@ impl ArchiveFs {
         }
         total
     }
+
+    /// Copies a file or a whole directory tree from `src_fs` into this archive.
+    ///
+    /// Archives cannot be appended to piecemeal, so entries are collected from
+    /// the source provider, decoded into memory, and written in batches: one
+    /// rewrite per batch rather than one per entry.
+    async fn copy_from_source_into(
+        &self,
+        src_fs: &dyn FileSystemProvider,
+        src: &Path,
+        dest: &Path,
+        progress: &TaskProgressContext,
+    ) -> anyhow::Result<()> {
+        let dest_str = Self::archive_internal_dest(dest);
+
+        if !src_fs.is_dir(src).await {
+            let entry = NewEntry {
+                dest: dest_str,
+                mtime: src_fs.get_modified_time(src).await,
+                mode: None,
+                data: Some(src_fs.read_file(src).await?),
+            };
+            return self.add_entries_blocking(vec![entry]).await;
+        }
+
+        let mut queue: Vec<(PathBuf, String)> = vec![(src.to_path_buf(), dest_str.clone())];
+        let mut batch: Vec<NewEntry> = vec![NewEntry {
+            dest: dest_str,
+            mtime: src_fs.get_modified_time(src).await,
+            mode: None,
+            data: None,
+        }];
+        let mut buffered = 0usize;
+
+        while let Some((dir_src, dir_dest)) = queue.pop() {
+            let children = src_fs.read_dir(&dir_src).await?;
+            for child in children {
+                if progress.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                    return Ok(());
+                }
+
+                let Some(name) = child.file_name() else {
+                    continue;
+                };
+                let name = name.to_string_lossy().to_string();
+                let child_dest = if dir_dest.is_empty() {
+                    name
+                } else {
+                    format!("{dir_dest}/{name}")
+                };
+
+                if src_fs.is_dir(&child).await {
+                    batch.push(NewEntry {
+                        dest: child_dest.clone(),
+                        mtime: src_fs.get_modified_time(&child).await,
+                        mode: None,
+                        data: None,
+                    });
+                    queue.push((child, child_dest));
+                } else {
+                    let data = src_fs.read_file(&child).await?;
+                    buffered += data.len();
+                    batch.push(NewEntry {
+                        dest: child_dest,
+                        mtime: src_fs.get_modified_time(&child).await,
+                        // Archive sources do not expose the stored unix mode, so
+                        // the format default is used.
+                        mode: None,
+                        data: Some(data),
+                    });
+                }
+
+                if buffered >= ADD_BATCH_BUDGET {
+                    self.add_entries_blocking(std::mem::take(&mut batch))
+                        .await?;
+                    buffered = 0;
+                }
+            }
+        }
+
+        if !batch.is_empty() {
+            self.add_entries_blocking(batch).await?;
+        }
+        Ok(())
+    }
+
+    /// Appends a batch of entries and rescans, off the async runtime.
+    async fn add_entries_blocking(&self, entries: Vec<NewEntry>) -> anyhow::Result<()> {
+        let handler = self.handler.clone();
+        let this = self.clone();
+        tokio::task::spawn_blocking(move || {
+            handler.add_entries(&entries)?;
+            this.scan_archive()?;
+            anyhow::Ok(())
+        })
+        .await
+        .unwrap_or_else(|e| Err(anyhow::anyhow!("Join error: {e}")))
+    }
 }
 
 #[async_trait]
@@ -751,6 +871,21 @@ impl FileSystemProvider for ArchiveFs {
 
     async fn supports_copy_from_local(&self, src_fs: &dyn FileSystemProvider, _src: &Path) -> bool {
         src_fs.is_local()
+    }
+
+    /// Copies from any provider (another archive, a remote host) by decoding
+    /// entries through the provider API and appending them to this archive.
+    async fn copy_from_source(
+        &self,
+        src_fs: &dyn FileSystemProvider,
+        src: &Path,
+        dest: &Path,
+        progress: &TaskProgressContext,
+    ) -> Option<anyhow::Result<()>> {
+        Some(
+            self.copy_from_source_into(src_fs, src, dest, progress)
+                .await,
+        )
     }
 
     async fn copy_to_local(

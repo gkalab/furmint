@@ -1,5 +1,6 @@
 use super::ArchiveFormat;
 use super::common::{self, ArchiveEntryMetadata};
+use super::{NewEntry, PlannedDir, PlannedFile};
 use crate::fs::fs_provider::TaskProgressContext;
 use crate::fs::utils::mode_to_attributes;
 use anyhow::{Context, Result};
@@ -313,21 +314,40 @@ impl ZipHandler {
         files: &[(&Path, &str)],
         directories: &[(&str, Option<SystemTime>)],
     ) -> Result<()> {
+        let planned: Vec<PlannedFile<'_>> = files
+            .iter()
+            .map(|(src, dest)| PlannedFile::from_file(dest, src))
+            .collect();
+        let planned_dirs: Vec<PlannedDir> = directories
+            .iter()
+            .map(|(dest, mtime)| PlannedDir::new(dest, *mtime))
+            .collect();
+        self.do_add_planned(&planned, &planned_dirs)
+    }
+
+    /// Opens the archive for appending, creating an empty one if it is missing.
+    fn open_for_append(&self) -> Result<std::fs::File> {
+        std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&self.path)
+            .or_else(|_| {
+                let f = File::create(&self.path)?;
+                zip::ZipWriter::new(f).finish()?;
+                std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(&self.path)
+            })
+            .map_err(Into::into)
+    }
+
+    /// Appends all queued entries in a single session, replacing any existing
+    /// entries with the same destination.
+    fn do_add_planned(&self, files: &[PlannedFile<'_>], directories: &[PlannedDir]) -> Result<()> {
         let mut dest_names: Vec<String> = Vec::with_capacity(files.len() + directories.len());
-        for (_, dest) in files {
-            let dest_norm = common::normalize_path(dest).to_string_lossy().to_string();
-            dest_names.push(dest_norm);
-        }
-        for (dest, _) in directories {
-            let mut dest_str = dest.to_string();
-            if !dest_str.ends_with('/') {
-                dest_str.push('/');
-            }
-            let dest_norm = common::normalize_path(&dest_str)
-                .to_string_lossy()
-                .to_string();
-            dest_names.push(dest_norm);
-        }
+        dest_names.extend(files.iter().map(|f| f.dest().to_string()));
+        dest_names.extend(directories.iter().map(|d| d.dest().to_string()));
 
         // If any destination already exists, drop the old entries first so the
         // appended ones replace them.
@@ -344,47 +364,54 @@ impl ZipHandler {
             })?;
         }
 
-        // Append all entries in a single session.
-        let file = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&self.path)
-            .or_else(|_| {
-                let f = File::create(&self.path)?;
-                zip::ZipWriter::new(f).finish()?;
-                std::fs::OpenOptions::new()
-                    .read(true)
-                    .write(true)
-                    .open(&self.path)
-            })?;
+        let mut writer = zip::ZipWriter::new_append(self.open_for_append()?)
+            .context("Failed to open zip for appending")?;
 
-        let mut writer =
-            zip::ZipWriter::new_append(file).context("Failed to open zip for appending")?;
-
-        for (dest, mtime) in directories {
-            let dest_norm = common::normalize_path(dest).to_string_lossy().to_string();
+        for dir in directories {
             let options = SimpleFileOptions::default()
-                .last_modified_time(mtime.map_or_else(
+                .last_modified_time(dir.mtime().map_or_else(
                     || Self::system_time_to_zip_dt(SystemTime::now()),
                     Self::system_time_to_zip_dt,
                 ))
                 .unix_permissions(0o755);
-            writer.add_directory(dest_norm, options)?;
+            writer.add_directory(dir.dest(), options)?;
         }
-        for (src, dest) in files {
-            let mut src_file = File::open(src).context("Failed to open source file")?;
-            let metadata = src_file.metadata()?;
+
+        for planned in files {
+            let (mtime, mode) = planned.resolve_meta()?;
             let options = SimpleFileOptions::default()
-                .last_modified_time(metadata.modified().ok().map_or_else(
+                .last_modified_time(mtime.map_or_else(
                     || zip::DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).unwrap(),
                     Self::system_time_to_zip_dt,
                 ))
-                .unix_permissions(Self::get_metadata_mode(&metadata));
-            writer.start_file(dest, options)?;
-            std::io::copy(&mut src_file, &mut writer)?;
+                .unix_permissions(mode);
+            writer.start_file(planned.dest(), options)?;
+            let mut src = planned.open()?;
+            std::io::copy(&mut src, &mut writer)?;
         }
+
         writer.finish()?;
         Ok(())
+    }
+
+    fn do_add_entries(&self, entries: &[NewEntry]) -> Result<()> {
+        let mut files: Vec<PlannedFile<'_>> = Vec::with_capacity(entries.len());
+        let mut directories: Vec<PlannedDir> = Vec::new();
+
+        for entry in entries {
+            if let Some(data) = &entry.data {
+                files.push(PlannedFile::from_memory(
+                    &entry.dest,
+                    data,
+                    entry.mtime,
+                    entry.mode,
+                ));
+            } else {
+                directories.push(PlannedDir::new(&entry.dest, entry.mtime));
+            }
+        }
+
+        self.do_add_planned(&files, &directories)
     }
 }
 
@@ -687,5 +714,14 @@ impl ArchiveFormat for ZipHandler {
         directories: &[(&str, Option<SystemTime>)],
     ) -> Result<()> {
         self.do_add_files_and_directories(files, directories)
+    }
+
+    /// Adds in-memory entries to the archive in a single append.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any entry cannot be added or the archive cannot be rewritten.
+    fn add_entries(&self, entries: &[NewEntry]) -> Result<()> {
+        self.do_add_entries(entries)
     }
 }

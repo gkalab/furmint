@@ -291,3 +291,43 @@ async fn test_zip_add_files_batch() {
         .unwrap();
     assert_eq!(data3, b"content3");
 }
+
+/// Entry names in the raw zip must use forward slashes, otherwise the archive
+/// is not portable (`normalize_path` would leak `\` on Windows).
+#[tokio::test]
+async fn test_zip_batch_add_uses_forward_slashes() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_dir = temp_dir.path().join("src_dir");
+    let sub_dir = src_dir.join("subdir");
+    std::fs::create_dir_all(&sub_dir).unwrap();
+    std::fs::write(sub_dir.join("file.txt"), b"content").unwrap();
+
+    let archive_path = temp_dir.path().join("slashes.zip");
+    {
+        let file = File::create(&archive_path).unwrap();
+        let zip = zip::ZipWriter::new(file);
+        zip.finish().unwrap();
+    }
+
+    let archive_fs = ArchiveFs::new(&archive_path).unwrap();
+    let progress = fm::fs::fs_provider::TaskProgressContext {
+        id: 1,
+        tx: tokio::sync::mpsc::unbounded_channel().0,
+        cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        processed_bytes: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        processed_items: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+    };
+    archive_fs
+        .copy_from_local(&LocalFs::new(), &src_dir, Path::new("top"), &progress)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let file = File::open(&archive_path).unwrap();
+    let mut archive = zip::ZipArchive::new(file).unwrap();
+    let mut names: Vec<String> = (0..archive.len())
+        .map(|i| archive.by_index(i).unwrap().name().to_string())
+        .collect();
+    names.sort();
+    assert_eq!(names, vec!["top/", "top/subdir/", "top/subdir/file.txt"]);
+}

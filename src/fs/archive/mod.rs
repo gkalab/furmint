@@ -17,6 +17,136 @@ pub type ScanResult = (
     HashMap<PathBuf, Vec<PathBuf>>,
 );
 
+/// A new archive entry whose content is already in memory.
+///
+/// Used when the source cannot be handed to a handler as a local file (e.g.
+/// copying between two archives), so the caller decodes the bytes and the
+/// handler appends them in a single rewrite.
+pub struct NewEntry {
+    /// Destination path inside the archive, relative to its root and using
+    /// forward slashes (e.g. `dir/file.txt`).
+    pub dest: String,
+    /// Modified time; `None` keeps the format default.
+    pub mtime: Option<std::time::SystemTime>,
+    /// Unix mode bits; `None` keeps the format default.
+    pub mode: Option<u32>,
+    /// File content. `None` marks a directory entry.
+    pub data: Option<Vec<u8>>,
+}
+
+/// A file entry queued for an append pass, with its destination resolved.
+pub(crate) struct PlannedFile<'a> {
+    dest: String,
+    mtime: Option<std::time::SystemTime>,
+    mode: Option<u32>,
+    source: PlannedSource<'a>,
+}
+
+/// A directory entry queued for an append pass, with its destination resolved.
+pub(crate) struct PlannedDir {
+    dest: String,
+    mtime: Option<std::time::SystemTime>,
+}
+
+impl PlannedDir {
+    pub(crate) fn new(dest: &str, mtime: Option<std::time::SystemTime>) -> Self {
+        Self {
+            dest: normalize_dest(dest),
+            mtime,
+        }
+    }
+
+    pub(crate) fn dest(&self) -> &str {
+        &self.dest
+    }
+
+    pub(crate) fn mtime(&self) -> Option<std::time::SystemTime> {
+        self.mtime
+    }
+}
+
+/// Where the bytes of a [`PlannedFile`] come from.
+enum PlannedSource<'a> {
+    /// Read lazily from the local filesystem; mtime and mode are taken from the
+    /// file itself.
+    File(&'a Path),
+    /// Already decoded in memory; mtime and mode come from the caller.
+    Memory(&'a [u8]),
+}
+
+impl<'a> PlannedFile<'a> {
+    /// A file to be streamed from the local filesystem into the archive.
+    pub(crate) fn from_file(dest: &str, src: &'a Path) -> Self {
+        Self {
+            dest: normalize_dest(dest),
+            mtime: None,
+            mode: None,
+            source: PlannedSource::File(src),
+        }
+    }
+
+    /// A file whose content is already in memory.
+    pub(crate) fn from_memory(
+        dest: &str,
+        data: &'a [u8],
+        mtime: Option<std::time::SystemTime>,
+        mode: Option<u32>,
+    ) -> Self {
+        Self {
+            dest: normalize_dest(dest),
+            mtime,
+            mode,
+            source: PlannedSource::Memory(data),
+        }
+    }
+
+    pub(crate) fn dest(&self) -> &str {
+        &self.dest
+    }
+
+    /// Resolves the modified time and mode to store, reading the source file's
+    /// metadata for local sources.
+    fn resolve_meta(&self) -> Result<(Option<std::time::SystemTime>, u32)> {
+        match &self.source {
+            PlannedSource::File(src) => {
+                let metadata = std::fs::metadata(src)
+                    .map_err(|e| anyhow::anyhow!("{}: {e}", src.display()))?;
+                #[cfg(unix)]
+                let mode = {
+                    use std::os::unix::fs::PermissionsExt;
+                    metadata.permissions().mode()
+                };
+                #[cfg(not(unix))]
+                let mode = 0o644;
+                Ok((metadata.modified().ok(), mode))
+            }
+            PlannedSource::Memory(_) => Ok((self.mtime, self.mode.unwrap_or(0o644))),
+        }
+    }
+
+    /// Opens the entry content for reading.
+    fn open(&self) -> Result<Box<dyn std::io::Read + Send + '_>> {
+        match &self.source {
+            PlannedSource::File(src) => Ok(Box::new(
+                std::fs::File::open(src).map_err(|e| anyhow::anyhow!("{}: {e}", src.display()))?,
+            )),
+            PlannedSource::Memory(data) => Ok(Box::new(std::io::Cursor::new(data))),
+        }
+    }
+}
+
+/// Normalizes an archive-internal path to a portable, forward-slash form with
+/// no leading or trailing slash.
+pub(crate) fn normalize_dest(dest: &str) -> String {
+    let replaced = dest.replace('\\', "/");
+    let trimmed = replaced.trim_matches('/');
+    if trimmed == "." {
+        String::new()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 pub trait ArchiveFormat: Send + Sync {
     /// Scans the archive and returns its contents.
     ///
@@ -110,6 +240,21 @@ pub trait ArchiveFormat: Send + Sync {
             self.add_directory(dest, *mtime)?;
         }
         self.add_files(files)
+    }
+
+    /// Adds entries whose content is already in memory, in a single rewrite.
+    ///
+    /// The escape hatch for sources that are not local files, such as another
+    /// archive: archives cannot be appended to piecemeal, so everything is
+    /// decoded first and written in one pass.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any entry cannot be added or if the format is read-only.
+    fn add_entries(&self, _entries: &[NewEntry]) -> Result<()> {
+        Err(anyhow::anyhow!(
+            "Adding entries to this archive format is not supported"
+        ))
     }
 
     /// Sets the modified time of a file or directory within the archive.

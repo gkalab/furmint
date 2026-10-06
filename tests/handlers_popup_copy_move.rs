@@ -9,6 +9,7 @@ use fm::handlers::popup_copy_move::{
 };
 use fm::state::CopyMoveAction;
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 use termina::event::{KeyCode, Modifiers};
@@ -567,6 +568,65 @@ async fn test_handle_paste_directory_into_7z_root() {
     assert!(
         wait_for_archive_entry(&archive, "tree/inner/deep.txt").await,
         "tree/inner/deep.txt was not pasted into the 7z archive root"
+    );
+}
+
+#[tokio::test]
+async fn test_handle_copy_move_between_two_archives() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_zip = temp_dir.path().join("src.zip");
+    let dest_zip = temp_dir.path().join("dest.zip");
+    {
+        let file = std::fs::File::create(&src_zip).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default();
+        zip.start_file("tree/top.txt", options).unwrap();
+        zip.write_all(b"top").unwrap();
+        zip.start_file("tree/sub/deep.txt", options).unwrap();
+        zip.write_all(b"deep").unwrap();
+        zip.finish().unwrap();
+    }
+    let local = LocalFs::new();
+    local.create_file(&dest_zip).await.unwrap();
+
+    let src_archive = Arc::new(fm::fs::fs_archive::ArchiveFs::new(&src_zip).unwrap());
+    let dest_archive = Arc::new(fm::fs::fs_archive::ArchiveFs::new(&dest_zip).unwrap());
+
+    // Active panel: the source archive, with "tree" selected.
+    let mut app = minimal_state_with_entries(
+        PanelSide::Left,
+        vec![make_fileentry("tree", true, true)],
+        vec![],
+        0,
+        0,
+    );
+    app.panels.left.active_tab_mut().provider = src_archive;
+    app.panels.left.active_tab_mut().current_dir = PathBuf::from("/");
+
+    // Inactive panel: the destination archive at its root.
+    let mut dest_tab = make_tab("/", vec![], 0);
+    dest_tab.provider = dest_archive.clone();
+    app.panels.right = make_tab_manager(dest_tab);
+
+    fm::handlers::popup_copy_move::init_copy_move(&mut app, CopyMoveAction::Copy);
+    assert_eq!(app.popups.copy_move.destination_input, "/");
+
+    handle_copy_move_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
+
+    assert!(
+        wait_for_archive_entry(&dest_archive, "tree/top.txt").await,
+        "tree/top.txt was not copied between the archives"
+    );
+    assert!(
+        wait_for_archive_entry(&dest_archive, "tree/sub/deep.txt").await,
+        "tree/sub/deep.txt was not copied between the archives"
+    );
+    assert_eq!(
+        dest_archive
+            .read_file(std::path::Path::new("tree/sub/deep.txt"))
+            .await
+            .unwrap(),
+        b"deep"
     );
 }
 

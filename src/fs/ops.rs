@@ -372,10 +372,19 @@ async fn handle_archive_directory(
         }
     }
 
-    let res = ctx
+    // Prefer the destination pulling from the local filesystem; if the source is
+    // not local (e.g. another archive), let it read through the provider API.
+    let res = if let Some(res) = ctx
         .dest_fs
         .copy_from_local(ctx.src_fs, src, dest, progress)
-        .await;
+        .await
+    {
+        Some(res)
+    } else {
+        ctx.dest_fs
+            .copy_from_source(ctx.src_fs, src, dest, progress)
+            .await
+    };
     if let Some(res) = res {
         if res.is_ok()
             && let Some(mtime) = ctx.src_fs.get_modified_time(src).await
@@ -605,7 +614,9 @@ async fn resolve_conflict(
     }
 }
 
-async fn perform_sftp_copy(
+/// Transfers one file between two different providers, letting whichever side
+/// has an optimized path for the other do the work.
+async fn perform_cross_fs_copy(
     ctx: &RecursiveOpContext<'_>,
     src: &std::path::Path,
     dest: &std::path::Path,
@@ -631,7 +642,7 @@ async fn perform_sftp_copy(
     {
         return Some(Ok(()));
     }
-    // If rsync not used or fails, fall through to SFTP
+    // If rsync not used or fails, fall through to the provider-specific paths
 
     // Try source-optimized copy first
     if let Some(res) = ctx
@@ -651,7 +662,11 @@ async fn perform_sftp_copy(
         return Some(res);
     }
 
-    None
+    // Neither side can read a local file, so fall back to pulling the content
+    // through the provider API (e.g. copying between two archives).
+    ctx.dest_fs
+        .copy_from_source(ctx.src_fs, src, dest, &progress)
+        .await
 }
 
 async fn perform_file_copy(
@@ -668,7 +683,7 @@ async fn perform_file_copy(
             ctx.src_fs
                 .copy_with_progress(src, dest, ctx.id, ctx.tx, ctx.cancel)
                 .await
-        } else if let Some(res) = perform_sftp_copy(ctx, src, dest).await {
+        } else if let Some(res) = perform_cross_fs_copy(ctx, src, dest).await {
             res
         } else {
             // Other, cross-filesystem copies - should currently not be reached.
