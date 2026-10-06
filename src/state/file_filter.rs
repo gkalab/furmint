@@ -22,6 +22,9 @@ const CASE_INSENSITIVE: bool = false;
 /// The pattern is matched against a single entry name, so `*.zip` matches every
 /// zip archive in the current directory.
 ///
+/// Patterns entered by the user go through [`effective_glob`], which wraps
+/// them in implicit wildcards before compilation.
+///
 /// # Errors
 ///
 /// Returns `globset::Error` if the pattern is not a valid glob.
@@ -30,6 +33,15 @@ pub fn compile_glob(pattern: &str) -> Result<GlobMatcher, globset::Error> {
         .case_insensitive(CASE_INSENSITIVE)
         .build()?
         .compile_matcher())
+}
+
+/// Turn a user-entered filter pattern into the effective glob.
+///
+/// The pattern is implicitly wrapped in `*...*`, so typing `jpg` matches every
+/// entry name containing `jpg`.
+#[must_use]
+pub fn effective_glob(pattern: &str) -> String {
+    format!("*{pattern}*")
 }
 
 #[derive(Clone)]
@@ -66,6 +78,10 @@ impl FileFilterState {
 
     /// Set the active filter pattern. Empty or `None` clears the filter.
     ///
+    /// The pattern is a glob that gets implicitly wrapped in `*...*`
+    /// (see [`effective_glob`]) before matching. The raw pattern is kept in
+    /// [`Self::applied`] for display.
+    ///
     /// # Errors
     ///
     /// Returns `globset::Error` if the pattern is not a valid glob.
@@ -76,7 +92,7 @@ impl FileFilterState {
                 self.glob = None;
             }
             Some(p) => {
-                let glob = compile_glob(p)?;
+                let glob = compile_glob(&effective_glob(p))?;
                 self.applied = Some(p.to_string());
                 self.glob = Some(glob);
             }
@@ -193,6 +209,24 @@ mod tests {
         assert!(!state.is_active());
         let _ = state.set(Some("*.zip"));
         assert!(state.is_active());
+    }
+
+    #[test]
+    fn test_effective_glob_wraps_pattern() {
+        assert_eq!(effective_glob("jpg"), "*jpg*");
+        assert_eq!(effective_glob("*.zip"), "**.zip*");
+    }
+
+    #[test]
+    fn test_set_wraps_pattern_implicitly() {
+        let mut state = FileFilterState::new();
+        state.set(Some("jpg")).unwrap();
+        let glob = state.glob.as_ref().unwrap();
+        assert!(glob.is_match("photo.jpg"));
+        assert!(glob.is_match("jpg"));
+        assert!(!glob.is_match("jpeg"));
+        // Display keeps the raw user pattern
+        assert_eq!(state.applied, Some("jpg".to_string()));
     }
 
     #[test]

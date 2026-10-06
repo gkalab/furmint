@@ -710,7 +710,7 @@ fn draw_file_filter_status(
     let error_msg = if pattern.trim().is_empty() {
         None
     } else {
-        crate::state::compile_glob(pattern.trim())
+        crate::state::compile_glob(&crate::state::effective_glob(pattern.trim()))
             .err()
             .map(|e| format!("{e}"))
     };

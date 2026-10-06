@@ -382,8 +382,9 @@ impl Tab {
         true
     }
 
-    /// Set a file name filter. The pattern is a glob matched against entry names.
-    /// ".." is always visible; files and directories are included only if they
+    /// Set a file name filter. The pattern is a glob matched against entry names,
+    /// implicitly wrapped in `*...*` so a plain substring matches names containing
+    /// it. ".." is always visible; files and directories are included only if they
     /// match the glob (or if no filter is active).
     ///
     /// # Errors
@@ -422,7 +423,7 @@ impl Tab {
         if pattern.is_empty() {
             self.reset_file_filter_state();
             self.clear_file_filter();
-        } else if crate::state::compile_glob(&pattern).is_ok() {
+        } else if crate::state::compile_glob(&crate::state::effective_glob(&pattern)).is_ok() {
             let _ = self.set_file_filter(Some(&pattern));
             self.reset_file_filter_state();
         }

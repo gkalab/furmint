@@ -28,7 +28,7 @@ pub use delete::DeleteState;
 pub use drive_select::DriveSelectState;
 pub use empty_trash::EmptyTrashState;
 pub use error::ErrorState;
-pub use file_filter::{FileFilterState, compile_glob};
+pub use file_filter::{FileFilterState, compile_glob, effective_glob};
 pub use file_viewer::{
     ContentLoadResult, FileViewerSearchState, FileViewerState, ImageLoadResult, ImageViewerState,
     TextViewerState,

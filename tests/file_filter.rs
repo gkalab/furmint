@@ -301,10 +301,11 @@ async fn test_select_all_without_filter_selects_everything() {
 #[tokio::test]
 async fn test_visible_count_matches_indices() {
     let mut app = test_app(mixed_entries());
-    app.active_tab_mut().set_file_filter(Some("C*")).unwrap();
+    app.active_tab_mut().set_file_filter(Some("toml")).unwrap();
 
     let tab = app.active_tab();
-    // Only Cargo.toml matches C*, plus always-visible ".."
+    // The bare pattern is implicitly wrapped (*toml*) and matches only
+    // Cargo.toml, plus always-visible ".."
     assert_eq!(tab.visible_count(), 2); // [.., Cargo.toml]
     assert_eq!(tab.visible_indices.len(), 2);
 }
@@ -465,6 +466,27 @@ async fn test_filter_on_directory_names() {
     assert!(!tab.visible_set.contains(&5));
     assert!(!tab.visible_set.contains(&6));
     assert_eq!(tab.visible_count(), 2);
+}
+
+#[tokio::test]
+async fn test_pattern_is_wrapped_in_wildcards() {
+    let entries = vec![
+        entry("..", true),
+        entry("photo.jpg", false),
+        entry("jpeg.txt", false),
+        entry("my_jpg_folder", true),
+    ];
+    let mut app = test_app(entries);
+    // A bare substring is implicitly wrapped in *...*: jpg -> *jpg*
+    app.active_tab_mut().set_file_filter(Some("jpg")).unwrap();
+
+    let tab = app.active_tab();
+    assert!(tab.visible_set.contains(&0)); // ".." always visible
+    assert!(tab.visible_set.contains(&1)); // photo.jpg contains "jpg"
+    assert!(tab.visible_set.contains(&3)); // my_jpg_folder contains "jpg"
+    // The match is a substring, not a prefix: "jpeg" has no "jpg" in it
+    assert!(!tab.visible_set.contains(&2));
+    assert_eq!(tab.visible_count(), 3);
 }
 
 #[tokio::test]
