@@ -5,7 +5,7 @@ use crate::clipboard::FileClipboardData;
 use crate::fs::fs_provider::FileSystemProvider;
 use crate::state::CopyMoveAction;
 use anyhow::{Result, anyhow};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use termina::event::{KeyCode, Modifiers};
 
@@ -150,6 +150,40 @@ pub async fn handle_paste(app: &mut AppState) {
             let _ = app.os.clipboard.clear();
         }
     }
+}
+
+/// Returns `true` if `path` already points at an absolute location of the
+/// destination provider.
+///
+/// Local destinations follow the rules of the host OS, so `Path::is_absolute`
+/// is correct there. Archives and remote hosts always use Unix-style paths
+/// (`/dir/file`), which `is_absolute` rejects on Windows because they carry no
+/// drive prefix — there, anything rooted counts as absolute.
+#[must_use]
+fn is_absolute_dest(path: &Path, dest_is_local: bool) -> bool {
+    if dest_is_local {
+        path.is_absolute()
+    } else {
+        path.has_root()
+    }
+}
+
+/// Appends `dest` to `base`, keeping the POSIX separators used by archives and
+/// remote hosts. `Path::join` would insert a `\` on Windows, and joining a
+/// rooted `dest` would not replace `base` there, either.
+fn join_dest(base: &Path, dest: &Path, dest_is_local: bool) -> PathBuf {
+    if dest_is_local {
+        return base.join(dest);
+    }
+
+    let base_str = crate::fs::utils::normalize_sftp_path(base);
+    let dest_str = dest.to_string_lossy().replace('\\', "/");
+    let joined = if dest_str.starts_with('/') {
+        dest_str
+    } else {
+        format!("{base_str}/{dest_str}")
+    };
+    PathBuf::from(crate::fs::utils::normalize_sftp_path(Path::new(&joined)))
 }
 
 /// Validates that source paths are not being copied/moved into themselves or subdirectories of themselves.
@@ -449,12 +483,13 @@ pub async fn handle_copy_move_event(
                 std::path::PathBuf::from(dest_input)
             };
             let dest_provider = app.inactive_tab().provider.clone();
-            let resolved = if dest_path.is_absolute() {
+            let dest_is_local = dest_provider.is_local();
+            let resolved = if is_absolute_dest(&dest_path, dest_is_local) {
                 dest_path.clone()
             } else {
-                app.active_tab().current_dir.join(&dest_path)
+                join_dest(&app.active_tab().current_dir, &dest_path, dest_is_local)
             };
-            let dest_abs = if dest_provider.is_local() {
+            let dest_abs = if dest_is_local {
                 if let Ok(p) = resolved.canonicalize() {
                     crate::fs::utils::strip_extended_prefix(p)
                 } else {
