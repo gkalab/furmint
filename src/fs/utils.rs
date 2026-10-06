@@ -653,7 +653,7 @@ mod tests {
         let result = list_dir(&temp_dir);
         assert!(result.is_ok());
         let entries = result.unwrap();
-        assert!(!entries.is_empty());
+        assert_ne!(entries, Vec::new());
         assert_eq!(entries[0].name, "..");
         assert!(entries[0].is_dir);
     }

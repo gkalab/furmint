@@ -652,11 +652,8 @@ async fn test_esc_resets_search() {
 
     assert_eq!(app.panels.left.active_tab().search.buffer, "");
     assert_eq!(
-        app.panels
-            .left
-            .active_tab()
-            .search
-            .matching_indices, [] as [usize; 0]
+        app.panels.left.active_tab().search.matching_indices,
+        [] as [usize; 0]
     );
     assert_eq!(app.panels.left.active_tab().search.position, 0);
     assert!(app.panels.left.active_tab().search.last_type_time.is_none());
@@ -764,11 +761,8 @@ async fn test_timeout_resets_search_state() {
     // Verify search state is cleared
     assert_eq!(app.panels.left.active_tab().search.buffer, "");
     assert_eq!(
-        app.panels
-            .left
-            .active_tab()
-            .search
-            .matching_indices, [] as [usize; 0]
+        app.panels.left.active_tab().search.matching_indices,
+        [] as [usize; 0]
     );
     assert_eq!(app.panels.left.active_tab().search.position, 0);
     assert!(app.panels.left.active_tab().search.last_type_time.is_none());
@@ -821,11 +815,8 @@ async fn test_periodic_reset_expired_search() {
     // Verify search state is cleared
     assert_eq!(app.panels.left.active_tab().search.buffer, "");
     assert_eq!(
-        app.panels
-            .left
-            .active_tab()
-            .search
-            .matching_indices, [] as [usize; 0]
+        app.panels.left.active_tab().search.matching_indices,
+        [] as [usize; 0]
     );
     assert_eq!(app.panels.left.active_tab().search.position, 0);
 }

@@ -75,7 +75,7 @@ mod tests {
     fn test_new_and_default() {
         let state = FileFilterState::new();
         assert!(!state.active);
-        assert!(state.pattern.is_empty());
+        assert_eq!(state.pattern, "");
         assert_eq!(state.cursor_position, 0);
         assert!(state.previous_filter.is_none());
         assert!(state.applied.is_none());
@@ -144,7 +144,7 @@ mod tests {
         };
         state.reset();
         assert!(!state.active);
-        assert!(state.pattern.is_empty());
+        assert_eq!(state.pattern, "");
         assert_eq!(state.cursor_position, 0);
         assert!(state.previous_filter.is_none());
     }

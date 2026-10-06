@@ -461,7 +461,7 @@ mod tests {
         let temp_dir = std::env::temp_dir();
         let entries = fs.list_dir(&temp_dir).await.unwrap();
         // Should always have ".." entry
-        assert!(!entries.is_empty());
+        assert_ne!(entries, Vec::new());
         assert_eq!(entries[0].name, "..");
     }
 

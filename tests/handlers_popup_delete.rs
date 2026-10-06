@@ -41,7 +41,10 @@ async fn test_handle_init_delete_populates_popup() {
     let mut app = basic_app_with_entry("test_file.txt").await;
     handle_init_delete(&mut app, false);
     assert!(app.popups.delete.is_visible);
-    assert_ne!(app.popups.delete.selected_paths, [] as [std::path::PathBuf; 0]);
+    assert_ne!(
+        app.popups.delete.selected_paths,
+        [] as [std::path::PathBuf; 0]
+    );
     assert!(!app.popups.delete.is_permanent);
 }
 

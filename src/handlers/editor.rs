@@ -797,7 +797,7 @@ mod tests {
     #[tokio::test]
     async fn test_resolve_editor_default() {
         let (program, args) = resolve_editor(None, std::path::Path::new("/tmp/test.txt")).unwrap();
-        assert!(!program.is_empty());
+        assert_ne!(program, "");
         assert_eq!(args, vec!["/tmp/test.txt".to_string()]);
     }
 

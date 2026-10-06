@@ -830,7 +830,7 @@ mod tests {
         );
         // Fails before writing past the limit (here: the first read already
         // exceeds it, so nothing is written at all).
-        assert!(over.is_empty());
+        assert_eq!(over, b"".as_slice());
     }
 
     #[test]

@@ -255,8 +255,8 @@ mod tests {
         );
         assert_eq!(layout.left_tab_bar_area, Rect::default());
         assert_eq!(layout.right_tab_bar_area, Rect::default());
-        assert!(layout.left_tab_areas.is_empty());
-        assert!(layout.right_tab_areas.is_empty());
+        assert_eq!(layout.left_tab_areas, Vec::new());
+        assert_eq!(layout.right_tab_areas, Vec::new());
     }
 
     #[test]
@@ -322,7 +322,7 @@ mod tests {
             }
         );
         assert_eq!(layout.right_tab_bar_area, Rect::default());
-        assert!(layout.right_tab_areas.is_empty());
+        assert_eq!(layout.right_tab_areas, Vec::new());
         // Left side still has its tab bar
         assert_eq!(
             layout.left_tab_bar_area,

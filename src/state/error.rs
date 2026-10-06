@@ -48,8 +48,8 @@ mod tests {
         let state = ErrorState::new();
         assert!(!state.is_visible);
         assert_eq!(state.task_id, 0);
-        assert!(state.error_path.is_empty());
-        assert!(state.error_message.is_empty());
+        assert_eq!(state.error_path, "");
+        assert_eq!(state.error_message, "");
 
         let default_state = ErrorState::default();
         assert_eq!(state.is_visible, default_state.is_visible);
@@ -72,7 +72,7 @@ mod tests {
         state.reset();
         assert!(!state.is_visible);
         assert_eq!(state.task_id, 0);
-        assert!(state.error_path.is_empty());
-        assert!(state.error_message.is_empty());
+        assert_eq!(state.error_path, "");
+        assert_eq!(state.error_message, "");
     }
 }

@@ -42,7 +42,7 @@ mod tests {
         handle_init_file_filter(&mut app);
         let tab = app.active_tab();
         assert!(tab.filter.active);
-        assert!(tab.filter.pattern.is_empty());
+        assert_eq!(tab.filter.pattern, "");
     }
 
     #[test]
@@ -100,7 +100,7 @@ mod tests {
         handle_file_filter_event(KeyCode::Escape, Modifiers::NONE, &mut app);
         let tab = app.active_tab();
         assert!(!tab.filter.active);
-        assert!(tab.filter.pattern.is_empty());
+        assert_eq!(tab.filter.pattern, "");
     }
 
     #[test]
@@ -117,7 +117,7 @@ mod tests {
         handle_file_filter_event(KeyCode::Enter, Modifiers::NONE, &mut app);
         let tab = app.active_tab();
         assert!(!tab.filter.active);
-        assert!(tab.filter.pattern.is_empty());
+        assert_eq!(tab.filter.pattern, "");
         assert!(tab.filter.is_active());
     }
 
@@ -154,7 +154,7 @@ mod tests {
         handle_file_filter_event(KeyCode::Enter, Modifiers::NONE, &mut app);
         let tab = app.active_tab();
         assert!(!tab.filter.active);
-        assert!(tab.filter.pattern.is_empty());
+        assert_eq!(tab.filter.pattern, "");
         // Filter should be cleared
         assert!(!tab.filter.is_active());
     }
@@ -187,7 +187,7 @@ mod tests {
         app.active_tab_mut().confirm_file_filter();
         let tab = app.active_tab();
         assert!(!tab.filter.active);
-        assert!(tab.filter.pattern.is_empty());
+        assert_eq!(tab.filter.pattern, "");
         assert!(tab.filter.is_active());
     }
 }
