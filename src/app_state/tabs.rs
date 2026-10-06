@@ -382,14 +382,14 @@ impl Tab {
         true
     }
 
-    /// Set a file name filter. The pattern is a regex applied to file names.
-    /// Directories and ".." are always visible.
-    /// Returns an error if the regex is invalid.
+    /// Set a file name filter. The pattern is a glob matched against entry names.
+    /// ".." is always visible; files and directories are included only if they
+    /// match the glob (or if no filter is active).
     ///
     /// # Errors
     ///
-    /// Returns `regex::Error` if the pattern is not a valid regex.
-    pub fn set_file_filter(&mut self, pattern: Option<&str>) -> Result<(), regex::Error> {
+    /// Returns `globset::Error` if the pattern is not a valid glob.
+    pub fn set_file_filter(&mut self, pattern: Option<&str>) -> Result<(), globset::Error> {
         self.filter.set(pattern)?;
         self.recompute_visible_indices();
         Ok(())
@@ -422,7 +422,7 @@ impl Tab {
         if pattern.is_empty() {
             self.reset_file_filter_state();
             self.clear_file_filter();
-        } else if regex::Regex::new(&pattern).is_ok() {
+        } else if crate::state::compile_glob(&pattern).is_ok() {
             let _ = self.set_file_filter(Some(&pattern));
             self.reset_file_filter_state();
         }
@@ -449,8 +449,8 @@ impl Tab {
     }
 
     /// Recompute `visible_indices` from entries based on the current file filter.
-    /// Directories and ".." are always included. Files are included only if they
-    /// match the regex (or if no filter is active).
+    /// ".." is always included. Files and directories are included only if they
+    /// match the glob (or if no filter is active).
     /// Also adjusts `cursor` to ensure it points to a visible entry.
     pub fn recompute_visible_indices(&mut self) {
         let indices: Vec<usize> = self
@@ -458,10 +458,14 @@ impl Tab {
             .iter()
             .enumerate()
             .filter_map(|(i, e)| {
-                if e.name == ".." || e.is_dir {
+                if e.name == ".." {
                     Some(i)
-                } else if let Some(ref re) = self.filter.regex {
-                    if re.is_match(&e.name) { Some(i) } else { None }
+                } else if let Some(ref glob) = self.filter.glob {
+                    if glob.is_match(e.name.as_str()) {
+                        Some(i)
+                    } else {
+                        None
+                    }
                 } else {
                     Some(i)
                 }
@@ -523,14 +527,14 @@ impl Tab {
         self.visible_indices.len()
     }
 
-    /// Select all visible files (non-directories that pass the filter) plus all directories.
+    /// Select all visible entries (files and directories that pass the filter).
     /// ".." is never selected.
     pub fn select_all_visible(&mut self) {
         for (i, entry) in self.entries.iter_mut().enumerate() {
             if entry.name == ".." {
                 continue;
             }
-            if entry.is_dir || self.visible_set.contains(&i) {
+            if self.visible_set.contains(&i) {
                 entry.selected = true;
             }
         }

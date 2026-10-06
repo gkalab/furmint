@@ -576,7 +576,8 @@ pub fn draw_panel_status(
     let dir_count = panel
         .entries
         .iter()
-        .filter(|e| e.is_dir && e.name != "..")
+        .enumerate()
+        .filter(|(i, e)| e.is_dir && e.name != ".." && panel.visible_set.contains(i))
         .count();
     let selected_count = panel.entries.iter().filter(|e| e.selected).count();
 
@@ -705,11 +706,11 @@ fn draw_file_filter_status(
     let pattern = &panel.filter.pattern;
     let cursor_pos = panel.filter.cursor_position;
 
-    // Check if pattern is a valid regex (non-empty pattern only)
+    // Check if pattern is a valid glob (non-empty pattern only)
     let error_msg = if pattern.trim().is_empty() {
         None
     } else {
-        regex::Regex::new(pattern.trim())
+        crate::state::compile_glob(pattern.trim())
             .err()
             .map(|e| format!("{e}"))
     };

@@ -58,33 +58,33 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_file_filter_event_invalid_regex() {
+    fn test_handle_file_filter_event_invalid_glob() {
         let mut app = create_test_app();
         handle_init_file_filter(&mut app);
 
-        // Type an invalid regex pattern
+        // Type an invalid glob pattern (unclosed character class)
         handle_file_filter_event(KeyCode::Char('['), Modifiers::NONE, &mut app);
         let tab = app.active_tab();
         assert_eq!(tab.filter.pattern, "[");
         assert!(tab.filter.active);
 
-        // The filter should still be active (not applied due to invalid regex)
+        // The filter should still be active (not applied due to invalid glob)
         assert!(!tab.filter.is_active());
     }
 
     #[test]
-    fn test_handle_file_filter_event_valid_regex() {
+    fn test_handle_file_filter_event_valid_glob() {
         let mut app = create_test_app();
         handle_init_file_filter(&mut app);
 
-        // Type a valid regex pattern
+        // Type a valid glob pattern
         handle_file_filter_event(KeyCode::Char('f'), Modifiers::NONE, &mut app);
         handle_file_filter_event(KeyCode::Char('o'), Modifiers::NONE, &mut app);
         handle_file_filter_event(KeyCode::Char('o'), Modifiers::NONE, &mut app);
         let tab = app.active_tab();
         assert_eq!(tab.filter.pattern, "foo");
         assert!(tab.filter.active);
-        // Valid regex should be applied
+        // Valid glob should be applied
         assert!(tab.filter.is_active());
     }
 
@@ -108,7 +108,7 @@ mod tests {
         let mut app = create_test_app();
         handle_init_file_filter(&mut app);
 
-        // Type a valid regex pattern
+        // Type a valid glob pattern
         handle_file_filter_event(KeyCode::Char('f'), Modifiers::NONE, &mut app);
         handle_file_filter_event(KeyCode::Char('o'), Modifiers::NONE, &mut app);
         handle_file_filter_event(KeyCode::Char('o'), Modifiers::NONE, &mut app);
@@ -126,10 +126,10 @@ mod tests {
         let mut app = create_test_app();
         handle_init_file_filter(&mut app);
 
-        // Type an invalid regex pattern
+        // Type an invalid glob pattern
         handle_file_filter_event(KeyCode::Char('['), Modifiers::NONE, &mut app);
 
-        // Confirm with Enter - should NOT apply invalid regex
+        // Confirm with Enter - should NOT apply invalid glob
         handle_file_filter_event(KeyCode::Enter, Modifiers::NONE, &mut app);
         let tab = app.active_tab();
         // Filter should still be active so user can fix the pattern
@@ -160,11 +160,11 @@ mod tests {
     }
 
     #[test]
-    fn test_confirm_file_filter_with_invalid_regex() {
+    fn test_confirm_file_filter_with_invalid_glob() {
         let mut app = create_test_app();
         handle_init_file_filter(&mut app);
 
-        // Type invalid regex
+        // Type invalid glob
         handle_file_filter_event(KeyCode::Char('['), Modifiers::NONE, &mut app);
 
         // Confirm - should keep filter active
@@ -176,11 +176,11 @@ mod tests {
     }
 
     #[test]
-    fn test_confirm_file_filter_with_valid_regex() {
+    fn test_confirm_file_filter_with_valid_glob() {
         let mut app = create_test_app();
         handle_init_file_filter(&mut app);
 
-        // Type valid regex
+        // Type valid glob
         handle_file_filter_event(KeyCode::Char('a'), Modifiers::NONE, &mut app);
 
         // Confirm - should apply filter

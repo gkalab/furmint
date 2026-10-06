@@ -19,6 +19,7 @@ encoding_rs = "0.8"
 filetime = "0.2"
 flate2 = "1.1"
 fuzzy-matcher = "0.3"
+globset = "0.4"
 image = { version = "0.25", features = ["default"] }
 libc = "0.2"
 lumis = { version = "0.13", default-features = false, features = [
