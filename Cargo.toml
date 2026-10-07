@@ -22,7 +22,7 @@ fuzzy-matcher = "0.3"
 globset = "0.4"
 image = { version = "0.25", features = ["default"] }
 libc = "0.2"
-lumis = { version = "0.13", default-features = false, features = [
+lumis = { version = "0.17", default-features = false, features = [
     "lang-bash",
     "lang-c",
     "lang-cmake",
