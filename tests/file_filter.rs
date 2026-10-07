@@ -109,7 +109,7 @@ async fn test_set_file_filter_case_sensitivity() {
     #[cfg(not(any(windows, target_os = "macos")))]
     {
         assert!(!tab.visible_set.contains(&4)); // README.md
-        assert_eq!(tab.visible_count(), 2); // [.., docs]
+        assert_eq!(tab.visible_count(), 3); // [.., docs, src]
     }
     // Directories are always visible, Cargo.toml never matches
     assert!(tab.visible_set.contains(&1)); // docs
