@@ -1,22 +1,11 @@
 use crate::state::{FileViewerSearchState, FileViewerState};
 use crate::theme::ThemePalette;
 use crate::ui::ui_utils::TabScrollbarContext;
-use lumis::highlight::Highlighter;
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Paragraph};
 
-/// Parse a hex color string like "#rrggbb" into a ratatui `Color::Rgb`.
-fn parse_hex_color(hex: Option<&String>) -> Option<Color> {
-    let hex = hex.as_ref()?;
-    let hex = hex.strip_prefix('#').unwrap_or(hex);
-    if hex.len() < 6 {
-        return None;
-    }
-    let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
-    let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
-    let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
-    Some(Color::Rgb(r, g, b))
-}
+/// A styled run of one line: its resolved foreground plus the run's text.
+type Segment<'a> = (Option<Color>, &'a str);
 
 fn normalize_selection(sel: ((usize, usize), (usize, usize))) -> ((usize, usize), (usize, usize)) {
     let ((r1, c1), (r2, c2)) = sel;
@@ -118,13 +107,15 @@ fn render_text_content(
     let start_line = viewer.text.scroll_offset.min(max_scroll);
     let end_line = (start_line + visible_lines).min(max_lines);
 
-    let highlighter = Highlighter::new(viewer.text.language, viewer.text.theme.clone());
+    // Ask for anything the highlight worker has not returned yet. Lines that are
+    // still missing render unstyled; the draw pass never waits for a compile.
+    viewer.text.request_highlights(start_line, end_line);
+
     let default_fg = viewer
         .text
         .theme
         .as_ref()
-        .and_then(|t| t.fg().map(std::string::ToString::to_string))
-        .and_then(|s| parse_hex_color(Some(&s)));
+        .and_then(|t| crate::state::parse_hex_color(t.fg()));
 
     let normalized_selection = viewer.text.selection.map(normalize_selection);
 
@@ -134,7 +125,7 @@ fn render_text_content(
             line_idx: i,
             viewer,
             is_large_file,
-            highlighter: &highlighter,
+            segments: viewer.text.line_segments(i),
             default_fg,
             normalized_selection,
             max_width: inner_area.width as usize,
@@ -197,7 +188,9 @@ struct ViewerLineContext<'a> {
     line_idx: usize,
     viewer: &'a FileViewerState,
     is_large_file: bool,
-    highlighter: &'a Highlighter,
+    /// Styled runs for this line, or `None` while the worker is still busy. A
+    /// line without runs renders as plain text rather than waiting.
+    segments: Option<&'a [(Option<Color>, String)]>,
     default_fg: Option<Color>,
     normalized_selection: Option<((usize, usize), (usize, usize))>,
     max_width: usize,
@@ -382,54 +375,35 @@ fn render_viewer_line(ctx: &ViewerLineContext) -> Option<Line<'static>> {
         ctx.palette.base.b,
     ));
 
-    let spans = if ctx.is_large_file {
-        let style = lumis::themes::Style::default();
-        generate_line_spans(&LineSpansContext {
-            ranges: vec![(&style, line_content.as_str())],
-            h_offset: ctx.viewer.text.horizontal_scroll_offset,
-            max_width: ctx.max_width,
-            default_fg: ctx.default_fg,
-            selection: selection_range,
-            selection_bg: Some(Color::Rgb(
-                ctx.palette.surface0.r,
-                ctx.palette.surface0.g,
-                ctx.palette.surface0.b,
-            )),
-            search_ranges: &search_ranges,
-            search_bg: Some(Color::Rgb(
-                ctx.palette.yellow.r,
-                ctx.palette.yellow.g,
-                ctx.palette.yellow.b,
-            )),
-            search_fg,
-        })
-    } else {
-        let segments = ctx.highlighter.highlight(&line_content).unwrap_or_default();
-        let ranges: Vec<(&lumis::themes::Style, &str)> = segments
+    // Runs come from the highlight worker. Large files and lines it has not
+    // returned yet fall back to a single unstyled run over the whole line.
+    let segments: Vec<Segment<'_>> = match ctx.segments {
+        Some(segments) if !segments.is_empty() => segments
             .iter()
-            .map(|(style, text)| (style.as_ref(), *text))
-            .collect();
-
-        generate_line_spans(&LineSpansContext {
-            ranges,
-            h_offset: ctx.viewer.text.horizontal_scroll_offset,
-            max_width: ctx.max_width,
-            default_fg: ctx.default_fg,
-            selection: selection_range,
-            selection_bg: Some(Color::Rgb(
-                ctx.palette.surface0.r,
-                ctx.palette.surface0.g,
-                ctx.palette.surface0.b,
-            )),
-            search_ranges: &search_ranges,
-            search_bg: Some(Color::Rgb(
-                ctx.palette.yellow.r,
-                ctx.palette.yellow.g,
-                ctx.palette.yellow.b,
-            )),
-            search_fg,
-        })
+            .map(|(color, text)| (*color, text.as_str()))
+            .collect(),
+        _ => vec![(None, line_content.as_str())],
     };
+
+    let spans = generate_line_spans(&LineSpansContext {
+        segments: &segments,
+        h_offset: ctx.viewer.text.horizontal_scroll_offset,
+        max_width: ctx.max_width,
+        default_fg: ctx.default_fg,
+        selection: selection_range,
+        selection_bg: Some(Color::Rgb(
+            ctx.palette.surface0.r,
+            ctx.palette.surface0.g,
+            ctx.palette.surface0.b,
+        )),
+        search_ranges: &search_ranges,
+        search_bg: Some(Color::Rgb(
+            ctx.palette.yellow.r,
+            ctx.palette.yellow.g,
+            ctx.palette.yellow.b,
+        )),
+        search_fg,
+    });
 
     Some(Line::from(spans))
 }
@@ -438,7 +412,8 @@ fn render_viewer_line(ctx: &ViewerLineContext) -> Option<Line<'static>> {
 /// taking into account tab widths and wide characters.
 #[must_use]
 pub struct LineSpansContext<'a> {
-    pub ranges: Vec<(&'a lumis::themes::Style, &'a str)>,
+    /// The line's styled runs, as resolved foreground plus text.
+    pub segments: &'a [Segment<'a>],
     pub h_offset: usize,
     pub max_width: usize,
     pub default_fg: Option<Color>,
@@ -465,13 +440,18 @@ impl LineSpansContext<'_> {
         width
     }
 
-    fn process_char(
+    /// Decides what a single character contributes to the rendered line.
+    ///
+    /// Returns `Some((true, width))` for a tab that has to be emitted as that
+    /// many spaces, `Some((false, width))` for the character itself, and `None`
+    /// for a character that falls outside the visible window or would overflow
+    /// it.
+    fn visible_char(
         &self,
         ch: char,
         current_pos: usize,
-        _char_idx: usize,
         visible_width: usize,
-    ) -> Option<(String, usize)> {
+    ) -> Option<(bool, usize)> {
         let ch_width = if ch == '\t' {
             4 - (current_pos % 4)
         } else {
@@ -483,35 +463,18 @@ impl LineSpansContext<'_> {
             return None;
         }
 
-        let mut text = String::new();
-        let mut width = 0;
-
         if current_pos >= self.h_offset {
             if visible_width + ch_width <= self.max_width {
-                if ch == '\t' {
-                    for _ in 0..ch_width {
-                        text.push(' ');
-                    }
-                } else {
-                    text.push(ch);
-                }
-                width = ch_width;
+                return Some((false, ch_width));
             }
         } else if ch == '\t' {
             let visible_tab_width = ch_end_pos - self.h_offset;
             if visible_width + visible_tab_width <= self.max_width {
-                for _ in 0..visible_tab_width {
-                    text.push(' ');
-                }
-                width = visible_tab_width;
+                return Some((true, visible_tab_width));
             }
         }
 
-        if text.is_empty() {
-            None
-        } else {
-            Some((text, width))
-        }
+        None
     }
 
     fn get_char_style(&self, char_idx: usize, base_fg: Option<Color>) -> ratatui::style::Style {
@@ -547,10 +510,15 @@ impl LineSpansContext<'_> {
 pub fn generate_line_spans(ctx: &LineSpansContext<'_>) -> Vec<Span<'static>> {
     let mut display_pos = 0;
     let mut visible_width = 0;
-    let mut spans: Vec<Span> = Vec::new();
     let mut char_idx = 0;
 
-    for (style, text) in &ctx.ranges {
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    // Text for the run currently being built. Appending into one buffer keeps
+    // this linear: the previous version reallocated the whole run per character.
+    let mut run = String::new();
+    let mut run_style: Option<Style> = None;
+
+    for (color, text) in ctx.segments {
         if visible_width >= ctx.max_width {
             break;
         }
@@ -559,24 +527,26 @@ pub fn generate_line_spans(ctx: &LineSpansContext<'_>) -> Vec<Span<'static>> {
         let end_pos = display_pos + text_width;
 
         if end_pos > ctx.h_offset {
+            let base_fg = (*color).or(ctx.default_fg);
             let mut current_pos = display_pos;
-            for ch in text.chars() {
-                if let Some((char_text, char_width)) =
-                    ctx.process_char(ch, current_pos, char_idx, visible_width)
-                {
-                    let base_fg = parse_hex_color(Option::from(&style.fg)).or(ctx.default_fg);
-                    let ratatui_style = ctx.get_char_style(char_idx, base_fg);
 
-                    if let Some(last_span) = spans.last_mut()
-                        && last_span.style == ratatui_style
-                    {
-                        let mut new_content = last_span.content.to_string();
-                        new_content.push_str(&char_text);
-                        last_span.content = new_content.into();
-                    } else {
-                        spans.push(Span::styled(char_text, ratatui_style));
+            for ch in text.chars() {
+                if let Some((as_spaces, width)) = ctx.visible_char(ch, current_pos, visible_width) {
+                    let style = ctx.get_char_style(char_idx, base_fg);
+                    if run_style != Some(style) {
+                        if !run.is_empty()
+                            && let Some(previous) = run_style
+                        {
+                            spans.push(Span::styled(std::mem::take(&mut run), previous));
+                        }
+                        run_style = Some(style);
                     }
-                    visible_width += char_width;
+                    if as_spaces {
+                        run.extend(std::iter::repeat_n(' ', width));
+                    } else {
+                        run.push(ch);
+                    }
+                    visible_width += width;
                 }
 
                 let ch_w = if ch == '\t' {
@@ -595,6 +565,12 @@ pub fn generate_line_spans(ctx: &LineSpansContext<'_>) -> Vec<Span<'static>> {
         }
         display_pos = end_pos;
     }
+
+    if !run.is_empty()
+        && let Some(style) = run_style
+    {
+        spans.push(Span::styled(run, style));
+    }
     spans
 }
 
@@ -603,7 +579,6 @@ mod tests {
     use super::*;
     use crate::fs::archive::preview::ArchiveTreeRow;
     use crate::theme::catppuccin_macchiato;
-    use lumis::themes::Style as LumisStyle;
     use unicode_width::UnicodeWidthStr;
 
     fn test_palette() -> crate::theme::ThemePalette {
@@ -626,7 +601,7 @@ mod tests {
             line_idx: 0,
             viewer: &viewer,
             is_large_file: false,
-            highlighter: &Highlighter::new(lumis::languages::Language::default(), None),
+            segments: None,
             default_fg: None,
             normalized_selection: None,
             max_width: 100,
@@ -676,7 +651,7 @@ mod tests {
             line_idx: 0,
             viewer: &viewer,
             is_large_file: false,
-            highlighter: &Highlighter::new(lumis::languages::Language::default(), None),
+            segments: None,
             default_fg: None,
             normalized_selection: None,
             max_width: 100,
@@ -696,11 +671,8 @@ mod tests {
         let max_width = 10;
         let h_offset = 0;
 
-        // Dummy style for testing
-        let dummy_style = LumisStyle {
-            fg: Some("#ffffff".to_string()),
-            ..Default::default()
-        };
+        // Dummy colour for testing
+        let dummy_color = Some(Color::Rgb(0xff, 0xff, 0xff));
 
         // Test cases that would overflow if tabs were counted as 1 char but rendered as 4 spaces
         // or if unicode width wasn't handled correctly.
@@ -718,11 +690,11 @@ mod tests {
         ];
 
         for (input, description) in test_cases {
-            // Treat the whole line as one range for baseline testing
-            let ranges = vec![(&dummy_style, input)];
+            // Treat the whole line as one run for baseline testing
+            let segments = vec![(dummy_color, input)];
 
             let spans = generate_line_spans(&LineSpansContext {
-                ranges,
+                segments: &segments,
                 h_offset,
                 max_width,
                 default_fg: None,
@@ -753,5 +725,35 @@ mod tests {
                 "Overflow detected for '{description}'! Width: {total_width}, Max: {max_width}. Result: '{resulting_text}'"
             );
         }
+    }
+
+    /// Adjacent runs that resolve to the same style must merge into one span,
+    /// across run boundaries, without losing the text between them.
+    #[test]
+    fn test_runs_with_equal_style_merge() {
+        let segments = vec![
+            (Some(Color::Rgb(1, 2, 3)), "aaa"),
+            (Some(Color::Rgb(1, 2, 3)), "bbb"),
+            (Some(Color::Rgb(9, 9, 9)), "ccc"),
+            (None, "ddd"),
+        ];
+
+        let spans = generate_line_spans(&LineSpansContext {
+            segments: &segments,
+            h_offset: 0,
+            max_width: 100,
+            default_fg: Some(Color::Rgb(7, 7, 7)),
+            selection: None,
+            selection_bg: None,
+            search_ranges: &[],
+            search_bg: None,
+            search_fg: None,
+        });
+
+        let text: String = spans.iter().map(|span| span.content.to_string()).collect();
+        assert_eq!(text, "aaabbbcccddd", "text must survive run merging");
+        assert_eq!(spans.len(), 3, "expected one span per distinct style");
+        assert_eq!(spans[0].content, "aaabbb");
+        assert_eq!(spans[2].style.fg, Some(Color::Rgb(7, 7, 7)));
     }
 }

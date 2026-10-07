@@ -1,7 +1,12 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc::UnboundedSender;
+
+use super::highlight::{HighlightBatch, HighlightRequest, HighlightWorker, LineSegments};
+
+const HIGHLIGHT_CACHE_MARGIN: usize = 200;
 
 pub struct ContentLoadResult {
     pub load_id: usize,
@@ -31,6 +36,13 @@ pub struct TextViewerState {
     search_query: String,
     search_regex: Option<regex::Regex>,
     content_load_tx: Option<UnboundedSender<ContentLoadResult>>,
+    theme_name: Option<String>,
+    /// Styled runs for the lines the worker has already highlighted.
+    highlighted: HashMap<usize, LineSegments>,
+    /// Bumped whenever the open file changes, so results for a file that has
+    /// been closed or replaced are recognised as stale and dropped.
+    generation: usize,
+    highlight_worker: Option<HighlightWorker>,
     pub(super) content_load_id: usize,
 }
 
@@ -41,6 +53,104 @@ impl TextViewerState {
             theme,
             ..Self::default()
         }
+    }
+
+    #[must_use]
+    pub fn with_theme_name(name: &str, theme: Option<lumis::themes::Theme>) -> Self {
+        Self {
+            theme,
+            theme_name: Some(name.to_string()),
+            ..Self::default()
+        }
+    }
+
+    /// Attaches the worker that highlights lines off the render thread.
+    pub fn set_highlight_worker(&mut self, worker: HighlightWorker) {
+        self.highlight_worker = Some(worker);
+    }
+
+    /// Asks the worker to compile the current language's queries now, so the
+    /// first request for a line does not have to.
+    ///
+    /// Called once the file is known to be small enough to highlight, which is
+    /// before its content has finished loading.
+    pub fn warm_highlight(&mut self) {
+        let Some(worker) = &self.highlight_worker else {
+            return;
+        };
+        worker.submit(HighlightRequest::Warm {
+            language: self.language,
+            theme: self.theme_name.clone(),
+        });
+    }
+
+    /// The styled runs for a line, if the worker has returned them.
+    #[must_use]
+    pub fn line_segments(&self, idx: usize) -> Option<&[(Option<ratatui::style::Color>, String)]> {
+        self.highlighted.get(&idx).map(|segments| &segments[..])
+    }
+
+    /// Stores a batch of highlighted lines, ignoring one from a previous file.
+    pub fn apply_highlight_batch(&mut self, batch: HighlightBatch) {
+        if batch.generation != self.generation {
+            return;
+        }
+        for (index, segments) in batch.lines {
+            self.highlighted.insert(index, segments);
+        }
+    }
+
+    /// Ensures the lines in `start..end` have styled runs, asking the worker for
+    /// the ones that do not, and drops runs that have scrolled far away.
+    ///
+    /// Called from the draw pass, which therefore never waits: a line that is
+    /// still missing renders unstyled until its batch arrives.
+    pub fn request_highlights(&mut self, start: usize, end: usize) {
+        self.prune_highlight_cache(start, end);
+
+        if self.large_file_indexer.is_some() {
+            return;
+        }
+
+        if self.language == lumis::languages::Language::PlainText {
+            for index in start..end {
+                if !self.highlighted.contains_key(&index)
+                    && let Some(line) = self.get_line(index)
+                {
+                    self.highlighted.insert(index, vec![(None, line)]);
+                }
+            }
+            return;
+        }
+
+        let Some(worker) = &self.highlight_worker else {
+            return;
+        };
+        let missing: Vec<(usize, String)> = (start..end)
+            .filter(|index| !self.highlighted.contains_key(index))
+            .filter_map(|index| self.get_line(index).map(|line| (index, line)))
+            .collect();
+        if missing.is_empty() {
+            return;
+        }
+        worker.submit(HighlightRequest::Lines {
+            generation: self.generation,
+            language: self.language,
+            theme: self.theme_name.clone(),
+            lines: missing,
+        });
+    }
+
+    /// Keeps runs for the window the viewer is showing and discards the rest, so
+    /// scrolling through a large file does not accumulate them without bound.
+    fn prune_highlight_cache(&mut self, start: usize, end: usize) {
+        if self.highlighted.is_empty() {
+            return;
+        }
+        let keep_from = start.saturating_sub(HIGHLIGHT_CACHE_MARGIN);
+        let keep_to = end + HIGHLIGHT_CACHE_MARGIN;
+        self.highlighted
+            .retain(|index, _| *index >= keep_from && *index < keep_to);
     }
 
     /// The active search query, if any.
@@ -65,6 +175,10 @@ impl TextViewerState {
         self.search_regex = None;
         self.current_search_match = None;
         self.archive_rows = None;
+        // Anything the worker still holds belongs to the file being closed, and
+        // anything it has already sent would otherwise colour the next one.
+        self.highlighted.clear();
+        self.generation = self.generation.wrapping_add(1);
     }
 
     #[must_use]
@@ -174,6 +288,25 @@ impl TextViewerState {
         line.chars().count()
     }
 
+    /// The worker's runs for a line, when they can stand in for the line's own
+    /// character offsets.
+    ///
+    /// Lumis always covers the whole line, so the runs concatenate back to it;
+    /// the length check keeps that assumption from silently turning into a
+    /// selection of the wrong text.
+    fn syntax_segments(
+        &self,
+        row: usize,
+        char_count: usize,
+    ) -> Option<&[(Option<ratatui::style::Color>, String)]> {
+        let segments = self.highlighted.get(&row)?;
+        if segments.len() < 2 {
+            return None;
+        }
+        let covered: usize = segments.iter().map(|(_, text)| text.chars().count()).sum();
+        (covered == char_count).then_some(&segments[..])
+    }
+
     /// Selects the word or syntax chunk at the given display coordinates.
     pub fn select_word_at(&mut self, row: usize, display_col: usize) {
         let line_opt = if let Some(indexer) = &self.large_file_indexer {
@@ -202,26 +335,23 @@ impl TextViewerState {
         let mut end = 0;
         let mut found = false;
 
-        // Try syntax-aware selection first
-        if self.large_file_indexer.is_none() {
-            let highlighter = lumis::highlight::Highlighter::new(self.language, self.theme.clone());
-            let segments = highlighter.highlight(&line).unwrap_or_default();
-
-            if segments.len() > 1 {
-                let mut current_char_idx = 0;
-                for (_, text) in segments {
-                    let segment_char_count = text.chars().count();
-                    if char_idx >= current_char_idx
-                        && char_idx < current_char_idx + segment_char_count
-                    {
-                        // Found the syntax chunk
-                        start = current_char_idx;
-                        end = current_char_idx + segment_char_count;
-                        found = true;
-                        break;
-                    }
-                    current_char_idx += segment_char_count;
+        // Try syntax-aware selection first, using the runs the highlight worker
+        // has already produced for this line.
+        if self.large_file_indexer.is_none()
+            && let Some(segments) = self.syntax_segments(row, char_count)
+        {
+            let mut current_char_idx = 0;
+            for (_, text) in segments {
+                let segment_char_count = text.chars().count();
+                if char_idx >= current_char_idx && char_idx < current_char_idx + segment_char_count
+                {
+                    // Found the syntax chunk
+                    start = current_char_idx;
+                    end = current_char_idx + segment_char_count;
+                    found = true;
+                    break;
                 }
+                current_char_idx += segment_char_count;
             }
         }
 
@@ -770,5 +900,91 @@ impl TextViewerState {
             };
             let _ = tx.send(load_result);
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn batch(generation: usize, lines: Vec<(usize, LineSegments)>) -> crate::state::HighlightBatch {
+        crate::state::HighlightBatch { generation, lines }
+    }
+
+    #[test]
+    fn stale_generations_are_dropped() {
+        let mut state = TextViewerState::default();
+        state.apply_highlight_batch(batch(0, vec![(0, vec![(None, "kept".to_string())])]));
+        assert_eq!(state.line_segments(0).map(<[_]>::len), Some(1));
+
+        // A new file bumps the generation, so results for the old one no longer
+        // apply and a late batch must not colour the new one.
+        state.reset();
+        state.apply_highlight_batch(batch(0, vec![(0, vec![(None, "stale".to_string())])]));
+        assert!(state.line_segments(0).is_none(), "stale batch was applied");
+
+        state.apply_highlight_batch(batch(1, vec![(0, vec![(None, "fresh".to_string())])]));
+        assert_eq!(
+            state.line_segments(0).map(|runs| runs[0].1.as_str()),
+            Some("fresh")
+        );
+    }
+
+    #[test]
+    fn plain_text_lines_need_no_worker() {
+        let mut state = TextViewerState::default();
+        state.content = vec!["one".to_string(), "two".to_string(), "three".to_string()];
+
+        // No worker attached: plain text must still resolve to runs, or the draw
+        // pass would keep asking for them.
+        state.request_highlights(0, 2);
+
+        assert_eq!(
+            state.line_segments(0).map(|runs| runs[0].1.as_str()),
+            Some("one")
+        );
+        assert_eq!(
+            state.line_segments(1).map(|runs| runs[0].1.as_str()),
+            Some("two")
+        );
+        assert!(state.line_segments(2).is_none(), "outside the window");
+    }
+
+    #[test]
+    fn cache_is_pruned_around_the_viewport() {
+        let mut state = TextViewerState::default();
+        state.content = (0..5000).map(|i| i.to_string()).collect();
+
+        state.request_highlights(0, 10);
+        assert!(state.line_segments(0).is_some());
+
+        // Jump far away; the old runs must not be kept forever.
+        state.request_highlights(4000, 4010);
+        assert!(state.line_segments(0).is_none(), "stale run was retained");
+        assert!(state.line_segments(4005).is_some());
+    }
+
+    #[test]
+    fn syntax_selection_follows_the_cached_runs() {
+        let mut state = TextViewerState::default();
+        state.content = vec!["a + b".to_string()];
+        state.apply_highlight_batch(batch(
+            0,
+            vec![(
+                0,
+                vec![
+                    (None, "a".to_string()),
+                    (None, " ".to_string()),
+                    (None, "+".to_string()),
+                    (None, " ".to_string()),
+                    (None, "b".to_string()),
+                ],
+            )],
+        ));
+
+        // Clicking the operator selects just the operator, which only the
+        // syntax runs can do: word boundaries would take the spaces too.
+        state.select_word_at(0, 2);
+        assert_eq!(state.selection, Some(((0, 2), (0, 3))));
     }
 }

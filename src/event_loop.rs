@@ -71,6 +71,7 @@ pub(crate) struct EventSources<'a> {
     pub task_rx: &'a mut UnboundedReceiver<crate::tasks::UiEvent>,
     pub image_load_rx: &'a mut UnboundedReceiver<crate::state::ImageLoadResult>,
     pub content_load_rx: &'a mut UnboundedReceiver<crate::state::ContentLoadResult>,
+    pub highlight_rx: &'a mut UnboundedReceiver<crate::state::HighlightBatch>,
 }
 
 /// Runs the main event loop for the application.
@@ -187,6 +188,11 @@ where
                             // Handle content load results (archive scans, etc.)
                             Some(content_result) = sources.content_load_rx.recv() => {
                                 app.file_viewer.handle_content_load_result(content_result);
+                                draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
+                            }
+                            // Handle syntax-highlighted lines from the worker
+                            Some(batch) = sources.highlight_rx.recv() => {
+                                app.file_viewer.text.apply_highlight_batch(batch);
                                 draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
                             }
                             else => break,

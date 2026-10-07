@@ -53,6 +53,8 @@ struct InitializedApp {
     image_load_rx: tokio::sync::mpsc::UnboundedReceiver<crate::state::ImageLoadResult>,
     #[allow(clippy::struct_field_names)]
     content_load_rx: tokio::sync::mpsc::UnboundedReceiver<crate::state::ContentLoadResult>,
+    #[allow(clippy::struct_field_names)]
+    highlight_rx: tokio::sync::mpsc::UnboundedReceiver<crate::state::HighlightBatch>,
 }
 
 async fn initialize_app() -> Result<InitializedApp> {
@@ -85,6 +87,7 @@ async fn initialize_app() -> Result<InitializedApp> {
 
     let (image_load_tx, image_load_rx) = tokio::sync::mpsc::unbounded_channel();
     let (content_load_tx, content_load_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (highlight_tx, highlight_rx) = tokio::sync::mpsc::unbounded_channel();
     let bookmark_store = crate::bookmarks::BookmarkStore::new()?;
 
     let ctx = crate::app::AppConfigContext {
@@ -120,6 +123,9 @@ async fn initialize_app() -> Result<InitializedApp> {
     app.file_viewer
         .text
         .set_content_load_channel(content_load_tx);
+    app.file_viewer
+        .text
+        .set_highlight_worker(crate::state::HighlightWorker::start(highlight_tx));
 
     let context_key = app.active_tab().provider.context_key();
     app.dir_history.record_visit(&context_key.to_string(), &cwd);
@@ -134,6 +140,7 @@ async fn initialize_app() -> Result<InitializedApp> {
         task_rx,
         image_load_rx,
         content_load_rx,
+        highlight_rx,
     })
 }
 
@@ -162,6 +169,7 @@ pub async fn run() -> Result<()> {
         mut task_rx,
         mut image_load_rx,
         mut content_load_rx,
+        mut highlight_rx,
     } = initialize_app().await?;
 
     app.file_viewer.init_picker().await;
@@ -184,6 +192,7 @@ pub async fn run() -> Result<()> {
                 task_rx: &mut task_rx,
                 image_load_rx: &mut image_load_rx,
                 content_load_rx: &mut content_load_rx,
+                highlight_rx: &mut highlight_rx,
             },
         )
         .await;

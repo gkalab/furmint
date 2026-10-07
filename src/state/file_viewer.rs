@@ -1,3 +1,4 @@
+mod highlight;
 mod image;
 mod text;
 
@@ -6,6 +7,9 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+pub use highlight::{
+    HighlightBatch, HighlightRequest, HighlightWorker, LineSegments, parse_hex_color,
+};
 pub use image::{ImageLoadResult, ImageViewerState};
 pub use text::{ContentLoadResult, TextViewerState};
 
@@ -80,7 +84,7 @@ impl FileViewerState {
             is_loading: false,
             area: ratatui::layout::Rect::default(),
             render_area: ratatui::layout::Rect::default(),
-            text: TextViewerState::with_theme(theme),
+            text: TextViewerState::with_theme_name(theme_name, theme),
             image: ImageViewerState::default(),
             cancel_flag: None,
         }
@@ -252,6 +256,8 @@ impl FileViewerState {
             )];
             return;
         }
+
+        self.text.warm_highlight();
 
         // Now safe to read content up to limit
         match provider.read_file_content(&self.path, limit).await {
