@@ -428,6 +428,23 @@ pub fn is_gui_executable(path: &std::path::Path) -> bool {
     subsystem == 2 // IMAGE_SUBSYSTEM_WINDOWS_GUI
 }
 
+/// Interprets a Unix-style attributes string (`-rwxr-xr-x`), returning whether
+/// any class (user, group, other) has execute permission.
+///
+/// Returns `None` when `attributes` is not in the 10-character Unix format —
+/// the 6-character Windows attribute flags or an empty string — so callers can
+/// fall back to platform-specific detection. The two formats are unambiguous:
+/// the Windows flags are `r`, `h`, `s`, `i` and `p`, never `x`.
+#[must_use]
+pub fn unix_attributes_allow_execute(attributes: &str) -> Option<bool> {
+    let chars: Vec<char> = attributes.chars().collect();
+    if chars.len() != 10 {
+        return None;
+    }
+    // Execute bits live at positions 3 (user), 6 (group) and 9 (other).
+    Some(chars[3] == 'x' || chars[6] == 'x' || chars[9] == 'x')
+}
+
 // Helper to detect executables
 #[must_use]
 pub fn is_executable(full_path: &std::path::Path, e: &FileEntry) -> bool {
@@ -436,34 +453,39 @@ pub fn is_executable(full_path: &std::path::Path, e: &FileEntry) -> bool {
         return false;
     }
 
+    // Entries carrying Unix-style permissions are authoritative, on every
+    // platform: remote filesystems and archives mark scripts and binaries
+    // executable through an `x` bit, which has no relation to the file name.
+    // This must hold on Windows too, where the name would otherwise decide.
+    if let Some(allowed) = unix_attributes_allow_execute(&e.attributes) {
+        return allowed;
+    }
+
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        // First try to get metadata from the filesystem (works for local files)
+        // No Unix permissions available: ask the filesystem (works for local
+        // files whose attributes were not populated).
         if let Ok(meta) = std::fs::symlink_metadata(full_path) {
             let mode = meta.permissions().mode();
             return mode & 0o111 != 0;
-        }
-
-        // Fallback: parse the attributes field (works for remote files)
-        // Attributes format: "-rwxr-xr-x" or "drwxr-xr-x"
-        // Check if any of the execute bits (positions 3, 6, 9) are 'x'
-        if e.attributes.len() >= 10 {
-            let chars: Vec<char> = e.attributes.chars().collect();
-            // Check user execute (position 3), group execute (position 6), other execute (position 9)
-            return chars.get(3) == Some(&'x')
-                || chars.get(6) == Some(&'x')
-                || chars.get(9) == Some(&'x');
         }
 
         false
     }
     #[cfg(windows)]
     {
+        // Local Windows files carry DOS attributes rather than Unix
+        // permissions, so fall back to the file extension.
         if let Some(ext) = full_path.extension().and_then(|e| e.to_str()) {
             let ext = ext.to_ascii_lowercase();
             return matches!(ext.as_str(), "exe" | "bat" | "cmd" | "com");
         }
+        false
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = full_path;
         false
     }
 }
@@ -824,6 +846,52 @@ mod tests {
             };
             assert!(!is_executable(&fake_path, &dir_entry));
         }
+    }
+
+    #[test]
+    fn test_unix_attributes_allow_execute() {
+        // The 10-character Unix format is recognized on every platform.
+        assert_eq!(unix_attributes_allow_execute("-rwxr-xr-x"), Some(true));
+        assert_eq!(unix_attributes_allow_execute("-rwx------"), Some(true));
+        assert_eq!(unix_attributes_allow_execute("-rw-r-xr-x"), Some(true));
+        assert_eq!(unix_attributes_allow_execute("-rw-r--r--"), Some(false));
+        // Windows attribute flags and empty strings carry no Unix permissions.
+        assert_eq!(unix_attributes_allow_execute("---r--"), None);
+        assert_eq!(unix_attributes_allow_execute("d---r-"), None);
+        assert_eq!(unix_attributes_allow_execute("<FILE>"), None);
+        assert_eq!(unix_attributes_allow_execute(""), None);
+    }
+
+    #[test]
+    fn test_is_executable_from_unix_attributes_on_every_platform() {
+        // Remote and archive entries report Unix permissions; the `x` bits
+        // decide, not the name, also when running on Windows.
+        let file = |name: &str, attributes: &str| FileEntry {
+            name: name.to_string(),
+            is_dir: false,
+            is_symlink: false,
+            size: Some(1024),
+            modified: None,
+            attributes: attributes.to_string(),
+            selected: false,
+        };
+
+        let remote_path = std::path::PathBuf::from("/usr/local/bin/deploy");
+        assert!(is_executable(&remote_path, &file("deploy", "-rwxr-xr-x")));
+        // No execute bit anywhere, despite a Windows-ish extension, and the
+        // name is irrelevant for entries that report Unix permissions.
+        assert!(!is_executable(
+            &remote_path,
+            &file("deploy.exe", "-rw-r--r--")
+        ));
+        // Symlinked directories are never executable for display purposes.
+        assert!(!is_executable(
+            &remote_path,
+            &FileEntry {
+                is_dir: true,
+                ..file("link", "lrwxrwxrwx")
+            }
+        ));
     }
 
     #[test]
