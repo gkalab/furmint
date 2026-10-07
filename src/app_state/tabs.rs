@@ -81,7 +81,8 @@ pub struct Tab {
     /// Cache of calculated directory sizes: path -> size in bytes
     pub dir_sizes: std::collections::HashMap<PathBuf, u64>,
     pub is_reloading: bool,
-    /// Indices into self.entries that pass the file filter (or all if no filter)
+    /// Indices into self.entries that pass the file filter. Directories are
+    /// always included; only files are filtered (all entries if no filter)
     pub visible_indices: Vec<usize>,
     /// O(1) membership set derived from `visible_indices`
     pub visible_set: std::collections::HashSet<usize>,
@@ -384,8 +385,8 @@ impl Tab {
 
     /// Set a file name filter. The pattern is a glob matched against entry names,
     /// implicitly wrapped in `*...*` so a plain substring matches names containing
-    /// it. ".." is always visible; files and directories are included only if they
-    /// match the glob (or if no filter is active).
+    /// it. The filter only applies to files: directories (including "..") are
+    /// always visible.
     ///
     /// # Errors
     ///
@@ -450,8 +451,8 @@ impl Tab {
     }
 
     /// Recompute `visible_indices` from entries based on the current file filter.
-    /// ".." is always included. Files and directories are included only if they
-    /// match the glob (or if no filter is active).
+    /// Directories (including "..") are always included; files are included only
+    /// if they match the glob (or if no filter is active).
     /// Also adjusts `cursor` to ensure it points to a visible entry.
     pub fn recompute_visible_indices(&mut self) {
         let indices: Vec<usize> = self
@@ -459,7 +460,7 @@ impl Tab {
             .iter()
             .enumerate()
             .filter_map(|(i, e)| {
-                if e.name == ".." {
+                if e.is_dir {
                     Some(i)
                 } else if let Some(ref glob) = self.filter.glob {
                     if glob.is_match(e.name.as_str()) {
@@ -528,11 +529,11 @@ impl Tab {
         self.visible_indices.len()
     }
 
-    /// Select all visible entries (files and directories that pass the filter).
-    /// ".." is never selected.
+    /// Select all visible files that pass the filter.
+    /// Directories (including "..") are never selected.
     pub fn select_all_visible(&mut self) {
         for (i, entry) in self.entries.iter_mut().enumerate() {
-            if entry.name == ".." {
+            if entry.is_dir {
                 continue;
             }
             if self.visible_set.contains(&i) {

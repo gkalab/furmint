@@ -64,17 +64,30 @@ async fn test_set_file_filter_matches_files() {
 
     let tab = app.active_tab();
     assert!(tab.has_file_filter());
-    // ".." is always visible; matching files are visible
+    // Directories are never filtered out
     assert!(tab.visible_set.contains(&0)); // ".."
+    assert!(tab.visible_set.contains(&1)); // docs
+    assert!(tab.visible_set.contains(&2)); // src
+    // Matching files are visible
     assert!(tab.visible_set.contains(&5)); // main.rs
     assert!(tab.visible_set.contains(&6)); // lib.rs
-    // Non-matching files and directories are hidden
-    assert!(!tab.visible_set.contains(&1)); // docs
-    assert!(!tab.visible_set.contains(&2)); // src
+    // Non-matching files are hidden
     assert!(!tab.visible_set.contains(&3)); // Cargo.toml
     assert!(!tab.visible_set.contains(&4)); // README.md
-    // visible_indices should be exactly [.., main.rs, lib.rs]
-    assert_eq!(tab.visible_count(), 3);
+    // visible_indices should be exactly [.., docs, src, main.rs, lib.rs]
+    assert_eq!(tab.visible_count(), 5);
+}
+
+#[tokio::test]
+async fn test_set_file_filter_never_hides_directories() {
+    let mut app = test_app(mixed_entries());
+    // A pattern that matches no file at all
+    app.active_tab_mut().set_file_filter(Some("zzz*")).unwrap();
+
+    let tab = app.active_tab();
+    // All directories stay visible, no files do
+    assert_eq!(tab.visible_indices, vec![0, 1, 2]);
+    assert_eq!(tab.visible_file_count(), 0);
 }
 
 #[tokio::test]
@@ -91,15 +104,15 @@ async fn test_set_file_filter_case_sensitivity() {
     #[cfg(any(windows, target_os = "macos"))]
     {
         assert!(tab.visible_set.contains(&4)); // README.md
-        assert_eq!(tab.visible_count(), 2); // [.., README.md]
+        assert_eq!(tab.visible_count(), 4); // [.., docs, src, README.md]
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     {
         assert!(!tab.visible_set.contains(&4)); // README.md
-        assert_eq!(tab.visible_count(), 1); // [..]
+        assert_eq!(tab.visible_count(), 2); // [.., docs]
     }
-    // Non-matching dirs and files stay hidden on all platforms
-    assert!(!tab.visible_set.contains(&1)); // docs
+    // Directories are always visible, Cargo.toml never matches
+    assert!(tab.visible_set.contains(&1)); // docs
     assert!(!tab.visible_set.contains(&3)); // Cargo.toml
 }
 
@@ -107,7 +120,7 @@ async fn test_set_file_filter_case_sensitivity() {
 async fn test_clear_file_filter_restores_all() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut().set_file_filter(Some("*.rs")).unwrap();
-    assert_eq!(app.active_tab().visible_count(), 3);
+    assert_eq!(app.active_tab().visible_count(), 5);
 
     app.active_tab_mut().clear_file_filter();
     let tab = app.active_tab();
@@ -176,11 +189,11 @@ async fn test_cursor_adjusts_to_nearest_above() {
     let mut app = test_app(mixed_entries());
     // Entries: 0="..", 1=docs, 2=src, 3=Cargo.toml, 4=README.md, 5=main.rs, 6=lib.rs
     // Cursor on index 4 (README.md) - filtered out.
-    // Nearest visible entry above is ".." (index 0).
+    // Nearest visible entry above is "src" (index 2), a directory.
     app.active_tab_mut().cursor = 4;
     app.active_tab_mut().set_file_filter(Some("*.rs")).unwrap();
 
-    assert_eq!(app.active_tab().cursor, 0);
+    assert_eq!(app.active_tab().cursor, 2);
 }
 
 // ---------------------------------------------------------------------------
@@ -191,11 +204,11 @@ async fn test_cursor_adjusts_to_nearest_above() {
 async fn test_up_filtered_skips_hidden() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut().set_file_filter(Some("*.rs")).unwrap();
-    // visible_indices: [0, 5, 6]
-    // Cursor on lib.rs (index 6, visible_pos=2)
+    // visible_indices: [0, 1, 2, 5, 6]
+    // Cursor on lib.rs (index 6, visible_pos=4)
     app.active_tab_mut().cursor = 6;
     handle_up(&mut app).await;
-    // Should go to main.rs (index 5, visible_pos=1)
+    // Should go to main.rs (index 5, visible_pos=3)
     assert_eq!(app.active_tab().cursor, 5);
 }
 
@@ -203,12 +216,12 @@ async fn test_up_filtered_skips_hidden() {
 async fn test_down_filtered_skips_hidden() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut().set_file_filter(Some("*.rs")).unwrap();
-    // visible_indices: [0, 5, 6]
+    // visible_indices: [0, 1, 2, 5, 6]
     // Cursor on ".." (index 0, visible_pos=0)
     app.active_tab_mut().cursor = 0;
     handle_down(&mut app).await;
-    // Should skip hidden entries and go to main.rs (index 5)
-    assert_eq!(app.active_tab().cursor, 5);
+    // Should go to docs (index 1)
+    assert_eq!(app.active_tab().cursor, 1);
 }
 
 #[tokio::test]
@@ -235,11 +248,11 @@ async fn test_end_filtered_goes_to_last_visible() {
 async fn test_page_up_filtered() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut().set_file_filter(Some("*.rs")).unwrap();
-    // visible_indices: [0, 5, 6] (3 entries)
-    // Cursor on lib.rs (index 6, visible_pos=2)
+    // visible_indices: [0, 1, 2, 5, 6] (5 entries)
+    // Cursor on lib.rs (index 6, visible_pos=4)
     app.active_tab_mut().cursor = 6;
     handle_page_up(&mut app).await;
-    // Page size is 20, but only 3 visible, so should go to first visible
+    // Page size is 20, but only 5 visible, so should go to first visible
     assert_eq!(app.active_tab().cursor, 0);
 }
 
@@ -250,7 +263,7 @@ async fn test_page_down_filtered() {
     // Cursor on ".." (index 0, visible_pos=0)
     app.active_tab_mut().cursor = 0;
     handle_page_down(&mut app).await;
-    // Page size 20 > 3 visible, should clamp to last visible
+    // Page size 20 > 5 visible, should clamp to last visible
     assert_eq!(app.active_tab().cursor, 6);
 }
 
@@ -265,9 +278,8 @@ async fn test_select_all_with_filter_selects_only_visible() {
     app.active_tab_mut().select_all();
 
     let tab = app.active_tab();
-    // ".." is never selected
-    assert!(!tab.entries[0].selected);
-    // Non-matching dirs are not selected
+    // Directories are never selected by select-all while filtering
+    assert!(!tab.entries[0].selected); // ".."
     assert!(!tab.entries[1].selected); // docs
     assert!(!tab.entries[2].selected); // src
     // Matching files are selected
@@ -305,9 +317,9 @@ async fn test_visible_count_matches_indices() {
 
     let tab = app.active_tab();
     // The bare pattern is implicitly wrapped (*toml*) and matches only
-    // Cargo.toml, plus always-visible ".."
-    assert_eq!(tab.visible_count(), 2); // [.., Cargo.toml]
-    assert_eq!(tab.visible_indices.len(), 2);
+    // Cargo.toml; the directories are always visible
+    assert_eq!(tab.visible_count(), 4); // [.., docs, src, Cargo.toml]
+    assert_eq!(tab.visible_indices.len(), 4);
 }
 
 #[tokio::test]
@@ -341,12 +353,16 @@ async fn test_visible_row_to_entry_index_with_filter() {
     let tab = app.active_tab();
     // Row 0 -> visible_indices[0] = 0 ("..")
     assert_eq!(tab.visible_row_to_entry_index(0), Some(0));
-    // Row 1 -> visible_indices[1] = 5 (main.rs)
-    assert_eq!(tab.visible_row_to_entry_index(1), Some(5));
-    // Row 2 -> visible_indices[2] = 6 (lib.rs)
-    assert_eq!(tab.visible_row_to_entry_index(2), Some(6));
+    // Row 1 -> visible_indices[1] = 1 (docs)
+    assert_eq!(tab.visible_row_to_entry_index(1), Some(1));
+    // Row 2 -> visible_indices[2] = 2 (src)
+    assert_eq!(tab.visible_row_to_entry_index(2), Some(2));
+    // Row 3 -> visible_indices[3] = 5 (main.rs)
+    assert_eq!(tab.visible_row_to_entry_index(3), Some(5));
+    // Row 4 -> visible_indices[4] = 6 (lib.rs)
+    assert_eq!(tab.visible_row_to_entry_index(4), Some(6));
     // Out of bounds
-    assert_eq!(tab.visible_row_to_entry_index(3), None);
+    assert_eq!(tab.visible_row_to_entry_index(5), None);
 }
 
 #[tokio::test]
@@ -407,9 +423,9 @@ async fn test_search_navigation_with_filter() {
         entry("zoe.rs", false),
     ];
     let mut app = test_app(entries);
-    // Filter to only .rs files (dirs don't match, so they are hidden)
+    // Filter to only .rs files (dirs always stay visible)
     app.active_tab_mut().set_file_filter(Some("*.rs")).unwrap();
-    // visible: [0="..", 5=mike.rs, 6=zoe.rs]
+    // visible: [0="..", 1=one, 2=two, 5=mike.rs, 6=zoe.rs]
 
     // Type "m" ‒ matches only mike.rs (index 5)
     handle_type_char(&mut app, 'm').await;
@@ -429,21 +445,21 @@ async fn test_search_navigation_with_filter() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn test_filter_matching_nothing_shows_only_parent() {
+async fn test_filter_matching_no_file_keeps_directories() {
     let mut app = test_app(mixed_entries());
-    // A valid glob that matches nothing in this directory
+    // A valid glob that matches no file in this directory
     app.active_tab_mut().set_file_filter(Some("zzz*")).unwrap();
 
     let tab = app.active_tab();
-    // Only ".." remains visible
-    assert_eq!(tab.visible_count(), 1);
+    // Only the directories remain visible
+    assert_eq!(tab.visible_indices, vec![0, 1, 2]);
     assert_eq!(tab.visible_file_count(), 0);
 }
 
 #[tokio::test]
 async fn test_filter_match_all_entries() {
     let mut app = test_app(mixed_entries());
-    // * matches everything, so directories stay visible too
+    // * matches everything, so all files stay visible too
     app.active_tab_mut().set_file_filter(Some("*")).unwrap();
 
     let tab = app.active_tab();
@@ -451,21 +467,15 @@ async fn test_filter_match_all_entries() {
 }
 
 #[tokio::test]
-async fn test_filter_on_directory_names() {
+async fn test_filter_shows_all_dirs_plus_matching_files() {
     let mut app = test_app(mixed_entries());
-    // Filter that only matches the src directory
-    app.active_tab_mut().set_file_filter(Some("src*")).unwrap();
+    // "ma" matches only the main.rs file, no directory at all
+    app.active_tab_mut().set_file_filter(Some("ma")).unwrap();
 
     let tab = app.active_tab();
-    assert!(tab.visible_set.contains(&0)); // ".." always visible
-    assert!(tab.visible_set.contains(&2)); // src (matches the glob)
-    // Non-matching dirs and files are hidden
-    assert!(!tab.visible_set.contains(&1)); // docs
-    assert!(!tab.visible_set.contains(&3));
-    assert!(!tab.visible_set.contains(&4));
-    assert!(!tab.visible_set.contains(&5));
-    assert!(!tab.visible_set.contains(&6));
-    assert_eq!(tab.visible_count(), 2);
+    // Every directory is visible, plus the one matching file
+    assert_eq!(tab.visible_indices, vec![0, 1, 2, 5]); // [.., docs, src, main.rs]
+    assert_eq!(tab.visible_file_count(), 1);
 }
 
 #[tokio::test]
@@ -481,11 +491,11 @@ async fn test_pattern_is_wrapped_in_wildcards() {
     app.active_tab_mut().set_file_filter(Some("jpg")).unwrap();
 
     let tab = app.active_tab();
-    assert!(tab.visible_set.contains(&0)); // ".." always visible
     assert!(tab.visible_set.contains(&1)); // photo.jpg contains "jpg"
-    assert!(tab.visible_set.contains(&3)); // my_jpg_folder contains "jpg"
     // The match is a substring, not a prefix: "jpeg" has no "jpg" in it
     assert!(!tab.visible_set.contains(&2));
+    // The directory is visible regardless of the pattern
+    assert!(tab.visible_set.contains(&3)); // my_jpg_folder
     assert_eq!(tab.visible_count(), 3);
 }
 
@@ -495,7 +505,7 @@ async fn test_filter_toggle_on_off() {
 
     // Apply filter
     app.active_tab_mut().set_file_filter(Some("*.rs")).unwrap();
-    assert_eq!(app.active_tab().visible_count(), 3);
+    assert_eq!(app.active_tab().visible_count(), 5);
 
     // Clear filter
     app.active_tab_mut().clear_file_filter();
@@ -505,7 +515,7 @@ async fn test_filter_toggle_on_off() {
     app.active_tab_mut()
         .set_file_filter(Some("Cargo*"))
         .unwrap();
-    assert_eq!(app.active_tab().visible_count(), 2); // [.., Cargo.toml]
+    assert_eq!(app.active_tab().visible_count(), 4); // [.., docs, src, Cargo.toml]
 }
 
 #[tokio::test]
@@ -513,15 +523,18 @@ async fn test_cursor_visible_pos() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut().set_file_filter(Some("*.rs")).unwrap();
 
-    // visible_indices: [0, 5, 6]
+    // visible_indices: [0, 1, 2, 5, 6]
     app.active_tab_mut().cursor = 0;
     assert_eq!(app.active_tab().cursor_visible_pos(), Some(0));
 
-    app.active_tab_mut().cursor = 5;
+    app.active_tab_mut().cursor = 1;
     assert_eq!(app.active_tab().cursor_visible_pos(), Some(1));
 
+    app.active_tab_mut().cursor = 5;
+    assert_eq!(app.active_tab().cursor_visible_pos(), Some(3));
+
     app.active_tab_mut().cursor = 6;
-    assert_eq!(app.active_tab().cursor_visible_pos(), Some(2));
+    assert_eq!(app.active_tab().cursor_visible_pos(), Some(4));
 
     // Cursor on a filtered-out entry
     app.active_tab_mut().cursor = 3;
