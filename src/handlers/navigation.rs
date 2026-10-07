@@ -451,8 +451,9 @@ pub async fn handle_header_click(app: &mut AppState, x: u16, area: Rect, borders
     let inner_width = area.width.saturating_sub(border_offset * 2);
 
     // Column widths matching table constraints at panel.rs:
-    // [Min(10), Length(7), Length(19), Length(ATTRIBUTES_COL_WIDTH)]
-    let attributes_width = crate::ui::panel::ATTRIBUTES_COL_WIDTH;
+    // [Min(10), Length(7), Length(19), Length(attributes_col_width)]
+    let attributes_width =
+        crate::ui::panel::attributes_col_width(app.active_tab().provider.is_local());
     let name_width = inner_width.saturating_sub(7 + 19 + attributes_width);
     let size_x = inner_x + name_width;
     let modified_x = size_x + 7;

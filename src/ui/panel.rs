@@ -15,13 +15,38 @@ use std::path::Path;
 struct ColumnWidths {
     name: usize,         // Available width for name column
     size_header: String, // Formatted size header with sort indicator
+    attributes: u16,     // Width of the attributes column
+    /// True when the attributes column holds Unix-style permissions
+    unix_attributes: bool,
 }
 
-/// Width of the attributes column (type char + 5 flags on Windows, 10 on Unix).
-#[cfg(windows)]
-pub(crate) const ATTRIBUTES_COL_WIDTH: u16 = 6;
-#[cfg(not(windows))]
-pub(crate) const ATTRIBUTES_COL_WIDTH: u16 = 10;
+/// Width of the attributes column when the entries carry Unix-style
+/// permissions (`drwxr-xr-x`).
+const UNIX_ATTRIBUTES_COL_WIDTH: u16 = 10;
+/// Width of the attributes column for local files on Windows, where the flags
+/// are a type char plus 5 attributes (`d---r-`).
+const WINDOWS_FLAG_COL_WIDTH: u16 = 6;
+
+/// True when the entries of a filesystem carry Unix-style permissions
+/// (`drwxr-xr-x`) rather than the short Windows attribute flags.
+///
+/// Only the local filesystem on Windows reports DOS file attributes; remote and
+/// archive entries always carry Unix modes, so they render the full 10
+/// characters even when running on Windows.
+#[must_use]
+pub(crate) fn has_unix_attributes(local: bool) -> bool {
+    cfg!(not(windows)) || !local
+}
+
+/// Width of the attributes column for the given filesystem.
+#[must_use]
+pub(crate) fn attributes_col_width(local: bool) -> u16 {
+    if has_unix_attributes(local) {
+        UNIX_ATTRIBUTES_COL_WIDTH
+    } else {
+        WINDOWS_FLAG_COL_WIDTH
+    }
+}
 
 /// Context for rendering an entry row
 struct EntryRowContext<'a> {
@@ -31,6 +56,9 @@ struct EntryRowContext<'a> {
     name_col_width: usize,
     /// Cached directory sizes: path -> size in bytes
     dir_sizes: &'a std::collections::HashMap<std::path::PathBuf, u64>,
+    /// True when `entry.attributes` holds Unix-style permissions
+    /// (`drwxr-xr-x`) rather than the short Windows flag format.
+    unix_attributes: bool,
 }
 
 fn sort_indicator(
@@ -50,11 +78,11 @@ fn sort_indicator(
 
 /// Available width for the name column, matching what ratatui's `Table` allocates.
 ///
-/// The fixed non-name columns are Size(7) + Modified(19) + `ATTRIBUTES_COL_WIDTH`.
+/// The fixed non-name columns are Size(7) + Modified(19) + the attributes column.
 /// On top of those, ratatui reserves the block borders (2 columns) and the default
 /// `column_spacing` (1) between the 4 table columns (3 gaps).
-fn name_col_width_for(total_table_width: usize) -> usize {
-    let other_cols = 7 + 19 + usize::from(ATTRIBUTES_COL_WIDTH);
+fn name_col_width_for(total_table_width: usize, attributes_width: u16) -> usize {
+    let other_cols = 7 + 19 + usize::from(attributes_width);
     let overhead = other_cols + 3 + 2; // 3 gaps between 4 columns, 2 for borders
     if total_table_width > overhead {
         total_table_width - overhead
@@ -82,12 +110,17 @@ fn calculate_column_widths(panel: &Tab, area: Rect) -> ColumnWidths {
     );
     let _ = size_width; // size_width is used in size_header calculation
 
+    let local = panel.provider.is_local();
+    let attributes = attributes_col_width(local);
+
     // Calculate available width for name column.
-    let name_col_width = name_col_width_for(area.width as usize);
+    let name_col_width = name_col_width_for(area.width as usize, attributes);
 
     ColumnWidths {
         name: name_col_width,
         size_header,
+        attributes,
+        unix_attributes: has_unix_attributes(local),
     }
 }
 
@@ -111,12 +144,16 @@ fn style_for_entry(entry: &FileEntry, current_dir: &Path, palette: &ThemePalette
 /// Style a single character of the Unix attributes string (`drwxrwxrwx`):
 /// the `d` matches directories (blue), `x` matches executables (green),
 /// `w` uses the normal text color, and `r`/`-` use the muted overlay color
-/// (same as the inactive tab title). On Windows the attributes use a
-/// different flag format, so the plain text color is kept there.
-fn attributes_cell(attrs: &str, palette: &ThemePalette, text_fg: Color) -> Cell<'static> {
+/// (same as the inactive tab title). Local files on Windows use a different
+/// attribute-flag format, so their attributes keep the plain text color.
+fn attributes_cell(
+    attrs: &str,
+    palette: &ThemePalette,
+    text_fg: Color,
+    unix_style: bool,
+) -> Cell<'static> {
     let default_style = Style::default().fg(text_fg);
-    #[cfg(not(windows))]
-    {
+    if unix_style {
         let dir_style =
             Style::default().fg(Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b));
         let exec_style = Style::default().fg(Color::Rgb(
@@ -142,15 +179,7 @@ fn attributes_cell(attrs: &str, palette: &ThemePalette, text_fg: Color) -> Cell<
             })
             .collect();
         Cell::from(Line::from(spans))
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        let _ = palette;
-        Cell::from(attrs.to_string()).style(default_style)
-    }
-    #[cfg(windows)]
-    {
-        let _ = palette;
+    } else {
         Cell::from(attrs.to_string()).style(default_style)
     }
 }
@@ -266,7 +295,12 @@ fn render_entry_row<'a>(
         ))
         .style(Style::default().fg(text_fg)),
         Cell::from(format_modified(entry.modified)).style(Style::default().fg(text_fg)),
-        attributes_cell(entry.attributes.as_str(), ctx.palette, text_fg),
+        attributes_cell(
+            entry.attributes.as_str(),
+            ctx.palette,
+            text_fg,
+            ctx.unix_attributes,
+        ),
     ])
 }
 
@@ -411,7 +445,7 @@ fn draw_scrollbar(
     );
 }
 
-fn build_header_row(panel: &Tab, size_header: &str) -> [String; 4] {
+fn build_header_row(panel: &Tab, size_header: &str, unix_attributes: bool) -> [String; 4] {
     let name_indicator = sort_indicator(SortColumn::Name, panel.sort.column, panel.sort.direction);
     let ext_indicator = sort_indicator(
         SortColumn::Extension,
@@ -427,10 +461,13 @@ fn build_header_row(panel: &Tab, size_header: &str) -> [String; 4] {
         "Modified{}",
         sort_indicator(SortColumn::Date, panel.sort.column, panel.sort.direction)
     );
-    #[cfg(windows)]
-    let attributes_header = "Attrib".to_string();
-    #[cfg(not(windows))]
-    let attributes_header = "Attributes".to_string();
+    // Only the short Windows attribute flags fit "Attrib"; Unix-style
+    // permissions need the full "Attributes" label.
+    let attributes_header = if unix_attributes {
+        "Attributes".to_string()
+    } else {
+        "Attrib".to_string()
+    };
     [
         name_header,
         size_header.to_string(),
@@ -454,7 +491,7 @@ pub fn draw_panel(
     panel.scroll_to_cursor(visible_rows);
 
     let col_widths = calculate_column_widths(panel, area);
-    let header = build_header_row(panel, &col_widths.size_header);
+    let header = build_header_row(panel, &col_widths.size_header, col_widths.unix_attributes);
 
     // Build entry rows
     let ctx = EntryRowContext {
@@ -463,6 +500,7 @@ pub fn draw_panel(
         current_dir: &panel.current_dir,
         name_col_width: col_widths.name,
         dir_sizes: &panel.dir_sizes,
+        unix_attributes: col_widths.unix_attributes,
     };
 
     // Determine which entries to render (respecting file filter)
@@ -492,10 +530,10 @@ pub fn draw_panel(
     let block = build_panel_block(area, palette, active, borders, is_root, panel);
 
     let widths = [
-        Constraint::Min(10),                      // Name: dynamic, at least 10
-        Constraint::Length(7),                    // Size: always 7 (right-aligned)
-        Constraint::Length(19),                   // Modified: always 19
-        Constraint::Length(ATTRIBUTES_COL_WIDTH), // Attributes
+        Constraint::Min(10),                       // Name: dynamic, at least 10
+        Constraint::Length(7),                     // Size: always 7 (right-aligned)
+        Constraint::Length(19),                    // Modified: always 19
+        Constraint::Length(col_widths.attributes), // Attributes
     ];
 
     let panel_selection_background = if active {
@@ -1070,12 +1108,13 @@ mod tests {
     #[test]
     fn test_name_column_fits_ratatui_layout() {
         // 4 table columns -> 3 gaps at default spacing 1, plus 2 border columns and the
-        // fixed non-name columns (which vary by platform: ATTRIBUTES_COL_WIDTH is 6 on
-        // Windows, 10 elsewhere). The budget is `width - overhead`, and the icon lives
-        // inside the name column, so rendering must never clip the tail of a truncated name.
+        // fixed non-name columns (which vary by platform: 6 characters of Windows attribute
+        // flags for local files, 10 characters of Unix permissions otherwise). The budget
+        // is `width - overhead`, and the icon lives inside the name column, so rendering
+        // must never clip the tail of a truncated name.
         let total_table_width = 100;
-        let name_col = calculate_name_col_for(total_table_width);
-        let real_col = name_column_width(total_table_width);
+        let name_col = calculate_name_col_for(total_table_width, attributes_col_width(true));
+        let real_col = name_column_width(total_table_width, attributes_col_width(true));
 
         assert_eq!(name_col, real_col);
 
@@ -1088,9 +1127,25 @@ mod tests {
         assert!(with_icon < real_col);
     }
 
-    fn name_column_width(total: usize) -> usize {
-        let attrs = usize::from(ATTRIBUTES_COL_WIDTH);
-        let overhead = 7 + 19 + attrs + 3 + 2;
+    #[test]
+    fn test_attributes_column_width_per_filesystem() {
+        // Remote and archive entries carry Unix permissions, so the column is
+        // wide enough for all 10 characters even on Windows.
+        if cfg!(windows) {
+            assert_eq!(attributes_col_width(false), 10);
+            assert!(has_unix_attributes(false));
+            assert_eq!(attributes_col_width(true), 6);
+            assert!(!has_unix_attributes(true));
+        } else {
+            assert_eq!(attributes_col_width(true), 10);
+            assert_eq!(attributes_col_width(false), 10);
+            assert!(has_unix_attributes(true));
+            assert!(has_unix_attributes(false));
+        }
+    }
+
+    fn name_column_width(total: usize, attributes: u16) -> usize {
+        let overhead = 7 + 19 + usize::from(attributes) + 3 + 2;
         if total > overhead {
             total - overhead
         } else {
@@ -1098,7 +1153,7 @@ mod tests {
         }
     }
 
-    fn calculate_name_col_for(total: usize) -> usize {
-        super::name_col_width_for(total)
+    fn calculate_name_col_for(total: usize, attributes: u16) -> usize {
+        super::name_col_width_for(total, attributes)
     }
 }
