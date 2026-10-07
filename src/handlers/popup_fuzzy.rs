@@ -44,6 +44,37 @@ fn update_fuzzy_search_results(
     state.list.scroll_offset = 0;
 }
 
+/// Drops the selected entry from the persistent directory history.
+///
+/// No confirmation prompt: the entry is removed immediately and the deletion is
+/// written to disk so it stays gone across restarts.
+fn remove_selected_entry(app: &mut AppState, context_key: &crate::fs::fs_provider::ContextKey) {
+    let Some(selected_dir) = app.fuzzy_search.get_selected_dir() else {
+        return;
+    };
+    if !app
+        .dir_history
+        .remove_entry(&context_key.to_string(), &selected_dir)
+    {
+        return;
+    }
+
+    if let Err(e) = app.dir_history.save() {
+        app.active_tab_mut().error = Some(format!("Failed to save history: {e}"));
+    }
+
+    let selected_index = app.fuzzy_search.list.selected_index;
+    update_fuzzy_search_results(&mut app.fuzzy_search, &app.dir_history, context_key);
+    let last_index = app.fuzzy_search.list.items.len().saturating_sub(1);
+    app.fuzzy_search.list.selected_index = selected_index.min(last_index);
+
+    let display = crate::ui::ui_utils::truncate_path_str(&selected_dir.to_string_lossy(), 50);
+    app.active_tab_mut().status_msg = Some((
+        format!("Removed '{display}' from history"),
+        std::time::Instant::now(),
+    ));
+}
+
 pub(crate) async fn handle_fuzzy_search_event(
     code: KeyCode,
     modifiers: Modifiers,
@@ -102,6 +133,7 @@ pub(crate) async fn handle_fuzzy_search_event(
         KeyCode::PageDown => {
             app.fuzzy_search.move_selection_page_down(10);
         }
+        KeyCode::Delete => remove_selected_entry(app, &context_key),
         _ => {
             if crate::handlers::input_utils::handle_text_input(
                 code,

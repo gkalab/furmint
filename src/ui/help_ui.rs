@@ -15,6 +15,8 @@ static VIEWER_PAN_KEYS_KEYS: LazyLock<Option<Vec<String>>> =
     LazyLock::new(|| Some(vec!["Arrows / PgUp / PgDn / Home / End".to_string()]));
 static VIEWER_PAN_MOUSE_KEYS: LazyLock<Option<Vec<String>>> =
     LazyLock::new(|| Some(vec!["Drag".to_string()]));
+static FUZZY_SEARCH_DELETE_KEYS: LazyLock<Option<Vec<String>>> =
+    LazyLock::new(|| Some(vec!["Delete (in search list)".to_string()]));
 
 pub fn draw_help_popup(
     f: &mut ratatui::Frame,
@@ -164,6 +166,7 @@ fn build_help_categories(
 ) -> Vec<(&'static str, Vec<(&'static str, &Option<Vec<String>>)>)> {
     let base_nav = vec![
         ("Search", &keyboard.search),
+        ("Remove From Search List", &FUZZY_SEARCH_DELETE_KEYS),
         ("Enter Dir", &keyboard.enter_dir),
         ("Up Dir", &keyboard.up_dir),
         ("New Tab", &keyboard.new_tab),
