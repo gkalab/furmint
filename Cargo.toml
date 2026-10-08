@@ -1,7 +1,8 @@
 [package]
 name = "fm"
-version = "0.3.0"
+version = "0.2.1"
 edition = "2024"
+publish = false
 
 [features]
 test-utils = []
@@ -51,7 +52,7 @@ ratatui = { version = "0.30.2", features = ["termina"] }
 ratatui-image = { version = "11.0", default-features = false, features = ["tokio", "image-defaults"] }
 regex = "1.13"
 ring = "0.17"
-russh = { version = "0.63", default-features = false, features = ["ring", "rsa", "flate2"] }
+russh = { version = "0.64", default-features = false, features = ["ring", "rsa", "flate2"] }
 russh-sftp = "3.0"
 secrecy = "0.10"
 serde = { version = "1.0", features = ["derive"] }
