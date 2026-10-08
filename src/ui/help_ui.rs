@@ -74,7 +74,7 @@ pub fn draw_help_popup(
     .split(inner_content_area);
 
     f.render_widget(
-        Paragraph::new("Help (Esc to close)")
+        Paragraph::new(format!("Furmint v{} Help (Esc to close)", crate::VERSION))
             .alignment(Alignment::Center)
             .style(
                 Style::default()

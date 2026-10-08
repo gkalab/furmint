@@ -27,7 +27,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
     if args.contains(&"--version".to_string()) {
-        println!("fm version {}", env!("CARGO_PKG_VERSION"));
+        println!("Furmint version {}", fm::VERSION);
         return Ok(());
     }
 

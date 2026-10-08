@@ -24,6 +24,8 @@ pub mod test_utils;
 pub mod theme;
 pub mod ui;
 
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub use crate::app::AppState;
 use crate::app::PendingAction;
 use crate::config::KeyboardConfig;
