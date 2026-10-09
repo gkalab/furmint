@@ -4,9 +4,9 @@ use super::{NewEntry, PlannedDir, PlannedFile};
 use crate::fs::fs_provider::TaskProgressContext;
 use crate::fs::utils::mode_to_attributes;
 use anyhow::{Context, Result};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::time::SystemTime;
@@ -53,19 +53,6 @@ impl ZipHandler {
         zip_file.unix_mode().filter(|&m| m != 0)
     }
 
-    fn get_metadata_mode(metadata: &std::fs::Metadata) -> u32 {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            metadata.permissions().mode()
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = metadata;
-            0o644
-        }
-    }
-
     fn system_time_to_zip_dt(t: SystemTime) -> zip::DateTime {
         use chrono::{Datelike, Timelike};
         let dt: chrono::DateTime<chrono::Utc> = t.into();
@@ -80,25 +67,47 @@ impl ZipHandler {
         .unwrap_or_else(|_| zip::DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).unwrap())
     }
 
-    fn has_entry(&self, name: &str) -> bool {
-        if !self.path.exists() {
-            return false;
-        }
-        let Ok(file) = File::open(&self.path) else {
-            return false;
-        };
-        let Ok(mut archive) = zip::ZipArchive::new(file) else {
-            return false;
-        };
-        archive.by_name(name).is_ok()
+    /// Canonical form of an entry name, used to match archive entries against
+    /// caller-supplied paths.
+    fn entry_key(name: &str) -> String {
+        common::normalize_path(name).to_string_lossy().into_owned()
     }
 
-    fn rewrite_all_entries<F>(&self, mut f: F) -> Result<()>
+    /// Keys of every entry currently in the archive.
+    ///
+    /// The archive is opened and its central directory parsed exactly once, so
+    /// classifying a batch of destinations stays linear instead of reopening the
+    /// archive per name. A missing or unreadable archive simply has no entries.
+    fn existing_entries(&self) -> HashSet<String> {
+        let Ok(file) = File::open(&self.path) else {
+            return HashSet::new();
+        };
+        let Ok(mut archive) = zip::ZipArchive::new(file) else {
+            return HashSet::new();
+        };
+        let mut keys = HashSet::with_capacity(archive.len());
+        for i in 0..archive.len() {
+            if let Ok(entry) = archive.by_index(i) {
+                keys.insert(Self::entry_key(entry.name()));
+            }
+        }
+        keys
+    }
+
+    /// Rewrites the archive, letting `copy_entries` decide what happens to each
+    /// existing entry and then running `emit_new` against the same writer
+    /// before the result is installed.
+    ///
+    /// Doing the drop and the replacement inside one pass matters: splitting it
+    /// into a rewrite plus a follow-up append would leave the destination
+    /// missing if the process died in between.
+    fn rewrite_with<F, G>(&self, mut copy_entries: F, emit_new: G) -> Result<()>
     where
         F: FnMut(
             &mut zip::write::ZipWriter<&mut std::fs::File>,
             zip::read::ZipFile<'_, std::fs::File>,
         ) -> Result<()>,
+        G: FnOnce(&mut zip::write::ZipWriter<&mut std::fs::File>) -> Result<()>,
     {
         let parent = self.path.parent().unwrap_or(Path::new("."));
 
@@ -118,8 +127,9 @@ impl ZipHandler {
 
             for i in 0..archive.len() {
                 let zip_file = archive.by_index(i).context("Failed to get zip index")?;
-                f(&mut writer, zip_file)?;
+                copy_entries(&mut writer, zip_file)?;
             }
+            emit_new(&mut writer)?;
             writer.finish()?;
         }
 
@@ -141,6 +151,17 @@ impl ZipHandler {
             .context("Failed to replace zip archive");
         common::remove_or_truncate_temp(&temp_path);
         res
+    }
+
+    /// [`Self::rewrite_with`] for rewrites that only rearrange existing entries.
+    fn rewrite_all_entries<F>(&self, copy_entries: F) -> Result<()>
+    where
+        F: FnMut(
+            &mut zip::write::ZipWriter<&mut std::fs::File>,
+            zip::read::ZipFile<'_, std::fs::File>,
+        ) -> Result<()>,
+    {
+        self.rewrite_with(copy_entries, |_| Ok(()))
     }
 }
 
@@ -342,31 +363,12 @@ impl ZipHandler {
             .map_err(Into::into)
     }
 
-    /// Appends all queued entries in a single session, replacing any existing
-    /// entries with the same destination.
-    fn do_add_planned(&self, files: &[PlannedFile<'_>], directories: &[PlannedDir]) -> Result<()> {
-        let mut dest_names: Vec<String> = Vec::with_capacity(files.len() + directories.len());
-        dest_names.extend(files.iter().map(|f| f.dest().to_string()));
-        dest_names.extend(directories.iter().map(|d| d.dest().to_string()));
-
-        // If any destination already exists, drop the old entries first so the
-        // appended ones replace them.
-        if dest_names.iter().any(|d| self.has_entry(d)) {
-            let skip_set: std::collections::HashSet<&String> = dest_names.iter().collect();
-            self.rewrite_all_entries(|writer, zip_file| {
-                let name_norm = common::normalize_path(zip_file.name())
-                    .to_string_lossy()
-                    .to_string();
-                if !skip_set.contains(&name_norm) {
-                    writer.raw_copy_file(zip_file)?;
-                }
-                Ok(())
-            })?;
-        }
-
-        let mut writer = zip::ZipWriter::new_append(self.open_for_append()?)
-            .context("Failed to open zip for appending")?;
-
+    /// Writes the queued entries into an already-open writer.
+    fn emit_planned<W: Write + Seek>(
+        writer: &mut zip::ZipWriter<W>,
+        files: &[PlannedFile<'_>],
+        directories: &[PlannedDir],
+    ) -> Result<()> {
         for dir in directories {
             let options = SimpleFileOptions::default()
                 .last_modified_time(dir.mtime().map_or_else(
@@ -387,11 +389,50 @@ impl ZipHandler {
                 .unix_permissions(mode);
             writer.start_file(planned.dest(), options)?;
             let mut src = planned.open()?;
-            std::io::copy(&mut src, &mut writer)?;
+            std::io::copy(&mut src, writer)?;
         }
 
-        writer.finish()?;
         Ok(())
+    }
+
+    /// Adds all queued entries in a single session, replacing any existing
+    /// entries with the same destination.
+    fn do_add_planned(&self, files: &[PlannedFile<'_>], directories: &[PlannedDir]) -> Result<()> {
+        let dest_names: Vec<String> = files
+            .iter()
+            .map(|f| Self::entry_key(f.dest()))
+            .chain(directories.iter().map(|d| Self::entry_key(d.dest())))
+            .collect();
+
+        let existing = self.existing_entries();
+        let replaced: HashSet<String> = dest_names
+            .into_iter()
+            .filter(|name| existing.contains(name))
+            .collect();
+
+        if replaced.is_empty() {
+            // Nothing is being replaced: append in place so the untouched
+            // entries never have to be re-read or rewritten.
+            let mut writer = zip::ZipWriter::new_append(self.open_for_append()?)
+                .context("Failed to open zip for appending")?;
+            Self::emit_planned(&mut writer, files, directories)?;
+            writer.finish()?;
+            return Ok(());
+        }
+
+        // At least one destination already exists, so the archive has to be
+        // rewritten. Drop the stale entries and emit the new ones in the *same*
+        // pass: a rewrite followed by a separate append would leave the
+        // destination missing if the process died in between.
+        self.rewrite_with(
+            |writer, zip_file| {
+                if !replaced.contains(&Self::entry_key(zip_file.name())) {
+                    writer.raw_copy_file(zip_file)?;
+                }
+                Ok(())
+            },
+            |writer| Self::emit_planned(writer, files, directories),
+        )
     }
 
     fn do_add_entries(&self, entries: &[NewEntry]) -> Result<()> {
@@ -455,18 +496,13 @@ impl ArchiveFormat for ZipHandler {
     ///
     /// Returns an error if the archive cannot be rewritten.
     fn delete_file(&self, path_str: &str) -> Result<()> {
-        let path_norm = common::normalize_path(path_str);
-        let path_norm_str = path_norm.to_string_lossy().to_string();
+        let path_key = Self::entry_key(path_str);
+        let path_prefix = format!("{path_key}/");
 
         self.rewrite_all_entries(|writer, zip_file| {
-            let name = zip_file.name();
-            let name_norm = common::normalize_path(name);
-            let name_norm_str = name_norm.to_string_lossy().to_string();
+            let name_key = Self::entry_key(zip_file.name());
 
-            let should_delete = name_norm_str == path_norm_str
-                || name_norm_str.starts_with(&(path_norm_str.clone() + "/"));
-
-            if !should_delete {
+            if name_key != path_key && !name_key.starts_with(&path_prefix) {
                 writer.raw_copy_file(zip_file)?;
             }
             Ok(())
@@ -479,72 +515,7 @@ impl ArchiveFormat for ZipHandler {
     ///
     /// Returns an error if the archive cannot be rewritten or the source file cannot be read.
     fn add_file(&self, src: &Path, dest_in_archive: &str) -> Result<()> {
-        let dest_norm = common::normalize_path(dest_in_archive);
-        let dest_norm_str = dest_norm.to_string_lossy().to_string();
-
-        if !self.has_entry(&dest_norm_str) {
-            // ... (optimized append logic) ...
-            let file = std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(&self.path)
-                .or_else(|_| {
-                    let f = File::create(&self.path)?;
-                    zip::ZipWriter::new(f).finish()?;
-                    std::fs::OpenOptions::new()
-                        .read(true)
-                        .write(true)
-                        .open(&self.path)
-                })?;
-
-            let mut writer =
-                zip::ZipWriter::new_append(file).context("Failed to open zip for appending")?;
-            let mut src_file = File::open(src).context("Failed to open source file")?;
-            let metadata = src_file.metadata()?;
-            let options = SimpleFileOptions::default()
-                .last_modified_time(metadata.modified().ok().map_or_else(
-                    || zip::DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).unwrap(),
-                    Self::system_time_to_zip_dt,
-                ))
-                .unix_permissions(Self::get_metadata_mode(&metadata));
-
-            writer.start_file(dest_in_archive, options)?;
-            std::io::copy(&mut src_file, &mut writer)?;
-            writer.finish()?;
-            return Ok(());
-        }
-
-        // Fallback: full rewrite for replacement using rewrite_all_entries
-        self.rewrite_all_entries(|writer, zip_file| {
-            let name = zip_file.name();
-            let name_norm = common::normalize_path(name);
-            let name_norm_str = name_norm.to_string_lossy().to_string();
-
-            if name_norm_str != dest_norm_str {
-                writer.raw_copy_file(zip_file)?;
-            }
-            Ok(())
-        })?;
-
-        // Add the new file to the rewritten archive
-        let file = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&self.path)?;
-        let mut writer = zip::ZipWriter::new_append(file)?;
-        let mut src_file = File::open(src)?;
-        let metadata = src_file.metadata()?;
-        let options = SimpleFileOptions::default()
-            .last_modified_time(metadata.modified().ok().map_or_else(
-                || zip::DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).unwrap(),
-                Self::system_time_to_zip_dt,
-            ))
-            .unix_permissions(Self::get_metadata_mode(&metadata));
-
-        writer.start_file(dest_in_archive, options)?;
-        std::io::copy(&mut src_file, &mut writer)?;
-        writer.finish()?;
-        Ok(())
+        self.do_add_planned(&[PlannedFile::from_file(dest_in_archive, src)], &[])
     }
 
     /// Adds a directory to the archive.
@@ -553,69 +524,7 @@ impl ArchiveFormat for ZipHandler {
     ///
     /// Returns an error if the archive cannot be rewritten.
     fn add_directory(&self, dest_in_archive: &str, mtime: Option<SystemTime>) -> Result<()> {
-        let mut dest_str = dest_in_archive.to_string();
-        if !dest_str.ends_with('/') {
-            dest_str.push('/');
-        }
-        let dest_norm = common::normalize_path(&dest_str);
-        let dest_norm_str = dest_norm.to_string_lossy().to_string();
-
-        if !self.has_entry(&dest_norm_str) {
-            let file = std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(&self.path)
-                .or_else(|_| {
-                    let f = File::create(&self.path)?;
-                    zip::ZipWriter::new(f).finish()?;
-                    std::fs::OpenOptions::new()
-                        .read(true)
-                        .write(true)
-                        .open(&self.path)
-                })?;
-
-            let mut writer =
-                zip::ZipWriter::new_append(file).context("Failed to open zip for appending")?;
-            let options = SimpleFileOptions::default()
-                .last_modified_time(mtime.map_or_else(
-                    || Self::system_time_to_zip_dt(SystemTime::now()),
-                    Self::system_time_to_zip_dt,
-                ))
-                .unix_permissions(0o755);
-
-            writer.add_directory(dest_norm_str, options)?;
-            writer.finish()?;
-            return Ok(());
-        }
-
-        // Fallback: full rewrite for replacement
-        self.rewrite_all_entries(|writer, zip_file| {
-            let name = zip_file.name();
-            let name_norm = common::normalize_path(name);
-            let name_norm_str = name_norm.to_string_lossy().to_string();
-
-            if name_norm_str != dest_norm_str {
-                writer.raw_copy_file(zip_file)?;
-            }
-            Ok(())
-        })?;
-
-        // Add the directory to the rewritten archive
-        let file = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&self.path)?;
-        let mut writer = zip::ZipWriter::new_append(file)?;
-        let options = SimpleFileOptions::default()
-            .last_modified_time(mtime.map_or_else(
-                || Self::system_time_to_zip_dt(SystemTime::now()),
-                Self::system_time_to_zip_dt,
-            ))
-            .unix_permissions(0o755);
-
-        writer.add_directory(dest_norm_str, options)?;
-        writer.finish()?;
-        Ok(())
+        self.do_add_planned(&[], &[PlannedDir::new(dest_in_archive, mtime)])
     }
 
     /// Sets the modified time of a file or directory within the archive.
@@ -624,21 +533,15 @@ impl ArchiveFormat for ZipHandler {
     ///
     /// Returns an error if the archive cannot be rewritten.
     fn set_modified_time(&self, path: &str, mtime: SystemTime) -> Result<()> {
-        let path_norm = common::normalize_path(path);
-        let path_norm_str = path_norm.to_string_lossy().to_string();
+        let path_key = Self::entry_key(path);
 
-        self.rewrite_all_entries(|writer, mut zip_file| {
-            let name = zip_file.name().to_string();
-            let name_norm = common::normalize_path(&name);
-            let name_norm_str = name_norm.to_string_lossy().to_string();
-
-            if name_norm_str == path_norm_str {
-                let options = SimpleFileOptions::default()
-                    .last_modified_time(Self::system_time_to_zip_dt(mtime))
-                    .unix_permissions(zip_file.unix_mode().unwrap_or(0o644));
-
-                writer.start_file(name, options)?;
-                std::io::copy(&mut zip_file, writer)?;
+        self.rewrite_all_entries(|writer, zip_file| {
+            if Self::entry_key(zip_file.name()) == path_key {
+                // Touch the timestamp without re-encoding: the stored bytes are
+                // copied verbatim, so the entry keeps the compression method it
+                // was archived with instead of being run through the deflate
+                // encoder again.
+                writer.raw_copy_file_touch(zip_file, Self::system_time_to_zip_dt(mtime), None)?;
             } else {
                 writer.raw_copy_file(zip_file)?;
             }
@@ -652,44 +555,38 @@ impl ArchiveFormat for ZipHandler {
     ///
     /// Returns an error if the archive cannot be rewritten.
     fn rename_file(&self, from: &str, to: &str) -> Result<()> {
-        let from_norm = common::normalize_path(from);
-        let from_norm_str = from_norm.to_string_lossy().to_string();
-        let to_norm = common::normalize_path(to);
-        let to_norm_str = to_norm.to_string_lossy().to_string();
+        let from_key = Self::entry_key(from);
+        let from_prefix = format!("{from_key}/");
+        let to_key = Self::entry_key(to);
 
-        self.rewrite_all_entries(|writer, mut zip_file| {
-            let name_raw = zip_file.name().to_string();
-            let name_norm = common::normalize_path(&name_raw);
-            let name_norm_str = name_norm.to_string_lossy().to_string();
+        self.rewrite_all_entries(|writer, zip_file| {
+            let name_raw = zip_file.name();
+            let name_key = Self::entry_key(name_raw);
 
-            let (new_name, changed) = if name_norm_str == from_norm_str {
-                let mut nn = to_norm_str.clone();
-                if name_raw.ends_with('/') && !nn.ends_with('/') {
-                    nn.push('/');
-                }
-                (nn, true)
-            } else if name_norm_str.starts_with(&(from_norm_str.clone() + "/")) {
-                let mut nn = to_norm_str.clone() + &name_norm_str[from_norm_str.len()..];
-                if name_raw.ends_with('/') && !nn.ends_with('/') {
-                    nn.push('/');
-                }
-                (nn, true)
+            let new_name = if name_key == from_key {
+                Some(to_key.clone())
             } else {
-                (name_raw, false)
+                name_key
+                    .strip_prefix(&from_prefix)
+                    .map(|rest| format!("{to_key}/{rest}"))
             };
 
-            if changed {
-                let options = SimpleFileOptions::default()
-                    .last_modified_time(zip_file.last_modified().unwrap_or_else(|| {
-                        zip::DateTime::from_date_and_time(1980, 1, 1, 0, 0, 0).unwrap()
-                    }))
-                    .unix_permissions(zip_file.unix_mode().unwrap_or(0o644));
-
-                writer.start_file(new_name, options)?;
-                std::io::copy(&mut zip_file, writer)?;
-            } else {
+            let Some(raw_new_name) = new_name else {
                 writer.raw_copy_file(zip_file)?;
+                return Ok(());
+            };
+
+            // Zip marks a directory by its trailing slash, so keep the one the
+            // source entry had.
+            let mut new_name = raw_new_name.trim_matches('/').to_string();
+            if name_raw.ends_with('/') {
+                new_name.push('/');
             }
+
+            // Rename by raw copy: the compressed bytes are reused verbatim and
+            // the entry keeps the compression method it was archived with
+            // instead of being decompressed and re-encoded.
+            writer.raw_copy_file_rename(zip_file, new_name)?;
             Ok(())
         })
     }
