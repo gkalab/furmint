@@ -24,13 +24,13 @@ pub fn handle_init_rename(app: &mut AppState) {
         app.popups.rename.error = None;
         app.popups.rename.focused_button = 0;
 
-        // Position cursor before extension
+        // Position cursor before extension. `cursor_position` is a char index
+        // (see `input_utils::handle_text_input`), so count chars, never bytes.
         let path = std::path::Path::new(&entry.name);
-        if let Some(stem) = path.file_stem() {
-            app.popups.rename.cursor_position = stem.len();
-        } else {
-            app.popups.rename.cursor_position = entry.name.len();
-        }
+        app.popups.rename.cursor_position = path
+            .file_stem()
+            .and_then(std::ffi::OsStr::to_str)
+            .map_or_else(|| entry.name.chars().count(), |stem| stem.chars().count());
     }
 }
 

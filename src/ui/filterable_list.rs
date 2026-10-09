@@ -116,10 +116,6 @@ impl FilterableListState {
     ///
     /// `cursor_position` is a char index (see `input_utils::handle_text_input`),
     /// so it must be bounded by the char count, not the byte length.
-    /// Moves the cursor one character right.
-    ///
-    /// `cursor_position` is a char index (see `input_utils::handle_text_input`),
-    /// so it must be bounded by the char count, not the byte length.
     pub fn move_cursor_right(&mut self) {
         if self.cursor_position < self.input.chars().count() {
             self.cursor_position += 1;
