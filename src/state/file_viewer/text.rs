@@ -932,8 +932,10 @@ mod tests {
 
     #[test]
     fn plain_text_lines_need_no_worker() {
-        let mut state = TextViewerState::default();
-        state.content = vec!["one".to_string(), "two".to_string(), "three".to_string()];
+        let mut state = TextViewerState {
+            content: vec!["one".to_string(), "two".to_string(), "three".to_string()],
+            ..Default::default()
+        };
 
         // No worker attached: plain text must still resolve to runs, or the draw
         // pass would keep asking for them.
@@ -952,8 +954,10 @@ mod tests {
 
     #[test]
     fn cache_is_pruned_around_the_viewport() {
-        let mut state = TextViewerState::default();
-        state.content = (0..5000).map(|i| i.to_string()).collect();
+        let mut state = TextViewerState {
+            content: (0..5000).map(|i| i.to_string()).collect(),
+            ..Default::default()
+        };
 
         state.request_highlights(0, 10);
         assert!(state.line_segments(0).is_some());
@@ -966,8 +970,10 @@ mod tests {
 
     #[test]
     fn syntax_selection_follows_the_cached_runs() {
-        let mut state = TextViewerState::default();
-        state.content = vec!["a + b".to_string()];
+        let mut state = TextViewerState {
+            content: vec!["a + b".to_string()],
+            ..Default::default()
+        };
         state.apply_highlight_batch(batch(
             0,
             vec![(
