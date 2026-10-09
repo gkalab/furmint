@@ -66,7 +66,7 @@ async fn initialize_app() -> Result<InitializedApp> {
     let theme_name = global_config
         .theme
         .as_deref()
-        .unwrap_or("catppuccin macchiato");
+        .unwrap_or(crate::theme::DEFAULT_THEME_NAME);
     let palette = crate::theme::get_theme(theme_name).unwrap_or_else(crate::theme::default_theme);
 
     let cwd = env::current_dir()?;

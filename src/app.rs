@@ -289,7 +289,10 @@ impl AppState {
             },
             file_viewer: FileViewerState::new(
                 ctx.palette.is_dark,
-                ctx.global.theme.as_deref().unwrap_or("default"),
+                ctx.global
+                    .theme
+                    .as_deref()
+                    .unwrap_or(crate::theme::DEFAULT_THEME_NAME),
             ),
             fuzzy_search: crate::ui::fuzzy_search_ui::FuzzySearchState::new(),
             popups: crate::app::Popups::new(),

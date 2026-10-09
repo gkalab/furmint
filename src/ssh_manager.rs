@@ -1,4 +1,4 @@
-use crate::config::SshConfig;
+use crate::config::{SshConfig, SshTimeouts};
 use secrecy::SecretString;
 use std::time::Duration;
 
@@ -127,11 +127,12 @@ pub struct SshManager {
 impl SshManager {
     #[must_use]
     pub fn new(ssh_config: Option<&SshConfig>) -> Self {
-        let keepalive_interval = ssh_config.and_then(|c| c.keepalive_interval).unwrap_or(10);
-        let read_timeout_secs = ssh_config.and_then(|c| c.read_timeout_secs).unwrap_or(15);
-        let connect_timeout_secs = ssh_config
-            .and_then(|c| c.connect_timeout_secs)
-            .unwrap_or(30);
+        // `resolve` fills in any field the user left out, so a partial `[ssh]`
+        // table never silently downgrades the untouched defaults.
+        let timeouts = ssh_config.map_or_else(SshTimeouts::default, SshConfig::resolve);
+        let keepalive_interval = timeouts.keepalive_interval;
+        let read_timeout_secs = timeouts.read_timeout_secs;
+        let connect_timeout_secs = timeouts.connect_timeout_secs;
 
         Self {
             base_backoff: Duration::from_secs(1),

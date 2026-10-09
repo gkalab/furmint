@@ -258,10 +258,17 @@ pub fn get_theme(name: &str) -> Option<ThemePalette> {
     }
 }
 
+/// Name of the theme used when the user has not chosen one.
+pub const DEFAULT_THEME_NAME: &str = "mariana";
+
 /// Get default theme
+///
+/// # Panics
+///
+/// Panics if [`DEFAULT_THEME_NAME`] is not a registered theme name.
 #[must_use]
 pub fn default_theme() -> ThemePalette {
-    catppuccin_macchiato()
+    get_theme(DEFAULT_THEME_NAME).expect("default theme must be a registered theme name")
 }
 
 /// List of all available theme names

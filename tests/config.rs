@@ -1,9 +1,10 @@
 use fm::config::{
-    EditorConfig, GlobalConfig, KeyboardConfig, SshConfig, ViewerConfig, default_global_config,
-    default_keyboard_config, merge_global_config, merge_keyboard_config, parse_command,
-    validate_editor_config, validate_keyboard_config, validate_ssh_config, validate_viewer_config,
+    EditorConfig, GlobalConfig, KeyboardConfig, SshConfig, SshTimeouts, ViewerConfig,
+    default_global_config, default_keyboard_config, merge_global_config, merge_keyboard_config,
+    merge_ssh_config, parse_command, validate_editor_config, validate_keyboard_config,
+    validate_ssh_config, validate_viewer_config,
 };
-use fm::theme::THEME_NAMES;
+use fm::theme::{DEFAULT_THEME_NAME, THEME_NAMES};
 
 #[test]
 fn test_config_path_returns_some() {
@@ -258,17 +259,16 @@ fn test_validate_ssh_config_invalid_connect_timeout_zero() {
 }
 
 #[test]
-fn test_validate_ssh_config_timeout_greater_than_connect_timeout() {
+fn test_validate_ssh_config_independent_timeouts() {
+    // `read_timeout_secs` is a per-session inactivity timeout and
+    // `connect_timeout_secs` bounds the initial dial; they are independent, so a
+    // long read timeout with a short connect timeout is legitimate.
     let config = SshConfig {
         keepalive_interval: Some(10),
-        read_timeout_secs: Some(60),
+        read_timeout_secs: Some(600),
         connect_timeout_secs: Some(30),
     };
-    let result = validate_ssh_config(&config);
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains(
-        "read_timeout_secs (60) must be less than or equal to connect_timeout_secs (30)"
-    ));
+    assert!(validate_ssh_config(&config).is_ok());
 }
 
 #[test]
@@ -289,4 +289,53 @@ fn test_validate_ssh_config_partial_values() {
         connect_timeout_secs: None,
     };
     assert!(validate_ssh_config(&config).is_ok());
+}
+
+#[test]
+fn test_ssh_config_default_has_concrete_values() {
+    // `create_default_config` serializes `SshConfig::default()`, so a derived
+    // all-`None` `Default` would write an empty `[ssh]` table that documents
+    // nothing about the values actually in effect.
+    let config = SshConfig::default();
+    assert!(config.keepalive_interval.is_some());
+    assert!(config.read_timeout_secs.is_some());
+    assert!(config.connect_timeout_secs.is_some());
+}
+
+#[test]
+fn test_merge_ssh_config_fills_omitted_fields() {
+    let user = SshConfig {
+        keepalive_interval: None,
+        read_timeout_secs: Some(120),
+        connect_timeout_secs: None,
+    };
+    let default = SshConfig::default();
+    let merged = merge_ssh_config(Some(&user), &default);
+
+    assert_eq!(merged.read_timeout_secs, Some(120));
+    assert_eq!(merged.keepalive_interval, default.keepalive_interval);
+    assert_eq!(merged.connect_timeout_secs, default.connect_timeout_secs);
+}
+
+#[test]
+fn test_merge_ssh_config_without_user_table() {
+    let default = SshConfig::default();
+    assert_eq!(merge_ssh_config(None, &default).read_timeout_secs, Some(5));
+}
+
+#[test]
+fn test_ssh_config_resolve_matches_default() {
+    // An empty `[ssh]` table must resolve to the same numbers as no table at
+    // all, so config load and `SshManager` agree on one default set.
+    assert_eq!(SshConfig::default().resolve(), SshTimeouts::default());
+    assert_eq!(SshConfig::default().resolve().connect_timeout_secs, 30);
+}
+
+#[test]
+fn test_default_theme_name_is_a_valid_theme() {
+    assert!(THEME_NAMES.contains(&DEFAULT_THEME_NAME));
+    assert_eq!(
+        default_global_config().theme.as_deref(),
+        Some(DEFAULT_THEME_NAME)
+    );
 }

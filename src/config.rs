@@ -61,11 +61,62 @@ pub struct ViewerConfig {
     pub in_terminal: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SshConfig {
     pub keepalive_interval: Option<u32>,
     pub read_timeout_secs: Option<u64>,
     pub connect_timeout_secs: Option<u64>,
+}
+
+/// SSH timeout values with every field resolved to a concrete number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SshTimeouts {
+    pub keepalive_interval: u32,
+    pub read_timeout_secs: u64,
+    pub connect_timeout_secs: u64,
+}
+
+impl Default for SshTimeouts {
+    fn default() -> Self {
+        SshTimeouts {
+            keepalive_interval: DEFAULT_KEEPALIVE_INTERVAL,
+            read_timeout_secs: DEFAULT_READ_TIMEOUT_SECS,
+            connect_timeout_secs: DEFAULT_CONNECT_TIMEOUT_SECS,
+        }
+    }
+}
+
+impl SshConfig {
+    /// Resolves this config against the defaults, filling in omitted fields.
+    #[must_use]
+    pub fn resolve(&self) -> SshTimeouts {
+        SshTimeouts {
+            keepalive_interval: self
+                .keepalive_interval
+                .unwrap_or(DEFAULT_KEEPALIVE_INTERVAL),
+            read_timeout_secs: self.read_timeout_secs.unwrap_or(DEFAULT_READ_TIMEOUT_SECS),
+            connect_timeout_secs: self
+                .connect_timeout_secs
+                .unwrap_or(DEFAULT_CONNECT_TIMEOUT_SECS),
+        }
+    }
+}
+
+/// Default SSH keepalive interval, in seconds.
+pub const DEFAULT_KEEPALIVE_INTERVAL: u32 = 3;
+/// Default SSH session inactivity timeout, in seconds.
+pub const DEFAULT_READ_TIMEOUT_SECS: u64 = 5;
+/// Default SSH connect timeout, in seconds.
+pub const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 30;
+
+impl Default for SshConfig {
+    fn default() -> Self {
+        Self {
+            keepalive_interval: Some(DEFAULT_KEEPALIVE_INTERVAL),
+            read_timeout_secs: Some(DEFAULT_READ_TIMEOUT_SECS),
+            connect_timeout_secs: Some(DEFAULT_CONNECT_TIMEOUT_SECS),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -138,7 +189,7 @@ pub fn default_keyboard_config() -> KeyboardConfig {
 #[must_use]
 pub fn default_global_config() -> GlobalConfig {
     GlobalConfig {
-        theme: Some("mariana".to_string()),
+        theme: Some(crate::theme::DEFAULT_THEME_NAME.to_string()),
         terminal: None,
         borders: Some(true),
         icons: Some(true),
@@ -201,6 +252,22 @@ pub fn merge_keyboard_config(
         tab_move_left: merge_opt!(tab_move_left),
         tab_move_right: merge_opt!(tab_move_right),
         file_filter: merge_opt!(file_filter),
+    }
+}
+
+/// Merges user SSH config with the default config field-by-field.
+#[must_use]
+pub fn merge_ssh_config(user: Option<&SshConfig>, default: &SshConfig) -> SshConfig {
+    SshConfig {
+        keepalive_interval: user
+            .and_then(|c| c.keepalive_interval)
+            .or(default.keepalive_interval),
+        read_timeout_secs: user
+            .and_then(|c| c.read_timeout_secs)
+            .or(default.read_timeout_secs),
+        connect_timeout_secs: user
+            .and_then(|c| c.connect_timeout_secs)
+            .or(default.connect_timeout_secs),
     }
 }
 
@@ -476,15 +543,6 @@ pub fn validate_ssh_config(config: &SshConfig) -> Result<()> {
         }
     }
 
-    if let (Some(timeout), Some(connect_timeout)) =
-        (config.read_timeout_secs, config.connect_timeout_secs)
-        && timeout > connect_timeout
-    {
-        return Err(anyhow!(
-            "SSH read_timeout_secs ({timeout}) must be less than or equal to connect_timeout_secs ({connect_timeout})"
-        ));
-    }
-
     Ok(())
 }
 
@@ -537,11 +595,7 @@ pub fn load_config() -> Result<(
         command: None,
         in_terminal: Some(true),
     };
-    let default_ssh = SshConfig {
-        keepalive_interval: Some(3),
-        read_timeout_secs: Some(5),
-        connect_timeout_secs: Some(30),
-    };
+    let default_ssh = SshConfig::default();
     let (keyboard, global, editor, viewer, ssh) = if path.exists() {
         let content =
             fs::read_to_string(&path).map_err(|e| anyhow!("Failed to read config file: {e}"))?;
@@ -551,7 +605,7 @@ pub fn load_config() -> Result<(
         let global = merge_global_config(user_config.global.as_ref(), &default_global)?;
         let editor = user_config.editor.unwrap_or(default_editor);
         let viewer = user_config.viewer.unwrap_or(default_viewer);
-        let ssh = user_config.ssh.unwrap_or(default_ssh);
+        let ssh = merge_ssh_config(user_config.ssh.as_ref(), &default_ssh);
         (keyboard, global, editor, viewer, ssh)
     } else {
         (
