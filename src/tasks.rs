@@ -34,6 +34,10 @@ pub struct Task {
     pub cancel_flag: Arc<AtomicBool>,
     pub handle: Option<JoinHandle<()>>,
     pub completed_at: Option<std::time::Instant>,
+    /// The failure text is already on screen (e.g. a panel status line), so
+    /// the task result line must not repeat it. The message stays on the task
+    /// itself for the task manager list.
+    pub error_reported: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -46,6 +50,7 @@ pub struct TaskInfo {
     pub rsync: bool,
     pub current_file: Option<String>,
     pub completed_at: Option<std::time::Instant>,
+    pub error_reported: bool,
 }
 
 /// Task lifecycle and progress updates.
@@ -159,6 +164,12 @@ pub enum FsEvent {
         provider: ProviderWrapper,
         filename: String,
         path: std::path::PathBuf,
+    },
+    ArchiveOpenFailed {
+        task_id: usize,
+        side_index: usize,
+        path: std::path::PathBuf,
+        message: String,
     },
 }
 
@@ -402,6 +413,7 @@ impl TaskManager {
                 cancel_flag,
                 handle: Some(handle),
                 completed_at: None,
+                error_reported: false,
             },
         );
         id
@@ -491,6 +503,7 @@ impl TaskManager {
                 rsync: t.rsync,
                 current_file: t.current_file.clone(),
                 completed_at: t.completed_at,
+                error_reported: t.error_reported,
             })
             .collect()
     }
@@ -516,6 +529,12 @@ impl TaskManager {
                     task.completed_at = None;
                 }
             }
+        }
+    }
+
+    pub fn mark_error_reported(&mut self, id: usize) {
+        if let Some(task) = self.tasks.get_mut(&id) {
+            task.error_reported = true;
         }
     }
 

@@ -860,8 +860,12 @@ fn draw_left_panel_status(
                 crate::tasks::TaskStatus::Completed => {
                     (String::new(), ctx.palette.green) // no text for task completed status
                 }
-                crate::tasks::TaskStatus::Failed(e) => {
+                crate::tasks::TaskStatus::Failed(e) if !t.error_reported => {
                     (format!("Task failed: {e}"), ctx.palette.red)
+                }
+                crate::tasks::TaskStatus::Failed(_) => {
+                    // Already on a panel status line; don't say it twice.
+                    (String::new(), ctx.palette.red)
                 }
                 crate::tasks::TaskStatus::Cancelled => {
                     ("Task cancelled".to_string(), ctx.palette.yellow)

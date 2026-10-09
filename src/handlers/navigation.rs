@@ -332,7 +332,6 @@ pub async fn handle_open_archive(app: &mut AppState, path: &PathBuf, filename: S
         app.cache.archive_cache.remove(path);
     }
 
-    let path_clone = path.clone();
     let filename_clone = filename.clone();
     let path_for_event = path.clone();
 
@@ -345,8 +344,8 @@ pub async fn handle_open_archive(app: &mut AppState, path: &PathBuf, filename: S
                 tx,
                 id,
                 side_index,
-                path_clone,
                 filename_clone,
+                path_for_event.clone(),
                 path_for_event,
             )
         });
@@ -356,11 +355,10 @@ async fn run_archive_open_task(
     tx: crate::tasks::EventBus,
     id: usize,
     side_index: usize,
-    path_clone: std::path::PathBuf,
     filename_clone: String,
+    path_for_task: std::path::PathBuf,
     path_for_event: std::path::PathBuf,
 ) {
-    let path_for_task = path_clone.clone();
     // We need to run blocking IO
     let res = tokio::task::spawn_blocking(move || ArchiveFs::new(&path_for_task)).await;
 
@@ -384,10 +382,11 @@ async fn run_archive_open_task(
             ));
         }
         Ok(Err(e)) => {
-            tx.send(crate::tasks::UiEvent::Alert(
-                crate::tasks::AlertEvent::TaskError {
+            tx.send(crate::tasks::UiEvent::Fs(
+                crate::tasks::FsEvent::ArchiveOpenFailed {
                     task_id: id,
-                    path: path_clone.to_string_lossy().to_string(),
+                    side_index,
+                    path: path_for_event,
                     message: e.to_string(),
                 },
             ));
@@ -400,6 +399,14 @@ async fn run_archive_open_task(
         }
         Err(e) => {
             // Join error
+            tx.send(crate::tasks::UiEvent::Fs(
+                crate::tasks::FsEvent::ArchiveOpenFailed {
+                    task_id: id,
+                    side_index,
+                    path: path_for_event,
+                    message: e.to_string(),
+                },
+            ));
             tx.send(crate::tasks::UiEvent::Task(
                 crate::tasks::TaskEvent::UpdateStatus {
                     task_id: id,

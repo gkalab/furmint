@@ -141,6 +141,14 @@ async fn dispatch_fs_event(e: crate::tasks::FsEvent, app: &mut crate::app::AppSt
         } => {
             handle_archive_loaded(app, side_index, provider, filename, path).await;
         }
+        crate::tasks::FsEvent::ArchiveOpenFailed {
+            task_id,
+            side_index,
+            path,
+            message,
+        } => {
+            handle_archive_open_failed(app, task_id, side_index, &path, &message);
+        }
     }
 }
 
@@ -386,6 +394,28 @@ async fn handle_archive_loaded(
             manager.active_tab_mut().error = Some(format!("Failed to create archive tab: {e}"));
         }
     }
+}
+
+/// Reports a failed archive open on the panel status line of the side that requested it.
+fn handle_archive_open_failed(
+    app: &mut crate::app::AppState,
+    task_id: usize,
+    side_index: usize,
+    path: &std::path::Path,
+    message: &str,
+) {
+    app.tasks.task_manager.mark_error_reported(task_id);
+
+    let manager = if side_index == 0 {
+        &mut app.panels.left
+    } else {
+        &mut app.panels.right
+    };
+
+    manager.active_tab_mut().error = Some(format!(
+        "Failed to open archive '{}': {message}",
+        path.display()
+    ));
 }
 
 pub(crate) fn handle_task_manager_event(code: KeyCode, app: &mut AppState) -> bool {

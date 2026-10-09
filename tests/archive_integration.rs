@@ -278,6 +278,79 @@ async fn test_selecting_archive_bookmark_does_not_navigate_or_delete() {
 }
 
 #[tokio::test]
+async fn test_unavailable_archive_bookmark_reports_on_status_line() {
+    // A bookmark pointing at an archive that cannot be opened reports the
+    // failure on the panel status line; no error popup (whose buttons the
+    // archive-open task has no way to act on) is raised.
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive_path = temp_dir.path().join("missing.zip");
+    make_archive(&archive_path, &[("hello.txt", b"world")]);
+    std::fs::remove_file(&archive_path).unwrap();
+
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut app = test_app(Vec::new(), tx, Arc::new(fm::opener::SystemOpener));
+
+    app.bookmark_store.entries.push(BookmarkEntry {
+        path: archive_path.clone(),
+        ssh_user: None,
+        ssh_host: None,
+        ssh_port: None,
+        is_archive: true,
+    });
+
+    app.popups
+        .set_popup_visible(fm::app::PopupKind::Bookmark, true);
+    refresh_bookmark_list(&mut app);
+
+    handle_bookmark_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
+
+    let event = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+        .await
+        .expect("timed out waiting for task event")
+        .expect("event channel closed");
+    assert!(
+        matches!(event, UiEvent::Fs(FsEvent::ArchiveOpenFailed { .. })),
+        "expected ArchiveOpenFailed, got {event:?}"
+    );
+    assert!(
+        !matches!(event, UiEvent::Alert(_)),
+        "an archive open failure must not raise an alert popup"
+    );
+
+    // Drain the task's status update too, so the task is actually Failed.
+    while let Ok(ev) = rx.try_recv() {
+        if matches!(ev, UiEvent::Task(_)) {
+            fm::handlers::popup_misc::dispatch_ui_event(ev, &mut app).await;
+        }
+    }
+    fm::handlers::popup_misc::dispatch_ui_event(event, &mut app).await;
+
+    assert!(
+        !app.popups.error.is_visible,
+        "the error popup should not be shown"
+    );
+    let err = app.active_tab().error.as_deref().unwrap_or("");
+    assert!(
+        err.contains("missing.zip"),
+        "status line should name the archive, got {err:?}"
+    );
+
+    // The failure is on the active tab's status line only; the task result line
+    // must not repeat it.
+    let tasks = app.tasks.task_manager.get_tasks();
+    let task = tasks.last().expect("the open task should still be listed");
+    assert!(
+        task.error_reported,
+        "the failure is already on a status line, so the task result line must skip it"
+    );
+    assert!(
+        matches!(task.status, fm::tasks::TaskStatus::Failed(_)),
+        "the task itself should still be marked failed, got {:?}",
+        task.status
+    );
+}
+
+#[tokio::test]
 async fn test_zip_extract_attributes() {
     // 1. Setup ZIP with a file and a subdirectory
     let temp_dir = tempfile::tempdir().unwrap();
@@ -463,15 +536,18 @@ async fn test_open_corrupt_7z_shows_error() {
     //    handle_open_archive. The corrupt content will cause an error event.
     handle_enter(&mut app).await;
 
-    // 4. Verify: we get an error event (not ArchiveLoaded, not fallback to opener)
+    // 4. Verify: we get an archive-open failure event (not ArchiveLoaded, not
+    //    fallback to opener). It is reported on the status line, not as a popup
+    //    alert, because the archive-open task takes no decisions.
     let event = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
         .await
         .expect("timed out waiting for task event");
     match event {
-        Some(UiEvent::Alert(AlertEvent::TaskError { message: msg, .. })) => {
-            assert!(!msg.is_empty(), "Error message should not be empty");
+        Some(UiEvent::Fs(FsEvent::ArchiveOpenFailed { message, path, .. })) => {
+            assert!(!message.is_empty(), "Error message should not be empty");
+            assert_eq!(path, archive_path);
         }
-        other => panic!("Expected Error event, got {other:?}"),
+        other => panic!("Expected ArchiveOpenFailed event, got {other:?}"),
     }
 
     // The fallback opener should NOT have been called
