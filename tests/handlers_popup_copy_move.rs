@@ -43,7 +43,6 @@ fn make_tab(path: &str, entries: Vec<FileEntry>, cursor: usize) -> Tab {
         dir_sizes: HashMap::new(),
         is_reloading: false,
         visible_indices: Vec::new(),
-        visible_set: std::collections::HashSet::new(),
         filter: fm::state::FileFilterState::new(),
     }
 }

@@ -615,7 +615,7 @@ pub fn draw_panel_status(
         .entries
         .iter()
         .enumerate()
-        .filter(|(i, e)| e.is_dir && e.name != ".." && panel.visible_set.contains(i))
+        .filter(|(i, e)| e.is_dir && e.name != ".." && panel.is_visible(*i))
         .count();
     let selected_count = panel.entries.iter().filter(|e| e.selected).count();
 

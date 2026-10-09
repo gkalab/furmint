@@ -65,15 +65,15 @@ async fn test_set_file_filter_matches_files() {
     let tab = app.active_tab();
     assert!(tab.has_file_filter());
     // Directories are never filtered out
-    assert!(tab.visible_set.contains(&0)); // ".."
-    assert!(tab.visible_set.contains(&1)); // docs
-    assert!(tab.visible_set.contains(&2)); // src
+    assert!(tab.is_visible(0)); // ".."
+    assert!(tab.is_visible(1)); // docs
+    assert!(tab.is_visible(2)); // src
     // Matching files are visible
-    assert!(tab.visible_set.contains(&5)); // main.rs
-    assert!(tab.visible_set.contains(&6)); // lib.rs
+    assert!(tab.is_visible(5)); // main.rs
+    assert!(tab.is_visible(6)); // lib.rs
     // Non-matching files are hidden
-    assert!(!tab.visible_set.contains(&3)); // Cargo.toml
-    assert!(!tab.visible_set.contains(&4)); // README.md
+    assert!(!tab.is_visible(3)); // Cargo.toml
+    assert!(!tab.is_visible(4)); // README.md
     // visible_indices should be exactly [.., docs, src, main.rs, lib.rs]
     assert_eq!(tab.visible_count(), 5);
 }
@@ -103,17 +103,17 @@ async fn test_set_file_filter_case_sensitivity() {
     // Windows and macOS, case-sensitive on Linux.
     #[cfg(any(windows, target_os = "macos"))]
     {
-        assert!(tab.visible_set.contains(&4)); // README.md
+        assert!(tab.is_visible(4)); // README.md
         assert_eq!(tab.visible_count(), 4); // [.., docs, src, README.md]
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     {
-        assert!(!tab.visible_set.contains(&4)); // README.md
+        assert!(!tab.is_visible(4)); // README.md
         assert_eq!(tab.visible_count(), 3); // [.., docs, src]
     }
     // Directories are always visible, Cargo.toml never matches
-    assert!(tab.visible_set.contains(&1)); // docs
-    assert!(!tab.visible_set.contains(&3)); // Cargo.toml
+    assert!(tab.is_visible(1)); // docs
+    assert!(!tab.is_visible(3)); // Cargo.toml
 }
 
 #[tokio::test]
@@ -171,7 +171,7 @@ async fn test_cursor_adjusts_to_visible_on_filter() {
 
     // Cursor should have been moved to a visible entry
     let tab = app.active_tab();
-    assert!(tab.visible_set.contains(&tab.cursor));
+    assert!(tab.is_visible(tab.cursor));
 }
 
 #[tokio::test]
@@ -491,11 +491,11 @@ async fn test_pattern_is_wrapped_in_wildcards() {
     app.active_tab_mut().set_file_filter(Some("jpg")).unwrap();
 
     let tab = app.active_tab();
-    assert!(tab.visible_set.contains(&1)); // photo.jpg contains "jpg"
+    assert!(tab.is_visible(1)); // photo.jpg contains "jpg"
     // The match is a substring, not a prefix: "jpeg" has no "jpg" in it
-    assert!(!tab.visible_set.contains(&2));
+    assert!(!tab.is_visible(2));
     // The directory is visible regardless of the pattern
-    assert!(tab.visible_set.contains(&3)); // my_jpg_folder
+    assert!(tab.is_visible(3)); // my_jpg_folder
     assert_eq!(tab.visible_count(), 3);
 }
 

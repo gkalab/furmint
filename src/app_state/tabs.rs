@@ -81,11 +81,11 @@ pub struct Tab {
     /// Cache of calculated directory sizes: path -> size in bytes
     pub dir_sizes: std::collections::HashMap<PathBuf, u64>,
     pub is_reloading: bool,
-    /// Indices into self.entries that pass the file filter. Directories are
-    /// always included; only files are filtered (all entries if no filter)
+    /// Indices into self.entries that pass the file filter, in ascending order.
+    /// Directories are always included; only files are filtered (all entries if
+    /// no filter). The ascending invariant is what makes [`Self::is_visible`] a
+    /// binary search, so it must be preserved by every writer.
     pub visible_indices: Vec<usize>,
-    /// O(1) membership set derived from `visible_indices`
-    pub visible_set: std::collections::HashSet<usize>,
     pub filter: crate::state::FileFilterState,
 }
 
@@ -129,7 +129,6 @@ impl Tab {
             dir_sizes: std::collections::HashMap::new(),
             is_reloading: false,
             visible_indices: Vec::new(),
-            visible_set: std::collections::HashSet::new(),
             filter: crate::state::FileFilterState::new(),
         };
         tab.sort_entries();
@@ -473,28 +472,37 @@ impl Tab {
                 }
             })
             .collect();
-        self.visible_set = indices.iter().copied().collect();
         self.visible_indices = indices;
 
         // Ensure cursor is on a visible entry
-        if !self.visible_indices.is_empty() && !self.visible_set.contains(&self.cursor) {
+        if !self.visible_indices.is_empty() && !self.is_visible(self.cursor) {
             // Move cursor to nearest visible entry above
             let mut new_cursor = self.cursor;
-            while new_cursor > 0 && !self.visible_set.contains(&new_cursor) {
+            while new_cursor > 0 && !self.is_visible(new_cursor) {
                 new_cursor -= 1;
             }
-            if !self.visible_set.contains(&new_cursor) {
+            if !self.is_visible(new_cursor) {
                 new_cursor = self.visible_indices[0];
             }
             self.cursor = new_cursor;
         }
     }
 
+    /// Whether the entry at `index` passes the current file filter.
+    ///
+    /// `visible_indices` is kept in ascending order, so this is a binary search.
+    #[must_use]
+    pub fn is_visible(&self, index: usize) -> bool {
+        self.visible_indices.binary_search(&index).is_ok()
+    }
+
     /// Get the cursor position within the visible entries list.
-    /// Returns None if there are no visible entries.
+    /// Returns None if the cursor is not on a visible entry.
     #[must_use]
     pub fn cursor_visible_pos(&self) -> Option<usize> {
-        self.visible_indices.iter().position(|&i| i == self.cursor)
+        let pos = self.visible_indices.partition_point(|&i| i < self.cursor);
+        (pos < self.visible_indices.len() && self.visible_indices[pos] == self.cursor)
+            .then_some(pos)
     }
 
     /// Move cursor up, skipping hidden entries.
@@ -532,13 +540,17 @@ impl Tab {
     /// Select all visible files that pass the filter.
     /// Directories (including "..") are never selected.
     pub fn select_all_visible(&mut self) {
+        // `visible_indices` is ascending, so a merge walk over the entries keeps
+        // this O(entries) instead of a membership test per entry.
+        let mut visible = self.visible_indices.iter().copied().peekable();
         for (i, entry) in self.entries.iter_mut().enumerate() {
-            if entry.is_dir {
+            while visible.peek().is_some_and(|&v| v < i) {
+                visible.next();
+            }
+            if entry.is_dir || visible.peek() != Some(&i) {
                 continue;
             }
-            if self.visible_set.contains(&i) {
-                entry.selected = true;
-            }
+            entry.selected = true;
         }
     }
 
@@ -840,7 +852,7 @@ impl Tab {
 
         // 1. Prefix matches
         for (i, entry) in self.entries.iter().enumerate() {
-            if filtering && !self.visible_set.contains(&i) {
+            if filtering && !self.is_visible(i) {
                 continue;
             }
             if entry.name.to_lowercase().starts_with(&query) {
@@ -861,7 +873,7 @@ impl Tab {
             let matcher = SkimMatcherV2::default();
 
             for (i, entry) in self.entries.iter().enumerate() {
-                if filtering && !self.visible_set.contains(&i) {
+                if filtering && !self.is_visible(i) {
                     continue;
                 }
                 if let Some((_, indices)) =

@@ -378,7 +378,6 @@ async fn test_can_swap_active_tabs() {
         dir_sizes: std::collections::HashMap::new(),
         is_reloading: false,
         visible_indices: Vec::new(),
-        visible_set: std::collections::HashSet::new(),
         filter: fm::state::FileFilterState::new(),
     };
 
@@ -424,7 +423,6 @@ async fn test_drive_navigation_matches_opposite_pane() {
             dir_sizes: std::collections::HashMap::new(),
             is_reloading: false,
             visible_indices: Vec::new(),
-            visible_set: std::collections::HashSet::new(),
             filter: fm::state::FileFilterState::new(),
         };
         let right_tab = Tab {
@@ -442,7 +440,6 @@ async fn test_drive_navigation_matches_opposite_pane() {
             dir_sizes: std::collections::HashMap::new(),
             is_reloading: false,
             visible_indices: Vec::new(),
-            visible_set: std::collections::HashSet::new(),
             filter: fm::state::FileFilterState::new(),
         };
         app.panels.left.tabs = vec![left_tab];
@@ -484,7 +481,6 @@ async fn test_drive_navigation_matches_opposite_pane() {
             dir_sizes: std::collections::HashMap::new(),
             is_reloading: false,
             visible_indices: Vec::new(),
-            visible_set: std::collections::HashSet::new(),
             filter: fm::state::FileFilterState::new(),
         };
         let right_tab = Tab {
@@ -502,7 +498,6 @@ async fn test_drive_navigation_matches_opposite_pane() {
             dir_sizes: std::collections::HashMap::new(),
             is_reloading: false,
             visible_indices: Vec::new(),
-            visible_set: std::collections::HashSet::new(),
             filter: fm::state::FileFilterState::new(),
         };
         app.panels.left.tabs = vec![left_tab];
@@ -544,7 +539,6 @@ async fn test_drive_navigation_matches_opposite_pane() {
             dir_sizes: std::collections::HashMap::new(),
             is_reloading: false,
             visible_indices: Vec::new(),
-            visible_set: std::collections::HashSet::new(),
             filter: fm::state::FileFilterState::new(),
         };
         let right_tab = Tab {
@@ -562,7 +556,6 @@ async fn test_drive_navigation_matches_opposite_pane() {
             dir_sizes: std::collections::HashMap::new(),
             is_reloading: false,
             visible_indices: Vec::new(),
-            visible_set: std::collections::HashSet::new(),
             filter: fm::state::FileFilterState::new(),
         };
         app.panels.left.tabs = vec![left_tab];
