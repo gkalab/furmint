@@ -469,6 +469,7 @@ async fn test_bookmark_remove_confirmation_mouse_click() {
             ssh_user: None,
             ssh_host: None,
             ssh_port: None,
+            is_archive: false,
         });
 
     // Open the bookmark list with an active "remove bookmark" confirmation and

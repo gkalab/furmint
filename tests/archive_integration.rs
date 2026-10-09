@@ -2,20 +2,25 @@ use flate2::Compression;
 use flate2::write::GzEncoder;
 use fm::app::AppState;
 use fm::app_state::tabs::TabManager;
+use fm::bookmarks::BookmarkEntry;
 use fm::fs::fs_archive::ArchiveFs;
 use fm::fs::fs_local::LocalFs;
 use fm::fs::fs_provider::FileSystemProvider;
 use fm::fs::fs_provider::TaskProgressContext;
 use fm::fs::utils::FileEntry;
 use fm::handlers::navigation::handle_enter;
+use fm::handlers::popup_bookmark::{
+    handle_bookmark_add, handle_bookmark_event, refresh_bookmark_list,
+};
 use fm::opener::FileOpener;
 use fm::tasks::{AlertEvent, FsEvent, UiEvent};
 use std::fs::File;
 use std::io::{Seek, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
+use termina::event::{KeyCode, Modifiers};
 use tokio::sync::mpsc;
 
 /// Mock file opener that records if `open()` was called
@@ -76,6 +81,200 @@ fn create_file_entry(name: &str, is_dir: bool) -> FileEntry {
         attributes: String::new(),
         selected: false,
     }
+}
+
+/// Builds an `AppState` whose active tab is browsing `archive_path` from the
+/// inside (as if the user had pressed Enter on it).
+fn archive_tab_app(archive_path: &Path, task_tx: mpsc::UnboundedSender<UiEvent>) -> AppState {
+    let mut tab = fm::test_utils::create_test_tab();
+    tab.provider = Arc::new(ArchiveFs::new(archive_path).unwrap());
+    tab.current_dir = PathBuf::from("/");
+    tab.custom_title = Some(
+        archive_path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string(),
+    );
+    fm::test_utils::TestAppBuilder::new()
+        .left(TabManager {
+            tabs: vec![tab.clone()],
+            active_tab_index: 0,
+        })
+        .right(TabManager {
+            tabs: vec![tab],
+            active_tab_index: 0,
+        })
+        .task_tx(task_tx)
+        .build()
+}
+
+#[tokio::test]
+async fn test_bookmark_add_from_archive_tab_bookmarks_archive_file() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive_path = temp_dir.path().join("bookmarked.zip");
+    make_archive(&archive_path, &[("dir/file.txt", b"data")]);
+
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let mut app = archive_tab_app(&archive_path, tx);
+
+    // The tab is inside `dir/file.txt`; only the archive file itself is reachable.
+    app.active_tab_mut().current_dir = PathBuf::from("/dir/file.txt");
+
+    handle_bookmark_add(&mut app);
+
+    assert_eq!(app.bookmark_store.entries.len(), 1);
+    let entry = &app.bookmark_store.entries[0];
+    assert_eq!(entry.path, archive_path);
+    assert!(entry.is_archive, "entry should be flagged as an archive");
+    assert!(!entry.is_remote());
+
+    // Adding again is a no-op duplicate.
+    handle_bookmark_add(&mut app);
+    assert_eq!(app.bookmark_store.entries.len(), 1);
+}
+
+#[tokio::test]
+async fn test_bookmark_add_from_local_tab_is_not_an_archive() {
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let mut app = test_app(Vec::new(), tx, Arc::new(fm::opener::SystemOpener));
+
+    app.active_tab_mut().current_dir = PathBuf::from("/home/user");
+
+    handle_bookmark_add(&mut app);
+
+    assert_eq!(app.bookmark_store.entries.len(), 1);
+    let entry = &app.bookmark_store.entries[0];
+    assert_eq!(entry.path, PathBuf::from("/home/user"));
+    assert!(!entry.is_archive);
+}
+
+#[tokio::test]
+async fn test_selecting_archive_bookmark_opens_archive_in_new_tab() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive_path = temp_dir.path().join("from_bookmark.zip");
+    make_archive(&archive_path, &[("hello.txt", b"world")]);
+
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut app = test_app(Vec::new(), tx, Arc::new(fm::opener::SystemOpener));
+
+    app.bookmark_store.entries.push(BookmarkEntry {
+        path: archive_path.clone(),
+        ssh_user: None,
+        ssh_host: None,
+        ssh_port: None,
+        is_archive: true,
+    });
+
+    app.popups
+        .set_popup_visible(fm::app::PopupKind::Bookmark, true);
+    refresh_bookmark_list(&mut app);
+
+    handle_bookmark_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
+
+    match rx.recv().await {
+        Some(UiEvent::Fs(FsEvent::ArchiveLoaded { filename, path, .. })) => {
+            assert_eq!(filename, "from_bookmark.zip");
+            assert_eq!(path, archive_path);
+        }
+        other => panic!("Expected ArchiveLoaded event, got {other:?}"),
+    }
+
+    assert!(!app.popups.bookmark.list.is_visible);
+}
+
+#[tokio::test]
+async fn test_selecting_archive_bookmark_works_from_archive_tab() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive_path = temp_dir.path().join("other.zip");
+    make_archive(&archive_path, &[("hello.txt", b"world")]);
+
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    // The active tab is itself an archive, so the old `is_local()` guard on the
+    // active tab would wrongly reject the bookmark.
+    let mut app = archive_tab_app(&archive_path, tx);
+
+    app.bookmark_store.entries.push(BookmarkEntry {
+        path: archive_path.clone(),
+        ssh_user: None,
+        ssh_host: None,
+        ssh_port: None,
+        is_archive: true,
+    });
+
+    app.popups
+        .set_popup_visible(fm::app::PopupKind::Bookmark, true);
+    refresh_bookmark_list(&mut app);
+
+    handle_bookmark_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
+
+    assert!(
+        app.active_tab().error.is_none(),
+        "unexpected error: {:?}",
+        app.active_tab().error
+    );
+
+    match rx.recv().await {
+        Some(UiEvent::Fs(FsEvent::ArchiveLoaded { filename, path, .. })) => {
+            assert_eq!(filename, "other.zip");
+            assert_eq!(path, archive_path);
+        }
+        other => panic!("Expected ArchiveLoaded event, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_nested_archive_enter_reports_archive_context_error() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let outer_path = temp_dir.path().join("outer.zip");
+    make_archive(&outer_path, &[("inner.zip", b"PK\x05\x06\0\0")]);
+
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let mut app = archive_tab_app(&outer_path, tx);
+    app.active_tab_mut().current_dir = PathBuf::from("/");
+    app.active_tab_mut().entries = vec![create_file_entry("inner.zip", false)];
+    app.active_tab_mut().cursor = 0;
+
+    handle_enter(&mut app).await;
+
+    let err = app.active_tab().error.as_deref().unwrap_or("");
+    assert!(
+        err.contains("inside an archive"),
+        "expected an archive-context error, got {err:?}"
+    );
+    assert!(
+        !err.contains("remote"),
+        "an archive tab is not a remote connection, got {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_selecting_archive_bookmark_does_not_navigate_or_delete() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive_path = temp_dir.path().join("kept.zip");
+    make_archive(&archive_path, &[("hello.txt", b"world")]);
+
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let mut app = test_app(Vec::new(), tx, Arc::new(fm::opener::SystemOpener));
+
+    app.bookmark_store.entries.push(BookmarkEntry {
+        path: archive_path,
+        ssh_user: None,
+        ssh_host: None,
+        ssh_port: None,
+        is_archive: true,
+    });
+
+    app.popups
+        .set_popup_visible(fm::app::PopupKind::Bookmark, true);
+    refresh_bookmark_list(&mut app);
+
+    handle_bookmark_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
+
+    // The current tab is untouched and the bookmark survives.
+    assert_eq!(app.active_tab().current_dir, PathBuf::from("/tmp"));
+    assert_eq!(app.bookmark_store.entries.len(), 1);
+    assert!(app.active_tab().error.is_none());
 }
 
 #[tokio::test]

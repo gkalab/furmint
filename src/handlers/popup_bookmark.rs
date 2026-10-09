@@ -60,8 +60,8 @@ pub async fn handle_bookmark_mouse_click(
 }
 
 pub fn handle_bookmark_add(app: &mut AppState) {
-    let current_dir = app.active_tab().current_dir.clone();
-    let provider = app.active_tab().provider.clone();
+    let tab = app.active_tab();
+    let provider = tab.provider.clone();
 
     let (ssh_user, ssh_host, ssh_port) = match provider.context_key() {
         crate::fs::fs_provider::ContextKey::Ssh { user, host, port } => {
@@ -71,18 +71,26 @@ pub fn handle_bookmark_add(app: &mut AppState) {
         _ => (None, None, None),
     };
 
-    let display = crate::bookmarks::BookmarkEntry {
-        path: current_dir.clone(),
-        ssh_user: ssh_user.clone(),
-        ssh_host: ssh_host.clone(),
+    // An archive tab's `current_dir` is a path *inside* the archive, which cannot
+    // be navigated to later. Bookmark the archive file itself instead.
+    let archive_path = if tab.is_archive() {
+        provider.archive_path()
+    } else {
+        None
+    };
+    let entry = crate::bookmarks::BookmarkEntry {
+        path: archive_path
+            .clone()
+            .unwrap_or_else(|| tab.current_dir.clone()),
+        ssh_user,
+        ssh_host,
         ssh_port,
-    }
-    .display_string();
+        is_archive: archive_path.is_some(),
+    };
 
-    match app
-        .bookmark_store
-        .add_with_ssh(current_dir, ssh_user, ssh_host, ssh_port)
-    {
+    let display = entry.display_string();
+
+    match app.bookmark_store.add_entry(entry) {
         Ok(true) => {
             app.active_tab_mut().status_msg =
                 Some((format!("Bookmark added: {display}"), Instant::now()));
@@ -165,6 +173,7 @@ pub async fn handle_bookmark_event(
                         && e.ssh_user == entry.ssh_user
                         && e.ssh_host == entry.ssh_host
                         && e.ssh_port == entry.ssh_port
+                        && e.is_archive == entry.is_archive
                 }) {
                     app.popups.bookmark.confirmation = Some(ConfirmationState::new(
                         format!("Remove bookmark '{path_display}'?"),
@@ -193,6 +202,22 @@ pub async fn handle_bookmark_event(
 
 async fn handle_bookmark_enter(app: &mut AppState) {
     if let Some(entry) = selected_bookmark_entry(app) {
+        // Archive bookmarks point at an archive file; open it in a new tab as if
+        // the user had pressed Enter on it in the file list.
+        if entry.is_archive {
+            let path = entry.path;
+            let Some(filename) = path.file_name().map(|n| n.to_string_lossy().to_string()) else {
+                app.active_tab_mut().error =
+                    Some(format!("'{}' is not a valid archive path", path.display()));
+                return;
+            };
+            crate::handlers::navigation::handle_open_archive(app, &path, filename).await;
+            app.popups
+                .set_popup_visible(crate::app::PopupKind::Bookmark, false);
+            app.popups.reset_popup(crate::app::PopupKind::Bookmark);
+            return;
+        }
+
         if entry.is_remote() {
             let user = entry.ssh_user.clone().unwrap_or_else(|| "root".to_string());
             let host = entry.ssh_host.clone().unwrap_or_default();

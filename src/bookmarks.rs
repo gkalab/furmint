@@ -5,6 +5,12 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+// serde requires skip_serializing_if predicates to take a reference.
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BookmarkEntry {
     pub path: PathBuf,
@@ -14,6 +20,10 @@ pub struct BookmarkEntry {
     pub ssh_host: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ssh_port: Option<u16>,
+    /// `true` when `path` points at an archive file that should be opened in an
+    /// archive tab rather than navigated to as a directory.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_archive: bool,
 }
 
 impl BookmarkEntry {
@@ -99,21 +109,33 @@ impl BookmarkStore {
         ssh_host: Option<String>,
         ssh_port: Option<u16>,
     ) -> Result<bool> {
-        let already = self.entries.iter().any(|e| {
-            e.path == path
-                && e.ssh_user == ssh_user
-                && e.ssh_host == ssh_host
-                && e.ssh_port == ssh_port
-        });
-        if already {
-            return Ok(false);
-        }
-        self.entries.push(BookmarkEntry {
+        self.add_entry(BookmarkEntry {
             path,
             ssh_user,
             ssh_host,
             ssh_port,
+            is_archive: false,
+        })
+    }
+
+    /// Adds a fully specified bookmark. Returns `Ok(true)` if it was added,
+    /// `Ok(false)` if an identical bookmark already exists.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the store cannot be persisted to disk.
+    pub fn add_entry(&mut self, entry: BookmarkEntry) -> Result<bool> {
+        let already = self.entries.iter().any(|e| {
+            e.path == entry.path
+                && e.ssh_user == entry.ssh_user
+                && e.ssh_host == entry.ssh_host
+                && e.ssh_port == entry.ssh_port
+                && e.is_archive == entry.is_archive
         });
+        if already {
+            return Ok(false);
+        }
+        self.entries.push(entry);
         self.save()?;
         Ok(true)
     }
@@ -390,6 +412,7 @@ mod tests {
             ssh_user: None,
             ssh_host: None,
             ssh_port: None,
+            is_archive: false,
         };
         assert_eq!(local.display_string(), "/home/user/src");
 
@@ -398,6 +421,7 @@ mod tests {
             ssh_user: Some("someuser".to_string()),
             ssh_host: Some("host".to_string()),
             ssh_port: None,
+            is_archive: false,
         };
         assert_eq!(
             remote_default.display_string(),
@@ -409,6 +433,7 @@ mod tests {
             ssh_user: Some("someuser".to_string()),
             ssh_host: Some("host".to_string()),
             ssh_port: Some(2222),
+            is_archive: false,
         };
         assert_eq!(
             remote_port.display_string(),

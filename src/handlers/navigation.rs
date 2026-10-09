@@ -47,11 +47,36 @@ pub async fn handle_page_down(app: &mut AppState) {
 // Enters the selected directory or opens the file.
 pub async fn handle_enter(app: &mut AppState) {
     if let Some((path, _, filename)) = archive_path_and_ext(app) {
+        // The path came from the active tab, so it only names a local file when
+        // that tab is local. Nested archives are paths inside the mounted
+        // archive, which is not something ArchiveFs can mount again.
+        if let Some(err) = archive_open_blocked_error(&app.active_tab().provider) {
+            app.active_tab_mut().error = Some(err);
+            update_viewer_content(app).await;
+            return;
+        }
         handle_open_archive(app, &path, filename).await;
         return;
     }
 
     handle_open_item(app).await;
+}
+
+/// Why an archive selected in `provider` cannot be opened as its own tab, if it
+/// cannot. Archives are read straight from the local filesystem, so a path
+/// taken from an SSH tab or from inside an archive does not resolve.
+fn archive_open_blocked_error(
+    provider: &Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
+) -> Option<String> {
+    match provider.context_key() {
+        crate::fs::fs_provider::ContextKey::Ssh { .. } => {
+            Some("Opening archives from remote connections is not supported".to_string())
+        }
+        crate::fs::fs_provider::ContextKey::Archive(_) => {
+            Some("Opening archives from inside an archive is not supported".to_string())
+        }
+        crate::fs::fs_provider::ContextKey::Local => None,
+    }
 }
 
 fn archive_path_and_ext(app: &mut AppState) -> Option<(PathBuf, String, String)> {
@@ -250,14 +275,13 @@ pub async fn handle_enter_directory(app: &mut AppState) {
     }
 }
 
-async fn handle_open_archive(app: &mut AppState, path: &PathBuf, filename: String) {
-    let panel = app.active_tab_mut();
-    if !panel.provider.is_local() {
-        panel.error = Some("Opening archives from remote connections is not supported".to_string());
-        update_viewer_content(app).await;
-        return;
-    }
-
+/// Opens `path` as an archive in a new tab after the active one.
+///
+/// `path` must be a path on the local filesystem. Callers that derive the path
+/// from the active tab are responsible for rejecting remote and archive-backed
+/// contexts via [`archive_open_blocked_error`]; callers with an independent
+/// local path (such as archive bookmarks) do not need that check.
+pub async fn handle_open_archive(app: &mut AppState, path: &PathBuf, filename: String) {
     let side_index = match app.panels.active {
         crate::app_state::tabs::PanelSide::Left => 0,
         crate::app_state::tabs::PanelSide::Right => 1,
