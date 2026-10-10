@@ -3,10 +3,10 @@ use flate2::write::GzEncoder;
 use fm::app::AppState;
 use fm::app_state::tabs::TabManager;
 use fm::bookmarks::BookmarkEntry;
-use fm::fs::fs_archive::ArchiveFs;
-use fm::fs::fs_local::LocalFs;
-use fm::fs::fs_provider::FileSystemProvider;
-use fm::fs::fs_provider::TaskProgressContext;
+use fm::fs::archive_fs::ArchiveFs;
+use fm::fs::local::LocalFs;
+use fm::fs::provider::FileSystemProvider;
+use fm::fs::provider::TaskProgressContext;
 use fm::fs::utils::FileEntry;
 use fm::handlers::navigation::handle_enter;
 use fm::handlers::popup_bookmark::{
@@ -382,7 +382,7 @@ async fn test_zip_extract_attributes() {
     }
 
     // 2. Load ArchiveFs
-    let archive_fs = fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap();
+    let archive_fs = fm::fs::archive_fs::ArchiveFs::new(&archive_path).unwrap();
 
     // 3. Test download (extraction with attribute preservation)
     let dest_dir = temp_dir.path().join("extracted_zip_attributes");
@@ -390,7 +390,7 @@ async fn test_zip_extract_attributes() {
 
     let (raw_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
     let tx = fm::tasks::EventBus::new(raw_tx);
-    let progress = fm::fs::fs_provider::TaskProgressContext {
+    let progress = fm::fs::provider::TaskProgressContext {
         id: 0,
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
@@ -579,7 +579,7 @@ async fn test_archive_fs_read_and_download_zip() {
     }
 
     // 2. Load ArchiveFs
-    let archive_fs = fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap();
+    let archive_fs = fm::fs::archive_fs::ArchiveFs::new(&archive_path).unwrap();
 
     // 3. Test read_file
     let content = archive_fs.read_file(Path::new("hello.txt")).await.unwrap();
@@ -597,7 +597,7 @@ async fn test_archive_fs_read_and_download_zip() {
 
     let (raw_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
     let tx = fm::tasks::EventBus::new(raw_tx);
-    let progress = fm::fs::fs_provider::TaskProgressContext {
+    let progress = fm::fs::provider::TaskProgressContext {
         id: 0,
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
@@ -650,7 +650,7 @@ async fn test_archive_fs_read_and_download_tar_gz() {
     }
 
     // 2. Load ArchiveFs
-    let archive_fs = fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap();
+    let archive_fs = fm::fs::archive_fs::ArchiveFs::new(&archive_path).unwrap();
 
     // 3. Test read_file
     let content = archive_fs.read_file(Path::new("hello.txt")).await.unwrap();
@@ -662,7 +662,7 @@ async fn test_archive_fs_read_and_download_tar_gz() {
 
     let (raw_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
     let tx = fm::tasks::EventBus::new(raw_tx);
-    let progress = fm::fs::fs_provider::TaskProgressContext {
+    let progress = fm::fs::provider::TaskProgressContext {
         id: 0,
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
@@ -703,7 +703,7 @@ async fn test_archive_fs_read_and_download_plain_gz() {
         writer.flush().unwrap();
     }
 
-    let archive_fs = fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap();
+    let archive_fs = fm::fs::archive_fs::ArchiveFs::new(&archive_path).unwrap();
 
     let content = archive_fs.read_file(Path::new("test")).await.unwrap();
     assert_eq!(content, b"hello world");
@@ -713,7 +713,7 @@ async fn test_archive_fs_read_and_download_plain_gz() {
 
     let (raw_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
     let tx = fm::tasks::EventBus::new(raw_tx);
-    let progress = fm::fs::fs_provider::TaskProgressContext {
+    let progress = fm::fs::provider::TaskProgressContext {
         id: 0,
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
@@ -750,7 +750,7 @@ async fn test_archive_fs_plain_gz_attributes() {
         writer.flush().unwrap();
     }
 
-    let archive_fs = fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap();
+    let archive_fs = fm::fs::archive_fs::ArchiveFs::new(&archive_path).unwrap();
 
     let entry = archive_fs.get_entry(Path::new("test")).unwrap();
     assert_eq!(entry.file_entry.name, "test");
@@ -781,13 +781,13 @@ async fn test_archive_download_empty_dir_and_nesting() {
         zip.finish().unwrap();
     }
 
-    let archive_fs = fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap();
+    let archive_fs = fm::fs::archive_fs::ArchiveFs::new(&archive_path).unwrap();
     let dest_dir = temp_dir.path().join("extracted_nesting");
     std::fs::create_dir_all(&dest_dir).unwrap();
 
     let (raw_tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
     let tx = fm::tasks::EventBus::new(raw_tx);
-    let progress = fm::fs::fs_provider::TaskProgressContext {
+    let progress = fm::fs::provider::TaskProgressContext {
         id: 123,
         tx: tx.clone(),
         cancel: Arc::new(AtomicBool::new(false)),
@@ -855,14 +855,14 @@ async fn test_archive_download_cancellation() {
         zip.finish().unwrap();
     }
 
-    let archive_fs = fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap();
+    let archive_fs = fm::fs::archive_fs::ArchiveFs::new(&archive_path).unwrap();
     let dest_dir = temp_dir.path().join("extracted_cancel");
     std::fs::create_dir_all(&dest_dir).unwrap();
 
     let (raw_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
     let tx = fm::tasks::EventBus::new(raw_tx);
     let cancel_flag = Arc::new(AtomicBool::new(false));
-    let progress = fm::fs::fs_provider::TaskProgressContext {
+    let progress = fm::fs::provider::TaskProgressContext {
         id: 789,
         tx,
         cancel: cancel_flag.clone(),
@@ -1076,7 +1076,7 @@ async fn test_archive_fs_download_tar_gz_optimized() {
     }
 
     // 2. Load ArchiveFs (this will decompress to temp and populate positions)
-    let archive_fs = fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap();
+    let archive_fs = fm::fs::archive_fs::ArchiveFs::new(&archive_path).unwrap();
 
     // Verify position is populated
     {
@@ -1094,7 +1094,7 @@ async fn test_archive_fs_download_tar_gz_optimized() {
 
     let (raw_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
     let tx = fm::tasks::EventBus::new(raw_tx);
-    let progress = fm::fs::fs_provider::TaskProgressContext {
+    let progress = fm::fs::provider::TaskProgressContext {
         id: 0,
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
@@ -1136,7 +1136,7 @@ async fn test_archive_fs_read_and_download_xz() {
     }
 
     // 2. Load ArchiveFs
-    let archive_fs = fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap();
+    let archive_fs = fm::fs::archive_fs::ArchiveFs::new(&archive_path).unwrap();
 
     // 3. Test read_file
     let content = archive_fs
@@ -1151,7 +1151,7 @@ async fn test_archive_fs_read_and_download_xz() {
 
     let (raw_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
     let tx = fm::tasks::EventBus::new(raw_tx);
-    let progress = fm::fs::fs_provider::TaskProgressContext {
+    let progress = fm::fs::provider::TaskProgressContext {
         id: 0,
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
@@ -1272,7 +1272,7 @@ async fn test_archive_fs_read_and_download_rpm() {
     assert!(meta_signed.contains("Signed         : yes"));
 
     // Test scanning
-    let archive_fs = fm::fs::fs_archive::ArchiveFs::new(&rpm_path).unwrap();
+    let archive_fs = fm::fs::archive_fs::ArchiveFs::new(&rpm_path).unwrap();
     let entries = archive_fs.list_dir(Path::new("/")).await.unwrap();
     assert!(entries.iter().any(|e| e.name == "file1.txt"));
 
@@ -1286,7 +1286,7 @@ async fn test_archive_fs_read_and_download_rpm() {
 
     let (raw_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<fm::tasks::UiEvent>();
     let tx = fm::tasks::EventBus::new(raw_tx);
-    let progress = fm::fs::fs_provider::TaskProgressContext {
+    let progress = fm::fs::provider::TaskProgressContext {
         id: 0,
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
@@ -1354,7 +1354,7 @@ async fn test_zip_delete_and_add() {
         std::fs::set_permissions(&extra_file, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
 
-    let local_fs = fm::fs::fs_local::LocalFs::new();
+    let local_fs = fm::fs::local::LocalFs::new();
     let (raw_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
     let tx = fm::tasks::EventBus::new(raw_tx);
     let progress = TaskProgressContext {
@@ -1460,7 +1460,7 @@ async fn test_zip_copy_directory_batch() {
     std::fs::write(sub2.join("c.txt"), b"c").unwrap();
 
     let archive_path = temp_dir.path().join("tree_batch.zip");
-    let local_fs = fm::fs::fs_local::LocalFs::new();
+    let local_fs = fm::fs::local::LocalFs::new();
     local_fs.create_file(&archive_path).await.unwrap();
 
     let src_fs = LocalFs::new();

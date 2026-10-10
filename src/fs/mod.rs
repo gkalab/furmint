@@ -1,12 +1,9 @@
 pub mod archive;
-pub mod fs_archive;
-pub mod fs_local;
-pub mod fs_provider;
-pub mod fs_rsync;
-pub mod fs_sftp_russh;
-pub mod fs_sftp {
-    pub use super::fs_sftp_russh::SftpFs;
-}
+pub mod archive_fs;
+pub mod local;
 pub mod ops;
+pub mod provider;
+pub mod rsync;
+pub mod sftp;
 pub mod utils;
 pub mod watcher;

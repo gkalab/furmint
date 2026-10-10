@@ -1,12 +1,12 @@
-use fm::fs::fs_archive::ArchiveFs;
-use fm::fs::fs_local::LocalFs;
-use fm::fs::fs_provider::FileSystemProvider;
+use fm::fs::archive_fs::ArchiveFs;
+use fm::fs::local::LocalFs;
+use fm::fs::provider::FileSystemProvider;
 use sevenz_rust2::{ArchiveReader, ArchiveWriter, Password};
 use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
 
-fn make_progress() -> fm::fs::fs_provider::TaskProgressContext {
-    fm::fs::fs_provider::TaskProgressContext {
+fn make_progress() -> fm::fs::provider::TaskProgressContext {
+    fm::fs::provider::TaskProgressContext {
         id: 1,
         tx: fm::tasks::EventBus::new(tokio::sync::mpsc::unbounded_channel().0),
         cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),

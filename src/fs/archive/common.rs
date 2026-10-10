@@ -1,4 +1,4 @@
-use crate::fs::fs_archive::ArchiveEntry;
+use crate::fs::archive_fs::ArchiveEntry;
 use crate::fs::utils::FileEntry;
 use anyhow::{Context, Result, anyhow};
 use filetime::{FileTime, set_file_handle_times, set_file_mtime};
@@ -228,7 +228,7 @@ pub struct ExtractOptions<'a> {
     pub src_str: &'a str,
     pub dest: &'a Path,
     pub is_dir: bool,
-    pub progress: &'a crate::fs::fs_provider::TaskProgressContext,
+    pub progress: &'a crate::fs::provider::TaskProgressContext,
 }
 
 /// Metadata for extraction of a single entry.
@@ -417,7 +417,7 @@ fn extract_file_entry<R: std::io::Read>(
     dest: &Path,
     name: &str,
     meta: &ExtractionEntryMetadata<'_>,
-    progress: &crate::fs::fs_provider::TaskProgressContext,
+    progress: &crate::fs::provider::TaskProgressContext,
 ) -> anyhow::Result<()> {
     ensure_parent_safe(target, dest, name)?;
     // A well-formed entry never streams more bytes than its declared size. A
@@ -609,7 +609,7 @@ pub fn handle_extraction_entry<R: std::io::Read>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fs::fs_provider::TaskProgressContext;
+    use crate::fs::provider::TaskProgressContext;
     use crate::tasks::UiEvent;
     use std::io::Cursor;
     use std::sync::Arc;

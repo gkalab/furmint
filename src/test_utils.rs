@@ -3,9 +3,9 @@ use crate::app::{AppState, Popups};
 #[cfg(any(test, feature = "test-utils"))]
 use crate::app_state::tabs::{IncrementalSearch, PanelSide, SortSettings, Tab, TabManager};
 #[cfg(any(test, feature = "test-utils"))]
-use crate::fs::fs_local::LocalFs;
+use crate::fs::local::LocalFs;
 #[cfg(any(test, feature = "test-utils"))]
-use crate::fs::fs_provider::{FileMetadata, FileSystemProvider};
+use crate::fs::provider::{FileMetadata, FileSystemProvider};
 #[cfg(any(test, feature = "test-utils"))]
 use crate::fs::utils::FileEntry;
 #[cfg(any(test, feature = "test-utils"))]
@@ -488,8 +488,8 @@ impl FileSystemProvider for StdFileSystem {
         true
     }
 
-    fn context_key(&self) -> crate::fs::fs_provider::ContextKey {
-        crate::fs::fs_provider::ContextKey::Local
+    fn context_key(&self) -> crate::fs::provider::ContextKey {
+        crate::fs::provider::ContextKey::Local
     }
 
     fn display_path(&self, path: &std::path::Path) -> String {

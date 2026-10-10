@@ -16,7 +16,7 @@ use std::time::Instant;
 pub struct ArchiveCacheEntry {
     pub mtime: std::time::SystemTime,
     pub size: u64,
-    pub provider: std::sync::Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
+    pub provider: std::sync::Arc<dyn crate::fs::provider::FileSystemProvider>,
     /// Stamped the first tick after no tab is using this archive any more.
     pub closed_at: Option<std::time::Instant>,
 }
@@ -142,7 +142,7 @@ pub enum PendingAction {
     OpenEditorRemote {
         temp_path: PathBuf,
         remote_path: PathBuf,
-        provider: std::sync::Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
+        provider: std::sync::Arc<dyn crate::fs::provider::FileSystemProvider>,
         original_checksum: [u8; 16],
     },
     ToggleConsole,
@@ -189,13 +189,13 @@ impl CacheState {
     /// using that archive have been closed.
     pub fn cleanup(
         &mut self,
-        open_keys: &std::collections::HashSet<crate::fs::fs_provider::ContextKey>,
+        open_keys: &std::collections::HashSet<crate::fs::provider::ContextKey>,
     ) {
         let now = std::time::Instant::now();
         let timeout = std::time::Duration::from_mins(1);
 
         self.archive_cache.retain(|path, entry| {
-            let key = crate::fs::fs_provider::ContextKey::Archive(path.clone());
+            let key = crate::fs::provider::ContextKey::Archive(path.clone());
             if open_keys.contains(&key) {
                 entry.closed_at = None; // still in use — clear any stale timestamp
                 true
@@ -252,7 +252,7 @@ pub struct AppState {
     /// When each remote context was last reloaded in response to transfer
     /// progress, rate limiting [`Self::reload_remote_throttled`].
     pub(crate) remote_reloaded_at:
-        std::collections::HashMap<crate::fs::fs_provider::ContextKey, Instant>,
+        std::collections::HashMap<crate::fs::provider::ContextKey, Instant>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -388,13 +388,13 @@ impl AppState {
             let mut paths = Vec::new();
             if self.panels.left.active_tab().provider.is_local() {
                 let path = &self.panels.left.active_tab().current_dir;
-                if !crate::fs::fs_local::is_network_path(path) {
+                if !crate::fs::local::is_network_path(path) {
                     paths.push(path.clone());
                 }
             }
             if self.panels.right.active_tab().provider.is_local() {
                 let path = &self.panels.right.active_tab().current_dir;
-                if !crate::fs::fs_local::is_network_path(path) {
+                if !crate::fs::local::is_network_path(path) {
                     paths.push(path.clone());
                 }
             }
@@ -411,9 +411,9 @@ impl AppState {
         let right_path = &self.panels.right.active_tab().current_dir;
 
         (self.panels.left.active_tab().provider.is_local()
-            && crate::fs::fs_local::is_network_path(left_path))
+            && crate::fs::local::is_network_path(left_path))
             || (self.panels.right.active_tab().provider.is_local()
-                && crate::fs::fs_local::is_network_path(right_path))
+                && crate::fs::local::is_network_path(right_path))
     }
 
     pub fn cleanup_sensitive_data(&mut self) {
@@ -431,7 +431,7 @@ impl AppState {
             .iter()
             .chain(self.panels.right.tabs.iter())
             .map(|t| t.provider.context_key())
-            .filter(|k| matches!(k, crate::fs::fs_provider::ContextKey::Archive(_)))
+            .filter(|k| matches!(k, crate::fs::provider::ContextKey::Archive(_)))
             .collect();
 
         self.cache.cleanup(&open_keys);
@@ -466,7 +466,7 @@ impl AppState {
     }
 
     /// The remote filesystem context of `side`'s active tab.
-    fn active_remote_context(&self, side: PanelSide) -> Option<crate::fs::fs_provider::ContextKey> {
+    fn active_remote_context(&self, side: PanelSide) -> Option<crate::fs::provider::ContextKey> {
         let panel = match side {
             PanelSide::Left => &self.panels.left,
             PanelSide::Right => &self.panels.right,
@@ -480,11 +480,7 @@ impl AppState {
 
     /// Records that `key` is being refreshed, unless it was refreshed less
     /// than [`REMOTE_REFRESH_INTERVAL`] before `now`.
-    fn claim_remote_reload(
-        &mut self,
-        key: crate::fs::fs_provider::ContextKey,
-        now: Instant,
-    ) -> bool {
+    fn claim_remote_reload(&mut self, key: crate::fs::provider::ContextKey, now: Instant) -> bool {
         let due = self
             .remote_reloaded_at
             .get(&key)
@@ -757,7 +753,7 @@ impl AppState {
                     ));
                 }
                 // Restore sort settings from history
-                if let crate::fs::fs_provider::ContextKey::Ssh { user, host, .. } =
+                if let crate::fs::provider::ContextKey::Ssh { user, host, .. } =
                     tab.provider.context_key()
                     && let Some((col, dir)) =
                         self.ssh_history
@@ -786,7 +782,7 @@ impl AppState {
 
         // Restore sort settings from history FIRST before borrowing tab mutably
         let sort_settings = match ctx.provider.context_key() {
-            crate::fs::fs_provider::ContextKey::Ssh { user, host, .. } => self
+            crate::fs::provider::ContextKey::Ssh { user, host, .. } => self
                 .ssh_history
                 .get_sort_settings(&host, &user, ctx.name.as_deref()),
             _ => None,

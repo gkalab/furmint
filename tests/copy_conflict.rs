@@ -1,8 +1,8 @@
 //! Regression tests: the optimized transfer (e.g. archive extraction) must be
 //! probed by capability and executed only after the conflict decision.
 
-use fm::fs::fs_archive::ArchiveFs;
-use fm::fs::fs_local::LocalFs;
+use fm::fs::archive_fs::ArchiveFs;
+use fm::fs::local::LocalFs;
 use fm::fs::ops::{DecisionState, RecursiveOpContext, recursive_op};
 use fm::state::CopyMoveAction;
 use fm::tasks::{AlertEvent, EventBus, TaskDecision, UiEvent};

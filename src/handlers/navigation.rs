@@ -3,7 +3,7 @@
 use crate::app::AppState;
 use crate::app_state::tabs::SortColumn;
 use crate::app_state::tabs::Tab;
-use crate::fs::fs_archive::ArchiveFs;
+use crate::fs::archive_fs::ArchiveFs;
 use ratatui::layout::Rect;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -66,16 +66,16 @@ pub async fn handle_enter(app: &mut AppState) {
 /// cannot. Archives are read straight from the local filesystem, so a path
 /// taken from an SSH tab or from inside an archive does not resolve.
 fn archive_open_blocked_error(
-    provider: &Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
+    provider: &Arc<dyn crate::fs::provider::FileSystemProvider>,
 ) -> Option<String> {
     match provider.context_key() {
-        crate::fs::fs_provider::ContextKey::Ssh { .. } => {
+        crate::fs::provider::ContextKey::Ssh { .. } => {
             Some("Opening archives from remote connections is not supported".to_string())
         }
-        crate::fs::fs_provider::ContextKey::Archive(_) => {
+        crate::fs::provider::ContextKey::Archive(_) => {
             Some("Opening archives from inside an archive is not supported".to_string())
         }
-        crate::fs::fs_provider::ContextKey::Local => None,
+        crate::fs::provider::ContextKey::Local => None,
     }
 }
 
@@ -464,7 +464,7 @@ pub async fn handle_directory_up(app: &mut AppState) {
         if let Err(e) = app.active_tab_mut().go_up().await {
             app.active_tab_mut().error = Some(format!("Error: {e}"));
         } else {
-            if !matches!(context_key, crate::fs::fs_provider::ContextKey::Archive(_)) {
+            if !matches!(context_key, crate::fs::provider::ContextKey::Archive(_)) {
                 app.dir_history
                     .record_visit(&context_key.to_string(), &path);
             }
@@ -514,7 +514,7 @@ pub async fn handle_sort(app: &mut AppState, column: crate::app_state::tabs::Sor
         )
     };
 
-    if let crate::fs::fs_provider::ContextKey::Ssh { user, host, .. } = &context_key {
+    if let crate::fs::provider::ContextKey::Ssh { user, host, .. } = &context_key {
         let name = {
             let tab = app.active_tab();
             tab.custom_title.clone()

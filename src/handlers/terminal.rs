@@ -416,7 +416,7 @@ fn is_command_available(command: &str) -> bool {
 #[cfg(target_os = "linux")]
 fn sshpass_args(
     args: &mut Vec<String>,
-    provider: &dyn crate::fs::fs_provider::FileSystemProvider,
+    provider: &dyn crate::fs::provider::FileSystemProvider,
 ) -> Option<secrecy::SecretString> {
     if let Some(pw) = provider.get_password()
         && is_command_available("sshpass")
@@ -432,7 +432,7 @@ fn sshpass_args(
 #[cfg(not(target_os = "linux"))]
 fn sshpass_args(
     _args: &mut Vec<String>,
-    _provider: &dyn crate::fs::fs_provider::FileSystemProvider,
+    _provider: &dyn crate::fs::provider::FileSystemProvider,
 ) -> Option<secrecy::SecretString> {
     None
 }
@@ -598,7 +598,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl crate::fs::fs_provider::FileSystemProvider for MockRemoteFs {
+    impl crate::fs::provider::FileSystemProvider for MockRemoteFs {
         fn is_local(&self) -> bool {
             false
         }
@@ -667,7 +667,7 @@ mod tests {
         async fn get_file_info(
             &self,
             _: &std::path::Path,
-        ) -> Option<crate::fs::fs_provider::FileMetadata> {
+        ) -> Option<crate::fs::provider::FileMetadata> {
             None
         }
         async fn get_permissions(&self, _: &std::path::Path) -> Option<u32> {
@@ -682,8 +682,8 @@ mod tests {
         async fn set_modified_time(&self, _: &std::path::Path, _: std::time::SystemTime) -> bool {
             false
         }
-        fn context_key(&self) -> crate::fs::fs_provider::ContextKey {
-            crate::fs::fs_provider::ContextKey::Ssh {
+        fn context_key(&self) -> crate::fs::provider::ContextKey {
+            crate::fs::provider::ContextKey::Ssh {
                 user: self.user.clone().unwrap_or_default(),
                 host: self.host.clone().unwrap_or_default(),
                 port: self.port,

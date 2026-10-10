@@ -425,7 +425,7 @@ fn key_connect_task_status(e: &SshError) -> TaskStatus {
 const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// What an SSH connect or reconnect attempt yields.
-type ConnectResult = Result<(String, crate::fs::fs_sftp::SftpFs), SshError>;
+type ConnectResult = Result<(String, crate::fs::sftp::SftpFs), SshError>;
 
 /// How an attempt that did not yield a provider is reported.
 enum Outcome {

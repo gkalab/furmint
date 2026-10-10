@@ -158,7 +158,7 @@ impl FileViewerState {
     pub fn load_image(
         &mut self,
         path: &std::path::Path,
-        provider: &std::sync::Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
+        provider: &std::sync::Arc<dyn crate::fs::provider::FileSystemProvider>,
     ) {
         self.is_loading = true;
         let flag = self.new_cancel_flag();
@@ -168,7 +168,7 @@ impl FileViewerState {
     pub async fn load_content(
         &mut self,
         path: &std::path::Path,
-        provider: &std::sync::Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
+        provider: &std::sync::Arc<dyn crate::fs::provider::FileSystemProvider>,
         size: Option<u64>,
         limit_bytes: u64,
     ) {

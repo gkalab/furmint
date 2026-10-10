@@ -33,7 +33,7 @@ pub(crate) async fn handle_fuzzy_search_mouse_click(
 fn update_fuzzy_search_results(
     state: &mut FuzzySearchState,
     dir_history: &crate::dir_history::DirectoryHistory,
-    context_key: &crate::fs::fs_provider::ContextKey,
+    context_key: &crate::fs::provider::ContextKey,
 ) {
     let results = dir_history.fuzzy_search(&context_key.to_string(), &state.list.input);
     state.list.items = results
@@ -48,7 +48,7 @@ fn update_fuzzy_search_results(
 ///
 /// No confirmation prompt: the entry is removed immediately and the deletion is
 /// written to disk so it stays gone across restarts.
-fn remove_selected_entry(app: &mut AppState, context_key: &crate::fs::fs_provider::ContextKey) {
+fn remove_selected_entry(app: &mut AppState, context_key: &crate::fs::provider::ContextKey) {
     let Some(selected_dir) = app.fuzzy_search.get_selected_dir() else {
         return;
     };

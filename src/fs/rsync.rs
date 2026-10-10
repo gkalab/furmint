@@ -18,8 +18,8 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 #[cfg(unix)]
 #[must_use]
 pub fn should_use_rsync(
-    src_fs: &dyn crate::fs::fs_provider::FileSystemProvider,
-    dest_fs: &dyn crate::fs::fs_provider::FileSystemProvider,
+    src_fs: &dyn crate::fs::provider::FileSystemProvider,
+    dest_fs: &dyn crate::fs::provider::FileSystemProvider,
     action: crate::state::CopyMoveAction,
 ) -> bool {
     // Only use rsync for copy operations
@@ -39,16 +39,16 @@ pub fn should_use_rsync(
     let src_ctx = src_fs.context_key();
     let dest_ctx = dest_fs.context_key();
 
-    let src_is_sftp = matches!(src_ctx, crate::fs::fs_provider::ContextKey::Ssh { .. });
-    let dest_is_sftp = matches!(dest_ctx, crate::fs::fs_provider::ContextKey::Ssh { .. });
+    let src_is_sftp = matches!(src_ctx, crate::fs::provider::ContextKey::Ssh { .. });
+    let dest_is_sftp = matches!(dest_ctx, crate::fs::provider::ContextKey::Ssh { .. });
 
     src_is_sftp || dest_is_sftp
 }
 
 #[cfg(not(unix))]
 pub fn should_use_rsync(
-    _src_fs: &dyn crate::fs::fs_provider::FileSystemProvider,
-    _dest_fs: &dyn crate::fs::fs_provider::FileSystemProvider,
+    _src_fs: &dyn crate::fs::provider::FileSystemProvider,
+    _dest_fs: &dyn crate::fs::provider::FileSystemProvider,
     _action: crate::state::CopyMoveAction,
 ) -> bool {
     false
@@ -72,11 +72,11 @@ const STDERR_CAP: usize = 64 * 1024;
 /// Returns an error if the rsync transfer fails.
 #[cfg(unix)]
 pub async fn rsync_transfer(
-    src_fs: &dyn crate::fs::fs_provider::FileSystemProvider,
-    dest_fs: &dyn crate::fs::fs_provider::FileSystemProvider,
+    src_fs: &dyn crate::fs::provider::FileSystemProvider,
+    dest_fs: &dyn crate::fs::provider::FileSystemProvider,
     src: &Path,
     dest: &Path,
-    progress_ctx: &crate::fs::fs_provider::TaskProgressContext,
+    progress_ctx: &crate::fs::provider::TaskProgressContext,
 ) -> Result<()> {
     let mut cmd = build_rsync_command(src_fs, dest_fs, src, dest).await?;
     // If this future is dropped while rsync is still running (task aborted),
@@ -196,7 +196,7 @@ pub async fn rsync_transfer(
 
 /// Toggles the rsync progress display mode on the task UI.
 #[cfg(unix)]
-fn send_rsync_mode(progress_ctx: &crate::fs::fs_provider::TaskProgressContext, active: bool) {
+fn send_rsync_mode(progress_ctx: &crate::fs::provider::TaskProgressContext, active: bool) {
     progress_ctx.tx.send(crate::tasks::UiEvent::Task(
         crate::tasks::TaskEvent::SetRsyncMode {
             task_id: progress_ctx.id,
@@ -228,7 +228,7 @@ async fn drain_stderr(mut stderr: tokio::process::ChildStderr, buf: Arc<Mutex<St
 
 /// Sends the progress carried by a single rsync output line to the task UI.
 #[cfg(unix)]
-fn handle_rsync_line(progress_ctx: &crate::fs::fs_provider::TaskProgressContext, line: &str) {
+fn handle_rsync_line(progress_ctx: &crate::fs::provider::TaskProgressContext, line: &str) {
     // Parse rsync progress output
     // Format: "  1,234,567  45%  123.45kB/s    0:00:12"
     if let Some(parsed) = parse_rsync_progress(line) {
@@ -254,11 +254,11 @@ fn handle_rsync_line(progress_ctx: &crate::fs::fs_provider::TaskProgressContext,
 /// Not supported on this platform
 #[allow(clippy::unused_async)]
 pub async fn rsync_transfer(
-    _src_fs: &dyn crate::fs::fs_provider::FileSystemProvider,
-    _dest_fs: &dyn crate::fs::fs_provider::FileSystemProvider,
+    _src_fs: &dyn crate::fs::provider::FileSystemProvider,
+    _dest_fs: &dyn crate::fs::provider::FileSystemProvider,
     _src: &std::path::Path,
     _dest: &std::path::Path,
-    _progress_ctx: &crate::fs::fs_provider::TaskProgressContext,
+    _progress_ctx: &crate::fs::provider::TaskProgressContext,
 ) -> anyhow::Result<()> {
     anyhow::bail!("rsync is not supported on this platform")
 }
@@ -267,10 +267,7 @@ pub async fn rsync_transfer(
 /// This tells rsync to use SSH agent, available keys, or the stored
 /// password without prompting
 #[cfg(unix)]
-fn get_ssh_options(
-    fs: &dyn crate::fs::fs_provider::FileSystemProvider,
-    has_password: bool,
-) -> String {
+fn get_ssh_options(fs: &dyn crate::fs::provider::FileSystemProvider, has_password: bool) -> String {
     // Use SSH with the following options:
     // - Port=<port>: Match the port of the existing connection (rsync's
     //   remote spec has no port field, so defaulting to 22 would break
@@ -284,7 +281,7 @@ fn get_ssh_options(
     // This ensures rsync uses only SSH agent, key-based auth, or the stored
     // password from the existing session
     let port_flag = match fs.context_key() {
-        crate::fs::fs_provider::ContextKey::Ssh { port, .. } if port != 22 => {
+        crate::fs::provider::ContextKey::Ssh { port, .. } if port != 22 => {
             format!(" -o Port={port}")
         }
         _ => String::new(),
@@ -298,12 +295,12 @@ fn get_ssh_options(
 /// Format remote path for rsync (e.g., "user@host:/path/to/file")
 #[cfg(unix)]
 fn format_remote_path(
-    fs: &dyn crate::fs::fs_provider::FileSystemProvider,
+    fs: &dyn crate::fs::provider::FileSystemProvider,
     path: &std::path::Path,
 ) -> Result<String> {
     // Extract user@host from the structured context key
     let user_host = match fs.context_key() {
-        crate::fs::fs_provider::ContextKey::Ssh { user, host, .. } => {
+        crate::fs::provider::ContextKey::Ssh { user, host, .. } => {
             format!("{user}@{host}")
         }
         _ => return Err(anyhow!("Cannot determine remote host from filesystem")),
@@ -361,8 +358,8 @@ fn parse_rsync_progress(line: &str) -> Option<RsyncProgress> {
 
 #[cfg(unix)]
 async fn build_rsync_command(
-    src_fs: &dyn crate::fs::fs_provider::FileSystemProvider,
-    dest_fs: &dyn crate::fs::fs_provider::FileSystemProvider,
+    src_fs: &dyn crate::fs::provider::FileSystemProvider,
+    dest_fs: &dyn crate::fs::provider::FileSystemProvider,
     src: &Path,
     dest: &Path,
 ) -> Result<tokio::process::Command> {
@@ -440,7 +437,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl crate::fs::fs_provider::FileSystemProvider for MockFs {
+    impl crate::fs::provider::FileSystemProvider for MockFs {
         async fn list_dir(&self, _: &Path) -> anyhow::Result<Vec<crate::fs::utils::FileEntry>> {
             Ok(vec![])
         }
@@ -480,7 +477,7 @@ mod tests {
         async fn canonicalize(&self, path: &Path) -> anyhow::Result<PathBuf> {
             Ok(path.to_path_buf())
         }
-        async fn get_file_info(&self, _: &Path) -> Option<crate::fs::fs_provider::FileMetadata> {
+        async fn get_file_info(&self, _: &Path) -> Option<crate::fs::provider::FileMetadata> {
             None
         }
         async fn get_permissions(&self, _: &Path) -> Option<u32> {
@@ -501,13 +498,13 @@ mod tests {
         fn is_local(&self) -> bool {
             self.local
         }
-        fn context_key(&self) -> crate::fs::fs_provider::ContextKey {
+        fn context_key(&self) -> crate::fs::provider::ContextKey {
             if self.local {
-                crate::fs::fs_provider::ContextKey::Local
+                crate::fs::provider::ContextKey::Local
             } else if let Some(rest) = self.ctx.strip_prefix("archive:") {
-                crate::fs::fs_provider::ContextKey::Archive(std::path::PathBuf::from(rest))
+                crate::fs::provider::ContextKey::Archive(std::path::PathBuf::from(rest))
             } else {
-                crate::fs::fs_provider::ContextKey::Ssh {
+                crate::fs::provider::ContextKey::Ssh {
                     user: "user".to_string(),
                     host: "host".to_string(),
                     port: 22,

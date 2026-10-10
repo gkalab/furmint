@@ -7,7 +7,7 @@
 //! Windows via the OpenSSH named pipe (`\\.\pipe\openssh-ssh-agent`) with a
 //! `PuTTY` Pageant fallback.
 
-use crate::fs::fs_provider::{FileMetadata, FileSystemProvider};
+use crate::fs::provider::{FileMetadata, FileSystemProvider};
 use crate::fs::utils::FileEntry;
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
@@ -895,8 +895,8 @@ impl FileSystemProvider for SftpFs {
         .is_ok()
     }
 
-    fn context_key(&self) -> crate::fs::fs_provider::ContextKey {
-        crate::fs::fs_provider::ContextKey::Ssh {
+    fn context_key(&self) -> crate::fs::provider::ContextKey {
+        crate::fs::provider::ContextKey::Ssh {
             user: self.user.clone(),
             host: self.host.clone(),
             port: self.port,
@@ -979,7 +979,7 @@ impl FileSystemProvider for SftpFs {
         src: &Path,
         dest_fs: &dyn FileSystemProvider,
         dest: &Path,
-        progress: &crate::fs::fs_provider::TaskProgressContext,
+        progress: &crate::fs::provider::TaskProgressContext,
     ) -> Option<anyhow::Result<()>> {
         let src_str = normalize_sftp_path(src);
         let dest_path = dest.to_path_buf();
@@ -1062,7 +1062,7 @@ impl FileSystemProvider for SftpFs {
         src_fs: &dyn FileSystemProvider,
         src: &Path,
         dest: &Path,
-        progress: &crate::fs::fs_provider::TaskProgressContext,
+        progress: &crate::fs::provider::TaskProgressContext,
     ) -> Option<anyhow::Result<()>> {
         let dest_str = normalize_sftp_path(dest);
         let src_path = src.to_path_buf();

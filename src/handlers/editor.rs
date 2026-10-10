@@ -1,7 +1,7 @@
 //! Editor handlers: open/edit in editor
 
 use crate::app::AppState;
-use crate::fs::fs_provider::FileSystemProvider;
+use crate::fs::provider::FileSystemProvider;
 use crate::handlers::suspended_ui::SuspendedUi;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -215,7 +215,7 @@ pub async fn execute_open_editor_remote(
     app: &mut AppState,
     temp_path: std::path::PathBuf,
     remote_path: std::path::PathBuf,
-    provider: std::sync::Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
+    provider: std::sync::Arc<dyn crate::fs::provider::FileSystemProvider>,
     original_checksum: [u8; 16],
 ) -> anyhow::Result<()> {
     let (cmd, in_terminal) = {
@@ -555,7 +555,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl crate::fs::fs_provider::FileSystemProvider for MockFileSystem {
+    impl crate::fs::provider::FileSystemProvider for MockFileSystem {
         fn is_local(&self) -> bool {
             false
         }
@@ -667,7 +667,7 @@ mod tests {
         async fn get_file_info(
             &self,
             _path: &std::path::Path,
-        ) -> Option<crate::fs::fs_provider::FileMetadata> {
+        ) -> Option<crate::fs::provider::FileMetadata> {
             None
         }
 
@@ -694,8 +694,8 @@ mod tests {
             true
         }
 
-        fn context_key(&self) -> crate::fs::fs_provider::ContextKey {
-            crate::fs::fs_provider::ContextKey::Ssh {
+        fn context_key(&self) -> crate::fs::provider::ContextKey {
+            crate::fs::provider::ContextKey::Ssh {
                 user: "test".to_string(),
                 host: "remote".to_string(),
                 port: 22,

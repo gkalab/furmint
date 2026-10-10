@@ -1,6 +1,6 @@
 use super::ArchiveFormat;
-use crate::fs::fs_archive::ArchiveEntry;
-use crate::fs::fs_provider::TaskProgressContext;
+use crate::fs::archive_fs::ArchiveEntry;
+use crate::fs::provider::TaskProgressContext;
 use crate::fs::utils::{FileEntry, get_attributes};
 use anyhow::{Context, Result};
 use flate2::read::GzDecoder;

@@ -1,8 +1,8 @@
 use fm::fs::archive::ArchiveFormat;
 use fm::fs::archive::zip::ZipHandler;
-use fm::fs::fs_archive::ArchiveFs;
-use fm::fs::fs_local::LocalFs;
-use fm::fs::fs_provider::FileSystemProvider;
+use fm::fs::archive_fs::ArchiveFs;
+use fm::fs::local::LocalFs;
+use fm::fs::provider::FileSystemProvider;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
@@ -109,7 +109,7 @@ async fn test_zip_copy_dir_preserves_timestamp() {
     let src_fs = LocalFs::new();
     let dest_fs = ArchiveFs::new(&archive_path).unwrap();
 
-    let progress = fm::fs::fs_provider::TaskProgressContext {
+    let progress = fm::fs::provider::TaskProgressContext {
         id: 1,
         tx: fm::tasks::EventBus::new(tokio::sync::mpsc::unbounded_channel().0),
         cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -249,7 +249,7 @@ async fn test_zip_add_files_batch() {
     let src_fs = LocalFs::new();
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
 
-    let progress = fm::fs::fs_provider::TaskProgressContext {
+    let progress = fm::fs::provider::TaskProgressContext {
         id: 1,
         tx: fm::tasks::EventBus::new(tokio::sync::mpsc::unbounded_channel().0),
         cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -312,7 +312,7 @@ async fn test_zip_batch_add_uses_forward_slashes() {
     }
 
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
-    let progress = fm::fs::fs_provider::TaskProgressContext {
+    let progress = fm::fs::provider::TaskProgressContext {
         id: 1,
         tx: fm::tasks::EventBus::new(tokio::sync::mpsc::unbounded_channel().0),
         cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),

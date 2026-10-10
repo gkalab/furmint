@@ -205,7 +205,7 @@ async fn test_handle_create_file_remote_uses_remote_edit_workflow() {
     struct MockRemoteCreateFs;
 
     #[async_trait::async_trait]
-    impl fm::fs::fs_provider::FileSystemProvider for MockRemoteCreateFs {
+    impl fm::fs::provider::FileSystemProvider for MockRemoteCreateFs {
         fn is_local(&self) -> bool {
             false
         }
@@ -284,7 +284,7 @@ async fn test_handle_create_file_remote_uses_remote_edit_workflow() {
         async fn get_file_info(
             &self,
             _path: &std::path::Path,
-        ) -> Option<fm::fs::fs_provider::FileMetadata> {
+        ) -> Option<fm::fs::provider::FileMetadata> {
             None
         }
         async fn get_permissions(&self, _path: &std::path::Path) -> Option<u32> {
@@ -293,8 +293,8 @@ async fn test_handle_create_file_remote_uses_remote_edit_workflow() {
         async fn set_permissions(&self, _path: &std::path::Path, _mode: u32) -> bool {
             true
         }
-        fn context_key(&self) -> fm::fs::fs_provider::ContextKey {
-            fm::fs::fs_provider::ContextKey::Ssh {
+        fn context_key(&self) -> fm::fs::provider::ContextKey {
+            fm::fs::provider::ContextKey::Ssh {
                 user: "test".to_string(),
                 host: "remote".to_string(),
                 port: 22,

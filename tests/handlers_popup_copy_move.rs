@@ -1,8 +1,8 @@
 use fm::app::AppState;
 use fm::app_state::tabs::{PanelSide, Tab, TabManager};
 use fm::clipboard::{FileClipboardAction, FileClipboardData};
-use fm::fs::fs_local::LocalFs;
-use fm::fs::fs_provider::FileSystemProvider;
+use fm::fs::local::LocalFs;
+use fm::fs::provider::FileSystemProvider;
 use fm::fs::utils::FileEntry;
 use fm::handlers::popup_copy_move::{
     handle_copy_move_event, handle_init_copy, handle_init_move, handle_paste,
@@ -357,7 +357,7 @@ async fn test_handle_copy_move_relative_subdir_resolves_against_active_tab() {
 }
 
 /// Poll until the archive contains `path` (the copy task runs on a spawned task).
-async fn wait_for_archive_entry(archive: &fm::fs::fs_archive::ArchiveFs, path: &str) -> bool {
+async fn wait_for_archive_entry(archive: &fm::fs::archive_fs::ArchiveFs, path: &str) -> bool {
     let start = std::time::Instant::now();
     while !archive.exists(std::path::Path::new(path)).await {
         if start.elapsed() > std::time::Duration::from_secs(5) {
@@ -374,7 +374,7 @@ fn archive_dest_app(
     src_dir: &std::path::Path,
     selected: &str,
     selected_is_dir: bool,
-    archive: Arc<fm::fs::fs_archive::ArchiveFs>,
+    archive: Arc<fm::fs::archive_fs::ArchiveFs>,
 ) -> AppState {
     let mut app = minimal_state_with_entries(
         PanelSide::Left,
@@ -402,7 +402,7 @@ async fn test_handle_copy_move_into_zip_root() {
     let archive_path = temp_dir.path().join("add.zip");
     let local = LocalFs::new();
     local.create_file(&archive_path).await.unwrap();
-    let archive = Arc::new(fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap());
+    let archive = Arc::new(fm::fs::archive_fs::ArchiveFs::new(&archive_path).unwrap());
 
     // The archive panel shows the archive root, so that is what the dialog prefills.
     let mut app = archive_dest_app(&src_dir, "file.txt", false, archive.clone());
@@ -429,7 +429,7 @@ async fn test_handle_copy_move_directory_into_zip_root() {
     let archive_path = temp_dir.path().join("add_dir.zip");
     let local = LocalFs::new();
     local.create_file(&archive_path).await.unwrap();
-    let archive = Arc::new(fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap());
+    let archive = Arc::new(fm::fs::archive_fs::ArchiveFs::new(&archive_path).unwrap());
 
     let mut app = archive_dest_app(&src_dir, "tree", true, archive.clone());
     fm::handlers::popup_copy_move::init_copy_move(&mut app, CopyMoveAction::Copy);
@@ -458,7 +458,7 @@ async fn test_handle_copy_move_into_7z_root() {
     let archive_path = temp_dir.path().join("add.7z");
     let local = LocalFs::new();
     local.create_file(&archive_path).await.unwrap();
-    let archive = Arc::new(fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap());
+    let archive = Arc::new(fm::fs::archive_fs::ArchiveFs::new(&archive_path).unwrap());
 
     let mut app = archive_dest_app(&src_dir, "file.txt", false, archive.clone());
     fm::handlers::popup_copy_move::init_copy_move(&mut app, CopyMoveAction::Copy);
@@ -482,7 +482,7 @@ async fn test_handle_copy_move_into_zip_subdir() {
     let archive_path = temp_dir.path().join("subdir.zip");
     let local = LocalFs::new();
     local.create_file(&archive_path).await.unwrap();
-    let archive = Arc::new(fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap());
+    let archive = Arc::new(fm::fs::archive_fs::ArchiveFs::new(&archive_path).unwrap());
     archive
         .create_dir(std::path::Path::new("folder"))
         .await
@@ -513,7 +513,7 @@ async fn test_handle_paste_into_zip_root() {
     let archive_path = temp_dir.path().join("paste.zip");
     let local = LocalFs::new();
     local.create_file(&archive_path).await.unwrap();
-    let archive = Arc::new(fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap());
+    let archive = Arc::new(fm::fs::archive_fs::ArchiveFs::new(&archive_path).unwrap());
 
     let mut app = archive_dest_app(&src_dir, "file.txt", false, archive.clone());
     // Paste into the archive panel.
@@ -546,7 +546,7 @@ async fn test_handle_paste_directory_into_7z_root() {
     let archive_path = temp_dir.path().join("paste.7z");
     let local = LocalFs::new();
     local.create_file(&archive_path).await.unwrap();
-    let archive = Arc::new(fm::fs::fs_archive::ArchiveFs::new(&archive_path).unwrap());
+    let archive = Arc::new(fm::fs::archive_fs::ArchiveFs::new(&archive_path).unwrap());
 
     let mut app = archive_dest_app(&src_dir, "tree", true, archive.clone());
     app.panels.active = PanelSide::Right;
@@ -588,8 +588,8 @@ async fn test_handle_copy_move_between_two_archives() {
     let local = LocalFs::new();
     local.create_file(&dest_zip).await.unwrap();
 
-    let src_archive = Arc::new(fm::fs::fs_archive::ArchiveFs::new(&src_zip).unwrap());
-    let dest_archive = Arc::new(fm::fs::fs_archive::ArchiveFs::new(&dest_zip).unwrap());
+    let src_archive = Arc::new(fm::fs::archive_fs::ArchiveFs::new(&src_zip).unwrap());
+    let dest_archive = Arc::new(fm::fs::archive_fs::ArchiveFs::new(&dest_zip).unwrap());
 
     // Active panel: the source archive, with "tree" selected.
     let mut app = minimal_state_with_entries(

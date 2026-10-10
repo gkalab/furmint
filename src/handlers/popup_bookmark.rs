@@ -64,7 +64,7 @@ pub fn handle_bookmark_add(app: &mut AppState) {
     let provider = tab.provider.clone();
 
     let (ssh_user, ssh_host, ssh_port) = match provider.context_key() {
-        crate::fs::fs_provider::ContextKey::Ssh { user, host, port } => {
+        crate::fs::provider::ContextKey::Ssh { user, host, port } => {
             let port = (port != 22).then_some(port);
             (Some(user), Some(host), port)
         }
@@ -228,7 +228,7 @@ async fn handle_bookmark_enter(app: &mut AppState) {
             // opening a new connection/tab.
             let same_connection = matches!(
                 app.active_tab().provider.context_key(),
-                crate::fs::fs_provider::ContextKey::Ssh {
+                crate::fs::provider::ContextKey::Ssh {
                     user: ref cu,
                     host: ref ch,
                     port: cp,

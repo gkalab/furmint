@@ -1,7 +1,7 @@
 use async_trait::async_trait;
-use fm::fs::fs_provider::{FileMetadata, FileSystemProvider, TaskProgressContext};
 use fm::fs::ops::DecisionState;
 use fm::fs::ops::{RecursiveOpContext, recursive_op};
+use fm::fs::provider::{FileMetadata, FileSystemProvider, TaskProgressContext};
 use fm::fs::utils::FileEntry;
 use fm::state::CopyMoveAction;
 use fm::tasks::{AlertEvent, TaskDecision, TaskEvent, UiEvent};
@@ -228,8 +228,8 @@ impl FileSystemProvider for MockFileSystem {
     async fn set_modified_time(&self, _path: &Path, _mtime: std::time::SystemTime) -> bool {
         true
     }
-    fn context_key(&self) -> fm::fs::fs_provider::ContextKey {
-        fm::fs::fs_provider::ContextKey::Ssh {
+    fn context_key(&self) -> fm::fs::provider::ContextKey {
+        fm::fs::provider::ContextKey::Ssh {
             user: "test".to_string(),
             host: "remote".to_string(),
             port: 22,

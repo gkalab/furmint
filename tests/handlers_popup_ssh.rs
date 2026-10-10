@@ -197,7 +197,7 @@ impl MockSftpProvider {
 }
 
 #[async_trait::async_trait]
-impl fm::fs::fs_provider::FileSystemProvider for MockSftpProvider {
+impl fm::fs::provider::FileSystemProvider for MockSftpProvider {
     async fn list_dir(
         &self,
         _path: &std::path::Path,
@@ -274,7 +274,7 @@ impl fm::fs::fs_provider::FileSystemProvider for MockSftpProvider {
     async fn get_file_info(
         &self,
         _path: &std::path::Path,
-    ) -> Option<fm::fs::fs_provider::FileMetadata> {
+    ) -> Option<fm::fs::provider::FileMetadata> {
         unreachable!("not used by tests")
     }
 
@@ -298,8 +298,8 @@ impl fm::fs::fs_provider::FileSystemProvider for MockSftpProvider {
         unreachable!("not used by tests")
     }
 
-    fn context_key(&self) -> fm::fs::fs_provider::ContextKey {
-        fm::fs::fs_provider::ContextKey::Ssh {
+    fn context_key(&self) -> fm::fs::provider::ContextKey {
+        fm::fs::provider::ContextKey::Ssh {
             user: self.user.clone(),
             host: self.host.clone(),
             port: 22,

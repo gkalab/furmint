@@ -653,8 +653,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_file_content() {
-        use crate::fs::fs_local::LocalFs;
-        use crate::fs::fs_provider::FileSystemProvider;
+        use crate::fs::local::LocalFs;
+        use crate::fs::provider::FileSystemProvider;
         use std::io::Write;
         let temp_dir = std::env::temp_dir();
         let test_file = temp_dir.join("fm_test_read.txt");

@@ -1,6 +1,6 @@
 use fm::app_state::tabs::PanelSide;
 use fm::app_state::tabs::{Tab, TabManager};
-use fm::fs::fs_local::LocalFs;
+use fm::fs::local::LocalFs;
 use fm::fs::utils::FileEntry;
 use std::path::PathBuf;
 use std::sync::Arc;

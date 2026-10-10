@@ -95,7 +95,7 @@ fn test_sort_settings_persistence() {
 
 #[test]
 fn test_context_key_extraction() {
-    let key = fm::fs::fs_provider::ContextKey::Ssh {
+    let key = fm::fs::provider::ContextKey::Ssh {
         user: "user".to_string(),
         host: "host".to_string(),
         port: 22,
@@ -103,7 +103,7 @@ fn test_context_key_extraction() {
     assert_eq!(key.to_string(), "[user@host]");
     assert!(!key.is_local());
 
-    let local = fm::fs::fs_provider::ContextKey::Local;
+    let local = fm::fs::provider::ContextKey::Local;
     assert!(local.is_local());
     assert_eq!(local.to_string(), "local");
 }

@@ -10,7 +10,7 @@ pub struct RemoteEditState {
     pub editor_child: Option<Child>,
     pub remote_path: PathBuf,
     pub filename: String,
-    pub provider: Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
+    pub provider: Arc<dyn crate::fs::provider::FileSystemProvider>,
     pub original_checksum: [u8; 16],
     pub focused_button: usize,
     pub popup_area: ratatui::layout::Rect,
@@ -26,7 +26,7 @@ impl RemoteEditState {
             editor_child: None,
             remote_path: PathBuf::new(),
             filename: String::new(),
-            provider: Arc::new(crate::fs::fs_local::LocalFs::new()),
+            provider: Arc::new(crate::fs::local::LocalFs::new()),
             original_checksum: [0; 16],
             focused_button: 0,
             popup_area: ratatui::layout::Rect::default(),
@@ -40,7 +40,7 @@ impl RemoteEditState {
         self.editor_child = None;
         self.remote_path = PathBuf::new();
         self.filename.clear();
-        self.provider = Arc::new(crate::fs::fs_local::LocalFs::new());
+        self.provider = Arc::new(crate::fs::local::LocalFs::new());
         self.original_checksum = [0; 16];
         self.focused_button = 0;
         self.popup_area = ratatui::layout::Rect::default();

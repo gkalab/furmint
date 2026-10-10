@@ -1,5 +1,5 @@
-use crate::fs::fs_archive::ArchiveEntry;
-use crate::fs::fs_provider::TaskProgressContext;
+use crate::fs::archive_fs::ArchiveEntry;
+use crate::fs::provider::TaskProgressContext;
 use anyhow::Result;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

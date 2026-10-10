@@ -1,6 +1,6 @@
 use super::ArchiveFormat;
 use super::common::{self, ArchiveEntryMetadata};
-use crate::fs::fs_provider::TaskProgressContext;
+use crate::fs::provider::TaskProgressContext;
 use crate::fs::utils::mode_to_attributes;
 use anyhow::{Context, Result};
 use std::collections::HashMap;

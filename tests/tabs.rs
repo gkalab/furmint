@@ -36,7 +36,7 @@ async fn test_reload_preserves_selection() {
 
     let mut tab = Tab::with_provider(
         &test_dir,
-        std::sync::Arc::new(fm::fs::fs_local::LocalFs::new()),
+        std::sync::Arc::new(fm::fs::local::LocalFs::new()),
     )
     .await
     .unwrap();
@@ -121,7 +121,7 @@ async fn test_persistent_tab_custom_title() {
 #[tokio::test]
 async fn test_new_tab_with_provider() {
     let mut manager = TabManager::new(Path::new(".")).await.unwrap();
-    let provider = Arc::new(fm::fs::fs_local::LocalFs::new());
+    let provider = Arc::new(fm::fs::local::LocalFs::new());
     let test_path = Path::new("..");
     manager
         .new_tab_with_provider(test_path, provider, None)
@@ -134,7 +134,7 @@ async fn test_new_tab_with_provider() {
 #[tokio::test]
 async fn test_new_tab_inserts_after_active_tab() {
     let mut manager = TabManager::new(Path::new(".")).await.unwrap();
-    let provider = Arc::new(fm::fs::fs_local::LocalFs::new());
+    let provider = Arc::new(fm::fs::local::LocalFs::new());
 
     // Create two more tabs -> tabs: [0, 1, 2], active: 2
     manager
@@ -164,7 +164,7 @@ async fn test_new_tab_inserts_after_active_tab() {
 #[tokio::test]
 async fn test_close_tab_activates_previous_tab() {
     let mut manager = TabManager::new(Path::new(".")).await.unwrap();
-    let provider = Arc::new(fm::fs::fs_local::LocalFs::new());
+    let provider = Arc::new(fm::fs::local::LocalFs::new());
 
     manager
         .new_tab_with_provider(Path::new(".."), provider.clone(), None)

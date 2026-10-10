@@ -1,5 +1,5 @@
 use crate::fs::archive::ScanResult;
-use crate::fs::fs_archive::ArchiveEntry;
+use crate::fs::archive_fs::ArchiveEntry;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 

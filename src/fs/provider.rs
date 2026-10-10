@@ -539,7 +539,7 @@ pub trait FileSystemProvider: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fs::fs_local::LocalFs;
+    use crate::fs::local::LocalFs;
     use crate::fs::utils::FileEntry;
     use std::sync::atomic::{AtomicBool, AtomicUsize};
 

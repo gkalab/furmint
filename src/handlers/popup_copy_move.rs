@@ -2,7 +2,7 @@
 
 use crate::app::AppState;
 use crate::clipboard::FileClipboardData;
-use crate::fs::fs_provider::FileSystemProvider;
+use crate::fs::provider::FileSystemProvider;
 use crate::state::CopyMoveAction;
 use anyhow::{Result, anyhow};
 use std::path::{Path, PathBuf};
@@ -418,7 +418,7 @@ async fn try_rsync_directory(
         }
         Some(true) => {
             // Proceed with rsync
-            let progress = crate::fs::fs_provider::TaskProgressContext {
+            let progress = crate::fs::provider::TaskProgressContext {
                 id: ctx.task.id,
                 tx: ctx.task.tx.clone(),
                 cancel: ctx.task.cancel.clone(),
@@ -426,7 +426,7 @@ async fn try_rsync_directory(
                 processed_items: ctx.task.processed_items.clone(),
             };
 
-            if crate::fs::fs_rsync::rsync_transfer(
+            if crate::fs::rsync::rsync_transfer(
                 ctx.fs.src_fs,
                 ctx.fs.dest_fs,
                 ctx.fs.src,
@@ -755,7 +755,7 @@ pub fn spawn_copy_move_task(
             let dest_path = std::path::PathBuf::from(&dest_str);
 
             // Check if rsync can be used for this transfer
-            let use_rsync = crate::fs::fs_rsync::should_use_rsync(
+            let use_rsync = crate::fs::rsync::should_use_rsync(
                 src_provider.as_ref(),
                 dest_provider.as_ref(),
                 action,

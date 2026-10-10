@@ -254,7 +254,7 @@ impl ImageViewerState {
     pub fn load_image(
         &mut self,
         path: &std::path::Path,
-        provider: &std::sync::Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
+        provider: &std::sync::Arc<dyn crate::fs::provider::FileSystemProvider>,
         cancel_flag: Arc<AtomicBool>,
     ) {
         // Ensure channels and picker initialization are kicked off

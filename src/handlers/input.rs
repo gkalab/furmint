@@ -337,7 +337,7 @@ fn handle_calc_dir_size(app: &mut AppState) {
         let mut dirs_to_calc: Vec<(
             std::path::PathBuf,
             String,
-            Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
+            Arc<dyn crate::fs::provider::FileSystemProvider>,
         )> = Vec::new();
 
         let selected_dirs: Vec<_> = tab

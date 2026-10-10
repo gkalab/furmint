@@ -165,7 +165,7 @@ impl SshManager {
         host: String,
         port: u16,
         user: String,
-    ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
+    ) -> Result<(String, crate::fs::sftp::SftpFs), SshError> {
         let session_id = Self::generate_session_id(&host, port);
         let timeout = Duration::from_secs(self.connect_timeout_secs);
 
@@ -184,14 +184,14 @@ impl SshManager {
         host: String,
         port: u16,
         user: String,
-    ) -> Result<crate::fs::fs_sftp::SftpFs, SshError> {
+    ) -> Result<crate::fs::sftp::SftpFs, SshError> {
         self.known_hosts.reload();
         let checker = std::sync::Arc::new(crate::ssh_known_hosts::HostKeyChecker::new(
             host.clone(),
             port,
             std::sync::Arc::clone(&self.known_hosts),
         ));
-        crate::fs::fs_sftp_russh::SftpFs::connect_pubkey(
+        crate::fs::sftp::SftpFs::connect_pubkey(
             &host,
             port,
             &user,
@@ -201,7 +201,7 @@ impl SshManager {
         )
         .await
         .map_err(|e| {
-            if let Some(m) = e.downcast_ref::<crate::fs::fs_sftp_russh::HostKeyMismatch>() {
+            if let Some(m) = e.downcast_ref::<crate::fs::sftp::HostKeyMismatch>() {
                 return SshError::HostKey {
                     host: host.clone(),
                     port,
@@ -210,17 +210,17 @@ impl SshManager {
                     key_line: m.key_line.clone(),
                 };
             }
-            if let Some(c) = e.downcast_ref::<crate::fs::fs_sftp_russh::SshConnectError>() {
+            if let Some(c) = e.downcast_ref::<crate::fs::sftp::SshConnectError>() {
                 return SshError::Network(Self::classify_connect_error(&c.detail));
             }
-            match e.downcast_ref::<crate::fs::fs_sftp_russh::PubkeyAuthError>() {
-                Some(crate::fs::fs_sftp_russh::PubkeyAuthError::AgentRejected) => SshError::Auth(
+            match e.downcast_ref::<crate::fs::sftp::PubkeyAuthError>() {
+                Some(crate::fs::sftp::PubkeyAuthError::AgentRejected) => SshError::Auth(
                     AuthError::AgentError("Agent authentication failed".to_string()),
                 ),
-                Some(crate::fs::fs_sftp_russh::PubkeyAuthError::NoAuthMethods) => {
+                Some(crate::fs::sftp::PubkeyAuthError::NoAuthMethods) => {
                     SshError::Auth(AuthError::NoAuthMethodsAvailable)
                 }
-                Some(crate::fs::fs_sftp_russh::PubkeyAuthError::KeyRejected(_)) => {
+                Some(crate::fs::sftp::PubkeyAuthError::KeyRejected(_)) => {
                     SshError::Auth(AuthError::KeyAuthFailed)
                 }
                 None => SshError::Connection(e.to_string()),
@@ -280,7 +280,7 @@ impl SshManager {
         port: u16,
         user: String,
         password: SecretString,
-    ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
+    ) -> Result<(String, crate::fs::sftp::SftpFs), SshError> {
         let session_id = Self::generate_session_id(&host, port);
         let timeout = Duration::from_secs(self.connect_timeout_secs);
 
@@ -300,14 +300,14 @@ impl SshManager {
         port: u16,
         user: String,
         password: SecretString,
-    ) -> Result<crate::fs::fs_sftp::SftpFs, SshError> {
+    ) -> Result<crate::fs::sftp::SftpFs, SshError> {
         self.known_hosts.reload();
         let checker = std::sync::Arc::new(crate::ssh_known_hosts::HostKeyChecker::new(
             host.clone(),
             port,
             std::sync::Arc::clone(&self.known_hosts),
         ));
-        crate::fs::fs_sftp_russh::SftpFs::connect_password(
+        crate::fs::sftp::SftpFs::connect_password(
             &host,
             port,
             &user,
@@ -318,7 +318,7 @@ impl SshManager {
         )
         .await
         .map_err(|e| {
-            if let Some(m) = e.downcast_ref::<crate::fs::fs_sftp_russh::HostKeyMismatch>() {
+            if let Some(m) = e.downcast_ref::<crate::fs::sftp::HostKeyMismatch>() {
                 return SshError::HostKey {
                     host: host.clone(),
                     port,
@@ -327,10 +327,10 @@ impl SshManager {
                     key_line: m.key_line.clone(),
                 };
             }
-            if let Some(c) = e.downcast_ref::<crate::fs::fs_sftp_russh::SshConnectError>() {
+            if let Some(c) = e.downcast_ref::<crate::fs::sftp::SshConnectError>() {
                 return SshError::Network(Self::classify_connect_error(&c.detail));
             }
-            if e.downcast_ref::<crate::fs::fs_sftp_russh::PasswordAuthError>()
+            if e.downcast_ref::<crate::fs::sftp::PasswordAuthError>()
                 .is_some()
             {
                 return SshError::Auth(AuthError::PasswordAuthFailed);
@@ -353,7 +353,7 @@ impl SshManager {
         user: String,
         password: SecretString,
         target_path: Option<String>,
-    ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
+    ) -> Result<(String, crate::fs::sftp::SftpFs), SshError> {
         let (session_id, fs) = self
             .connect_ssh(host.clone(), port, user.clone(), password.clone())
             .await?;
@@ -381,7 +381,7 @@ impl SshManager {
         port: u16,
         user: String,
         target_path: Option<String>,
-    ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
+    ) -> Result<(String, crate::fs::sftp::SftpFs), SshError> {
         let (session_id, fs) = self
             .try_connect_with_keys(host.clone(), port, user.clone())
             .await?;
@@ -523,7 +523,7 @@ impl SshManager {
         &self,
         session_id: &str,
         password: SecretString,
-    ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
+    ) -> Result<(String, crate::fs::sftp::SftpFs), SshError> {
         let session = self.get_session(session_id).ok_or_else(|| {
             SshError::InvalidInput(format!("Session {session_id} not found for reconnection"))
         })?;
@@ -574,7 +574,7 @@ impl SshManager {
     pub async fn reconnect_session_with_keys(
         &self,
         session_id: &str,
-    ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
+    ) -> Result<(String, crate::fs::sftp::SftpFs), SshError> {
         let session = self.get_session(session_id).ok_or_else(|| {
             SshError::InvalidInput(format!("Session {session_id} not found for reconnection"))
         })?;
@@ -624,7 +624,7 @@ impl SshManager {
         user: String,
         password: &SecretString,
         max_attempts: Option<u32>,
-    ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
+    ) -> Result<(String, crate::fs::sftp::SftpFs), SshError> {
         let mut attempt = 1u32;
         let max_attempts = max_attempts.unwrap_or(u32::MAX);
 
@@ -664,7 +664,7 @@ impl SshManager {
         port: u16,
         user: String,
         max_attempts: Option<u32>,
-    ) -> Result<(String, crate::fs::fs_sftp::SftpFs), SshError> {
+    ) -> Result<(String, crate::fs::sftp::SftpFs), SshError> {
         let mut attempt = 1u32;
         let max_attempts = max_attempts.unwrap_or(u32::MAX);
 

@@ -1,6 +1,6 @@
 use super::common::{self, ArchiveEntryMetadata};
 use super::{ArchiveFormat, NewEntry, PlannedDir, PlannedFile, ScanResult};
-use crate::fs::fs_provider::TaskProgressContext;
+use crate::fs::provider::TaskProgressContext;
 use anyhow::{Context, Result};
 use sevenz_rust2::{ArchiveEntry, ArchiveReader, ArchiveWriter, NtTime, Password};
 use std::collections::HashMap;

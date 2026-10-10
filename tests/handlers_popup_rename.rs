@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use fm::app::AppState;
 use fm::app_state::tabs::Tab;
-use fm::fs::fs_local::LocalFs;
-use fm::fs::fs_provider::{ContextKey, FileMetadata, FileSystemProvider};
+use fm::fs::local::LocalFs;
+use fm::fs::provider::{ContextKey, FileMetadata, FileSystemProvider};
 use fm::fs::utils::FileEntry;
 use fm::handlers::popup_rename::{handle_init_rename, handle_rename_event};
 use fm::tasks::UiEvent;

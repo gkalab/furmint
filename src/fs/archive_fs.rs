@@ -1,6 +1,6 @@
 use crate::fs::archive::NewEntry;
 use crate::fs::archive::{ArchiveFormat, get_archive_handler};
-use crate::fs::fs_provider::{FileMetadata, FileSystemProvider, TaskProgressContext};
+use crate::fs::provider::{FileMetadata, FileSystemProvider, TaskProgressContext};
 use crate::fs::utils::FileEntry;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -766,8 +766,8 @@ impl FileSystemProvider for ArchiveFs {
             .unwrap_or(false)
     }
 
-    fn context_key(&self) -> crate::fs::fs_provider::ContextKey {
-        crate::fs::fs_provider::ContextKey::Archive(self.archive_path.clone())
+    fn context_key(&self) -> crate::fs::provider::ContextKey {
+        crate::fs::provider::ContextKey::Archive(self.archive_path.clone())
     }
 
     fn display_path(&self, path: &Path) -> String {

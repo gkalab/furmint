@@ -1,5 +1,5 @@
-use fm::fs::fs_local::LocalFs;
-use fm::fs::fs_provider::FileSystemProvider;
+use fm::fs::local::LocalFs;
+use fm::fs::provider::FileSystemProvider;
 use fm::state::FileViewerState;
 use std::sync::Arc;
 

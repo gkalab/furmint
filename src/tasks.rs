@@ -292,7 +292,7 @@ impl EventBus {
 }
 
 #[derive(Clone)]
-pub struct ProviderWrapper(pub Arc<dyn crate::fs::fs_provider::FileSystemProvider>);
+pub struct ProviderWrapper(pub Arc<dyn crate::fs::provider::FileSystemProvider>);
 
 impl std::fmt::Debug for ProviderWrapper {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -302,7 +302,7 @@ impl std::fmt::Debug for ProviderWrapper {
 
 #[derive(Clone)]
 pub struct SshContext {
-    pub provider: Arc<dyn crate::fs::fs_provider::FileSystemProvider>,
+    pub provider: Arc<dyn crate::fs::provider::FileSystemProvider>,
     pub path: Option<std::path::PathBuf>,
     pub name: Option<String>,
     pub session_id: Option<String>,

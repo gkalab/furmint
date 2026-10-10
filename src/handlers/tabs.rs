@@ -1,8 +1,8 @@
 //! Tab management event handlers for new, next, previous, and close tab.
 
 use crate::app::AppState;
-use crate::fs::fs_local::LocalFs;
-use crate::fs::fs_provider::FileSystemProvider;
+use crate::fs::local::LocalFs;
+use crate::fs::provider::FileSystemProvider;
 use crate::handlers::navigation::update_viewer_content;
 use directories::UserDirs;
 use std::sync::Arc;
