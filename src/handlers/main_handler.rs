@@ -139,7 +139,7 @@ async fn handle_popup_events(
         return Some(handle_copy_move_event(code, modifiers, app).await);
     }
     if app.popups.drive_select.is_visible {
-        return Some(crate::drive_select_ui::handle_drive_select_event(code, app).await);
+        return Some(crate::ui::drive_select_ui::handle_drive_select_event(code, app).await);
     }
     if app.popups.conflict.is_visible {
         return Some(handle_conflict_event(code, app).await);

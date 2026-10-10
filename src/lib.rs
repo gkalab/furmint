@@ -6,7 +6,6 @@ pub mod config;
 #[cfg(windows)]
 pub mod context_menu;
 pub mod dir_history;
-pub mod drive_select_ui;
 pub mod event_loop;
 pub mod fs;
 pub mod handlers;

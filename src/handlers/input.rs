@@ -421,7 +421,7 @@ fn handle_drive_selection(app: &mut AppState, keyboard: &KeyboardConfig, shortcu
     if let Some(keys) = &keyboard.change_drive_left
         && keys.iter().any(|s| s == shortcut)
     {
-        let drives = crate::drive_select_ui::get_available_drives();
+        let drives = crate::ui::drive_select_ui::get_available_drives();
         if !drives.is_empty() {
             app.popups
                 .set_popup_visible(crate::app::PopupKind::DriveSelect, true);
@@ -435,7 +435,7 @@ fn handle_drive_selection(app: &mut AppState, keyboard: &KeyboardConfig, shortcu
     if let Some(keys) = &keyboard.change_drive_right
         && keys.iter().any(|s| s == shortcut)
     {
-        let drives = crate::drive_select_ui::get_available_drives();
+        let drives = crate::ui::drive_select_ui::get_available_drives();
         if !drives.is_empty() {
             app.popups
                 .set_popup_visible(crate::app::PopupKind::DriveSelect, true);

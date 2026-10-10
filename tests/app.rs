@@ -473,8 +473,11 @@ async fn test_drive_navigation_matches_opposite_pane() {
         app.popups.drive_select.side = PanelSide::Left;
         app.popups.drive_select.selected_index = 1; // "D:\"
 
-        fm::drive_select_ui::handle_drive_select_event(termina::event::KeyCode::Enter, &mut app)
-            .await;
+        fm::ui::drive_select_ui::handle_drive_select_event(
+            termina::event::KeyCode::Enter,
+            &mut app,
+        )
+        .await;
 
         assert_eq!(
             app.panels.left.active_tab().current_dir,
@@ -531,8 +534,11 @@ async fn test_drive_navigation_matches_opposite_pane() {
         app.popups.drive_select.side = PanelSide::Left;
         app.popups.drive_select.selected_index = 1; // "D:\"
 
-        fm::drive_select_ui::handle_drive_select_event(termina::event::KeyCode::Enter, &mut app)
-            .await;
+        fm::ui::drive_select_ui::handle_drive_select_event(
+            termina::event::KeyCode::Enter,
+            &mut app,
+        )
+        .await;
 
         assert_eq!(
             app.panels.left.active_tab().current_dir,
@@ -589,8 +595,11 @@ async fn test_drive_navigation_matches_opposite_pane() {
         app.popups.drive_select.side = PanelSide::Left;
         app.popups.drive_select.selected_index = 0; // "C:\"
 
-        fm::drive_select_ui::handle_drive_select_event(termina::event::KeyCode::Enter, &mut app)
-            .await;
+        fm::ui::drive_select_ui::handle_drive_select_event(
+            termina::event::KeyCode::Enter,
+            &mut app,
+        )
+        .await;
 
         assert_eq!(
             app.panels.left.active_tab().current_dir,

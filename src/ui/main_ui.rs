@@ -167,7 +167,7 @@ pub fn draw_all_popups(
     crate::ui::help_ui::draw_help_popup(f, app, keyboard, palette);
 
     if app.popups.drive_select.is_visible {
-        crate::drive_select_ui::draw_drive_select_popup(f, app, palette);
+        crate::ui::drive_select_ui::draw_drive_select_popup(f, app, palette);
     }
     if app.popups.ssh_connection.is_visible {
         crate::ui::ssh_ui::draw_ssh_connection_popup(f, app, palette);

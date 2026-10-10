@@ -5,6 +5,7 @@ pub mod copy_move_ui;
 pub mod create_dir_ui;
 pub mod create_file_ui;
 pub mod delete_ui;
+pub mod drive_select_ui;
 pub mod empty_trash_ui;
 pub mod error_ui;
 pub mod filterable_list;
