@@ -12,9 +12,11 @@ pub mod popup_create;
 pub mod popup_delete;
 pub mod popup_error;
 pub mod popup_fuzzy;
+pub mod popup_quit;
 pub mod popup_rename;
 pub mod popup_rename_tab;
 pub mod popup_ssh;
+pub mod popup_task_manager;
 
 pub mod clipboard_utils;
 pub mod editor;
