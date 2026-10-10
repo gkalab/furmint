@@ -1,5 +1,5 @@
 use fm::app_state::tabs::{SortColumn, SortDirection};
-use fm::ssh_history::{SshConnectionHistory, SshConnectionInfo};
+use fm::ssh::history::{SshConnectionHistory, SshConnectionInfo};
 use tempfile::tempdir;
 
 fn create_test_info(conn: &str) -> SshConnectionInfo {

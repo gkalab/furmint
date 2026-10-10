@@ -215,16 +215,17 @@ fn handle_ssh_error(
     app: &mut crate::app::AppState,
     host: String,
     user: String,
-    error: crate::ssh_manager::SshError,
+    error: crate::ssh::manager::SshError,
 ) {
     match error {
-        crate::ssh_manager::SshError::Network(_) | crate::ssh_manager::SshError::Connection(_) => {
+        crate::ssh::manager::SshError::Network(_)
+        | crate::ssh::manager::SshError::Connection(_) => {
             app.popups
                 .set_popup_visible(crate::app::PopupKind::SshConnection, true);
             app.popups.ssh_connection.error = Some(error.to_string());
             app.popups.ssh_connection.active_field = crate::state::ssh::SshField::ConnectionString;
         }
-        crate::ssh_manager::SshError::HostKey {
+        crate::ssh::manager::SshError::HostKey {
             host,
             port,
             presented,
@@ -249,7 +250,7 @@ fn handle_ssh_error(
             app.popups
                 .set_popup_visible(crate::app::PopupKind::HostKey, true);
         }
-        crate::ssh_manager::SshError::Auth(_) => {
+        crate::ssh::manager::SshError::Auth(_) => {
             app.popups
                 .set_popup_visible(crate::app::PopupKind::SshPassword, true);
             app.popups.ssh_password.session_id.clear();
@@ -259,8 +260,8 @@ fn handle_ssh_error(
             app.popups.ssh_password.password = SecretString::new(String::new().into());
             app.popups.ssh_password.cursor_position = 0;
         }
-        crate::ssh_manager::SshError::InvalidInput(msg)
-        | crate::ssh_manager::SshError::Internal(msg) => {
+        crate::ssh::manager::SshError::InvalidInput(msg)
+        | crate::ssh::manager::SshError::Internal(msg) => {
             app.popups
                 .set_popup_visible(crate::app::PopupKind::SshConnection, true);
             app.popups.ssh_connection.error = Some(msg);

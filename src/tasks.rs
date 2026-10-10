@@ -128,7 +128,7 @@ pub enum SshEvent {
     Error {
         host: String,
         user: String,
-        error: crate::ssh_manager::SshError,
+        error: crate::ssh::manager::SshError,
     },
     HostKey {
         host: String,

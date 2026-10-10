@@ -28,7 +28,7 @@ use super::utils::{
     build_du_command, calculate_optimal_chunk_size, find_default_ssh_keys, format_sftp_permissions,
     is_dot_or_dotdot, normalize_sftp_path,
 };
-use crate::ssh_known_hosts::HostKeyChecker;
+use crate::ssh::known_hosts::HostKeyChecker;
 
 /// Host-key verification failed. The server presented a key that is not in
 /// `known_hosts` or differs from the stored one. This error is distinct
@@ -172,7 +172,7 @@ impl client::Handler for SshClientHandler {
                     .known
                     .fingerprint_for(&self.checker.host, self.checker.port);
                 let mut guard = self.checker.presented.lock().unwrap();
-                *guard = Some(crate::ssh_known_hosts::PresentedKey {
+                *guard = Some(crate::ssh::known_hosts::PresentedKey {
                     fingerprint,
                     key_line,
                     stored_fp,
@@ -181,7 +181,7 @@ impl client::Handler for SshClientHandler {
             }
             None => {
                 let mut guard = self.checker.presented.lock().unwrap();
-                *guard = Some(crate::ssh_known_hosts::PresentedKey {
+                *guard = Some(crate::ssh::known_hosts::PresentedKey {
                     fingerprint,
                     key_line,
                     stored_fp: None,

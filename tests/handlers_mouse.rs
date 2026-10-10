@@ -323,7 +323,7 @@ async fn test_ssh_history_remove_confirmation_mouse_click() {
 
     app.ssh_history
         .connections
-        .push(fm::ssh_history::SshConnectionInfo {
+        .push(fm::ssh::history::SshConnectionInfo {
             name: Some("server".to_string()),
             connection_string: "user@localhost:22".to_string(),
             user: "user".to_string(),
@@ -403,7 +403,7 @@ async fn test_ssh_history_remove_confirmation_released_outside_keeps_entry() {
     let mut app = AppState::test_default();
     app.ssh_history
         .connections
-        .push(fm::ssh_history::SshConnectionInfo {
+        .push(fm::ssh::history::SshConnectionInfo {
             name: Some("server".to_string()),
             connection_string: "user@localhost:22".to_string(),
             user: "user".to_string(),

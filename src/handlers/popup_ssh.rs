@@ -1,5 +1,5 @@
 use crate::app::AppState;
-use crate::ssh_manager::SshError;
+use crate::ssh::manager::SshError;
 use crate::state::ssh::SshField;
 use crate::tasks::{EventBus, SshContext, SshEvent, TaskEvent, TaskStatus, UiEvent};
 use secrecy::{ExposeSecret, SecretString};
@@ -372,7 +372,7 @@ pub fn parse_connection_string(s: &str) -> Option<ParsedSsh> {
 }
 
 fn start_ssh_auth(app: &mut AppState) {
-    use crate::ssh_history::SshConnectionInfo;
+    use crate::ssh::history::SshConnectionInfo;
     let conn_str = app.popups.ssh_connection.connection_string.trim();
     if conn_str.is_empty() {
         app.popups.ssh_connection.error = Some("Connection string is required".to_string());
@@ -757,7 +757,7 @@ fn reconnect_ssh(app: &mut AppState, session_id: String, password: SecretString)
 
 fn show_password_popup_for_reconnect(
     app: &mut AppState,
-    session: &crate::ssh_manager::SessionState,
+    session: &crate::ssh::manager::SessionState,
     error: Option<String>,
 ) {
     app.popups
@@ -963,7 +963,7 @@ pub fn handle_reconnect_ssh(app: &mut AppState) {
     }
 
     // Key-authenticated sessions reconnect via keys/agent (no password cache).
-    if session.auth_method == crate::ssh_manager::AuthMethod::Pubkey {
+    if session.auth_method == crate::ssh::manager::AuthMethod::Pubkey {
         spawn_reconnect_task(app, session.session_id.clone(), ReconnectAuth::Keys);
         return;
     }
@@ -985,7 +985,7 @@ pub fn handle_reconnect_ssh(app: &mut AppState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ssh_history::SshConnectionInfo;
+    use crate::ssh::history::SshConnectionInfo;
     use ratatui::layout::Rect;
     use termina::event::{MouseButton, MouseEvent, MouseEventKind};
 
@@ -1051,7 +1051,7 @@ mod tests {
 
     #[test]
     fn auth_failures_are_not_reported_as_task_failures() {
-        use crate::ssh_manager::{AuthError, NetworkError, SshError};
+        use crate::ssh::manager::{AuthError, NetworkError, SshError};
 
         // A password prompt follows auth failures, so no failure message.
         assert_eq!(

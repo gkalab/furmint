@@ -137,7 +137,7 @@ async fn test_ssh_insert_delete() {
 
 #[tokio::test]
 async fn test_history_search_reset() {
-    use fm::ssh_history::SshConnectionInfo;
+    use fm::ssh::history::SshConnectionInfo;
     use std::time::Instant;
     let mut app = basic_app_state().await;
     handle_ssh_connection_init(&mut app);
@@ -333,7 +333,7 @@ async fn test_handle_reconnect_ssh_sets_up_password_prompt() {
         22,
         "testuser".to_string(),
         Some("/remote/path".to_string()),
-        fm::ssh_manager::AuthMethod::Password,
+        fm::ssh::manager::AuthMethod::Password,
     );
 
     app.panels.left.active_tab_mut().ssh_session_id = Some("test_session".to_string());
@@ -364,7 +364,7 @@ async fn test_handle_reconnect_ssh_reuses_cached_password() {
         22,
         "testuser".to_string(),
         None,
-        fm::ssh_manager::AuthMethod::Password,
+        fm::ssh::manager::AuthMethod::Password,
     );
     app.ssh_manager
         .cache_password("cached_session", secrecy::SecretString::from("s3cret"));
@@ -397,7 +397,7 @@ async fn test_handle_reconnect_ssh_prompt_for_pubkey_session_without_cache() {
         22,
         "testuser".to_string(),
         None,
-        fm::ssh_manager::AuthMethod::Pubkey,
+        fm::ssh::manager::AuthMethod::Pubkey,
     );
 
     handle_reconnect_ssh(&mut app);

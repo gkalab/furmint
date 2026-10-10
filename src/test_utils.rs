@@ -182,7 +182,7 @@ impl TestAppBuilder {
                 ),
                 show_task_manager: false,
             },
-            ssh_manager: Arc::new(crate::ssh_manager::SshManager::default()),
+            ssh_manager: Arc::new(crate::ssh::manager::SshManager::default()),
             dir_history: crate::dir_history::DirectoryHistory::test_default(),
             watcher: None,
             remote_watcher: None,
@@ -194,7 +194,7 @@ impl TestAppBuilder {
             },
             editor_cfg: crate::config::EditorConfig::default(),
             viewer_cfg: crate::config::ViewerConfig::default(),
-            ssh_history: crate::ssh_history::SshConnectionHistory::test_default(),
+            ssh_history: crate::ssh::history::SshConnectionHistory::test_default(),
             bookmark_store: crate::bookmarks::BookmarkStore::test_default(),
             os: crate::app::OsServices {
                 clipboard: Box::new(crate::clipboard::InMemoryFileClipboard::new()),

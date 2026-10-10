@@ -229,7 +229,7 @@ pub struct AppState {
     pub fuzzy_search: crate::ui::fuzzy_search_ui::FuzzySearchState,
     pub popups: Popups,
     pub tasks: TaskState,
-    pub ssh_manager: std::sync::Arc<crate::ssh_manager::SshManager>,
+    pub ssh_manager: std::sync::Arc<crate::ssh::manager::SshManager>,
     pub bookmark_store: crate::bookmarks::BookmarkStore,
 
     pub dir_history: crate::dir_history::DirectoryHistory,
@@ -242,7 +242,7 @@ pub struct AppState {
     pub global: crate::config::GlobalConfig,
     pub editor_cfg: crate::config::EditorConfig,
     pub viewer_cfg: crate::config::ViewerConfig,
-    pub ssh_history: crate::ssh_history::SshConnectionHistory,
+    pub ssh_history: crate::ssh::history::SshConnectionHistory,
     pub os: OsServices,
     pub cache: CacheState,
     /// Layout rects, recomputed once per frame before draw and input handling
@@ -310,7 +310,7 @@ impl AppState {
             },
             bookmark_store: ctx.bookmark_store,
             // Wire up ssh manager with task event channel so it can emit SshConnected events
-            ssh_manager: std::sync::Arc::new(crate::ssh_manager::SshManager::new(Some(
+            ssh_manager: std::sync::Arc::new(crate::ssh::manager::SshManager::new(Some(
                 &ctx.ssh_cfg,
             ))),
             dir_history: ctx.dir_history,
@@ -321,7 +321,7 @@ impl AppState {
             global: ctx.global,
             editor_cfg: ctx.editor_cfg,
             viewer_cfg: ctx.viewer_cfg,
-            ssh_history: crate::ssh_history::SshConnectionHistory::new().unwrap(),
+            ssh_history: crate::ssh::history::SshConnectionHistory::new().unwrap(),
             os: OsServices {
                 clipboard: Box::new(crate::clipboard::ClipboardBackend::new()),
                 opener: std::sync::Arc::new(crate::opener::SystemOpener),

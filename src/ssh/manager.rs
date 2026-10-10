@@ -121,7 +121,7 @@ pub struct SshManager {
     sessions: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, SessionState>>>,
     password_cache:
         std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, SecretString>>>,
-    known_hosts: std::sync::Arc<crate::ssh_known_hosts::KnownHosts>,
+    known_hosts: std::sync::Arc<crate::ssh::known_hosts::KnownHosts>,
 }
 
 impl SshManager {
@@ -146,12 +146,12 @@ impl SshManager {
             password_cache: std::sync::Arc::new(std::sync::RwLock::new(
                 std::collections::HashMap::new(),
             )),
-            known_hosts: std::sync::Arc::new(crate::ssh_known_hosts::KnownHosts::new()),
+            known_hosts: std::sync::Arc::new(crate::ssh::known_hosts::KnownHosts::new()),
         }
     }
 
     #[must_use]
-    pub fn known_hosts(&self) -> std::sync::Arc<crate::ssh_known_hosts::KnownHosts> {
+    pub fn known_hosts(&self) -> std::sync::Arc<crate::ssh::known_hosts::KnownHosts> {
         std::sync::Arc::clone(&self.known_hosts)
     }
 
@@ -186,7 +186,7 @@ impl SshManager {
         user: String,
     ) -> Result<crate::fs::sftp::SftpFs, SshError> {
         self.known_hosts.reload();
-        let checker = std::sync::Arc::new(crate::ssh_known_hosts::HostKeyChecker::new(
+        let checker = std::sync::Arc::new(crate::ssh::known_hosts::HostKeyChecker::new(
             host.clone(),
             port,
             std::sync::Arc::clone(&self.known_hosts),
@@ -302,7 +302,7 @@ impl SshManager {
         password: SecretString,
     ) -> Result<crate::fs::sftp::SftpFs, SshError> {
         self.known_hosts.reload();
-        let checker = std::sync::Arc::new(crate::ssh_known_hosts::HostKeyChecker::new(
+        let checker = std::sync::Arc::new(crate::ssh::known_hosts::HostKeyChecker::new(
             host.clone(),
             port,
             std::sync::Arc::clone(&self.known_hosts),
@@ -735,7 +735,7 @@ mod tests {
             password_cache: std::sync::Arc::new(std::sync::RwLock::new(
                 std::collections::HashMap::new(),
             )),
-            known_hosts: std::sync::Arc::new(crate::ssh_known_hosts::KnownHosts::with_path(
+            known_hosts: std::sync::Arc::new(crate::ssh::known_hosts::KnownHosts::with_path(
                 std::path::PathBuf::from("/tmp/fm_test_known_hosts_backoff"),
             )),
         };
