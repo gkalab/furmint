@@ -2,7 +2,12 @@ use crate::state::HostKeyState;
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
 
-pub fn draw_host_key_popup(f: &mut Frame, state: &mut HostKeyState, palette: &ThemePalette) {
+pub fn draw_host_key_popup(
+    f: &mut Frame,
+    state: &HostKeyState,
+    geometry: &crate::popup_layout::ButtonGeometry,
+    palette: &ThemePalette,
+) {
     if !state.is_visible {
         return;
     }
@@ -26,7 +31,6 @@ pub fn draw_host_key_popup(f: &mut Frame, state: &mut HostKeyState, palette: &Th
     let width = 70u16;
     let height = 10u16;
     let popup_area = crate::ui::ui_utils::centered_rect_absolute(width, height, f.area());
-    state.popup_area = popup_area;
 
     f.render_widget(ratatui::widgets::Clear, popup_area);
 
@@ -64,17 +68,14 @@ pub fn draw_host_key_popup(f: &mut Frame, state: &mut HostKeyState, palette: &Th
     );
 
     let focused = state.selected_no.then_some(0).or(Some(1));
-    crate::ui::ui_utils::draw_button_row(
+    crate::ui::ui_utils::draw_button_row_at(
         f,
         &["(R)eject", "(A)ccept"],
-        inner_layout[2],
+        &geometry.button_areas,
         palette,
         bg_color,
         focused,
     );
-
-    state.button_areas =
-        crate::ui::ui_utils::compute_button_rects(&["(R)eject", "(A)ccept"], inner_layout[2]);
 }
 
 pub fn handle_host_key_popup_event(

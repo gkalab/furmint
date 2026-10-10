@@ -7,6 +7,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use crate::layout::ViewerGeometry;
+
 pub use highlight::{
     HighlightBatch, HighlightRequest, HighlightWorker, LineSegments, parse_hex_color,
 };
@@ -15,18 +17,16 @@ pub use text::{ContentLoadResult, TextViewerState};
 
 /// Top-level state for the file viewer panel.
 ///
-/// Owns the shared panel state (path, visibility, layout rects) and delegates to
-/// [`TextViewerState`] for the text/archive view and [`ImageViewerState`] for the image view.
+/// Owns the shared panel state (path, visibility) and delegates to
+/// [`TextViewerState`] for the text/archive view and [`ImageViewerState`] for
+/// the image view. Screen geometry comes from [`ViewerGeometry`], computed per
+/// frame alongside the rest of the layout.
 #[derive(Default)]
 pub struct FileViewerState {
     pub path: PathBuf,
     pub is_visible: bool,
     pub focused: bool,
     pub is_loading: bool,
-    pub area: ratatui::layout::Rect,
-    /// The area actually used to render content (the block's inner area, excluding borders).
-    /// Zoom/pan math uses this so the displayed scale matches the requested scale.
-    pub render_area: ratatui::layout::Rect,
     pub text: TextViewerState,
     pub image: ImageViewerState,
     cancel_flag: Option<Arc<AtomicBool>>,
@@ -82,8 +82,6 @@ impl FileViewerState {
             is_visible: false,
             focused: false,
             is_loading: false,
-            area: ratatui::layout::Rect::default(),
-            render_area: ratatui::layout::Rect::default(),
             text: TextViewerState::with_theme_name(theme_name, theme),
             image: ImageViewerState::default(),
             cancel_flag: None,
@@ -318,14 +316,16 @@ impl FileViewerState {
 
     /// Number of lines that fit in the viewer's visible area (borders excluded).
     #[must_use]
-    pub fn visible_lines(&self) -> usize {
-        self.area.height.saturating_sub(2) as usize
+    pub fn visible_lines(&self, geometry: &ViewerGeometry) -> usize {
+        geometry.area.height.saturating_sub(2) as usize
     }
 
     /// Maximum scroll offset so the last line sits at the bottom of the viewport.
     #[must_use]
-    pub fn max_scroll_offset(&self) -> usize {
-        self.text.total_lines().saturating_sub(self.visible_lines())
+    pub fn max_scroll_offset(&self, geometry: &ViewerGeometry) -> usize {
+        self.text
+            .total_lines()
+            .saturating_sub(self.visible_lines(geometry))
     }
 
     #[must_use]
@@ -350,43 +350,43 @@ impl FileViewerState {
         self.text.select_word_at(row, display_col);
     }
 
-    pub fn search(&mut self, query: &str) -> bool {
-        self.text.search(query, self.area)
+    pub fn search(&mut self, query: &str, geometry: &ViewerGeometry) -> bool {
+        self.text.search(query, geometry.area)
     }
 
-    pub fn search_next(&mut self) -> bool {
-        self.text.search_next(self.area)
+    pub fn search_next(&mut self, geometry: &ViewerGeometry) -> bool {
+        self.text.search_next(geometry.area)
     }
 
-    pub fn search_prev(&mut self) -> bool {
-        self.text.search_prev(self.area)
+    pub fn search_prev(&mut self, geometry: &ViewerGeometry) -> bool {
+        self.text.search_prev(geometry.area)
     }
 
     /// Whether an image is currently displayed zoomed in beyond "fit" (panning is active).
     #[must_use]
-    pub fn is_image_zoomed(&self) -> bool {
-        self.image.is_zoomed(self.render_area)
+    pub fn is_image_zoomed(&self, geometry: &ViewerGeometry) -> bool {
+        self.image.is_zoomed(geometry.render_area)
     }
 
     /// Zoom in one step towards 100%.
-    pub fn zoom_image_in(&mut self) {
-        self.image.zoom_in(self.render_area);
+    pub fn zoom_image_in(&mut self, geometry: &ViewerGeometry) {
+        self.image.zoom_in(geometry.render_area);
     }
 
     /// Zoom out one step towards "fit".
-    pub fn zoom_image_out(&mut self) {
-        self.image.zoom_out(self.render_area);
+    pub fn zoom_image_out(&mut self, geometry: &ViewerGeometry) {
+        self.image.zoom_out(geometry.render_area);
     }
 
     /// Pan the displayed window by `(dx, dy)` viewport cells (clamped to image bounds).
-    pub fn pan_image(&mut self, dx: i64, dy: i64) {
-        self.image.pan(dx, dy, self.render_area);
+    pub fn pan_image(&mut self, dx: i64, dy: i64, geometry: &ViewerGeometry) {
+        self.image.pan(dx, dy, geometry.render_area);
     }
 
     /// Scale factor that fits the image proportionally into the viewport (capped at 1.0).
     #[must_use]
-    pub fn fit_scale(&self) -> f32 {
-        self.image.fit_scale(self.render_area)
+    pub fn fit_scale(&self, geometry: &ViewerGeometry) -> f32 {
+        self.image.fit_scale(geometry.render_area)
     }
 
     /// Ensure the image protocol matches the current zoom/pan/`render_area`.
@@ -394,7 +394,7 @@ impl FileViewerState {
     /// When zoomed in, a crop of the scaled source image sized to the viewport is produced so
     /// the (larger than viewport) image can be panned. When not zoomed, the full image protocol
     /// is restored. Rebuilds only when the zoom, pan or area changed.
-    pub fn prepare_image_protocol(&mut self) {
-        self.image.prepare_protocol(self.render_area);
+    pub fn prepare_image_protocol(&mut self, geometry: &ViewerGeometry) {
+        self.image.prepare_protocol(geometry.render_area);
     }
 }

@@ -66,7 +66,21 @@ pub fn draw_button_row(
     focused_index: Option<usize>,
 ) {
     let button_areas = compute_button_rects(labels, area);
+    draw_button_row_at(f, labels, &button_areas, palette, bg_color, focused_index);
+}
 
+/// Draws a button row at pre-computed areas.
+///
+/// Callers that have a [`crate::popup_layout::ButtonGeometry`] use this so the
+/// rendered buttons sit exactly where mouse hit-testing will look for them.
+pub fn draw_button_row_at(
+    f: &mut ratatui::Frame<'_>,
+    labels: &[&str],
+    button_areas: &[Rect],
+    palette: &crate::theme::ThemePalette,
+    bg_color: Color,
+    focused_index: Option<usize>,
+) {
     let parsed_labels: Vec<(String, Option<char>, Option<usize>)> = labels
         .iter()
         .map(|label| parse_button_label(label))
@@ -79,7 +93,9 @@ pub fn draw_button_row(
     };
 
     for (i, (label, shortcut, shortcut_pos)) in parsed_labels.into_iter().enumerate() {
-        let btn_area = button_areas[i];
+        let Some(btn_area) = button_areas.get(i).copied() else {
+            break;
+        };
 
         let mut btn = ButtonWidget::new(&label, variant)
             .with_palette(palette)
@@ -780,7 +796,8 @@ pub fn confirmation_button_areas(width: u16, height: u16, screen: Rect) -> Vec<R
 
 pub fn draw_confirmation_popup(
     f: &mut ratatui::Frame,
-    state: &mut crate::state::ConfirmationState,
+    state: &crate::state::ConfirmationState,
+    geometry: &crate::popup_layout::ButtonGeometry,
     palette: &ThemePalette,
     width: u16,
     height: u16,
@@ -836,17 +853,14 @@ pub fn draw_confirmation_popup(
     );
 
     let focused = state.selected_no.then_some(0).or(Some(1));
-    draw_button_row(
+    draw_button_row_at(
         f,
         &["(N)o", "(Y)es"],
-        inner_layout[2],
+        &geometry.button_areas,
         palette,
         bg_color,
         focused,
     );
-
-    // Remember the button geometry so mouse hit-testing matches the rendering.
-    state.button_areas = confirmation_button_areas(width, height, f.area());
 }
 
 fn draw_input_text_and_cursor(

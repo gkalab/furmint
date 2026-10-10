@@ -26,8 +26,6 @@ pub struct HostKeyState {
     pub key_auth: bool,
     pub connection_name: Option<String>,
     pub selected_no: bool,
-    pub popup_area: ratatui::layout::Rect,
-    pub button_areas: Vec<ratatui::layout::Rect>,
 }
 
 impl HostKeyState {
@@ -46,8 +44,6 @@ impl HostKeyState {
             key_auth: false,
             connection_name: None,
             selected_no: true,
-            popup_area: ratatui::layout::Rect::default(),
-            button_areas: Vec::new(),
         }
     }
 

@@ -14,6 +14,7 @@ pub mod large_text;
 pub mod layout;
 pub mod opener;
 pub mod paths;
+pub mod popup_layout;
 pub mod ssh;
 pub mod state;
 pub mod tasks;

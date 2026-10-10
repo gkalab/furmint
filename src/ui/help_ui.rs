@@ -86,7 +86,6 @@ pub fn draw_help_popup(
     );
 
     let table_area = layout[1];
-    app.popups.help.table_area = Some(table_area);
 
     let (rows, total_rows) = build_help_rows(keyboard, border_color);
     app.popups.help.total_rows = total_rows;

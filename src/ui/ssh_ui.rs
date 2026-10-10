@@ -43,8 +43,6 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &mut AppState, palette: &Th
         ])
         .split(popup_area);
 
-    app.popups.ssh_connection.field_areas = vec![chunks[0], chunks[2], chunks[4], chunks[6]];
-
     render_input_field(
         f,
         chunks[0],
@@ -203,10 +201,6 @@ fn draw_history_list(
     f.render_stateful_widget(list, chunk, &mut list_state);
     app.popups.ssh_connection.history_list_offset = list_state.offset();
 
-    // Store the outer chunk so scrollbar hit detection in mouse.rs can use the
-    // same geometry that `scroll_area` derives from below.
-    app.popups.ssh_connection.history_area = Some(chunk);
-
     let scroll_area = chunk.inner(Margin {
         vertical: 1,
         horizontal: 0,
@@ -232,9 +226,17 @@ fn draw_history_list(
             chunk,
         );
     }
-    if let Some(confirmation) = app.popups.ssh_connection.confirmation.as_mut() {
+    if let Some(confirmation) = app.popups.ssh_connection.confirmation.as_ref() {
         let bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
-        crate::ui::ui_utils::draw_confirmation_popup(f, confirmation, palette, 66, 6, bg_color);
+        crate::ui::ui_utils::draw_confirmation_popup(
+            f,
+            confirmation,
+            &app.layout.popups.ssh_connection.confirmation_buttons,
+            palette,
+            66,
+            6,
+            bg_color,
+        );
     }
 }
 

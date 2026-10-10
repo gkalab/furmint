@@ -279,18 +279,20 @@ where
     } else {
         None
     };
+    let screen = ratatui::layout::Rect {
+        x: 0,
+        y: 0,
+        width: size.width,
+        height: size.height,
+    };
     app.layout = crate::layout::compute_layout(
-        ratatui::layout::Rect {
-            x: 0,
-            y: 0,
-            width: size.width,
-            height: size.height,
-        },
+        screen,
         &app.panels.left.tabs,
         &app.panels.right.tabs,
         viewer_side,
         app.global.icons.unwrap_or(false),
     );
+    app.layout.popups = crate::popup_layout::compute_popup_layout(app, screen);
 
     terminal.draw(|f| {
         crate::ui::main_ui::draw_main_layout(f, app, palette);

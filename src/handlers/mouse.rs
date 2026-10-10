@@ -1,9 +1,5 @@
 use crate::app::{AppState, DragTarget, PopupKind};
 use crate::app_state::tabs::PanelSide;
-use crate::state::{
-    BookmarkState, ConflictState, DeleteState, EmptyTrashState, ErrorState, HostKeyState,
-    QuitConfirmationState, RemoteEditState, RenameState, SshConnectionState,
-};
 use ratatui::layout::Rect;
 use std::time::{Duration, Instant};
 use termina::event::{KeyCode, Modifiers, MouseButton, MouseEvent, MouseEventKind};
@@ -159,229 +155,88 @@ async fn handle_popup_mouse(app: &mut AppState, event: MouseEvent, is_double_cli
     }
 }
 
-/// A popup that renders clickable buttons, so the mouse handlers can hit-test,
-/// focus, and confirm them without knowing the popup's concrete state type.
-trait ButtonPopup {
-    /// Returns `true` when the popup is visible and its buttons should be hit-tested.
-    fn is_active(&self) -> bool;
-    /// Screen areas of the popup's buttons.
-    fn button_areas(&self) -> &[Rect];
-    /// Applies the visual feedback (focus/selection) for the pressed button.
-    fn set_focused_button(&mut self, index: usize);
+/// The button popups in hit-test priority order (topmost first).
+fn button_popups() -> &'static [PopupKind] {
+    &[
+        PopupKind::Error,
+        PopupKind::Conflict,
+        PopupKind::Rename,
+        PopupKind::RemoteEdit,
+        PopupKind::QuitConfirmation,
+        PopupKind::Delete,
+        PopupKind::EmptyTrash,
+        PopupKind::HostKey,
+        PopupKind::SshConnection,
+        PopupKind::Bookmark,
+    ]
 }
 
-impl ButtonPopup for ErrorState {
-    fn is_active(&self) -> bool {
-        self.is_visible
-    }
-    fn button_areas(&self) -> &[Rect] {
-        &self.button_areas
-    }
-    fn set_focused_button(&mut self, index: usize) {
-        self.focused_button = index;
-    }
-}
-
-impl ButtonPopup for ConflictState {
-    fn is_active(&self) -> bool {
-        self.is_visible
-    }
-    fn button_areas(&self) -> &[Rect] {
-        &self.button_areas
-    }
-    fn set_focused_button(&mut self, index: usize) {
-        self.focused_button = index;
-    }
-}
-
-impl ButtonPopup for RenameState {
-    fn is_active(&self) -> bool {
-        self.is_visible && self.show_overwrite_confirm
-    }
-    fn button_areas(&self) -> &[Rect] {
-        &self.button_areas
-    }
-    fn set_focused_button(&mut self, index: usize) {
-        self.focused_button = index;
-    }
-}
-
-impl ButtonPopup for RemoteEditState {
-    fn is_active(&self) -> bool {
-        self.is_visible
-    }
-    fn button_areas(&self) -> &[Rect] {
-        &self.button_areas
-    }
-    fn set_focused_button(&mut self, index: usize) {
-        self.focused_button = index;
-    }
-}
-
-impl ButtonPopup for QuitConfirmationState {
-    fn is_active(&self) -> bool {
-        self.is_visible
-    }
-    fn button_areas(&self) -> &[Rect] {
-        &self.button_areas
-    }
-    fn set_focused_button(&mut self, index: usize) {
-        self.selected_no = index == 0;
-    }
-}
-
-impl ButtonPopup for DeleteState {
-    fn is_active(&self) -> bool {
-        self.is_visible
-    }
-    fn button_areas(&self) -> &[Rect] {
-        &self.button_areas
-    }
-    fn set_focused_button(&mut self, index: usize) {
-        self.selected_no = index == 0;
-    }
-}
-
-impl ButtonPopup for EmptyTrashState {
-    fn is_active(&self) -> bool {
-        self.is_visible
-    }
-    fn button_areas(&self) -> &[Rect] {
-        &self.button_areas
-    }
-    fn set_focused_button(&mut self, index: usize) {
-        self.selected_no = index == 0;
-    }
-}
-
-impl ButtonPopup for HostKeyState {
-    fn is_active(&self) -> bool {
-        self.is_visible
-    }
-    fn button_areas(&self) -> &[Rect] {
-        &self.button_areas
-    }
-    fn set_focused_button(&mut self, index: usize) {
-        self.selected_no = index == 0;
-    }
-}
-
-impl ButtonPopup for SshConnectionState {
-    fn is_active(&self) -> bool {
-        self.is_visible && self.confirmation.is_some()
-    }
-    fn button_areas(&self) -> &[Rect] {
-        self.confirmation
-            .as_ref()
-            .map_or(&[], |confirmation| &confirmation.button_areas)
-    }
-    fn set_focused_button(&mut self, index: usize) {
-        if let Some(confirmation) = &mut self.confirmation {
-            confirmation.selected_no = index == 0;
-        }
-    }
-}
-
-impl ButtonPopup for BookmarkState {
-    fn is_active(&self) -> bool {
-        self.list.is_visible && self.confirmation.is_some()
-    }
-    fn button_areas(&self) -> &[Rect] {
-        self.confirmation
-            .as_ref()
-            .map_or(&[], |confirmation| &confirmation.button_areas)
-    }
-    fn set_focused_button(&mut self, index: usize) {
-        if let Some(confirmation) = &mut self.confirmation {
-            confirmation.selected_no = index == 0;
-        }
-    }
-}
-
-/// The button popups in hit-test priority order.
-fn button_popup_table(app: &AppState) -> Vec<(PopupKind, &dyn ButtonPopup)> {
+/// Whether a popup is visible and its buttons should be hit-tested.
+///
+/// Rename only draws buttons in its overwrite-confirm variant; the SSH and
+/// bookmark popups only when they have spawned a confirmation overlay.
+fn is_button_popup_active(app: &AppState, kind: PopupKind) -> bool {
     let popups = &app.popups;
-    vec![
-        (PopupKind::Error, &popups.error as &dyn ButtonPopup),
-        (PopupKind::Conflict, &popups.conflict as &dyn ButtonPopup),
-        (PopupKind::Rename, &popups.rename as &dyn ButtonPopup),
-        (
-            PopupKind::RemoteEdit,
-            &popups.remote_edit as &dyn ButtonPopup,
-        ),
-        (
-            PopupKind::QuitConfirmation,
-            &popups.quit_confirmation as &dyn ButtonPopup,
-        ),
-        (PopupKind::Delete, &popups.delete as &dyn ButtonPopup),
-        (
-            PopupKind::EmptyTrash,
-            &popups.empty_trash as &dyn ButtonPopup,
-        ),
-        (PopupKind::HostKey, &popups.host_key as &dyn ButtonPopup),
-        (
-            PopupKind::SshConnection,
-            &popups.ssh_connection as &dyn ButtonPopup,
-        ),
-        (PopupKind::Bookmark, &popups.bookmark as &dyn ButtonPopup),
-    ]
+    match kind {
+        PopupKind::Error => popups.error.is_visible,
+        PopupKind::Conflict => popups.conflict.is_visible,
+        PopupKind::Rename => popups.rename.is_visible && popups.rename.show_overwrite_confirm,
+        PopupKind::RemoteEdit => popups.remote_edit.is_visible,
+        PopupKind::QuitConfirmation => popups.quit_confirmation.is_visible,
+        PopupKind::Delete => popups.delete.is_visible,
+        PopupKind::EmptyTrash => popups.empty_trash.is_visible,
+        PopupKind::HostKey => popups.host_key.is_visible,
+        PopupKind::SshConnection => {
+            popups.ssh_connection.is_visible && popups.ssh_connection.confirmation.is_some()
+        }
+        PopupKind::Bookmark => {
+            popups.bookmark.list.is_visible && popups.bookmark.confirmation.is_some()
+        }
+        _ => false,
+    }
 }
 
-/// The button popups in hit-test priority order, with mutable access.
-fn button_popup_table_mut(app: &mut AppState) -> Vec<(PopupKind, &mut dyn ButtonPopup)> {
+/// Applies the visual feedback (focus/selection) for the pressed button.
+fn set_focused_button(app: &mut AppState, kind: PopupKind, index: usize) {
     let popups = &mut app.popups;
-    vec![
-        (PopupKind::Error, &mut popups.error as &mut dyn ButtonPopup),
-        (
-            PopupKind::Conflict,
-            &mut popups.conflict as &mut dyn ButtonPopup,
-        ),
-        (
-            PopupKind::Rename,
-            &mut popups.rename as &mut dyn ButtonPopup,
-        ),
-        (
-            PopupKind::RemoteEdit,
-            &mut popups.remote_edit as &mut dyn ButtonPopup,
-        ),
-        (
-            PopupKind::QuitConfirmation,
-            &mut popups.quit_confirmation as &mut dyn ButtonPopup,
-        ),
-        (
-            PopupKind::Delete,
-            &mut popups.delete as &mut dyn ButtonPopup,
-        ),
-        (
-            PopupKind::EmptyTrash,
-            &mut popups.empty_trash as &mut dyn ButtonPopup,
-        ),
-        (
-            PopupKind::HostKey,
-            &mut popups.host_key as &mut dyn ButtonPopup,
-        ),
-        (
-            PopupKind::SshConnection,
-            &mut popups.ssh_connection as &mut dyn ButtonPopup,
-        ),
-        (
-            PopupKind::Bookmark,
-            &mut popups.bookmark as &mut dyn ButtonPopup,
-        ),
-    ]
+    match kind {
+        PopupKind::Error => popups.error.focused_button = index,
+        PopupKind::Conflict => popups.conflict.focused_button = index,
+        PopupKind::Rename => popups.rename.focused_button = index,
+        PopupKind::RemoteEdit => popups.remote_edit.focused_button = index,
+        PopupKind::QuitConfirmation => popups.quit_confirmation.selected_no = index == 0,
+        PopupKind::Delete => popups.delete.selected_no = index == 0,
+        PopupKind::EmptyTrash => popups.empty_trash.selected_no = index == 0,
+        PopupKind::HostKey => popups.host_key.selected_no = index == 0,
+        PopupKind::SshConnection => {
+            if let Some(confirmation) = popups.ssh_connection.confirmation.as_mut() {
+                confirmation.selected_no = index == 0;
+            }
+        }
+        PopupKind::Bookmark => {
+            if let Some(confirmation) = popups.bookmark.confirmation.as_mut() {
+                confirmation.selected_no = index == 0;
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Returns the index of the popup button under the cursor, or `None` when no
 /// active button popup covers the position.
+///
+/// Stops at the topmost active popup, so a click that misses its buttons does
+/// not fall through to popups underneath.
 fn find_button_index(app: &AppState, x: u16, y: u16) -> Option<usize> {
     let pos = (x, y);
-    button_popup_table(app)
+    button_popups()
         .iter()
-        .find_map(|(_, popup)| {
-            if popup.is_active() {
+        .find_map(|&kind| {
+            if is_button_popup_active(app, kind) {
                 Some(
-                    popup
-                        .button_areas()
+                    app.layout
+                        .popups
+                        .button_areas(kind)
                         .iter()
                         .position(|rect| is_in_rect(pos, *rect)),
                 )
@@ -392,16 +247,21 @@ fn find_button_index(app: &AppState, x: u16, y: u16) -> Option<usize> {
         .flatten()
 }
 
+/// The topmost active button popup, if any.
+fn active_button_popup(app: &AppState) -> Option<PopupKind> {
+    button_popups()
+        .iter()
+        .copied()
+        .find(|&kind| is_button_popup_active(app, kind))
+}
+
 fn handle_popup_down(app: &mut AppState, x: u16, y: u16) {
     if let Some(i) = find_button_index(app, x, y) {
         app.mouse.mouse_button_down_index = Some(i);
 
         // Set the focused button for visual feedback
-        for (_, popup) in button_popup_table_mut(app) {
-            if popup.is_active() {
-                popup.set_focused_button(i);
-                break;
-            }
+        if let Some(kind) = active_button_popup(app) {
+            set_focused_button(app, kind, i);
         }
     }
 }
@@ -416,17 +276,10 @@ async fn handle_popup_up(app: &mut AppState, x: u16, y: u16) {
     }
 
     // Button click confirmed — apply visual feedback and trigger the action
-    let mut active_kind = None;
-    for (kind, popup) in button_popup_table_mut(app) {
-        if popup.is_active() {
-            popup.set_focused_button(down_index);
-            active_kind = Some(kind);
-            break;
-        }
-    }
-    let Some(kind) = active_kind else {
+    let Some(kind) = active_button_popup(app) else {
         return;
     };
+    set_focused_button(app, kind, down_index);
 
     match kind {
         PopupKind::Error => {
@@ -483,9 +336,9 @@ async fn handle_left_click(app: &mut AppState, x: u16, y: u16, is_double_click: 
     let click_pos = (x, y);
 
     // Check file viewer
-    if app.file_viewer.is_visible && is_in_rect(click_pos, app.file_viewer.area) {
+    if app.file_viewer.is_visible && is_in_rect(click_pos, app.layout.viewer.area) {
         app.file_viewer.focused = true;
-        if app.file_viewer.is_image_zoomed() {
+        if app.file_viewer.is_image_zoomed(&app.layout.viewer) {
             // Dragging a zoomed-in image pans it instead of selecting text.
             app.file_viewer.text.selection = None;
             app.mouse.active_drag = Some(crate::app::DragTarget::FileViewerPan);
@@ -495,8 +348,8 @@ async fn handle_left_click(app: &mut AppState, x: u16, y: u16, is_double_click: 
         app.mouse.active_drag = Some(crate::app::DragTarget::FileViewerSelection);
         let borders = app.global.borders.unwrap_or(false);
         let border_offset = u16::from(borders);
-        let inner_y = y.saturating_sub(app.file_viewer.area.y + border_offset);
-        let inner_x = x.saturating_sub(app.file_viewer.area.x + border_offset);
+        let inner_y = y.saturating_sub(app.layout.viewer.area.y + border_offset);
+        let inner_x = x.saturating_sub(app.layout.viewer.area.x + border_offset);
         let row = (inner_y as usize) + app.file_viewer.text.scroll_offset;
         let display_col = (inner_x as usize) + app.file_viewer.text.horizontal_scroll_offset;
 
@@ -510,7 +363,7 @@ async fn handle_left_click(app: &mut AppState, x: u16, y: u16, is_double_click: 
     }
 
     // If we click outside the focused viewer, unfocus it
-    if app.file_viewer.focused && !is_in_rect(click_pos, app.file_viewer.area) {
+    if app.file_viewer.focused && !is_in_rect(click_pos, app.layout.viewer.area) {
         app.file_viewer.focused = false;
     }
 
@@ -671,7 +524,7 @@ async fn handle_drag(app: &mut AppState, x: u16, y: u16) {
                 let dx = i64::from(x) - i64::from(lx);
                 let dy = i64::from(y) - i64::from(ly);
                 // Pan so the content follows the cursor.
-                app.file_viewer.pan_image(-dx, -dy);
+                app.file_viewer.pan_image(-dx, -dy, &app.layout.viewer);
             }
             app.mouse.last_drag_pos = Some((x, y));
         } else {
@@ -688,7 +541,7 @@ async fn handle_drag(app: &mut AppState, x: u16, y: u16) {
     let border_offset = u16::from(borders);
 
     // Clamp coordinates to viewer area
-    let area = app.file_viewer.area;
+    let area = app.layout.viewer.area;
     let x = x.clamp(
         area.left() + border_offset,
         area.right().saturating_sub(border_offset + 1),
@@ -896,7 +749,7 @@ fn scrollbar_candidates(app: &AppState) -> Vec<ScrollbarCandidate> {
 
     // Popup scrollbars
     if app.fuzzy_search.list.is_visible
-        && let Some(area) = app.fuzzy_search.list.list_area
+        && let Some(area) = app.layout.popups.fuzzy_search.list_area
     {
         candidates.push(ScrollbarCandidate {
             target: DragTarget::FuzzySearchScrollbar,
@@ -910,7 +763,7 @@ fn scrollbar_candidates(app: &AppState) -> Vec<ScrollbarCandidate> {
     }
 
     if app.popups.bookmark.list.is_visible
-        && let Some(area) = app.popups.bookmark.list.list_area
+        && let Some(area) = app.layout.popups.bookmark.list_area
     {
         candidates.push(ScrollbarCandidate {
             target: DragTarget::BookmarkScrollbar,
@@ -924,7 +777,7 @@ fn scrollbar_candidates(app: &AppState) -> Vec<ScrollbarCandidate> {
     }
 
     if app.popups.help.is_visible
-        && let Some(area) = app.popups.help.table_area
+        && let Some(area) = app.layout.popups.help.list_area
     {
         candidates.push(ScrollbarCandidate {
             target: DragTarget::HelpScrollbar,
@@ -938,7 +791,7 @@ fn scrollbar_candidates(app: &AppState) -> Vec<ScrollbarCandidate> {
     }
 
     if app.popups.ssh_connection.is_visible
-        && let Some(area) = app.popups.ssh_connection.history_area
+        && let Some(area) = app.layout.popups.ssh_connection.history_area
     {
         let region = scrollbar_hit_region(area, true);
         candidates.push(ScrollbarCandidate {
@@ -961,7 +814,7 @@ fn scrollbar_candidates(app: &AppState) -> Vec<ScrollbarCandidate> {
     // one row (see `ui::viewer::draw_file_viewer`), regardless of the `borders`
     // setting.
     if app.file_viewer.is_visible {
-        let area = app.file_viewer.area;
+        let area = app.layout.viewer.area;
         let region = Rect {
             x: area.x + area.width.saturating_sub(1),
             y: area.y + 1,
@@ -1043,7 +896,7 @@ pub async fn update_drag_scroll(app: &mut AppState, _x: u16, y: u16) {
 
     match target {
         crate::app::DragTarget::FuzzySearchScrollbar => {
-            if let Some(list_area) = app.fuzzy_search.list.list_area {
+            if let Some(list_area) = app.layout.popups.fuzzy_search.list_area {
                 let total = app.fuzzy_search.list.items.len();
                 let visible = list_area.height as usize;
                 let idx = calculate_scroll_from_y(y, list_area.y, list_area.height, total);
@@ -1052,7 +905,7 @@ pub async fn update_drag_scroll(app: &mut AppState, _x: u16, y: u16) {
             }
         }
         crate::app::DragTarget::BookmarkScrollbar => {
-            if let Some(list_area) = app.popups.bookmark.list.list_area {
+            if let Some(list_area) = app.layout.popups.bookmark.list_area {
                 let total = app.popups.bookmark.list.items.len();
                 let visible = list_area.height as usize;
                 let idx = calculate_scroll_from_y(y, list_area.y, list_area.height, total);
@@ -1061,7 +914,7 @@ pub async fn update_drag_scroll(app: &mut AppState, _x: u16, y: u16) {
             }
         }
         crate::app::DragTarget::HelpScrollbar => {
-            if let Some(table_area) = app.popups.help.table_area {
+            if let Some(table_area) = app.layout.popups.help.list_area {
                 let total = app.popups.help.total_rows;
                 let visible = table_area.height as usize;
                 let idx = calculate_scroll_from_y(y, table_area.y, table_area.height, total);
@@ -1069,7 +922,7 @@ pub async fn update_drag_scroll(app: &mut AppState, _x: u16, y: u16) {
             }
         }
         crate::app::DragTarget::SshHistoryScrollbar => {
-            if let Some(history_area) = app.popups.ssh_connection.history_area {
+            if let Some(history_area) = app.layout.popups.ssh_connection.history_area {
                 let region = scrollbar_hit_region(history_area, true);
                 let total = app.ssh_history.connections.len();
                 if total > 0 {
@@ -1079,12 +932,13 @@ pub async fn update_drag_scroll(app: &mut AppState, _x: u16, y: u16) {
             }
         }
         crate::app::DragTarget::FileViewerScrollbar => {
-            let area = app.file_viewer.area;
+            let area = app.layout.viewer.area;
             let start_y = area.y + 1;
             let height = area.height.saturating_sub(2);
             let total = app.file_viewer.total_lines();
             let idx = calculate_scroll_from_y(y, start_y, height, total);
-            app.file_viewer.text.scroll_offset = idx.min(app.file_viewer.max_scroll_offset());
+            app.file_viewer.text.scroll_offset =
+                idx.min(app.file_viewer.max_scroll_offset(&app.layout.viewer));
         }
         crate::app::DragTarget::PanelScrollbar(side) => {
             let (tab, area) = match side {
@@ -1120,17 +974,17 @@ pub async fn update_drag_scroll(app: &mut AppState, _x: u16, y: u16) {
 async fn handle_scroll_event(app: &mut AppState, pos: (u16, u16), up: bool, ctrl: bool) {
     if ctrl
         && app.file_viewer.is_visible
-        && is_in_rect(pos, app.file_viewer.area)
+        && is_in_rect(pos, app.layout.viewer.area)
         && app.file_viewer.image.has_image()
     {
         if up {
-            app.file_viewer.zoom_image_in();
+            app.file_viewer.zoom_image_in(&app.layout.viewer);
         } else {
-            app.file_viewer.zoom_image_out();
+            app.file_viewer.zoom_image_out(&app.layout.viewer);
         }
         return;
     }
-    if app.file_viewer.is_visible && is_in_rect(pos, app.file_viewer.area) {
+    if app.file_viewer.is_visible && is_in_rect(pos, app.layout.viewer.area) {
         handle_file_viewer_scroll(app, up);
     } else {
         handle_scroll(app, up).await;
@@ -1141,8 +995,8 @@ fn handle_file_viewer_scroll(app: &mut AppState, up: bool) {
     if up {
         app.file_viewer.text.scroll_offset = app.file_viewer.text.scroll_offset.saturating_sub(3);
     } else {
-        app.file_viewer.text.scroll_offset =
-            (app.file_viewer.text.scroll_offset + 3).min(app.file_viewer.max_scroll_offset());
+        app.file_viewer.text.scroll_offset = (app.file_viewer.text.scroll_offset + 3)
+            .min(app.file_viewer.max_scroll_offset(&app.layout.viewer));
     }
 }
 

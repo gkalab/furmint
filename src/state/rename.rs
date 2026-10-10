@@ -10,8 +10,6 @@ pub struct RenameState {
     pub is_dir: bool,
     pub error: Option<String>,
     pub focused_button: usize,
-    pub popup_area: ratatui::layout::Rect,
-    pub button_areas: Vec<ratatui::layout::Rect>,
 }
 
 impl RenameState {
@@ -27,8 +25,6 @@ impl RenameState {
             is_dir: false,
             error: None,
             focused_button: 0,
-            popup_area: ratatui::layout::Rect::default(),
-            button_areas: Vec::new(),
         }
     }
 
@@ -42,8 +38,6 @@ impl RenameState {
         self.is_dir = false;
         self.error = None;
         self.focused_button = 0;
-        self.popup_area = ratatui::layout::Rect::default();
-        self.button_areas.clear();
     }
 }
 

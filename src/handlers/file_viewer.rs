@@ -42,7 +42,7 @@ fn handle_viewer_copy(code: KeyCode, modifiers: Modifiers, app: &mut AppState) -
 }
 
 fn handle_viewer_navigation(code: KeyCode, app: &mut AppState) {
-    if app.file_viewer.is_image_zoomed() {
+    if app.file_viewer.is_image_zoomed(&app.layout.viewer) {
         handle_image_pan(code, app);
         return;
     }
@@ -52,8 +52,8 @@ fn handle_viewer_navigation(code: KeyCode, app: &mut AppState) {
                 app.file_viewer.text.scroll_offset.saturating_sub(1);
         }
         KeyCode::Down => {
-            app.file_viewer.text.scroll_offset =
-                (app.file_viewer.text.scroll_offset + 1).min(app.file_viewer.max_scroll_offset());
+            app.file_viewer.text.scroll_offset = (app.file_viewer.text.scroll_offset + 1)
+                .min(app.file_viewer.max_scroll_offset(&app.layout.viewer));
         }
         KeyCode::Left => {
             app.file_viewer.text.horizontal_scroll_offset = app
@@ -70,19 +70,21 @@ fn handle_viewer_navigation(code: KeyCode, app: &mut AppState) {
                 app.file_viewer.text.scroll_offset.saturating_sub(20);
         }
         KeyCode::PageDown => {
-            app.file_viewer.text.scroll_offset =
-                (app.file_viewer.text.scroll_offset + 20).min(app.file_viewer.max_scroll_offset());
+            app.file_viewer.text.scroll_offset = (app.file_viewer.text.scroll_offset + 20)
+                .min(app.file_viewer.max_scroll_offset(&app.layout.viewer));
         }
         KeyCode::Home => app.file_viewer.text.scroll_offset = 0,
-        KeyCode::End => app.file_viewer.text.scroll_offset = app.file_viewer.max_scroll_offset(),
+        KeyCode::End => {
+            app.file_viewer.text.scroll_offset =
+                app.file_viewer.max_scroll_offset(&app.layout.viewer);
+        }
         _ => {}
     }
 }
 
 /// Pan the zoomed-in image with the arrow/page/home/end keys.
 fn handle_image_pan(code: KeyCode, app: &mut AppState) {
-    let viewer = &mut app.file_viewer;
-    let step = i64::from((viewer.render_area.width / 10).max(1));
+    let step = i64::from((app.layout.viewer.render_area.width / 10).max(1));
     let (dx, dy): (i64, i64) = match code {
         KeyCode::Up => (0, -step),
         KeyCode::Down => (0, step),
@@ -91,16 +93,16 @@ fn handle_image_pan(code: KeyCode, app: &mut AppState) {
         KeyCode::PageUp => (0, -(step * 5)),
         KeyCode::PageDown => (0, step * 5),
         KeyCode::Home => (
-            -i64::from(viewer.render_area.width),
-            -i64::from(viewer.render_area.height),
+            -i64::from(app.layout.viewer.render_area.width),
+            -i64::from(app.layout.viewer.render_area.height),
         ),
         KeyCode::End => (
-            i64::from(viewer.render_area.width),
-            i64::from(viewer.render_area.height),
+            i64::from(app.layout.viewer.render_area.width),
+            i64::from(app.layout.viewer.render_area.height),
         ),
         _ => return,
     };
-    viewer.pan_image(dx, dy);
+    app.file_viewer.pan_image(dx, dy, &app.layout.viewer);
 }
 
 fn handle_viewer_shortcuts(code: KeyCode, modifiers: Modifiers, app: &mut AppState) {
@@ -111,13 +113,13 @@ fn handle_viewer_shortcuts(code: KeyCode, modifiers: Modifiers, app: &mut AppSta
         && (c == '+' || c == '=')
         && app.file_viewer.image.has_image()
     {
-        app.file_viewer.zoom_image_in();
+        app.file_viewer.zoom_image_in(&app.layout.viewer);
         return;
     }
     if let KeyCode::Char('-') = code
         && app.file_viewer.image.has_image()
     {
-        app.file_viewer.zoom_image_out();
+        app.file_viewer.zoom_image_out(&app.layout.viewer);
         return;
     }
 
@@ -153,7 +155,7 @@ fn handle_viewer_shortcuts(code: KeyCode, modifiers: Modifiers, app: &mut AppSta
                 })
         })
     {
-        if !app.file_viewer.search_next() {
+        if !app.file_viewer.search_next(&app.layout.viewer) {
             app.viewer_tab_mut().status_msg = Some((
                 "No more matches found".to_string(),
                 std::time::Instant::now(),
@@ -171,7 +173,7 @@ fn handle_viewer_shortcuts(code: KeyCode, modifiers: Modifiers, app: &mut AppSta
                     false
                 })
         })
-        && !app.file_viewer.search_prev()
+        && !app.file_viewer.search_prev(&app.layout.viewer)
     {
         app.viewer_tab_mut().status_msg = Some((
             "No previous matches found".to_string(),
@@ -188,7 +190,7 @@ pub fn handle_viewer_search_event(code: KeyCode, modifiers: Modifiers, app: &mut
         }
         KeyCode::Enter => {
             let query = app.popups.viewer_search.query.clone();
-            if !app.file_viewer.search(&query) {
+            if !app.file_viewer.search(&query, &app.layout.viewer) {
                 app.viewer_tab_mut().status_msg = Some((
                     format!("Search string not found: {query}"),
                     std::time::Instant::now(),

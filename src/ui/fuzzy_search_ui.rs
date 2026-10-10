@@ -76,7 +76,8 @@ impl FuzzySearchState {
 pub fn draw_fuzzy_search_popup(
     f: &mut Frame,
     state: &mut FuzzySearchState,
+    list_area: Option<Rect>,
     palette: &ThemePalette,
 ) {
-    crate::ui::filterable_list::draw_filterable_list_popup(f, &mut state.list, palette);
+    crate::ui::filterable_list::draw_filterable_list_popup(f, &mut state.list, list_area, palette);
 }

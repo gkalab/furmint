@@ -1,6 +1,19 @@
 use fm::state::FileViewerState;
 use std::str::FromStr;
 
+/// Viewer geometry for a panel of the given size, mirroring what
+/// `layout::compute_layout` produces for the viewer's side.
+fn viewer_geometry(width: u16, height: u16) -> fm::layout::ViewerGeometry {
+    let area = ratatui::layout::Rect::new(0, 0, width, height);
+    fm::layout::ViewerGeometry {
+        area,
+        render_area: area.inner(ratatui::layout::Margin {
+            horizontal: 1,
+            vertical: 1,
+        }),
+    }
+}
+
 #[test]
 fn test_display_col_to_char_idx() {
     let mut state = FileViewerState::new(true, "catppuccin macchiato");
@@ -117,7 +130,7 @@ fn test_viewer_renders_plain_text_before_highlighting() {
     state.path = std::path::PathBuf::from("test.rs");
     state.text.language = lumis::languages::Language::from_str("rust").unwrap_or_default();
     state.text.content = vec!["fn main() {}".to_string()];
-    state.area = ratatui::layout::Rect::new(0, 0, 80, 20);
+    let geometry = viewer_geometry(80, 20);
 
     assert!(state.text.line_segments(0).is_none(), "nothing cached yet");
 
@@ -139,12 +152,19 @@ fn render_viewer(state: &mut FileViewerState) -> String {
 /// drawn in their own colours and would mask what the content looks like.
 fn render_viewer_cells(state: &mut FileViewerState) -> (String, Vec<ratatui::style::Color>) {
     let area = ratatui::layout::Rect::new(0, 0, 80, 20);
-    state.area = area;
     let palette = fm::theme::get_theme("catppuccin macchiato").unwrap();
     let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 20)).unwrap();
     terminal
         .draw(|f| {
-            fm::ui::draw_file_viewer(f, state, area, &palette, true, false);
+            fm::ui::draw_file_viewer(
+                f,
+                state,
+                area,
+                &viewer_geometry(80, 20),
+                &palette,
+                true,
+                false,
+            );
         })
         .unwrap();
 
@@ -273,7 +293,7 @@ async fn test_warm_request_produces_no_batch() {
 #[test]
 fn test_search_basic() {
     let mut state = FileViewerState::new(true, "test");
-    state.area = ratatui::layout::Rect::new(0, 0, 80, 20); // 20 lines viewport
+    let geometry = viewer_geometry(80, 20);
     state.text.content = vec![
         "hello world".to_string(),
         "this is me".to_string(),
@@ -281,19 +301,19 @@ fn test_search_basic() {
         "me too".to_string(),
     ];
 
-    state.search("me");
+    state.search("me", &geometry);
     // "this is me" is at line 1. Visible, so no scroll.
     assert_eq!(state.text.current_search_match, Some((1, 8, 10)));
     assert_eq!(state.text.scroll_offset, 0);
 
-    state.search_next();
+    state.search_next(&geometry);
     // "me too" is at line 3. Visible, so no scroll.
     assert_eq!(state.text.current_search_match, Some((3, 0, 2)));
     assert_eq!(state.text.scroll_offset, 0);
 
     // Move viewport away
     state.text.scroll_offset = 10;
-    state.search_next();
+    state.search_next(&geometry);
     // Wrap around to line 1. NOT visible (1 < 10), so jump with context.
     assert_eq!(state.text.current_search_match, Some((1, 8, 10)));
     assert_eq!(state.text.scroll_offset, 0); // 1 - 4
@@ -302,23 +322,23 @@ fn test_search_basic() {
 #[test]
 fn test_search_regex() {
     let mut state = FileViewerState::new(true, "test");
-    state.area = ratatui::layout::Rect::new(0, 0, 80, 20);
+    let geometry = viewer_geometry(80, 20);
     state.text.content = vec!["abc123def".to_string(), "ghi456jkl".to_string()];
 
-    state.search("\\d+");
+    state.search("\\d+", &geometry);
     assert_eq!(state.text.current_search_match, Some((0, 3, 6)));
 
-    state.search_next();
+    state.search_next(&geometry);
     assert_eq!(state.text.current_search_match, Some((1, 3, 6)));
 }
 
 #[test]
 fn test_search_case_insensitive() {
     let mut state = FileViewerState::new(true, "test");
-    state.area = ratatui::layout::Rect::new(0, 0, 80, 20);
+    let geometry = viewer_geometry(80, 20);
     state.text.content = vec!["Hello".to_string(), "world".to_string()];
 
-    state.search("hello");
+    state.search("hello", &geometry);
     assert_eq!(state.text.current_search_match, Some((0, 0, 5)));
 }
 
@@ -326,7 +346,8 @@ fn test_search_case_insensitive() {
 fn test_search_empty() {
     let mut state = FileViewerState::new(true, "test");
     state.text.content = vec!["abc".to_string()];
-    state.search("");
+    let geometry = viewer_geometry(80, 20);
+    state.search("", &geometry);
     assert_eq!(state.text.current_search_match, None);
 }
 
@@ -354,54 +375,54 @@ fn test_search_large_file_chunked() {
     indexer.index_file(&reader);
 
     let mut state = FileViewerState::new(true, "test");
-    state.area = ratatui::layout::Rect::new(0, 0, 80, 20);
+    let geometry = viewer_geometry(80, 20);
     state.text.content = Vec::new();
     state.text.large_file_reader = Some(reader);
     state.text.large_file_indexer = Some(indexer);
 
-    state.search("marker");
+    state.search("marker", &geometry);
     assert_eq!(state.text.current_search_match, Some((500, 6, 12)));
 
-    state.search_next();
+    state.search_next(&geometry);
     assert_eq!(state.text.current_search_match, Some((50_000, 7, 13)));
 
-    state.search_next();
+    state.search_next(&geometry);
     assert_eq!(state.text.current_search_match, Some((99_999, 5, 11)));
 
-    state.search_next(); // wraps to top
+    state.search_next(&geometry); // wraps to top
     assert_eq!(state.text.current_search_match, Some((500, 6, 12)));
 
-    state.search_prev(); // wraps to bottom
+    state.search_prev(&geometry); // wraps to bottom
     assert_eq!(state.text.current_search_match, Some((99_999, 5, 11)));
 
-    state.search_prev();
+    state.search_prev(&geometry);
     assert_eq!(state.text.current_search_match, Some((50_000, 7, 13)));
 
     // No match: full-file scan.
-    assert!(!state.search("nomatch"));
+    assert!(!state.search("nomatch", &geometry));
     assert_eq!(state.text.current_search_match, None);
 }
 
 #[test]
 fn test_search_prev() {
     let mut state = FileViewerState::new(true, "test");
-    state.area = ratatui::layout::Rect::new(0, 0, 80, 20);
+    let geometry = viewer_geometry(80, 20);
     state.text.content = vec![
         "match 1".to_string(),
         "match 2".to_string(),
         "match 3".to_string(),
     ];
     state.text.scroll_offset = 2;
-    state.search("match");
+    state.search("match", &geometry);
     // Starts from scroll_offset 2, so finds "match 3" at line 2.
     assert_eq!(state.text.current_search_match, Some((2, 0, 5)));
 
-    state.search_prev();
+    state.search_prev(&geometry);
     assert_eq!(state.text.current_search_match, Some((1, 0, 5)));
 
-    state.search_prev();
+    state.search_prev(&geometry);
     assert_eq!(state.text.current_search_match, Some((0, 0, 5)));
 
-    state.search_prev(); // Wrap to bottom
+    state.search_prev(&geometry); // Wrap to bottom
     assert_eq!(state.text.current_search_match, Some((2, 0, 5)));
 }

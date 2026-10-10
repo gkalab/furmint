@@ -10,14 +10,14 @@ pub(crate) async fn handle_fuzzy_search_mouse_click(
     y: u16,
     is_double_click: bool,
 ) {
-    let state = &mut app.fuzzy_search.list;
-    let Some(list_area) = state.list_area else {
+    let Some(list_area) = app.layout.popups.fuzzy_search.list_area else {
         return;
     };
     if !crate::handlers::mouse::is_in_rect((x, y), list_area) {
         return;
     }
 
+    let state = &mut app.fuzzy_search.list;
     let row = (y - list_area.y) as usize + state.scroll_offset;
     if row >= state.items.len() {
         return;

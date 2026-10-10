@@ -4,8 +4,6 @@ pub struct ConfirmationState {
     pub truncate: bool,
     pub action: ConfirmationAction,
     pub selected_no: bool,
-    /// Screen areas of the "(N)o"/"(Y)es" buttons, populated while rendering.
-    pub button_areas: Vec<ratatui::layout::Rect>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,7 +22,6 @@ impl ConfirmationState {
             truncate,
             action,
             selected_no: true,
-            button_areas: Vec::new(),
         }
     }
 }

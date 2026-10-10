@@ -2,7 +2,12 @@ use crate::state::DeleteState;
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
 
-pub fn draw_delete_popup(f: &mut ratatui::Frame, state: &mut DeleteState, palette: &ThemePalette) {
+pub fn draw_delete_popup(
+    f: &mut ratatui::Frame,
+    state: &DeleteState,
+    geometry: &crate::popup_layout::ButtonGeometry,
+    palette: &ThemePalette,
+) {
     if !state.is_visible {
         return;
     }
@@ -26,28 +31,23 @@ pub fn draw_delete_popup(f: &mut ratatui::Frame, state: &mut DeleteState, palett
         format!("Trash {count} items?")
     };
 
-    let popup_area = crate::ui::ui_utils::centered_rect_absolute(66, 7, f.area());
-    state.popup_area = popup_area;
-
-    let mut confirmation_state = crate::state::ConfirmationState {
+    let confirmation_state = crate::state::ConfirmationState {
         is_visible: true,
         message,
         truncate: true,
         action: crate::state::ConfirmationAction::None,
         selected_no: state.selected_no,
-        button_areas: Vec::new(),
     };
 
     crate::ui::ui_utils::draw_confirmation_popup(
         f,
-        &mut confirmation_state,
+        &confirmation_state,
+        geometry,
         palette,
         66,
         6,
         bg_color,
     );
-
-    state.button_areas = crate::ui::ui_utils::confirmation_button_areas(66, 6, f.area());
 }
 
 #[cfg(test)]
@@ -65,8 +65,6 @@ mod tests {
             is_permanent: perm,
             selected_no: true,
             error: None,
-            popup_area: ratatui::layout::Rect::default(),
-            button_areas: Vec::new(),
         }
     }
 
@@ -74,11 +72,21 @@ mod tests {
     fn renders_move_to_trash_single_file() {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
-        let mut state = make_state(true, false, vec!["foo.txt"]);
+        let state = make_state(true, false, vec!["foo.txt"]);
         let palette = catppuccin_macchiato();
         terminal
             .draw(|f| {
-                draw_delete_popup(f, &mut state, &palette);
+                draw_delete_popup(
+                    f,
+                    &state,
+                    &crate::popup_layout::confirmation_geometry(
+                        66,
+                        6,
+                        Rect::new(0, 0, 80, 24),
+                        true,
+                    ),
+                    &palette,
+                );
             })
             .unwrap();
         let buf = terminal.backend().buffer();
@@ -89,11 +97,21 @@ mod tests {
     fn renders_permanent_delete_single_file() {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
-        let mut state = make_state(true, true, vec!["bar.txt"]);
+        let state = make_state(true, true, vec!["bar.txt"]);
         let palette = catppuccin_macchiato();
         terminal
             .draw(|f| {
-                draw_delete_popup(f, &mut state, &palette);
+                draw_delete_popup(
+                    f,
+                    &state,
+                    &crate::popup_layout::confirmation_geometry(
+                        66,
+                        6,
+                        Rect::new(0, 0, 80, 24),
+                        true,
+                    ),
+                    &palette,
+                );
             })
             .unwrap();
         let buf = terminal.backend().buffer();
@@ -104,11 +122,21 @@ mod tests {
     fn renders_permanent_delete_multiple_files() {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
-        let mut state = make_state(true, true, vec!["f1", "f2"]);
+        let state = make_state(true, true, vec!["f1", "f2"]);
         let palette = catppuccin_macchiato();
         terminal
             .draw(|f| {
-                draw_delete_popup(f, &mut state, &palette);
+                draw_delete_popup(
+                    f,
+                    &state,
+                    &crate::popup_layout::confirmation_geometry(
+                        66,
+                        6,
+                        Rect::new(0, 0, 80, 24),
+                        true,
+                    ),
+                    &palette,
+                );
             })
             .unwrap();
         let buf = terminal.backend().buffer();
@@ -119,12 +147,22 @@ mod tests {
     fn does_nothing_when_invisible() {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
-        let mut state = make_state(false, false, vec!["foo"]);
+        let state = make_state(false, false, vec!["foo"]);
         let palette = catppuccin_macchiato();
         let mut ran = false;
         terminal
             .draw(|f| {
-                draw_delete_popup(f, &mut state, &palette);
+                draw_delete_popup(
+                    f,
+                    &state,
+                    &crate::popup_layout::confirmation_geometry(
+                        66,
+                        6,
+                        Rect::new(0, 0, 80, 24),
+                        true,
+                    ),
+                    &palette,
+                );
                 ran = true;
             })
             .unwrap();
@@ -137,11 +175,21 @@ mod tests {
     fn truncates_long_filename() {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
-        let mut state = make_state(true, false, vec![&"a".repeat(100)]);
+        let state = make_state(true, false, vec![&"a".repeat(100)]);
         let palette = catppuccin_macchiato();
         terminal
             .draw(|f| {
-                draw_delete_popup(f, &mut state, &palette);
+                draw_delete_popup(
+                    f,
+                    &state,
+                    &crate::popup_layout::confirmation_geometry(
+                        66,
+                        6,
+                        Rect::new(0, 0, 80, 24),
+                        true,
+                    ),
+                    &palette,
+                );
             })
             .unwrap();
         let buf = terminal.backend().buffer();

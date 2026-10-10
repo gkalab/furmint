@@ -20,12 +20,11 @@ pub fn draw_file_viewer(
     f: &mut ratatui::Frame,
     viewer: &mut FileViewerState,
     area: Rect,
+    geometry: &crate::layout::ViewerGeometry,
     palette: &ThemePalette,
     borders: bool,
     icons_enabled: bool,
 ) {
-    viewer.area = area;
-
     let title = crate::ui::ui_utils::replace_home_with_tilde(&viewer.path);
     let block = Block::default()
         .borders(Borders::ALL)
@@ -43,7 +42,6 @@ pub fn draw_file_viewer(
     };
 
     let inner_area = block.inner(area);
-    viewer.render_area = inner_area;
     f.render_widget(block, area);
 
     if viewer
@@ -53,8 +51,8 @@ pub fn draw_file_viewer(
         .and_then(|p| p.protocol_type())
         .is_some()
     {
-        viewer.prepare_image_protocol();
-        let resize = if viewer.is_image_zoomed() {
+        viewer.prepare_image_protocol(geometry);
+        let resize = if viewer.is_image_zoomed(geometry) {
             ratatui_image::Resize::Scale(Some(ratatui_image::FilterType::CatmullRom))
         } else {
             ratatui_image::Resize::Fit(Some(ratatui_image::FilterType::CatmullRom))
@@ -84,19 +82,27 @@ pub fn draw_file_viewer(
         return;
     }
 
-    render_text_content(f, viewer, area, inner_area, palette, borders, icons_enabled);
+    render_text_content(
+        f,
+        viewer,
+        inner_area,
+        geometry,
+        palette,
+        borders,
+        icons_enabled,
+    );
 }
 
 fn render_text_content(
     f: &mut ratatui::Frame,
     viewer: &mut FileViewerState,
-    area: Rect,
     inner_area: Rect,
+    geometry: &crate::layout::ViewerGeometry,
     palette: &ThemePalette,
     borders: bool,
     icons_enabled: bool,
 ) {
-    let visible_lines = viewer.visible_lines();
+    let visible_lines = viewer.visible_lines(geometry);
     let (max_lines, is_large_file) = if let Some(indexer) = &viewer.text.large_file_indexer {
         (indexer.total_lines(), true)
     } else {
@@ -138,11 +144,12 @@ fn render_text_content(
 
     f.render_widget(Paragraph::new(lines), inner_area);
 
+    let outer = geometry.area;
     let scroll_area = Rect {
-        x: area.x + area.width - 1,
-        y: area.y + 1,
+        x: outer.x + outer.width - 1,
+        y: outer.y + 1,
         width: 1,
-        height: area.height.saturating_sub(2),
+        height: outer.height.saturating_sub(2),
     };
 
     crate::ui::ui_utils::draw_tab_scrollbar(

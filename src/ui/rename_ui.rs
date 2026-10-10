@@ -4,17 +4,19 @@ use ratatui::prelude::*;
 
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
-pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &mut RenameState, palette: &ThemePalette) {
+pub fn draw_rename_popup(
+    f: &mut ratatui::Frame,
+    state: &RenameState,
+    geometry: &crate::popup_layout::ButtonGeometry,
+    palette: &ThemePalette,
+) {
     if !state.is_visible {
         return;
     }
 
     let area = f.area();
     let popup_width = 60;
-    let mut popup_height = 5;
-    if state.show_overwrite_confirm {
-        popup_height = 7;
-    }
+    let popup_height = crate::popup_layout::rename_popup_height(state.show_overwrite_confirm);
     let popup_x = (area.width.saturating_sub(popup_width)) / 2;
     let popup_y = (area.height.saturating_sub(popup_height)) / 2;
 
@@ -24,7 +26,6 @@ pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &mut RenameState, palett
         width: popup_width,
         height: popup_height,
     };
-    state.popup_area = popup_area;
 
     f.render_widget(Clear, popup_area);
 
@@ -72,17 +73,14 @@ pub fn draw_rename_popup(f: &mut ratatui::Frame, state: &mut RenameState, palett
             .alignment(Alignment::Center);
         f.render_widget(p_message, layout[1]);
 
-        crate::ui::ui_utils::draw_button_row(
+        crate::ui::ui_utils::draw_button_row_at(
             f,
             &["(N)o", "(Y)es"],
-            layout[2],
+            &geometry.button_areas,
             palette,
             bg_color,
             Some(state.focused_button),
         );
-
-        state.button_areas =
-            crate::ui::ui_utils::compute_button_rects(&["(N)o", "(Y)es"], layout[2]);
     } else {
         f.render_widget(
             Block::default()
@@ -133,8 +131,6 @@ mod tests {
             is_dir: false,
             error: err.map(std::string::ToString::to_string),
             focused_button: 0,
-            popup_area: ratatui::layout::Rect::default(),
-            button_areas: Vec::new(),
         }
     }
 
@@ -146,7 +142,16 @@ mod tests {
         let palette = catppuccin_macchiato();
         terminal
             .draw(|f| {
-                draw_rename_popup(f, &mut state, &palette);
+                draw_rename_popup(
+                    f,
+                    &state,
+                    &crate::popup_layout::rename_geometry(
+                        Rect::new(0, 0, 80, 24),
+                        true,
+                        state.show_overwrite_confirm,
+                    ),
+                    &palette,
+                );
             })
             .unwrap();
         let buf = terminal.backend().buffer();
@@ -161,7 +166,16 @@ mod tests {
         let palette = catppuccin_macchiato();
         terminal
             .draw(|f| {
-                draw_rename_popup(f, &mut state, &palette);
+                draw_rename_popup(
+                    f,
+                    &state,
+                    &crate::popup_layout::rename_geometry(
+                        Rect::new(0, 0, 80, 24),
+                        true,
+                        state.show_overwrite_confirm,
+                    ),
+                    &palette,
+                );
             })
             .unwrap();
         let buf = terminal.backend().buffer();
@@ -176,7 +190,16 @@ mod tests {
         let palette = catppuccin_macchiato();
         terminal
             .draw(|f| {
-                draw_rename_popup(f, &mut state, &palette);
+                draw_rename_popup(
+                    f,
+                    &state,
+                    &crate::popup_layout::rename_geometry(
+                        Rect::new(0, 0, 80, 24),
+                        true,
+                        state.show_overwrite_confirm,
+                    ),
+                    &palette,
+                );
             })
             .unwrap();
         let buf = terminal.backend().buffer();
@@ -192,7 +215,16 @@ mod tests {
         let mut ran = false;
         terminal
             .draw(|f| {
-                draw_rename_popup(f, &mut state, &palette);
+                draw_rename_popup(
+                    f,
+                    &state,
+                    &crate::popup_layout::rename_geometry(
+                        Rect::new(0, 0, 80, 24),
+                        true,
+                        state.show_overwrite_confirm,
+                    ),
+                    &palette,
+                );
                 ran = true;
             })
             .unwrap();
@@ -210,7 +242,16 @@ mod tests {
         let palette = catppuccin_macchiato();
         terminal
             .draw(|f| {
-                draw_rename_popup(f, &mut state, &palette);
+                draw_rename_popup(
+                    f,
+                    &state,
+                    &crate::popup_layout::rename_geometry(
+                        Rect::new(0, 0, 80, 24),
+                        true,
+                        state.show_overwrite_confirm,
+                    ),
+                    &palette,
+                );
             })
             .unwrap();
         let buf = terminal.backend().buffer();

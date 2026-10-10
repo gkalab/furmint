@@ -10,10 +10,7 @@ pub struct SshConnectionState {
     pub search_query: String,
     pub last_key_time: Option<std::time::Instant>,
     pub confirmation: Option<crate::state::ConfirmationState>,
-    pub field_areas: Vec<ratatui::layout::Rect>,
     pub history_list_offset: usize,
-    /// Outer (bordered) chunk of the history list. Used for scrollbar hit detection.
-    pub history_area: Option<ratatui::layout::Rect>,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -39,9 +36,7 @@ impl SshConnectionState {
             search_query: String::new(),
             last_key_time: None,
             confirmation: None,
-            field_areas: vec![ratatui::layout::Rect::default(); 4],
             history_list_offset: 0,
-            history_area: None,
         }
     }
 

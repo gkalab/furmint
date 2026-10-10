@@ -44,8 +44,9 @@ pub struct ImageZoomState {
     pub pan_x: u16,
     /// Vertical pan offset (in viewport cells).
     pub pan_y: u16,
-    /// The area the currently installed protocol was prepared for, to detect changes.
-    applied_area: ratatui::layout::Rect,
+    /// The `(width, height)` the currently installed protocol was prepared for,
+    /// to detect viewport-size changes. Only the size matters, so no position is kept.
+    applied_area: (u16, u16),
     /// The zoom the currently installed protocol was prepared for.
     applied_zoom: f32,
     /// The pan the currently installed protocol was prepared for.
@@ -427,7 +428,7 @@ impl ImageViewerState {
         let scale = self.image_zoom.effective_zoom(fit);
         let pan = (self.image_zoom.pan_x, self.image_zoom.pan_y);
 
-        if self.image_zoom.applied_area == area
+        if self.image_zoom.applied_area == (area.width, area.height)
             && self.image_zoom.applied_zoom == scale
             && self.image_zoom.applied_pan == pan
             && self.protocol.is_some()
@@ -449,7 +450,7 @@ impl ImageViewerState {
         let Some(proto) = proto else { return };
 
         self.install_protocol(proto);
-        self.image_zoom.applied_area = area;
+        self.image_zoom.applied_area = (area.width, area.height);
         self.image_zoom.applied_zoom = scale;
         self.image_zoom.applied_pan = pan;
     }
@@ -522,6 +523,7 @@ impl ImageViewerState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::layout::ViewerGeometry;
     use crate::state::file_viewer::FileViewerState;
     use ratatui::layout::Rect;
 
@@ -605,31 +607,35 @@ mod tests {
 
     /// A viewer showing a 2000x2000 image in a 100x50 cell render area (halfblocks font
     /// is 10x20), so `fit_scale` is 0.5 and zooming is possible on both axes.
-    fn test_viewer() -> FileViewerState {
+    ///
+    /// Returns the viewer together with the frame geometry its zoom/pan methods
+    /// take. The bordered `area` is deliberately larger than the render area.
+    fn test_viewer() -> (FileViewerState, ViewerGeometry) {
         let mut fv = FileViewerState::new(true, "dark");
         fv.image.picker = Some(ratatui_image::picker::Picker::halfblocks());
         fv.image.image_zoom.image = Some(image::DynamicImage::new_rgba8(2000, 2000));
-        fv.render_area = Rect {
-            x: 0,
-            y: 0,
-            width: 100,
-            height: 50,
-        };
         fv.image.init_channels();
-        fv
+        let geometry = ViewerGeometry {
+            area: Rect {
+                x: 0,
+                y: 0,
+                width: 104,
+                height: 54,
+            },
+            render_area: Rect {
+                x: 0,
+                y: 0,
+                width: 100,
+                height: 50,
+            },
+        };
+        (fv, geometry)
     }
 
     #[test]
     fn fit_scale_uses_render_area() {
-        let mut fv = test_viewer();
-        // The bordered `area` is larger; zoom math must follow `render_area`.
-        fv.area = Rect {
-            x: 0,
-            y: 0,
-            width: 104,
-            height: 54,
-        };
-        assert!((fv.fit_scale() - 0.5).abs() < 1e-4);
+        let (fv, geometry) = test_viewer();
+        assert!((fv.fit_scale(&geometry) - 0.5).abs() < 1e-4);
     }
 
     #[test]
@@ -639,24 +645,25 @@ mod tests {
         clippy::cast_precision_loss
     )]
     fn pan_image_clamps_to_rendered_image_bounds() {
-        let mut fv = test_viewer();
-        let fit = fv.fit_scale();
-        fv.zoom_image_in();
-        assert!(fv.is_image_zoomed());
+        let (mut fv, geometry) = test_viewer();
+        let fit = fv.fit_scale(&geometry);
+        fv.zoom_image_in(&geometry);
+        assert!(fv.is_image_zoomed(&geometry));
 
         let scale = fv.image.image_zoom.effective_zoom(fit);
         let (rw, rh) = fv.image.render_pixel_size(scale);
         let font = fv.image.font_size().unwrap();
-        let max_x = (rw as f32 / f32::from(font.width)).ceil() as u16 - fv.render_area.width;
-        let max_y = (rh as f32 / f32::from(font.height)).ceil() as u16 - fv.render_area.height;
+        let max_x = (rw as f32 / f32::from(font.width)).ceil() as u16 - geometry.render_area.width;
+        let max_y =
+            (rh as f32 / f32::from(font.height)).ceil() as u16 - geometry.render_area.height;
 
-        fv.pan_image(100_000, 100_000);
+        fv.pan_image(100_000, 100_000, &geometry);
         assert_eq!(
             (fv.image.image_zoom.pan_x, fv.image.image_zoom.pan_y),
             (max_x, max_y)
         );
 
-        fv.pan_image(-100_000, -100_000);
+        fv.pan_image(-100_000, -100_000, &geometry);
         assert_eq!(
             (fv.image.image_zoom.pan_x, fv.image.image_zoom.pan_y),
             (0, 0)
@@ -665,35 +672,35 @@ mod tests {
 
     #[test]
     fn prepare_image_protocol_installs_zoomed_protocol_and_caches_scaled() {
-        let mut fv = test_viewer();
-        fv.zoom_image_in();
-        fv.prepare_image_protocol();
+        let (mut fv, geometry) = test_viewer();
+        fv.zoom_image_in(&geometry);
+        fv.prepare_image_protocol(&geometry);
         assert!(fv.image.protocol.is_some());
         assert!(fv.image.image_zoom.scaled.is_some());
         let cached_zoom = fv.image.image_zoom.scaled_zoom;
 
         // Panning alone must reuse the cached scaled image (no re-resize).
-        fv.pan_image(3, 3);
-        fv.prepare_image_protocol();
+        fv.pan_image(3, 3, &geometry);
+        fv.prepare_image_protocol(&geometry);
         assert!((fv.image.image_zoom.scaled_zoom - cached_zoom).abs() < 1e-6);
         assert!(fv.image.image_zoom.scaled.is_some());
 
         // Zooming to a new level re-resizes.
-        fv.zoom_image_in();
-        fv.prepare_image_protocol();
+        fv.zoom_image_in(&geometry);
+        fv.prepare_image_protocol(&geometry);
         assert!(fv.image.image_zoom.scaled_zoom > cached_zoom);
     }
 
     #[test]
     fn prepare_image_protocol_clears_scaled_cache_when_back_at_fit() {
-        let mut fv = test_viewer();
-        fv.zoom_image_in();
-        fv.prepare_image_protocol();
+        let (mut fv, geometry) = test_viewer();
+        fv.zoom_image_in(&geometry);
+        fv.prepare_image_protocol(&geometry);
         assert!(fv.image.image_zoom.scaled.is_some());
 
-        fv.zoom_image_out(); // fit*1.25*0.8 == fit -> resets to fit
-        assert!(!fv.is_image_zoomed());
-        fv.prepare_image_protocol();
+        fv.zoom_image_out(&geometry); // fit*1.25*0.8 == fit -> resets to fit
+        assert!(!fv.is_image_zoomed(&geometry));
+        fv.prepare_image_protocol(&geometry);
         assert!(fv.image.image_zoom.scaled.is_none());
         assert!(fv.image.protocol.is_some());
     }
@@ -705,32 +712,40 @@ mod tests {
         let mut fv = FileViewerState::new(true, "dark");
         fv.image.picker = Some(ratatui_image::picker::Picker::halfblocks());
         fv.image.image_zoom.image = Some(image::DynamicImage::new_rgba8(100, 4000));
-        fv.render_area = Rect {
-            x: 0,
-            y: 0,
-            width: 200,
-            height: 100,
-        };
         fv.image.init_channels();
+        let geometry = ViewerGeometry {
+            area: Rect {
+                x: 0,
+                y: 0,
+                width: 204,
+                height: 104,
+            },
+            render_area: Rect {
+                x: 0,
+                y: 0,
+                width: 200,
+                height: 100,
+            },
+        };
 
-        fv.zoom_image_in();
-        assert!(fv.is_image_zoomed());
-        fv.prepare_image_protocol();
+        fv.zoom_image_in(&geometry);
+        assert!(fv.is_image_zoomed(&geometry));
+        fv.prepare_image_protocol(&geometry);
         assert!(fv.image.image_zoom.scaled.is_some());
         assert!(fv.image.protocol.is_some());
     }
 
     #[test]
     fn zoomed_protocol_is_encoded_and_ready_to_render() {
-        let mut fv = test_viewer();
-        fv.zoom_image_in();
-        fv.pan_image(3, 3);
-        fv.prepare_image_protocol();
+        let (mut fv, geometry) = test_viewer();
+        fv.zoom_image_in(&geometry);
+        fv.pan_image(3, 3, &geometry);
+        fv.prepare_image_protocol(&geometry);
         let protocol = fv.image.protocol.as_mut().expect("protocol installed");
         let resize = ratatui_image::Resize::Scale(Some(ratatui_image::FilterType::CatmullRom));
         assert!(
             protocol
-                .needs_resize(&resize, fv.render_area.into())
+                .needs_resize(&resize, geometry.render_area.into())
                 .is_none(),
             "zoomed protocol must be already encoded so the next draw renders immediately"
         );
@@ -738,9 +753,9 @@ mod tests {
 
     #[test]
     fn release_image_drops_decoded_image_and_protocol() {
-        let mut fv = test_viewer();
-        fv.zoom_image_in();
-        fv.prepare_image_protocol();
+        let (mut fv, geometry) = test_viewer();
+        fv.zoom_image_in(&geometry);
+        fv.prepare_image_protocol(&geometry);
         assert!(fv.image.image_zoom.image.is_some());
 
         fv.release_image();

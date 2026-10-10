@@ -8,8 +8,6 @@ pub struct ConflictState {
     pub conflict_path: PathBuf,
     pub conflict_type: ConflictType,
     pub focused_button: usize,
-    pub popup_area: ratatui::layout::Rect,
-    pub button_areas: Vec<ratatui::layout::Rect>,
 }
 
 impl ConflictState {
@@ -21,8 +19,6 @@ impl ConflictState {
             conflict_path: PathBuf::new(),
             conflict_type: ConflictType::FileExists,
             focused_button: 0,
-            popup_area: ratatui::layout::Rect::default(),
-            button_areas: Vec::new(),
         }
     }
 
@@ -31,8 +27,6 @@ impl ConflictState {
         self.task_id = 0;
         self.conflict_path = PathBuf::new();
         self.focused_button = 0;
-        self.popup_area = ratatui::layout::Rect::default();
-        self.button_areas.clear();
     }
 }
 

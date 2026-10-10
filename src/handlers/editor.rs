@@ -196,8 +196,6 @@ pub(crate) async fn edit_file_remote(
             provider: provider.clone(),
             original_checksum: original_checksum_array,
             focused_button: 0,
-            popup_area: ratatui::layout::Rect::default(),
-            button_areas: Vec::new(),
         };
         app.popups
             .set_popup_visible(crate::app::PopupKind::RemoteEdit, true);
@@ -733,8 +731,6 @@ mod tests {
             provider: mock_fs,
             original_checksum: md5::compute(b"test content").0,
             focused_button: 0,
-            popup_area: ratatui::layout::Rect::default(),
-            button_areas: Vec::new(),
         };
 
         let result = handle_remote_edit_event(termina::event::KeyCode::Escape, &mut app).await;
@@ -764,8 +760,6 @@ mod tests {
             provider: mock_fs.clone(),
             original_checksum,
             focused_button: 1,
-            popup_area: ratatui::layout::Rect::default(),
-            button_areas: Vec::new(),
         };
 
         let result = handle_remote_edit_event(termina::event::KeyCode::Enter, &mut app).await;
@@ -969,8 +963,6 @@ mod tests {
             provider: mock_fs.clone(),
             original_checksum,
             focused_button: 1,
-            popup_area: ratatui::layout::Rect::default(),
-            button_areas: Vec::new(),
         };
 
         let result = handle_remote_edit_event(termina::event::KeyCode::Enter, &mut app).await;

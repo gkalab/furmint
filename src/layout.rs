@@ -1,7 +1,20 @@
 use crate::app_state::tabs::{PanelSide, Tab};
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use crate::popup_layout::PopupLayout;
+use ratatui::layout::{Constraint, Direction, Layout, Margin, Rect};
 
-/// Rects that make up the main window layout (tab bars, tabs, panels).
+/// Screen area of the file viewer's content, derived from the panel area it
+/// covers.
+///
+/// `render_area` is the block's inner area; zoom/pan math and mouse hit-testing
+/// both use it, so it is computed with the frame rather than by the renderer.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ViewerGeometry {
+    pub area: Rect,
+    pub render_area: Rect,
+}
+
+/// Rects that make up the main window layout (tab bars, tabs, panels, status
+/// lines) plus the popup geometry computed alongside them.
 ///
 /// Computed once per frame by [`compute_layout`] before both drawing and input
 /// handling, so mouse handlers never read rects written during a draw pass.
@@ -13,6 +26,12 @@ pub struct LayoutState {
     pub right_tab_areas: Vec<Rect>,
     pub left_panel_area: Rect,
     pub right_panel_area: Rect,
+    pub left_status_area: Rect,
+    pub right_status_area: Rect,
+    pub viewer: ViewerGeometry,
+    pub popups: PopupLayout,
+    /// Whether either side has more than one tab and therefore draws a tab bar.
+    pub show_tabs: bool,
 }
 
 impl LayoutState {
@@ -37,6 +56,14 @@ impl LayoutState {
         match side {
             PanelSide::Left => &self.left_panel_area,
             PanelSide::Right => &self.right_panel_area,
+        }
+    }
+
+    #[must_use]
+    pub fn status_area(&self, side: PanelSide) -> &Rect {
+        match side {
+            PanelSide::Left => &self.left_status_area,
+            PanelSide::Right => &self.right_status_area,
         }
     }
 }
@@ -69,7 +96,17 @@ pub fn compute_layout(
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(vertical[0]);
 
-    let mut state = LayoutState::default();
+    let status_areas = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(vertical[1]);
+
+    let mut state = LayoutState {
+        show_tabs,
+        left_status_area: status_areas[0],
+        right_status_area: status_areas[1],
+        ..LayoutState::default()
+    };
 
     for (index, side) in [PanelSide::Left, PanelSide::Right].into_iter().enumerate() {
         let tabs = if side == PanelSide::Left {
@@ -115,6 +152,19 @@ pub fn compute_layout(
             }
         }
     }
+
+    // The viewer covers exactly the panel area of the side it occupies.
+    state.viewer = viewer_side.map_or_else(ViewerGeometry::default, |side| {
+        let area = *state.panel_area(side);
+        ViewerGeometry {
+            area,
+            // The viewer block always draws `Borders::ALL`.
+            render_area: area.inner(Margin {
+                horizontal: 1,
+                vertical: 1,
+            }),
+        }
+    });
 
     state
 }

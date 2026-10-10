@@ -6,6 +6,8 @@ use crate::ui::{draw_panel, draw_panel_status};
 use ratatui::prelude::*;
 
 pub fn draw_main_layout(f: &mut Frame, app: &mut AppState, palette: &ThemePalette) {
+    // All geometry comes from `app.layout`, which `event_loop::draw_ui` computed
+    // before this pass. Nothing here re-derives layout.
     let size = f.area();
 
     // Fill background
@@ -13,63 +15,30 @@ pub fn draw_main_layout(f: &mut Frame, app: &mut AppState, palette: &ThemePalett
     let bg = ratatui::widgets::Paragraph::new("").style(Style::default().bg(bg_color));
     f.render_widget(bg, size);
 
-    let vertical_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(1),    // panels
-            Constraint::Length(1), // status lines
-        ])
-        .split(size);
-
-    let panel_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(vertical_chunks[0]);
-
-    let status_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(vertical_chunks[1]);
-
-    let show_tabs = app.panels.left.tabs.len() > 1 || app.panels.right.tabs.len() > 1;
-
     // Left Panel
-    draw_side(f, app, PanelSide::Left, panel_chunks[0], palette, show_tabs);
+    draw_side(f, app, PanelSide::Left, palette);
 
     // Right Panel
-    draw_side(
-        f,
-        app,
-        PanelSide::Right,
-        panel_chunks[1],
-        palette,
-        show_tabs,
-    );
+    draw_side(f, app, PanelSide::Right, palette);
 
     // Status Bars
-    draw_status_bars(f, app, &status_chunks, palette);
+    draw_status_bars(f, app, palette);
 }
 
-fn draw_side(
-    f: &mut Frame,
-    app: &mut AppState,
-    side: PanelSide,
-    area: Rect,
-    palette: &ThemePalette,
-    show_tabs: bool,
-) {
+fn draw_side(f: &mut Frame, app: &mut AppState, side: PanelSide, palette: &ThemePalette) {
     let opposite_side = side.opposite();
     let is_viewer_visible = app.file_viewer.is_visible && app.panels.active == opposite_side;
 
     let tab_bar_area = *app.layout.tab_bar_area(side);
     let panel_area = *app.layout.panel_area(side);
+    let show_tabs = app.layout.show_tabs;
 
     if is_viewer_visible {
-        app.file_viewer.area = area;
         crate::ui::draw_file_viewer(
             f,
             &mut app.file_viewer,
-            area,
+            panel_area,
+            &app.layout.viewer,
             palette,
             app.global.borders.unwrap_or(false),
             app.global.icons.unwrap_or(false),
@@ -112,31 +81,32 @@ fn draw_side(
     );
 }
 
-fn draw_status_bars(f: &mut Frame, app: &AppState, chunks: &[Rect], palette: &ThemePalette) {
-    draw_panel_status(
-        f,
-        app.panels.left.active_tab(),
-        chunks[0],
-        &crate::ui::panel::PanelStatusContext {
-            palette,
-            active: app.panels.active == PanelSide::Left,
-            borders: app.global.borders.unwrap_or(false),
-            task_manager: &app.tasks.task_manager,
-            side: PanelSide::Left,
-        },
-    );
-    draw_panel_status(
-        f,
-        app.panels.right.active_tab(),
-        chunks[1],
-        &crate::ui::panel::PanelStatusContext {
-            palette,
-            active: app.panels.active == PanelSide::Right,
-            borders: app.global.borders.unwrap_or(false),
-            task_manager: &app.tasks.task_manager,
-            side: PanelSide::Right,
-        },
-    );
+fn draw_status_bars(f: &mut Frame, app: &AppState, palette: &ThemePalette) {
+    for (side, tab, active) in [
+        (
+            PanelSide::Left,
+            app.panels.left.active_tab(),
+            app.panels.active == PanelSide::Left,
+        ),
+        (
+            PanelSide::Right,
+            app.panels.right.active_tab(),
+            app.panels.active == PanelSide::Right,
+        ),
+    ] {
+        draw_panel_status(
+            f,
+            tab,
+            *app.layout.status_area(side),
+            &crate::ui::panel::PanelStatusContext {
+                palette,
+                active,
+                borders: app.global.borders.unwrap_or(false),
+                task_manager: &app.tasks.task_manager,
+                side,
+            },
+        );
+    }
 }
 
 pub fn draw_all_popups(
@@ -146,24 +116,54 @@ pub fn draw_all_popups(
     keyboard: &KeyboardConfig,
 ) {
     // Draw popups in order of layering
-    crate::ui::fuzzy_search_ui::draw_fuzzy_search_popup(f, &mut app.fuzzy_search, palette);
-    crate::ui::rename_ui::draw_rename_popup(f, &mut app.popups.rename, palette);
+    crate::ui::fuzzy_search_ui::draw_fuzzy_search_popup(
+        f,
+        &mut app.fuzzy_search,
+        app.layout.popups.fuzzy_search.list_area,
+        palette,
+    );
+    crate::ui::rename_ui::draw_rename_popup(
+        f,
+        &app.popups.rename,
+        &app.layout.popups.rename,
+        palette,
+    );
     crate::ui::viewer::draw_viewer_search_popup(f, &app.popups.viewer_search, palette);
     crate::ui::rename_tab_ui::draw_rename_tab_popup(f, &app.popups.rename_tab, palette);
     crate::ui::create_dir_ui::draw_create_dir_popup(f, &app.popups.create_directory, palette);
     crate::ui::create_file_ui::draw_create_file_popup(f, &app.popups.create_file, palette);
-    crate::ui::delete_ui::draw_delete_popup(f, &mut app.popups.delete, palette);
+    crate::ui::delete_ui::draw_delete_popup(
+        f,
+        &app.popups.delete,
+        &app.layout.popups.delete,
+        palette,
+    );
     crate::ui::copy_move_ui::draw_copy_move_popup(f, &app.popups.copy_move, palette);
-    crate::ui::conflict_ui::draw_conflict_popup(f, &mut app.popups.conflict, palette);
+    crate::ui::conflict_ui::draw_conflict_popup(
+        f,
+        &app.popups.conflict,
+        &app.layout.popups.conflict,
+        palette,
+    );
     crate::ui::task_ui::draw_task_manager(
         f,
         &app.tasks.task_manager,
         app.tasks.show_task_manager,
         palette,
     );
-    crate::ui::empty_trash_ui::draw_empty_trash_popup(f, &mut app.popups.empty_trash, palette);
-    crate::ui::quit_ui::draw_quit_popup(f, &mut app.popups.quit_confirmation, palette);
-    crate::ui::error_ui::draw_error_popup(f, &mut app.popups.error, palette);
+    crate::ui::empty_trash_ui::draw_empty_trash_popup(
+        f,
+        &app.popups.empty_trash,
+        &app.layout.popups.empty_trash,
+        palette,
+    );
+    crate::ui::quit_ui::draw_quit_popup(
+        f,
+        &app.popups.quit_confirmation,
+        &app.layout.popups.quit_confirmation,
+        palette,
+    );
+    crate::ui::error_ui::draw_error_popup(f, &app.popups.error, &app.layout.popups.error, palette);
     crate::ui::help_ui::draw_help_popup(f, app, keyboard, palette);
 
     if app.popups.drive_select.is_visible {
@@ -175,7 +175,22 @@ pub fn draw_all_popups(
     if app.popups.ssh_password.is_visible {
         crate::ui::ssh_ui::draw_ssh_password_popup(f, app, palette);
     }
-    crate::ui::host_key_ui::draw_host_key_popup(f, &mut app.popups.host_key, palette);
-    crate::ui::remote_edit_ui::draw_remote_edit_popup(f, &mut app.popups.remote_edit, palette);
-    crate::ui::bookmark_ui::draw_bookmark_popup(f, &mut app.popups.bookmark, palette);
+    crate::ui::host_key_ui::draw_host_key_popup(
+        f,
+        &app.popups.host_key,
+        &app.layout.popups.host_key,
+        palette,
+    );
+    crate::ui::remote_edit_ui::draw_remote_edit_popup(
+        f,
+        &app.popups.remote_edit,
+        &app.layout.popups.remote_edit,
+        palette,
+    );
+    crate::ui::bookmark_ui::draw_bookmark_popup(
+        f,
+        &mut app.popups.bookmark,
+        &app.layout.popups.bookmark,
+        palette,
+    );
 }

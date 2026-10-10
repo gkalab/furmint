@@ -39,14 +39,14 @@ pub async fn handle_bookmark_mouse_click(
     if app.popups.bookmark.confirmation.is_some() {
         return;
     }
-    let state = &mut app.popups.bookmark.list;
-    let Some(list_area) = state.list_area else {
+    let Some(list_area) = app.layout.popups.bookmark.list_area else {
         return;
     };
     if !crate::handlers::mouse::is_in_rect((x, y), list_area) {
         return;
     }
 
+    let state = &mut app.popups.bookmark.list;
     let row = (y - list_area.y) as usize + state.scroll_offset;
     if row >= state.items.len() {
         return;

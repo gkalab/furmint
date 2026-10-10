@@ -4,9 +4,14 @@ use ratatui::prelude::*;
 
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
+/// Number of buttons on the conflict popup's first and second rows.
+const CONFLICT_ROW1_BUTTONS: usize = 3;
+const CONFLICT_ROW2_BUTTONS: usize = 2;
+
 pub fn draw_conflict_popup(
     f: &mut ratatui::Frame,
-    state: &mut ConflictState,
+    state: &ConflictState,
+    geometry: &crate::popup_layout::ButtonGeometry,
     palette: &ThemePalette,
 ) {
     if !state.is_visible {
@@ -17,7 +22,6 @@ pub fn draw_conflict_popup(
     let popup_width = 60;
     let popup_height = 12;
     let popup_area = crate::ui::ui_utils::centered_rect_absolute(popup_width, popup_height, area);
-    state.popup_area = popup_area;
 
     f.render_widget(Clear, popup_area);
 
@@ -70,33 +74,31 @@ pub fn draw_conflict_popup(
     let row1_focus = (state.focused_button < 3).then_some(state.focused_button);
     let row2_focus = (state.focused_button >= 3).then(|| state.focused_button - 3);
 
-    crate::ui::ui_utils::draw_button_row(
+    // Row 1 holds the first three buttons, row 2 the remaining two.
+    let split_at = geometry
+        .button_areas
+        .len()
+        .saturating_sub(CONFLICT_ROW2_BUTTONS)
+        .min(CONFLICT_ROW1_BUTTONS);
+    let (row1, row2) = geometry.button_areas.split_at(split_at);
+
+    crate::ui::ui_utils::draw_button_row_at(
         f,
         &["[C]ancel", "[S]kip", "[O]verwrite"],
-        inner_layout[2],
+        row1,
         palette,
         field_bg_color,
         row1_focus,
     );
 
-    crate::ui::ui_utils::draw_button_row(
+    crate::ui::ui_utils::draw_button_row_at(
         f,
         &["Ski[p] All", "Overwrite [A]ll"],
-        inner_layout[3],
+        row2,
         palette,
         field_bg_color,
         row2_focus,
     );
-
-    let mut areas = crate::ui::ui_utils::compute_button_rects(
-        &["[C]ancel", "[S]kip", "[O]verwrite"],
-        inner_layout[2],
-    );
-    areas.extend(crate::ui::ui_utils::compute_button_rects(
-        &["Ski[p] All", "Overwrite [A]ll"],
-        inner_layout[3],
-    ));
-    state.button_areas = areas;
 }
 
 #[cfg(test)]
@@ -118,12 +120,15 @@ mod tests {
                     conflict_path: PathBuf::from("/tmp/existing.txt"),
                     conflict_type: crate::tasks::ConflictType::FileExists,
                     focused_button: 0,
-                    popup_area: ratatui::layout::Rect::default(),
-                    button_areas: Vec::new(),
                 };
                 let palette = crate::theme::default_theme();
                 // Should not panic
-                draw_conflict_popup(f, &mut state, &palette);
+                draw_conflict_popup(
+                    f,
+                    &state,
+                    &crate::popup_layout::conflict_geometry(Rect::new(0, 0, 80, 24), true),
+                    &palette,
+                );
             })
             .unwrap();
     }
@@ -138,7 +143,12 @@ mod tests {
                 let mut state = crate::state::ConflictState::default(); // is_visible = false
                 let palette = crate::theme::default_theme();
                 // Should just return, nothing rendered
-                draw_conflict_popup(f, &mut state, &palette);
+                draw_conflict_popup(
+                    f,
+                    &state,
+                    &crate::popup_layout::conflict_geometry(Rect::new(0, 0, 80, 24), true),
+                    &palette,
+                );
             })
             .unwrap();
     }

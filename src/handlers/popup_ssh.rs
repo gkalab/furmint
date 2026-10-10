@@ -784,7 +784,7 @@ pub fn handle_ssh_connection_mouse_click(
     }
 
     let pos = (x, y);
-    let fields = &app.popups.ssh_connection.field_areas;
+    let fields = &app.layout.popups.ssh_connection.field_areas;
     if fields.len() < 4 {
         return;
     }
@@ -845,6 +845,7 @@ fn set_ssh_cursor_from_click(app: &mut AppState, field: SshField, click_x: u16) 
     };
 
     let Some(area) = app
+        .layout
         .popups
         .ssh_connection
         .field_areas
@@ -1015,7 +1016,7 @@ mod tests {
         });
         app.popups
             .set_popup_visible(crate::app::PopupKind::SshConnection, true);
-        app.popups.ssh_connection.field_areas = vec![
+        app.layout.popups.ssh_connection.field_areas = vec![
             Rect::new(0, 0, 10, 1),
             Rect::new(0, 1, 10, 1),
             Rect::new(0, 2, 10, 1),

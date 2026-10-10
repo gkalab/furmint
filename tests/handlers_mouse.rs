@@ -179,9 +179,8 @@ async fn test_empty_trash_mouse_click() {
     app.popups.empty_trash = EmptyTrashState {
         is_visible: false,
         selected_no: true, // "No" is initially focused
-        popup_area: Rect::default(),
-        button_areas: button_areas.clone(),
     };
+    app.layout.popups.empty_trash.button_areas = button_areas.clone();
     app.popups
         .set_popup_visible(fm::app::PopupKind::EmptyTrash, true);
 
@@ -239,9 +238,8 @@ async fn test_empty_trash_mouse_click_released_outside() {
     app.popups.empty_trash = EmptyTrashState {
         is_visible: false,
         selected_no: true,
-        popup_area: Rect::default(),
-        button_areas: button_areas.clone(),
     };
+    app.layout.popups.empty_trash.button_areas = button_areas.clone();
     app.popups
         .set_popup_visible(fm::app::PopupKind::EmptyTrash, true);
 
@@ -291,9 +289,8 @@ async fn test_empty_trash_mouse_wheel_ignored() {
     app.popups.empty_trash = EmptyTrashState {
         is_visible: false,
         selected_no: true,
-        popup_area: Rect::default(),
-        button_areas: vec![Rect::new(10, 10, 12, 3)],
     };
+    app.layout.popups.empty_trash.button_areas = vec![Rect::new(10, 10, 12, 3)];
     app.popups
         .set_popup_visible(fm::app::PopupKind::EmptyTrash, true);
 
@@ -338,21 +335,18 @@ async fn test_ssh_history_remove_confirmation_mouse_click() {
     // confirmation and simulate a draw pass having populated the button areas.
     app.popups
         .set_popup_visible(fm::app::PopupKind::SshConnection, true);
-    let mut confirmation = fm::state::ConfirmationState::new(
+    app.popups.ssh_connection.confirmation = Some(fm::state::ConfirmationState::new(
         "Remove 'user@localhost:22' from history?".to_string(),
         true,
         fm::state::ConfirmationAction::DeleteSshHistory(0),
-    );
-    confirmation.button_areas = confirmation_button_areas(66, 6);
-    app.popups.ssh_connection.confirmation = Some(confirmation);
-
-    let yes_btn = app
+    ));
+    let confirm_buttons = confirmation_button_areas(66, 6);
+    app.layout
         .popups
         .ssh_connection
-        .confirmation
-        .as_ref()
-        .unwrap()
-        .button_areas[1];
+        .confirmation_buttons
+        .button_areas = confirm_buttons.clone();
+    let yes_btn = confirm_buttons[1];
     let click_x = yes_btn.x + 2;
     let click_y = yes_btn.y + 1;
 
@@ -416,21 +410,19 @@ async fn test_ssh_history_remove_confirmation_released_outside_keeps_entry() {
 
     app.popups
         .set_popup_visible(fm::app::PopupKind::SshConnection, true);
-    let mut confirmation = fm::state::ConfirmationState::new(
+    app.popups.ssh_connection.confirmation = Some(fm::state::ConfirmationState::new(
         "Remove 'user@localhost:22' from history?".to_string(),
         true,
         fm::state::ConfirmationAction::DeleteSshHistory(0),
-    );
-    confirmation.button_areas = confirmation_button_areas(66, 6);
-    app.popups.ssh_connection.confirmation = Some(confirmation);
-
-    let yes_btn = app
+    ));
+    let confirm_buttons = confirmation_button_areas(66, 6);
+    app.layout
         .popups
         .ssh_connection
-        .confirmation
-        .as_ref()
-        .unwrap()
-        .button_areas[1];
+        .confirmation_buttons
+        .button_areas = confirm_buttons.clone();
+
+    let yes_btn = confirm_buttons[1];
 
     // Down on Yes, up elsewhere: the entry must be kept
     handle_mouse_event(
@@ -477,21 +469,15 @@ async fn test_bookmark_remove_confirmation_mouse_click() {
     app.popups
         .set_popup_visible(fm::app::PopupKind::Bookmark, true);
     app.popups.bookmark.list.is_visible = true;
-    let mut confirmation = fm::state::ConfirmationState::new(
+    app.popups.bookmark.confirmation = Some(fm::state::ConfirmationState::new(
         "Remove bookmark '/home/user'?".to_string(),
         true,
         fm::state::ConfirmationAction::DeleteBookmark(0),
-    );
-    confirmation.button_areas = confirmation_button_areas(60, 6);
-    app.popups.bookmark.confirmation = Some(confirmation);
+    ));
+    let confirm_buttons = confirmation_button_areas(60, 6);
+    app.layout.popups.bookmark.confirmation_buttons.button_areas = confirm_buttons.clone();
 
-    let yes_btn = app
-        .popups
-        .bookmark
-        .confirmation
-        .as_ref()
-        .unwrap()
-        .button_areas[1];
+    let yes_btn = confirm_buttons[1];
     let click_x = yes_btn.x + 2;
     let click_y = yes_btn.y + 1;
 
@@ -701,7 +687,7 @@ async fn test_panel_scrollbar_thumb_click_does_not_jump() {
 async fn test_file_viewer_scrollbar_drag() {
     let mut app = AppState::test_default();
     app.file_viewer.is_visible = true;
-    app.file_viewer.area = Rect::new(0, 0, 40, 20);
+    app.layout.viewer.area = Rect::new(0, 0, 40, 20);
     app.file_viewer.text.content = (0..100).map(|i| format!("line {i}")).collect();
     app.file_viewer.text.scroll_offset = 0;
 
@@ -722,7 +708,7 @@ async fn test_file_viewer_scrollbar_drag() {
     assert_eq!(app.mouse.active_drag, Some(DragTarget::FileViewerScrollbar));
     assert_eq!(
         app.file_viewer.text.scroll_offset,
-        app.file_viewer.max_scroll_offset()
+        app.file_viewer.max_scroll_offset(&app.layout.viewer)
     );
 
     // Up
@@ -744,7 +730,7 @@ async fn test_file_viewer_scrollbar_drag() {
 async fn test_file_viewer_scrollbar_thumb_click_does_not_jump() {
     let mut app = AppState::test_default();
     app.file_viewer.is_visible = true;
-    app.file_viewer.area = Rect::new(0, 0, 40, 20);
+    app.layout.viewer.area = Rect::new(0, 0, 40, 20);
     app.file_viewer.text.content = (0..100).map(|i| format!("line {i}")).collect();
     app.file_viewer.text.scroll_offset = 0;
 
@@ -780,7 +766,7 @@ async fn test_file_viewer_scrollbar_thumb_click_does_not_jump() {
 
     assert_eq!(
         app.file_viewer.text.scroll_offset,
-        app.file_viewer.max_scroll_offset()
+        app.file_viewer.max_scroll_offset(&app.layout.viewer)
     );
 
     // Up
@@ -807,7 +793,7 @@ async fn test_fuzzy_search_scrollbar_hit_region_matches_rendered_column() {
         .collect();
     app.fuzzy_search.list.selected_index = 0;
     app.fuzzy_search.list.scroll_offset = 0;
-    app.fuzzy_search.list.list_area = Some(Rect::new(10, 5, 30, 17));
+    app.layout.popups.fuzzy_search.list_area = Some(Rect::new(10, 5, 30, 17));
 
     // The filterable list popup renders its scrollbar one column right of the inner
     // area, i.e. at list_area.x + list_area.width = 40.

@@ -4,7 +4,12 @@ use ratatui::prelude::*;
 
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
-pub fn draw_error_popup(f: &mut ratatui::Frame, state: &mut ErrorState, palette: &ThemePalette) {
+pub fn draw_error_popup(
+    f: &mut ratatui::Frame,
+    state: &ErrorState,
+    geometry: &crate::popup_layout::ButtonGeometry,
+    palette: &ThemePalette,
+) {
     if !state.is_visible {
         return;
     }
@@ -21,7 +26,6 @@ pub fn draw_error_popup(f: &mut ratatui::Frame, state: &mut ErrorState, palette:
         width: popup_width,
         height: popup_height,
     };
-    state.popup_area = popup_area;
 
     f.render_widget(Clear, popup_area);
 
@@ -92,17 +96,12 @@ pub fn draw_error_popup(f: &mut ratatui::Frame, state: &mut ErrorState, palette:
         layout[4],
     );
 
-    crate::ui::ui_utils::draw_button_row(
+    crate::ui::ui_utils::draw_button_row_at(
         f,
         &["[C]ancel", "[S]kip", "Skip [A]ll", "[R]etry"],
-        layout[5],
+        &geometry.button_areas,
         palette,
         field_bg_color,
         Some(state.focused_button),
-    );
-
-    state.button_areas = crate::ui::ui_utils::compute_button_rects(
-        &["[C]ancel", "[S]kip", "Skip [A]ll", "[R]etry"],
-        layout[5],
     );
 }

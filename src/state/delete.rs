@@ -6,8 +6,6 @@ pub struct DeleteState {
     pub is_permanent: bool,
     pub selected_no: bool,
     pub error: Option<String>,
-    pub popup_area: ratatui::layout::Rect,
-    pub button_areas: Vec<ratatui::layout::Rect>,
 }
 
 impl DeleteState {
@@ -19,8 +17,6 @@ impl DeleteState {
             is_permanent: false,
             selected_no: true,
             error: None,
-            popup_area: ratatui::layout::Rect::default(),
-            button_areas: Vec::new(),
         }
     }
 
@@ -30,8 +26,6 @@ impl DeleteState {
         self.is_permanent = false;
         self.selected_no = true;
         self.error = None;
-        self.popup_area = ratatui::layout::Rect::default();
-        self.button_areas.clear();
     }
 }
 
