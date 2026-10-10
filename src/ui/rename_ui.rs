@@ -138,7 +138,7 @@ mod tests {
     fn renders_overwrite_confirm_popup() {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
-        let mut state = make_state(true, true, "foo.txt", 0, None);
+        let state = make_state(true, true, "foo.txt", 0, None);
         let palette = catppuccin_macchiato();
         terminal
             .draw(|f| {
@@ -162,7 +162,7 @@ mod tests {
     fn renders_rename_normal_popup() {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
-        let mut state = make_state(true, false, "file.txt", 7, None);
+        let state = make_state(true, false, "file.txt", 7, None);
         let palette = catppuccin_macchiato();
         terminal
             .draw(|f| {
@@ -186,7 +186,7 @@ mod tests {
     fn renders_rename_error_title() {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
-        let mut state = make_state(true, false, "file.txt", 2, Some("Bad name"));
+        let state = make_state(true, false, "file.txt", 2, Some("Bad name"));
         let palette = catppuccin_macchiato();
         terminal
             .draw(|f| {
@@ -210,7 +210,7 @@ mod tests {
     fn does_nothing_when_invisible() {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
-        let mut state = make_state(false, false, "hidden.txt", 0, None);
+        let state = make_state(false, false, "hidden.txt", 0, None);
         let palette = catppuccin_macchiato();
         let mut ran = false;
         terminal
@@ -238,7 +238,7 @@ mod tests {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
         // long name, cursor past popup width
-        let mut state = make_state(true, false, &"a".repeat(90), 88, None);
+        let state = make_state(true, false, &"a".repeat(90), 88, None);
         let palette = catppuccin_macchiato();
         terminal
             .draw(|f| {

@@ -114,7 +114,7 @@ mod tests {
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal
             .draw(|f| {
-                let mut state = crate::state::ConflictState {
+                let state = crate::state::ConflictState {
                     is_visible: true,
                     task_id: 42,
                     conflict_path: PathBuf::from("/tmp/existing.txt"),
@@ -140,7 +140,7 @@ mod tests {
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal
             .draw(|f| {
-                let mut state = crate::state::ConflictState::default(); // is_visible = false
+                let state = crate::state::ConflictState::default(); // is_visible = false
                 let palette = crate::theme::default_theme();
                 // Should just return, nothing rendered
                 draw_conflict_popup(

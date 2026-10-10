@@ -586,7 +586,7 @@ mod tests {
 
     #[test]
     fn confirmation_overlays_get_their_own_geometry() {
-        let mut app = app_with(|a| {
+        let app = app_with(|a| {
             a.popups.ssh_connection.is_visible = true;
             a.popups.ssh_connection.confirmation = Some(crate::state::ConfirmationState::new(
                 "Delete?".to_string(),

@@ -130,7 +130,7 @@ fn test_viewer_renders_plain_text_before_highlighting() {
     state.path = std::path::PathBuf::from("test.rs");
     state.text.language = lumis::languages::Language::from_str("rust").unwrap_or_default();
     state.text.content = vec!["fn main() {}".to_string()];
-    let geometry = viewer_geometry(80, 20);
+    let _geometry = viewer_geometry(80, 20);
 
     assert!(state.text.line_segments(0).is_none(), "nothing cached yet");
 
