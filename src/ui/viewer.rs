@@ -472,7 +472,7 @@ impl LineSpansContext<'_> {
 
         if current_pos >= self.h_offset {
             if visible_width + ch_width <= self.max_width {
-                return Some((false, ch_width));
+                return Some((ch == '\t', ch_width));
             }
         } else if ch == '\t' {
             let visible_tab_width = ch_end_pos - self.h_offset;
@@ -732,6 +732,30 @@ mod tests {
                 "Overflow detected for '{description}'! Width: {total_width}, Max: {max_width}. Result: '{resulting_text}'"
             );
         }
+    }
+
+    /// Tabs must be emitted as spaces, not raw tab bytes: the terminal would
+    /// not expand them the way the viewer's 4-column hit-testing expects,
+    /// which would shift text left of where the selection assumes it is.
+    #[test]
+    fn test_tabs_render_as_spaces() {
+        let segments = vec![(Some(Color::Rgb(0, 0, 0)), "\tABC\tDE")];
+        let spans = generate_line_spans(&LineSpansContext {
+            segments: &segments,
+            h_offset: 0,
+            max_width: 100,
+            default_fg: None,
+            selection: None,
+            selection_bg: None,
+            search_ranges: &[],
+            search_bg: None,
+            search_fg: None,
+        });
+
+        // First tab expands to 4 spaces; the second sits at column 7 and
+        // advances to the next 4-stop (column 8), so it is a single space.
+        let text: String = spans.iter().map(|s| s.content.to_string()).collect();
+        assert_eq!(text, "    ABC DE");
     }
 
     /// Adjacent runs that resolve to the same style must merge into one span,
