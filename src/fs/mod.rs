@@ -7,7 +7,6 @@ pub mod fs_sftp_russh;
 pub mod fs_sftp {
     pub use super::fs_sftp_russh::SftpFs;
 }
-pub mod local;
 pub mod ops;
 pub mod utils;
 pub mod watcher;

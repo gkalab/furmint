@@ -774,7 +774,7 @@ fn update_progress_if_needed(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fs::local::StdFileSystem;
+    use crate::test_utils::StdFileSystem;
     use std::fs::{self, File};
     use std::path::PathBuf;
 
