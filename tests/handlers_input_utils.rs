@@ -56,6 +56,13 @@ fn source_files() -> Vec<std::path::PathBuf> {
     out
 }
 
+fn to_posix_path(path: &std::path::Path) -> String {
+    path.components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 /// `(relative path, line number, trimmed line)` for lines matching `predicate`.
 fn scan(
     files: &[std::path::PathBuf],
@@ -71,10 +78,7 @@ fn scan(
             let line = raw.trim();
             if predicate(line) {
                 hits.push((
-                    file.strip_prefix(root)
-                        .unwrap_or(file)
-                        .display()
-                        .to_string(),
+                    to_posix_path(file.strip_prefix(root).unwrap_or(file)),
                     idx + 1,
                     line.to_string(),
                 ));
