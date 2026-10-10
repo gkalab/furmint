@@ -1,7 +1,7 @@
 use crate::app::AppState;
 use crate::config::KeyboardConfig;
+use crate::handlers::event_dispatch::dispatch_ui_event;
 use crate::handlers::navigation::reset_expired_search;
-use crate::handlers::popup_misc::dispatch_ui_event;
 use crate::handlers::terminal::{disable_mouse_capture, enable_mouse_capture};
 use crate::theme::ThemePalette;
 use ratatui::Terminal;

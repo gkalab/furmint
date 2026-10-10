@@ -219,6 +219,10 @@ pub struct PanelState {
     pub active: PanelSide,
 }
 
+/// Minimum delay between two progress-driven reloads of the same filesystem
+/// context.
+const REMOTE_REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_millis(2000);
+
 pub struct AppState {
     pub panels: PanelState,
     pub file_viewer: FileViewerState,
@@ -245,6 +249,10 @@ pub struct AppState {
     pub layout: LayoutState,
     pub pending_action: Option<PendingAction>,
     pub mouse: MouseState,
+    /// When each remote context was last reloaded in response to transfer
+    /// progress, rate limiting [`Self::reload_remote_throttled`].
+    pub(crate) remote_reloaded_at:
+        std::collections::HashMap<crate::fs::fs_provider::ContextKey, Instant>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -322,6 +330,7 @@ impl AppState {
             layout: LayoutState::default(),
             pending_action: None,
             mouse: MouseState::default(),
+            remote_reloaded_at: std::collections::HashMap::new(),
         }
     }
 
@@ -434,42 +443,99 @@ impl AppState {
         let _ = self.panels.right.active_tab_mut().reload().await;
     }
 
+    /// Reloads the active tab of each panel, when it is remote, error-free
+    /// and not already reloading.
     pub fn reload_remote(&mut self) {
+        self.spawn_active_tab_reloads([true, true]);
+    }
+
+    /// [`Self::reload_remote`], restricted to the contexts that were not
+    /// reloaded within [`REMOTE_REFRESH_INTERVAL`] of each other.
+    ///
+    /// A running transfer reports progress many times a second, so without
+    /// this rate limit that would re-list every visible remote directory just
+    /// as often. The delay is tracked per filesystem context, so a chatty or
+    /// slow host never holds back the refresh of an unrelated one.
+    pub fn reload_remote_throttled(&mut self) {
+        let now = Instant::now();
+        let due = [PanelSide::Left, PanelSide::Right].map(|side| {
+            self.active_remote_context(side)
+                .is_some_and(|key| self.claim_remote_reload(key, now))
+        });
+        self.spawn_active_tab_reloads(due);
+    }
+
+    /// The remote filesystem context of `side`'s active tab.
+    fn active_remote_context(&self, side: PanelSide) -> Option<crate::fs::fs_provider::ContextKey> {
+        let panel = match side {
+            PanelSide::Left => &self.panels.left,
+            PanelSide::Right => &self.panels.right,
+        };
+        panel
+            .tabs
+            .get(panel.active_tab_index)
+            .map(|tab| tab.provider.context_key())
+            .filter(|key| !key.is_local())
+    }
+
+    /// Records that `key` is being refreshed, unless it was refreshed less
+    /// than [`REMOTE_REFRESH_INTERVAL`] before `now`.
+    fn claim_remote_reload(
+        &mut self,
+        key: crate::fs::fs_provider::ContextKey,
+        now: Instant,
+    ) -> bool {
+        let due = self
+            .remote_reloaded_at
+            .get(&key)
+            .is_none_or(|last| now.saturating_duration_since(*last) >= REMOTE_REFRESH_INTERVAL);
+        if due {
+            self.remote_reloaded_at.insert(key, now);
+        }
+        due
+    }
+
+    /// Spawns a background listing of the active tab's directory for each
+    /// side selected by `due`, indexed like [`PanelSide`], skipping tabs that
+    /// are local, in error, or already reloading.
+    fn spawn_active_tab_reloads(&mut self, due: [bool; 2]) {
         let tx = self.tasks.task_manager.get_tx();
 
-        let trigger_reload =
-            |tab: &mut Tab, side: crate::app_state::tabs::PanelSide, tab_index: usize| {
-                if !tab.provider.is_local() && tab.error.is_none() && !tab.is_reloading {
-                    tab.is_reloading = true;
-                    let provider = tab.provider.clone();
-                    let current_dir = tab.current_dir.clone();
-                    let tx = tx.clone();
-
-                    tokio::spawn(async move {
-                        let result = provider
-                            .list_dir(&current_dir)
-                            .await
-                            .map_err(|e| e.to_string());
-                        tx.send(crate::tasks::UiEvent::Fs(
-                            crate::tasks::FsEvent::RemoteReloadCompleted {
-                                side,
-                                tab_index,
-                                current_dir,
-                                result,
-                            },
-                        ));
-                    });
-                }
+        let sides = [
+            (&mut self.panels.left, PanelSide::Left),
+            (&mut self.panels.right, PanelSide::Right),
+        ];
+        for ((panel, side), due) in sides.into_iter().zip(due) {
+            if !due {
+                continue;
+            }
+            let tab_index = panel.active_tab_index;
+            let Some(tab) = panel.tabs.get_mut(tab_index) else {
+                continue;
             };
+            if tab.provider.is_local() || tab.error.is_some() || tab.is_reloading {
+                continue;
+            }
 
-        let left_active = self.panels.left.active_tab_index;
-        if let Some(tab) = self.panels.left.tabs.get_mut(left_active) {
-            trigger_reload(tab, crate::app_state::tabs::PanelSide::Left, left_active);
-        }
+            tab.is_reloading = true;
+            let provider = tab.provider.clone();
+            let current_dir = tab.current_dir.clone();
+            let tx = tx.clone();
 
-        let right_active = self.panels.right.active_tab_index;
-        if let Some(tab) = self.panels.right.tabs.get_mut(right_active) {
-            trigger_reload(tab, crate::app_state::tabs::PanelSide::Right, right_active);
+            tokio::spawn(async move {
+                let result = provider
+                    .list_dir(&current_dir)
+                    .await
+                    .map_err(|e| e.to_string());
+                tx.send(crate::tasks::UiEvent::Fs(
+                    crate::tasks::FsEvent::RemoteReloadCompleted {
+                        side,
+                        tab_index,
+                        current_dir,
+                        result,
+                    },
+                ));
+            });
         }
     }
 

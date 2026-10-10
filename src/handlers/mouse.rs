@@ -447,7 +447,7 @@ async fn handle_popup_up(app: &mut AppState, x: u16, y: u16) {
             crate::handlers::editor::handle_remote_edit_event(KeyCode::Enter, app).await;
         }
         PopupKind::QuitConfirmation => {
-            crate::handlers::popup_misc::handle_quit_popup_event(KeyCode::Enter, app);
+            crate::handlers::event_dispatch::handle_quit_popup_event(KeyCode::Enter, app);
         }
         PopupKind::Delete => {
             crate::handlers::popup_delete::handle_delete_event(KeyCode::Enter, app);

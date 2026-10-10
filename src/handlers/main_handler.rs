@@ -1,5 +1,6 @@
 use crate::app::AppState;
 use crate::config::KeyboardConfig;
+use crate::handlers::event_dispatch::{handle_quit_popup_event, handle_task_manager_event};
 use crate::handlers::file_filter::handle_file_filter_event;
 use crate::handlers::file_viewer::handle_file_viewer_event;
 use crate::handlers::input_utils::keyevent_to_string;
@@ -11,7 +12,6 @@ use crate::handlers::popup_create::{handle_create_directory_event, handle_create
 use crate::handlers::popup_delete::handle_delete_event;
 use crate::handlers::popup_error::handle_error_event;
 use crate::handlers::popup_fuzzy::handle_fuzzy_search_event;
-use crate::handlers::popup_misc::{handle_quit_popup_event, handle_task_manager_event};
 use crate::handlers::popup_rename::handle_rename_event;
 use crate::handlers::popup_rename_tab::handle_rename_tab_event;
 use crate::handlers::popup_ssh::{handle_ssh_connection_event, handle_ssh_password_event};

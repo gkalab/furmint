@@ -3,7 +3,7 @@
 //! Worker tasks (filesystem operations, SSH connections, archive loads, ...)
 //! report back to the single-threaded UI over one event channel. Events are
 //! grouped per subsystem; the sole dispatcher is
-//! [`crate::handlers::popup_misc::dispatch_ui_event`], which routes each event
+//! [`crate::handlers::event_dispatch::dispatch_ui_event`], which routes each event
 //! to its subsystem handler.
 //!
 //! Workers publish through [`EventBus`] rather than the raw channel. The bus
@@ -191,7 +191,7 @@ pub enum AlertEvent {
 /// App-level event bus: worker-to-UI messages from all subsystems.
 ///
 /// Events flow from background tasks to the UI thread over a single channel;
-/// the sole dispatcher is [`crate::handlers::popup_misc::dispatch_ui_event`].
+/// the sole dispatcher is [`crate::handlers::event_dispatch::dispatch_ui_event`].
 #[derive(Debug)]
 pub enum UiEvent {
     Task(TaskEvent),

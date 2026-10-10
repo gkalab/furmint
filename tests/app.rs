@@ -14,6 +14,43 @@ fn create_test_tab() -> Tab {
 
 struct MockProvider {
     local: bool,
+    host: &'static str,
+}
+
+impl MockProvider {
+    fn remote(host: &'static str) -> Self {
+        Self { local: false, host }
+    }
+
+    #[cfg(windows)]
+    fn local() -> Self {
+        Self {
+            local: true,
+            host: "",
+        }
+    }
+}
+
+/// A tab backed by a remote [`MockProvider`] for `host`, so that contexts of
+/// different tabs differ.
+fn remote_tab(host: &'static str) -> Tab {
+    Tab {
+        provider: Arc::new(MockProvider::remote(host)),
+        current_dir: PathBuf::from(format!("/{host}")),
+        entries: vec![],
+        cursor: 0,
+        search: IncrementalSearch::default(),
+        sort: SortSettings::default(),
+        scroll_offset: 0,
+        error: None,
+        custom_title: None,
+        ssh_session_id: None,
+        status_msg: None,
+        dir_sizes: std::collections::HashMap::new(),
+        is_reloading: false,
+        visible_indices: Vec::new(),
+        filter: fm::state::FileFilterState::new(),
+    }
 }
 
 #[async_trait::async_trait]
@@ -89,7 +126,7 @@ impl FileSystemProvider for MockProvider {
         } else {
             fm::fs::fs_provider::ContextKey::Ssh {
                 user: "test".to_string(),
-                host: "remote".to_string(),
+                host: self.host.to_string(),
                 port: 22,
             }
         }
@@ -363,23 +400,7 @@ async fn test_new_tab_inherits_sort() {
 #[tokio::test]
 async fn test_can_swap_active_tabs() {
     let local_tab = create_test_tab();
-    let remote_tab = Tab {
-        provider: Arc::new(MockProvider { local: false }),
-        current_dir: PathBuf::from("/remote"),
-        entries: vec![],
-        cursor: 0,
-        search: IncrementalSearch::default(),
-        sort: SortSettings::default(),
-        scroll_offset: 0,
-        error: None,
-        custom_title: None,
-        ssh_session_id: None,
-        status_msg: None,
-        dir_sizes: std::collections::HashMap::new(),
-        is_reloading: false,
-        visible_indices: Vec::new(),
-        filter: fm::state::FileFilterState::new(),
-    };
+    let remote_tab = remote_tab("remote");
 
     let mut app = AppState::test_default();
     app.panels.left.tabs = vec![local_tab.clone()];
@@ -401,7 +422,7 @@ async fn test_can_swap_active_tabs() {
 #[cfg(windows)]
 #[allow(clippy::too_many_lines)]
 async fn test_drive_navigation_matches_opposite_pane() {
-    let provider = Arc::new(MockProvider { local: true });
+    let provider = Arc::new(MockProvider::local());
 
     // Test Case 1: Switching to drive D: on Left (active) while Right is on D:\RightDir.
     // Since selected drive is different from Left's C:\LeftDir but same as Right's drive,
@@ -635,4 +656,71 @@ async fn test_move_active_tab_to_other_side() {
         Some("MovedTab")
     );
     assert_eq!(app.panels.left.active_tab_index, 1);
+}
+
+/// An app whose panels show two different hosts over SSH.
+fn two_remote_panels(left_host: &'static str, right_host: &'static str) -> AppState {
+    let mut app = AppState::test_default();
+    app.panels.left.tabs = vec![remote_tab(left_host)];
+    app.panels.right.tabs = vec![remote_tab(right_host)];
+    app
+}
+
+/// Marks both panels as idle again, as if their listing had come back.
+fn settle(app: &mut AppState) {
+    app.panels.left.active_tab_mut().is_reloading = false;
+    app.panels.right.active_tab_mut().is_reloading = false;
+}
+
+#[tokio::test]
+async fn throttled_reload_rate_limits_each_context() {
+    let mut app = two_remote_panels("alpha", "beta");
+
+    app.reload_remote_throttled();
+    assert!(app.panels.left.active_tab().is_reloading);
+    assert!(app.panels.right.active_tab().is_reloading);
+
+    // A second tick right away is within the rate limit of both contexts.
+    settle(&mut app);
+    app.reload_remote_throttled();
+    assert!(!app.panels.left.active_tab().is_reloading);
+    assert!(!app.panels.right.active_tab().is_reloading);
+
+    // The right panel is pointed at a host that was never reloaded: its
+    // refresh must not be held back by the left panel's rate limit.
+    app.panels.right.tabs[0] = remote_tab("gamma");
+    app.reload_remote_throttled();
+    assert!(!app.panels.left.active_tab().is_reloading);
+    assert!(app.panels.right.active_tab().is_reloading);
+}
+
+#[tokio::test]
+async fn unthrottled_reload_ignores_the_rate_limit() {
+    let mut app = two_remote_panels("alpha", "beta");
+
+    app.reload_remote_throttled();
+    settle(&mut app);
+
+    app.reload_remote();
+    assert!(app.panels.left.active_tab().is_reloading);
+    assert!(app.panels.right.active_tab().is_reloading);
+}
+
+#[tokio::test]
+async fn throttled_reload_skips_local_panels() {
+    let mut app = AppState::test_default();
+
+    app.reload_remote_throttled();
+    assert!(!app.panels.left.active_tab().is_reloading);
+    assert!(!app.panels.right.active_tab().is_reloading);
+}
+
+#[tokio::test]
+async fn reload_skips_tabs_already_reloading() {
+    let mut app = two_remote_panels("alpha", "beta");
+    app.panels.right.active_tab_mut().is_reloading = true;
+
+    app.reload_remote_throttled();
+    assert!(app.panels.left.active_tab().is_reloading);
+    assert!(app.panels.right.active_tab().is_reloading);
 }

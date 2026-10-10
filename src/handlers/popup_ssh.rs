@@ -1,9 +1,13 @@
 use crate::app::AppState;
+use crate::ssh_manager::SshError;
 use crate::state::ssh::SshField;
-use crate::tasks::{SshContext, SshEvent, TaskEvent, TaskStatus, UiEvent};
+use crate::tasks::{EventBus, SshContext, SshEvent, TaskEvent, TaskStatus, UiEvent};
 use secrecy::{ExposeSecret, SecretString};
+use std::future::Future;
+use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 use termina::event::{KeyCode, Modifiers};
 
 pub fn handle_ssh_connection_init(app: &mut AppState) {
@@ -409,12 +413,219 @@ fn start_ssh_auth(app: &mut AppState) {
 ///
 /// Authentication failures lead to a password prompt, so they are not
 /// reported as failures; other errors are surfaced with their message.
-fn key_connect_task_status(e: &crate::ssh_manager::SshError) -> TaskStatus {
-    if matches!(e, crate::ssh_manager::SshError::Auth(_)) {
+fn key_connect_task_status(e: &SshError) -> TaskStatus {
+    if matches!(e, SshError::Auth(_)) {
         TaskStatus::Completed
     } else {
         TaskStatus::Failed(e.to_string())
     }
+}
+
+/// How often a cancelled SSH task notices that it was cancelled.
+const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+/// What an SSH connect or reconnect attempt yields.
+type ConnectResult = Result<(String, crate::fs::fs_sftp::SftpFs), SshError>;
+
+/// How an attempt that did not yield a provider is reported.
+enum Outcome {
+    /// The task was cancelled before the attempt finished.
+    Cancelled,
+    /// The attempt itself failed.
+    Failed(SshError),
+}
+
+/// The part of an [`SshContext`] that is known before the attempt runs; the
+/// provider and session id are the attempt's own result.
+struct FixedCtx {
+    path: Option<PathBuf>,
+    name: Option<String>,
+}
+
+/// How a successful attempt announces its provider.
+enum Success {
+    /// A first connection, which the handler opens a new tab for.
+    Connected(FixedCtx),
+    /// A restored session, whose tab the handler repoints at the new provider.
+    Reconnected(FixedCtx),
+}
+
+/// Runs an SSH connect or reconnect attempt as a cancellable task.
+///
+/// Every attempt shares the same skeleton: race the work against the task's
+/// cancel flag, hand the outcome to `report` for the task status (and for any
+/// follow-up event the failure needs), and on success pass the new provider
+/// on through an [`SshEvent`]. Only the attempt and the failure reporting
+/// differ, so callers supply those two.
+fn spawn_ssh_attempt<F, Fut, R>(
+    app: &mut AppState,
+    title: &str,
+    success: Success,
+    attempt: F,
+    report: R,
+) -> usize
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: Future<Output = ConnectResult> + Send + 'static,
+    R: FnOnce(&EventBus, Outcome) -> TaskStatus + Send + 'static,
+{
+    app.tasks
+        .task_manager
+        .spawn_task(title, move |cancel, tx, id| async move {
+            let outcome = match cancellable(&cancel, attempt()).await {
+                Some(Ok((session_id, fs))) => {
+                    tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
+                        task_id: id,
+                        status: TaskStatus::Completed,
+                    }));
+                    let provider = Arc::new(fs);
+                    tx.send(UiEvent::Ssh(match success {
+                        Success::Connected(FixedCtx { path, name }) => {
+                            SshEvent::Connected(SshContext {
+                                provider,
+                                path,
+                                name,
+                                session_id: Some(session_id),
+                            })
+                        }
+                        Success::Reconnected(FixedCtx { path, name }) => {
+                            SshEvent::Reconnected(SshContext {
+                                provider,
+                                path,
+                                name,
+                                session_id: Some(session_id),
+                            })
+                        }
+                    }));
+                    return;
+                }
+                Some(Err(e)) => Outcome::Failed(e),
+                None => Outcome::Cancelled,
+            };
+
+            let status = report(&tx, outcome);
+            tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
+                task_id: id,
+                status,
+            }));
+        })
+}
+
+/// Resolves to `None` if `cancel` is set before `work` finishes, abandoning
+/// `work` when it is.
+async fn cancellable<T>(cancel: &AtomicBool, work: impl Future<Output = T>) -> Option<T> {
+    tokio::select! {
+        done = work => Some(done),
+        () = async {
+            while !cancel.load(Ordering::Relaxed) {
+                tokio::time::sleep(CANCEL_POLL_INTERVAL).await;
+            }
+        } => None,
+    }
+}
+
+/// How a first connection to a host authenticates.
+#[derive(Clone)]
+enum ConnectAuth {
+    /// Key/agent authentication.
+    Keys,
+    /// A password the user typed.
+    Password(SecretString),
+}
+
+/// Spawns the task that opens a connection to `host`.
+fn spawn_ssh_connect_task(
+    app: &mut AppState,
+    host: String,
+    port: u16,
+    user: String,
+    target_path: Option<String>,
+    connection_name: Option<String>,
+    auth: ConnectAuth,
+) {
+    let ssh_manager = app.ssh_manager.clone();
+    let reported_auth = auth.clone();
+    // Reporting a failure needs the connection's own parameters, which the
+    // attempt itself takes ownership of, so it keeps copies.
+    let reported_host = host.clone();
+    let reported_user = user.clone();
+    let reported_target_path = target_path.clone();
+    let reported_connection_name = connection_name;
+    spawn_ssh_attempt(
+        app,
+        &format!("Connecting to {user}@{host}"),
+        Success::Connected(FixedCtx {
+            path: target_path.clone().map(PathBuf::from),
+            name: reported_connection_name.clone(),
+        }),
+        move || async move {
+            match auth {
+                ConnectAuth::Keys => {
+                    ssh_manager
+                        .connect_pubkey_session(
+                            host.clone(),
+                            port,
+                            user.clone(),
+                            target_path.clone(),
+                        )
+                        .await
+                }
+                ConnectAuth::Password(pw) => {
+                    ssh_manager
+                        .connect_password_session(
+                            host.clone(),
+                            port,
+                            user.clone(),
+                            pw,
+                            target_path.clone(),
+                        )
+                        .await
+                }
+            }
+        },
+        move |tx, outcome| match outcome {
+            Outcome::Cancelled => TaskStatus::Cancelled,
+            Outcome::Failed(e) => {
+                let (key_auth, password) = match &reported_auth {
+                    ConnectAuth::Keys => (true, None),
+                    ConnectAuth::Password(pw) => (false, Some(pw.clone())),
+                };
+                let status = if key_auth {
+                    key_connect_task_status(&e)
+                } else {
+                    TaskStatus::Failed(e.to_string())
+                };
+                if let SshError::HostKey {
+                    host: hk_host,
+                    port: hk_port,
+                    presented,
+                    stored,
+                    key_line,
+                } = e
+                {
+                    tx.send(UiEvent::Ssh(SshEvent::HostKey {
+                        host: hk_host,
+                        port: hk_port,
+                        user: reported_user.clone(),
+                        presented_fp: presented,
+                        stored_fp: stored,
+                        key_line,
+                        password,
+                        target_path: reported_target_path.clone(),
+                        key_auth,
+                        connection_name: reported_connection_name.clone(),
+                    }));
+                } else {
+                    tx.send(UiEvent::Ssh(SshEvent::Error {
+                        host: reported_host.clone(),
+                        user: reported_user.clone(),
+                        error: e,
+                    }));
+                }
+                status
+            }
+        },
+    );
 }
 
 pub fn spawn_ssh_connect_with_keys(
@@ -425,74 +636,15 @@ pub fn spawn_ssh_connect_with_keys(
     target_path: Option<String>,
     connection_name: Option<String>,
 ) {
-    let task_title = format!("Connecting to {user}@{host}");
-    let ssh_manager = app.ssh_manager.clone();
-    app.tasks.task_manager
-        .spawn_task(&task_title, move |cancel, tx, id| async move {
-            let result = tokio::select! {
-                res = ssh_manager.connect_pubkey_session(host.clone(), port, user.clone(), target_path.clone()) => Some(res),
-                () = async {
-                    while !cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                    }
-                } => None,
-            };
-            let Some(result) = result else {
-                tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
-                    task_id: id,
-                    status: TaskStatus::Cancelled,
-                }));
-                return;
-            };
-            match result {
-                Ok((session_id, fs)) => {
-                    let path_for_ctx = target_path.clone().map(std::path::PathBuf::from);
-                    tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
-                        task_id: id,
-                        status: TaskStatus::Completed,
-                    }));
-                    tx.send(UiEvent::Ssh(SshEvent::Connected(SshContext {
-                        provider: Arc::new(fs),
-                        path: path_for_ctx,
-                        name: connection_name.clone(),
-                        session_id: Some(session_id),
-                    })));
-                }
-                Err(e) => {
-                    tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
-                        task_id: id,
-                        status: key_connect_task_status(&e),
-                    }));
-                    if let crate::ssh_manager::SshError::HostKey {
-                        host: hk_host,
-                        port: hk_port,
-                        presented,
-                        stored,
-                        key_line,
-                    } = e
-                    {
-                        tx.send(UiEvent::Ssh(SshEvent::HostKey {
-                            host: hk_host,
-                            port: hk_port,
-                            user,
-                            presented_fp: presented,
-                            stored_fp: stored,
-                            key_line,
-                            password: None,
-                            target_path,
-                            key_auth: true,
-                            connection_name,
-                        }));
-                    } else {
-                        tx.send(UiEvent::Ssh(SshEvent::Error {
-                            host,
-                            user,
-                            error: e,
-                        }));
-                    }
-                }
-            }
-        });
+    spawn_ssh_connect_task(
+        app,
+        host,
+        port,
+        user,
+        target_path,
+        connection_name,
+        ConnectAuth::Keys,
+    );
 }
 
 pub fn spawn_ssh_connect_with_password(
@@ -504,75 +656,15 @@ pub fn spawn_ssh_connect_with_password(
     target_path: Option<String>,
     connection_name: Option<String>,
 ) {
-    let name = format!("Connecting to {user}@{host}");
-    let ssh_manager = app.ssh_manager.clone();
-    app.tasks.task_manager
-        .spawn_task(&name, move |cancel, tx, id| async move {
-            let pw = password.clone();
-            let result = tokio::select! {
-                res = ssh_manager.connect_password_session(host.clone(), port, user.clone(), password, target_path.clone()) => Some(res),
-                () = async {
-                    while !cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                    }
-                } => None,
-            };
-            let Some(result) = result else {
-                tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
-                    task_id: id,
-                    status: TaskStatus::Cancelled,
-                }));
-                return;
-            };
-            match result {
-                Ok((session_id, fs)) => {
-                    let path_for_ctx = target_path.clone().map(std::path::PathBuf::from);
-                    tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
-                        task_id: id,
-                        status: TaskStatus::Completed,
-                    }));
-                    tx.send(UiEvent::Ssh(SshEvent::Connected(SshContext {
-                        provider: Arc::new(fs),
-                        path: path_for_ctx,
-                        name: connection_name.clone(),
-                        session_id: Some(session_id),
-                    })));
-                }
-                Err(e) => {
-                    tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
-                        task_id: id,
-                        status: TaskStatus::Failed(e.to_string()),
-                    }));
-                    if let crate::ssh_manager::SshError::HostKey {
-                        host: hk_host,
-                        port: hk_port,
-                        presented,
-                        stored,
-                        key_line,
-                    } = e
-                    {
-                        tx.send(UiEvent::Ssh(SshEvent::HostKey {
-                            host: hk_host,
-                            port: hk_port,
-                            user: user.clone(),
-                            presented_fp: presented,
-                            stored_fp: stored,
-                            key_line,
-                            password: Some(pw),
-                            target_path: target_path.clone(),
-                            key_auth: false,
-                            connection_name: connection_name.clone(),
-                        }));
-                    } else {
-                        tx.send(UiEvent::Ssh(SshEvent::Error {
-                            host,
-                            user,
-                            error: e,
-                        }));
-                    }
-                }
-            }
-        });
+    spawn_ssh_connect_task(
+        app,
+        host,
+        port,
+        user,
+        target_path,
+        connection_name,
+        ConnectAuth::Password(password),
+    );
 }
 
 pub fn handle_ssh_password_event(app: &mut AppState, code: KeyCode, modifiers: Modifiers) -> bool {
@@ -614,11 +706,11 @@ pub fn handle_ssh_password_event(app: &mut AppState, code: KeyCode, modifiers: M
                     Some(app.popups.ssh_connection.name.clone())
                 };
 
-                connect_ssh(
+                spawn_ssh_connect_with_password(
                     app,
-                    user,
                     host,
                     port,
+                    user,
                     password,
                     target_path,
                     connection_name,
@@ -660,77 +752,7 @@ fn reconnect_ssh(app: &mut AppState, session_id: String, password: SecretString)
     {
         return;
     }
-    let ssh_manager = app.ssh_manager.clone();
-    let current_dir = app.active_tab().current_dir.clone();
-    let old_session_id = session_id.clone();
-    let connection_name = app.active_tab().custom_title.clone();
-
-    app.tasks.task_manager.spawn_task(
-        "Reconnecting SSH session",
-        move |cancel, tx, id| async move {
-            let result = tokio::select! {
-                res = ssh_manager.reconnect_session(&session_id, password) => Some(res),
-                () = async {
-                    while !cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                    }
-                } => None,
-            };
-
-            let Some(result) = result else {
-                tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
-                    task_id: id,
-                    status: TaskStatus::Cancelled,
-                }));
-                return;
-            };
-
-            match result {
-                Ok((new_session_id, fs)) => {
-                    tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
-                        task_id: id,
-                        status: TaskStatus::Completed,
-                    }));
-                    tx.send(UiEvent::Ssh(SshEvent::Reconnected(SshContext {
-                        provider: Arc::new(fs),
-                        path: Some(current_dir),
-                        name: connection_name,
-                        session_id: Some(new_session_id),
-                    })));
-                }
-                Err(e) => {
-                    tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
-                        task_id: id,
-                        status: TaskStatus::Failed(format!("Reconnection failed: {e}")),
-                    }));
-                    tx.send(UiEvent::Ssh(SshEvent::ReconnectFailed {
-                        session_id: old_session_id.clone(),
-                        error: e.to_string(),
-                    }));
-                }
-            }
-        },
-    );
-}
-
-fn connect_ssh(
-    app: &mut AppState,
-    user: String,
-    host: String,
-    port: u16,
-    password: SecretString,
-    target_path: Option<String>,
-    connection_name: Option<String>,
-) {
-    spawn_ssh_connect_with_password(
-        app,
-        host,
-        port,
-        user,
-        password,
-        target_path,
-        connection_name,
-    );
+    spawn_reconnect_task(app, session_id, ReconnectAuth::Password(password));
 }
 
 fn show_password_popup_for_reconnect(
@@ -850,65 +872,70 @@ fn set_ssh_cursor_from_click(app: &mut AppState, field: SshField, click_x: u16) 
     app.popups.ssh_connection.cursor_position = new_pos;
 }
 
-/// Spawns a background task that reconnects a public-key authenticated
-/// session using key/agent authentication, with password fallback on auth
-/// failure.
-fn spawn_pubkey_reconnect(app: &mut AppState, session_id: &str) {
+/// How a reconnect attempt authenticates.
+///
+/// This also fixes how a failure is reported: a password the user just typed
+/// was not expected to fail, a cached password is only being retried, and key
+/// authentication falls back to a prompt that supersedes the attempt.
+#[derive(Clone)]
+enum ReconnectAuth {
+    /// A password the user just typed.
+    Password(SecretString),
+    /// A password taken from the session cache. It is put back on the cache
+    /// whenever the attempt does not succeed, so a later one can reuse it
+    /// instead of prompting.
+    CachedPassword(SecretString),
+    /// Key/agent authentication.
+    Keys,
+}
+
+/// Spawns the background task that restores `session_id`.
+fn spawn_reconnect_task(app: &mut AppState, session_id: String, auth: ReconnectAuth) {
     let ssh_manager = app.ssh_manager.clone();
+    let report_manager = ssh_manager.clone();
     let current_dir = app.active_tab().current_dir.clone();
-    let session_id = session_id.to_string();
     let connection_name = app.active_tab().custom_title.clone();
+    let reported_auth = auth.clone();
+    let reported_id = session_id.clone();
 
-    app.tasks.task_manager.spawn_task(
+    spawn_ssh_attempt(
+        app,
         "Reconnecting SSH session",
-        move |cancel, tx, id| async move {
-            let result = tokio::select! {
-                res = ssh_manager.reconnect_session_with_keys(&session_id) => Some(res),
-                () = async {
-                    while !cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                    }
-                } => None,
-            };
-
-            let Some(result) = result else {
-                tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
-                    task_id: id,
-                    status: TaskStatus::Cancelled,
-                }));
-                return;
-            };
-
-            match result {
-                Ok((new_session_id, fs)) => {
-                    tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
-                        task_id: id,
-                        status: TaskStatus::Completed,
-                    }));
-                    tx.send(UiEvent::Ssh(SshEvent::Reconnected(SshContext {
-                        provider: Arc::new(fs),
-                        path: Some(current_dir),
-                        name: connection_name,
-                        session_id: Some(new_session_id),
-                    })));
+        Success::Reconnected(FixedCtx {
+            path: Some(current_dir),
+            name: connection_name,
+        }),
+        move || async move {
+            match auth {
+                ReconnectAuth::Keys => ssh_manager.reconnect_session_with_keys(&session_id).await,
+                ReconnectAuth::Password(pw) | ReconnectAuth::CachedPassword(pw) => {
+                    ssh_manager.reconnect_session(&session_id, pw).await
                 }
-                Err(e) => {
-                    if matches!(e, crate::ssh_manager::SshError::Auth(_)) {
-                        // Key auth failed: offer a password fallback. A password
-                        // prompt follows, so don't flash a failure message.
+            }
+        },
+        move |tx, outcome| {
+            if let ReconnectAuth::CachedPassword(pw) = &reported_auth {
+                // The attempt could not use the cached password after all;
+                // put it back so a later one need not prompt for it.
+                report_manager.cache_password(&reported_id, pw.clone());
+            }
+            match outcome {
+                Outcome::Cancelled => TaskStatus::Cancelled,
+                Outcome::Failed(e) => {
+                    let auth_failed = matches!(e, SshError::Auth(_));
+                    let typed_password = matches!(reported_auth, ReconnectAuth::Password(_));
+                    if auth_failed || typed_password {
                         tx.send(UiEvent::Ssh(SshEvent::ReconnectFailed {
-                            session_id: session_id.clone(),
+                            session_id: reported_id.clone(),
                             error: e.to_string(),
                         }));
-                        tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
-                            task_id: id,
-                            status: TaskStatus::Completed,
-                        }));
+                    }
+                    if auth_failed && matches!(reported_auth, ReconnectAuth::Keys) {
+                        // The prompt that follows replaces this attempt, so
+                        // there is no failure left to report.
+                        TaskStatus::Completed
                     } else {
-                        tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
-                            task_id: id,
-                            status: TaskStatus::Failed(format!("Reconnection failed: {e}")),
-                        }));
+                        TaskStatus::Failed(format!("Reconnection failed: {e}"))
                     }
                 }
             }
@@ -937,71 +964,17 @@ pub fn handle_reconnect_ssh(app: &mut AppState) {
 
     // Key-authenticated sessions reconnect via keys/agent (no password cache).
     if session.auth_method == crate::ssh_manager::AuthMethod::Pubkey {
-        spawn_pubkey_reconnect(app, &session.session_id);
+        spawn_reconnect_task(app, session.session_id.clone(), ReconnectAuth::Keys);
         return;
     }
 
     // Check if we have a cached password
     if let Some(password) = app.ssh_manager.take_cached_password(&session.session_id) {
         // Try to reconnect with cached password
-        let ssh_manager = app.ssh_manager.clone();
-        let current_dir = app.active_tab().current_dir.clone();
-        let session_id = session.session_id.clone();
-        let pw = password.clone();
-        let connection_name = app.active_tab().custom_title.clone();
-
-        app.tasks.task_manager.spawn_task(
-            "Reconnecting SSH session",
-            move |cancel, tx, id| async move {
-                let result = tokio::select! {
-                    res = ssh_manager.reconnect_session(&session_id, password) => Some(res),
-                    () = async {
-                        while !cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-                        }
-                    } => None,
-                };
-
-                let Some(result) = result else {
-                    // Restore the cache entry so a later retry can reuse it
-                    ssh_manager.cache_password(&session_id, pw);
-                    tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
-                        task_id: id,
-                        status: TaskStatus::Cancelled,
-                    }));
-                    return;
-                };
-
-                match result {
-                    Ok((new_session_id, fs)) => {
-                        tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
-                            task_id: id,
-                            status: TaskStatus::Completed,
-                        }));
-                        tx.send(UiEvent::Ssh(SshEvent::Reconnected(SshContext {
-                            provider: Arc::new(fs),
-                            path: Some(current_dir),
-                            name: connection_name,
-                            session_id: Some(new_session_id),
-                        })));
-                    }
-                    Err(e) => {
-                        // Restore the cache entry so a later retry can reuse it
-                        ssh_manager.cache_password(&session_id, pw);
-                        // Check if it's an authentication failure
-                        if matches!(e, crate::ssh_manager::SshError::Auth(_)) {
-                            tx.send(UiEvent::Ssh(SshEvent::ReconnectFailed {
-                                session_id: session_id.clone(),
-                                error: e.to_string(),
-                            }));
-                        }
-                        tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
-                            task_id: id,
-                            status: TaskStatus::Failed(format!("Reconnection failed: {e}")),
-                        }));
-                    }
-                }
-            },
+        spawn_reconnect_task(
+            app,
+            session.session_id.clone(),
+            ReconnectAuth::CachedPassword(password),
         );
     } else {
         // No cached password, show popup immediately

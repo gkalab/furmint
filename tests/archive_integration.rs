@@ -320,10 +320,10 @@ async fn test_unavailable_archive_bookmark_reports_on_status_line() {
     // Drain the task's status update too, so the task is actually Failed.
     while let Ok(ev) = rx.try_recv() {
         if matches!(ev, UiEvent::Task(_)) {
-            fm::handlers::popup_misc::dispatch_ui_event(ev, &mut app).await;
+            fm::handlers::event_dispatch::dispatch_ui_event(ev, &mut app).await;
         }
     }
-    fm::handlers::popup_misc::dispatch_ui_event(event, &mut app).await;
+    fm::handlers::event_dispatch::dispatch_ui_event(event, &mut app).await;
 
     assert!(
         !app.popups.error.is_visible,

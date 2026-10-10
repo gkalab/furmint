@@ -1,10 +1,10 @@
-//! Miscellaneous popup event handlers: quit, help, `empty_trash`, `drive_select`
+//! Application event dispatch: the sole consumer of the app-level UI event
+//! bus ([`crate::tasks::UiEvent`]), plus the two popup key handlers that have
+//! no popup of their own.
 
 use crate::app::AppState;
 use secrecy::SecretString;
 use termina::event::KeyCode;
-
-static LAST_REFRESH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 pub(crate) fn handle_quit_popup_event(code: KeyCode, app: &mut AppState) -> bool {
     use crate::handlers::popup_utils::{ChoiceResult, get_choice_with_selection};
@@ -188,18 +188,7 @@ async fn handle_update_status(
 
 fn handle_update_progress(app: &mut crate::app::AppState, id: usize, p: usize, t: usize) {
     app.tasks.task_manager.update_task_progress(id, p, t);
-    let now = u64::try_from(
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis(),
-    )
-    .unwrap_or(u64::MAX);
-    let last = LAST_REFRESH.load(std::sync::atomic::Ordering::Relaxed);
-    if now - last > 2000 {
-        app.reload_remote();
-        LAST_REFRESH.store(now, std::sync::atomic::Ordering::Relaxed);
-    }
+    app.reload_remote_throttled();
 }
 
 fn handle_conflict(
@@ -254,7 +243,7 @@ fn handle_ssh_error(
             app.popups.ssh_connection.active_field = crate::state::ssh::SshField::ConnectionString;
         }
         crate::ssh_manager::SshError::HostKey {
-            host: h,
+            host,
             port,
             presented,
             stored,
@@ -264,7 +253,7 @@ fn handle_ssh_error(
             app.popups
                 .host_key
                 .show(crate::state::host_key::HostKeyPrompt {
-                    host: h,
+                    host,
                     port,
                     user,
                     presented_fp: presented,
@@ -277,8 +266,6 @@ fn handle_ssh_error(
                 });
             app.popups
                 .set_popup_visible(crate::app::PopupKind::HostKey, true);
-            // Keep host/user for reference
-            let _ = (host,);
         }
         crate::ssh_manager::SshError::Auth(_) => {
             app.popups

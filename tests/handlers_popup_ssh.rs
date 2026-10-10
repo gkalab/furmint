@@ -346,3 +346,64 @@ async fn test_handle_reconnect_ssh_sets_up_password_prompt() {
     assert_eq!(app.popups.ssh_password.user, "testuser");
     assert_eq!(app.popups.ssh_password.password.expose_secret(), "");
 }
+
+#[tokio::test]
+async fn test_handle_reconnect_ssh_reuses_cached_password() {
+    let mut app = basic_app_state().await;
+
+    // `.invalid` never resolves, so the attempt fails fast in the background
+    // instead of reaching a real host.
+    let host = "unreachable.invalid";
+    app.panels.left.active_tab_mut().provider =
+        std::sync::Arc::new(MockSftpProvider::new("testuser", host));
+    app.panels.left.active_tab_mut().ssh_session_id = Some("cached_session".to_string());
+
+    app.ssh_manager.register_session(
+        "cached_session".to_string(),
+        host.to_string(),
+        22,
+        "testuser".to_string(),
+        None,
+        fm::ssh_manager::AuthMethod::Password,
+    );
+    app.ssh_manager
+        .cache_password("cached_session", secrecy::SecretString::from("s3cret"));
+
+    handle_reconnect_ssh(&mut app);
+
+    // The cached password is retried instead of prompting for one, and is
+    // taken out of the cache for the duration of the attempt.
+    assert!(!app.popups.ssh_password.is_visible);
+    assert!(
+        app.ssh_manager
+            .get_cached_password("cached_session")
+            .is_none()
+    );
+    assert_eq!(app.tasks.task_manager.get_tasks().len(), 1);
+}
+
+#[tokio::test]
+async fn test_handle_reconnect_ssh_prompt_for_pubkey_session_without_cache() {
+    let mut app = basic_app_state().await;
+
+    let host = "unreachable.invalid";
+    app.panels.left.active_tab_mut().provider =
+        std::sync::Arc::new(MockSftpProvider::new("testuser", host));
+    app.panels.left.active_tab_mut().ssh_session_id = Some("key_session".to_string());
+
+    app.ssh_manager.register_session(
+        "key_session".to_string(),
+        host.to_string(),
+        22,
+        "testuser".to_string(),
+        None,
+        fm::ssh_manager::AuthMethod::Pubkey,
+    );
+
+    handle_reconnect_ssh(&mut app);
+
+    // Key sessions are retried with keys rather than a password, so no prompt
+    // appears; the attempt itself runs in the background.
+    assert!(!app.popups.ssh_password.is_visible);
+    assert_eq!(app.tasks.task_manager.get_tasks().len(), 1);
+}

@@ -200,6 +200,7 @@ impl TestAppBuilder {
             layout: crate::layout::LayoutState::default(),
             pending_action: None,
             mouse: crate::app::MouseState::default(),
+            remote_reloaded_at: std::collections::HashMap::new(),
         }
     }
 }
