@@ -488,12 +488,14 @@ mod tests {
     /// its label proves hit-testing and rendering agree.
     #[test]
     fn rendered_buttons_land_inside_their_computed_rects() {
-        let cases: Vec<(
-            &str,
+        type PopupCase = (
+            &'static str,
             Box<dyn Fn(&mut AppState)>,
             crate::app::PopupKind,
-            &[&str],
-        )> = vec![
+            &'static [&'static str],
+        );
+
+        let cases: Vec<PopupCase> = vec![
             (
                 "error",
                 Box::new(|a: &mut AppState| a.popups.error.is_visible = true),
@@ -662,25 +664,49 @@ mod tests {
         let app = AppState::test_default();
         let layout = compute_popup_layout(&app, screen());
 
-        assert!(layout.error.button_areas.is_empty());
-        assert!(layout.conflict.button_areas.is_empty());
-        assert!(layout.rename.button_areas.is_empty());
-        assert!(layout.remote_edit.button_areas.is_empty());
-        assert!(layout.host_key.button_areas.is_empty());
-        assert!(layout.delete.button_areas.is_empty());
-        assert!(layout.empty_trash.button_areas.is_empty());
-        assert!(layout.quit_confirmation.button_areas.is_empty());
-        assert!(layout.ssh_connection.field_areas.is_empty());
+        assert_eq!(layout.error.button_areas, [] as [ratatui::prelude::Rect; 0]);
+        assert_eq!(
+            layout.conflict.button_areas,
+            [] as [ratatui::prelude::Rect; 0]
+        );
+        assert_eq!(
+            layout.rename.button_areas,
+            [] as [ratatui::prelude::Rect; 0]
+        );
+        assert_eq!(
+            layout.remote_edit.button_areas,
+            [] as [ratatui::prelude::Rect; 0]
+        );
+        assert_eq!(
+            layout.host_key.button_areas,
+            [] as [ratatui::prelude::Rect; 0]
+        );
+        assert_eq!(
+            layout.delete.button_areas,
+            [] as [ratatui::prelude::Rect; 0]
+        );
+        assert_eq!(
+            layout.empty_trash.button_areas,
+            [] as [ratatui::prelude::Rect; 0]
+        );
+        assert_eq!(
+            layout.quit_confirmation.button_areas,
+            [] as [ratatui::prelude::Rect; 0]
+        );
+        assert_eq!(
+            layout.ssh_connection.field_areas,
+            [] as [ratatui::prelude::Rect; 0]
+        );
         assert!(layout.ssh_connection.history_area.is_none());
-        assert!(
-            layout
-                .ssh_connection
-                .confirmation_buttons
-                .button_areas
-                .is_empty()
+        assert_eq!(
+            layout.ssh_connection.confirmation_buttons.button_areas,
+            [] as [ratatui::prelude::Rect; 0]
         );
         assert!(layout.bookmark.list_area.is_none());
-        assert!(layout.bookmark.confirmation_buttons.button_areas.is_empty());
+        assert_eq!(
+            layout.bookmark.confirmation_buttons.button_areas,
+            [] as [ratatui::prelude::Rect; 0]
+        );
         assert!(layout.fuzzy_search.list_area.is_none());
         assert!(layout.help.list_area.is_none());
     }
