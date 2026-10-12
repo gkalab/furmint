@@ -566,6 +566,9 @@ pub fn is_dot_or_dotdot(name: &str) -> bool {
 /// never reported as hidden.
 #[must_use]
 pub fn has_hidden_name(name: &str) -> bool {
+    if cfg!(windows) {
+        return false;
+    }
     !is_dot_or_dotdot(name) && name.starts_with('.')
 }
 
@@ -580,9 +583,8 @@ pub fn has_hidden_attribute(attributes: &str) -> bool {
 ///
 /// Unix-like filesystems only have the leading-dot convention, whereas Windows
 /// marks hidden entries with `FILE_ATTRIBUTE_HIDDEN` instead, so a dot-prefixed
-/// name alone is not enough there. Both signals are checked: a dot-prefixed
-/// name stays hidden on Windows, and a Windows-hidden file counts as hidden
-/// even without a leading dot.
+/// name alone is not enough there. Windows therefore relies solely on the DOS
+/// flag, while Unix relies solely on the leading dot.
 #[must_use]
 pub fn is_hidden(name: &str, attributes: &str) -> bool {
     has_hidden_attribute(attributes) || has_hidden_name(name)
@@ -1068,6 +1070,18 @@ mod tests {
     }
 
     #[test]
+    fn test_hidden_name_only_follows_the_unix_convention() {
+        assert!(!has_hidden_name("env"));
+        assert!(!has_hidden_name("."));
+        assert!(!has_hidden_name(".."));
+
+        // The leading dot is the only Unix marker, and Windows has none.
+        assert_eq!(has_hidden_name(".env"), !cfg!(windows));
+        assert_eq!(has_hidden_name(".git"), !cfg!(windows));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
     fn test_is_hidden_name_ignores_navigation_entries() {
         assert!(has_hidden_name(".env"));
         assert!(has_hidden_name(".git"));
@@ -1099,15 +1113,15 @@ mod tests {
 
     #[test]
     fn test_is_hidden_accepts_either_signal() {
-        // A dot-prefixed name is hidden everywhere, Windows included.
-        assert!(is_hidden(".env", "--h---"));
-        assert!(is_hidden(".env", "d----"));
-        assert!(is_hidden(".env", ""));
-
-        // Windows marks hidden files with the DOS flag alone.
+        // Windows marks hidden files with the DOS flag alone, dot or no dot.
         assert!(is_hidden("env", "d-h---"));
         assert!(is_hidden("AppData", "d-h---"));
         assert!(is_hidden("config.ini", "--h---"));
+        assert!(is_hidden(".env", "--h---"));
+
+        // The leading dot is only a marker on Unix-like filesystems.
+        assert_eq!(is_hidden(".env", "d----"), !cfg!(windows));
+        assert_eq!(is_hidden(".env", ""), !cfg!(windows));
 
         // Ordinary entries stay visible.
         assert!(!is_hidden("env", "------"));
@@ -1115,6 +1129,26 @@ mod tests {
         assert!(!is_hidden("Documents", "d----"));
         assert!(!is_hidden(".", "d----"));
         assert!(!is_hidden("..", "d----"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn test_windows_dot_names_are_not_hidden() {
+        // Windows Explorer shows `.git` like any other directory, so a leading
+        // dot must not mute the entry.
+        for name in [".env", ".git", ".config"] {
+            assert!(
+                !has_hidden_name(name),
+                "{name:?} should not be a hidden name on Windows"
+            );
+            assert!(
+                !is_hidden(name, "d----"),
+                "{name:?} should not be hidden on Windows without the DOS flag"
+            );
+        }
+
+        // The DOS flag still hides a dot-prefixed entry.
+        assert!(is_hidden(".config", "d-h---"));
     }
 
     #[test]

@@ -127,8 +127,9 @@ fn calculate_column_widths(panel: &Tab, area: Rect) -> ColumnWidths {
 /// Get style for a file entry based on its type.
 ///
 /// Symlinks keep their own cyan regardless of the target. Everything else that
-/// is hidden (a leading dot) is de-emphasized with the muted `subtext` color,
-/// whether it is a file or a directory.
+/// is hidden (a leading dot on Unix, `FILE_ATTRIBUTE_HIDDEN` on Windows) is
+/// de-emphasized with the muted `subtext` color, whether it is a file or a
+/// directory.
 fn style_for_entry(entry: &FileEntry, current_dir: &Path, palette: &ThemePalette) -> Style {
     let rgb = |c: Rgb| Color::Rgb(c.r, c.g, c.b);
     if entry.is_symlink {
@@ -1248,6 +1249,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(windows))]
     #[test]
     fn test_hidden_entries_use_a_de_emphasized_color() {
         let current_dir = Path::new("/nonexistent");
@@ -1299,6 +1301,69 @@ mod tests {
         }
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn test_dot_names_keep_their_regular_color_on_windows() {
+        let current_dir = Path::new("/nonexistent");
+        let rgb = |c: Rgb| Color::Rgb(c.r, c.g, c.b);
+
+        for name in crate::theme::THEME_NAMES {
+            let palette = crate::theme::get_theme(name).unwrap();
+
+            // Windows has no dotfile convention, so a leading dot must not mute
+            // the entry the way it does on Unix. These entries carry no DOS
+            // hidden flag, so nothing marks them hidden.
+            let dot_file = entry(".env", false, false, "------");
+            let file_style = style_for_entry(&dot_file, current_dir, &palette);
+            assert_eq!(
+                fg_of(file_style),
+                Some(rgb(palette.text)),
+                "{name} mutes a dot-prefixed file on Windows"
+            );
+            assert_eq!(
+                fg_of(style_for_icon(&dot_file, &palette, file_style)),
+                Some(rgb(palette.text)),
+                "{name} changes the icon of a dot-prefixed file on Windows"
+            );
+
+            let dot_dir = entry(".git", true, false, "d-----");
+            let dir_style = style_for_entry(&dot_dir, current_dir, &palette);
+            assert_eq!(
+                fg_of(dir_style),
+                Some(rgb(palette.blue)),
+                "{name} mutes a dot-prefixed directory on Windows"
+            );
+            assert_eq!(
+                fg_of(style_for_icon(&dot_dir, &palette, dir_style)),
+                Some(rgb(palette.blue)),
+                "{name} changes the icon of a dot-prefixed directory on Windows"
+            );
+
+            // An executable keeps its green even behind a leading dot.
+            let dot_exec = entry(".build.sh", false, false, "-rwxr-xr-x");
+            assert_eq!(
+                fg_of(style_for_entry(&dot_exec, current_dir, &palette)),
+                Some(rgb(palette.green)),
+                "{name} mutes a dot-prefixed executable on Windows"
+            );
+
+            // A dot-prefixed symlink keeps its cyan link marker.
+            let dot_link = entry(".link", true, true, "lrwxrwxrwx ");
+            let link_style = style_for_entry(&dot_link, current_dir, &palette);
+            assert_eq!(
+                fg_of(link_style),
+                Some(rgb(palette.cyan)),
+                "{name} mutes a dot-prefixed symlink on Windows"
+            );
+            assert_eq!(
+                fg_of(style_for_icon(&dot_link, &palette, link_style)),
+                Some(rgb(palette.cyan)),
+                "{name} changes the icon of a dot-prefixed symlink on Windows"
+            );
+        }
+    }
+
+    #[cfg(not(windows))]
     #[test]
     fn test_hidden_directory_icon_keeps_the_directory_blue() {
         let current_dir = Path::new("/nonexistent");
