@@ -54,7 +54,7 @@ pub fn catppuccin_macchiato() -> ThemePalette {
         text: Rgb::new(202, 211, 245),
         subtext: Rgb::new(184, 192, 224),
         blue: Rgb::new(138, 173, 244),
-        cyan: Rgb::new(125, 196, 228), // Teal
+        cyan: Rgb::new(125, 196, 228),
         green: Rgb::new(166, 218, 149),
         yellow: Rgb::new(238, 212, 159),
         red: Rgb::new(237, 135, 150),
@@ -75,7 +75,7 @@ pub fn catppuccin_latte() -> ThemePalette {
         text: Rgb::new(76, 79, 105),
         subtext: Rgb::new(92, 95, 119),
         blue: Rgb::new(30, 102, 245),
-        cyan: Rgb::new(23, 146, 153), // Teal
+        cyan: Rgb::new(23, 146, 153),
         green: Rgb::new(64, 160, 43),
         yellow: Rgb::new(223, 142, 29),
         red: Rgb::new(210, 15, 57),
@@ -96,7 +96,7 @@ pub fn catppuccin_frappe() -> ThemePalette {
         text: Rgb::new(198, 208, 245),
         subtext: Rgb::new(181, 191, 226),
         blue: Rgb::new(140, 170, 238),
-        cyan: Rgb::new(129, 200, 190), // Teal
+        cyan: Rgb::new(129, 200, 190),
         green: Rgb::new(166, 209, 137),
         yellow: Rgb::new(229, 200, 144),
         red: Rgb::new(231, 130, 132),
@@ -117,7 +117,7 @@ pub fn catppuccin_mocha() -> ThemePalette {
         text: Rgb::new(205, 214, 244),
         subtext: Rgb::new(186, 194, 222),
         blue: Rgb::new(137, 180, 250),
-        cyan: Rgb::new(148, 226, 213), // Teal
+        cyan: Rgb::new(148, 226, 213),
         green: Rgb::new(166, 227, 161),
         yellow: Rgb::new(249, 226, 175),
         red: Rgb::new(243, 139, 168),
