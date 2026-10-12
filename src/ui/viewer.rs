@@ -300,12 +300,27 @@ fn render_archive_line(
     let mut spans = Vec::new();
     let mut seg_start = 0;
     let prefix_style = Style::default().fg(overlay_color);
-    let entry_style = Style::default().fg(if row.is_dir { dir_color } else { text_color });
+    let hidden = crate::fs::utils::has_hidden_name(&row.name);
+    let name_fg = if hidden {
+        subtext_color
+    } else if row.is_dir {
+        dir_color
+    } else {
+        text_color
+    };
+    let entry_style = Style::default().fg(name_fg);
+    // Hidden directories keep the standard directory blue on their icon, so the
+    // row still reads as a directory while the muted name signals "hidden".
+    let icon_style = if row.is_dir && hidden {
+        Style::default().fg(dir_color)
+    } else {
+        entry_style
+    };
 
     spans.extend(render_segment(&row.prefix, seg_start, prefix_style));
     seg_start += prefix_chars;
     if !icon.is_empty() {
-        spans.extend(render_segment(&format!("{icon} "), seg_start, entry_style));
+        spans.extend(render_segment(&format!("{icon} "), seg_start, icon_style));
         seg_start += icon_chars + 1;
     }
     spans.extend(render_segment(&row.name, seg_start, entry_style));

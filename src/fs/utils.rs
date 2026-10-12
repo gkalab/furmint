@@ -559,6 +559,35 @@ pub fn is_dot_or_dotdot(name: &str) -> bool {
     name == "." || name == ".."
 }
 
+/// Returns true if a name marks a hidden entry on Unix-like systems, i.e. it
+/// starts with a dot.
+///
+/// `.` and `..` are navigation entries rather than hidden ones, so they are
+/// never reported as hidden.
+#[must_use]
+pub fn has_hidden_name(name: &str) -> bool {
+    !is_dot_or_dotdot(name) && name.starts_with('.')
+}
+
+/// Returns true if an attribute string carries the Windows
+/// `FILE_ATTRIBUTE_HIDDEN` flag.
+#[must_use]
+pub fn has_hidden_attribute(attributes: &str) -> bool {
+    attributes.as_bytes().get(2) == Some(&b'h')
+}
+
+/// Returns true if an entry is hidden.
+///
+/// Unix-like filesystems only have the leading-dot convention, whereas Windows
+/// marks hidden entries with `FILE_ATTRIBUTE_HIDDEN` instead, so a dot-prefixed
+/// name alone is not enough there. Both signals are checked: a dot-prefixed
+/// name stays hidden on Windows, and a Windows-hidden file counts as hidden
+/// even without a leading dot.
+#[must_use]
+pub fn is_hidden(name: &str, attributes: &str) -> bool {
+    has_hidden_attribute(attributes) || has_hidden_name(name)
+}
+
 /// Returns an optimal chunk size for SFTP transfers based on the total file size.
 #[must_use]
 pub fn calculate_optimal_chunk_size(file_size: u64) -> usize {
@@ -1036,6 +1065,56 @@ mod tests {
         );
         assert_eq!(normalize_sftp_path(Path::new("//foo///bar")), "/foo/bar");
         assert_eq!(normalize_sftp_path(Path::new("/")), "/");
+    }
+
+    #[test]
+    fn test_is_hidden_name_ignores_navigation_entries() {
+        assert!(has_hidden_name(".env"));
+        assert!(has_hidden_name(".git"));
+        assert!(!has_hidden_name("env"));
+        assert!(!has_hidden_name("."));
+        assert!(!has_hidden_name(".."));
+    }
+
+    #[test]
+    fn test_has_hidden_attribute_reads_the_windows_flag() {
+        // A Windows attribute string is a type char plus the r/h/s/i/p flags,
+        // so `h` at index 2 is FILE_ATTRIBUTE_HIDDEN.
+        assert!(has_hidden_attribute("d-h---"));
+        assert!(has_hidden_attribute("--h---"));
+        assert!(has_hidden_attribute("drh---"));
+        assert!(!has_hidden_attribute("d----"));
+        assert!(!has_hidden_attribute("----h-"));
+
+        // Unix permission strings put a permission char at index 2 and never an
+        // `h`, so they are never mistaken for hidden.
+        for attrs in ["drwxr-xr-x ", "-rwxr-xr-x", "lrwxrwxrwx ", "-rw-r--r--"] {
+            assert!(!has_hidden_attribute(attrs), "{attrs:?} read as hidden");
+        }
+
+        // Empty or short strings simply carry no flags.
+        assert!(!has_hidden_attribute(""));
+        assert!(!has_hidden_attribute("d-"));
+    }
+
+    #[test]
+    fn test_is_hidden_accepts_either_signal() {
+        // A dot-prefixed name is hidden everywhere, Windows included.
+        assert!(is_hidden(".env", "--h---"));
+        assert!(is_hidden(".env", "d----"));
+        assert!(is_hidden(".env", ""));
+
+        // Windows marks hidden files with the DOS flag alone.
+        assert!(is_hidden("env", "d-h---"));
+        assert!(is_hidden("AppData", "d-h---"));
+        assert!(is_hidden("config.ini", "--h---"));
+
+        // Ordinary entries stay visible.
+        assert!(!is_hidden("env", "------"));
+        assert!(!is_hidden("env", "--s---"));
+        assert!(!is_hidden("Documents", "d----"));
+        assert!(!is_hidden(".", "d----"));
+        assert!(!is_hidden("..", "d----"));
     }
 
     #[test]
