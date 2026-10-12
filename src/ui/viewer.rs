@@ -242,7 +242,7 @@ fn render_archive_line(
     );
 
     let icon = if ctx.icons_enabled {
-        crate::icons::get_icon(&row.name, row.is_dir, false)
+        crate::icons::get_icon(&row.name, row.is_dir, false, false)
     } else {
         ""
     };

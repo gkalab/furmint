@@ -30,6 +30,7 @@ pub struct ThemePalette {
     pub text: Rgb,     // Primary text
     pub subtext: Rgb,  // Secondary text
     pub blue: Rgb,     // Directories
+    pub cyan: Rgb,     // Symlinks
     pub green: Rgb,    // Executables
     pub yellow: Rgb,   // Headers
     pub red: Rgb,      // Errors
@@ -53,6 +54,7 @@ pub fn catppuccin_macchiato() -> ThemePalette {
         text: Rgb::new(202, 211, 245),
         subtext: Rgb::new(184, 192, 224),
         blue: Rgb::new(138, 173, 244),
+        cyan: Rgb::new(125, 196, 228), // Teal
         green: Rgb::new(166, 218, 149),
         yellow: Rgb::new(238, 212, 159),
         red: Rgb::new(237, 135, 150),
@@ -73,6 +75,7 @@ pub fn catppuccin_latte() -> ThemePalette {
         text: Rgb::new(76, 79, 105),
         subtext: Rgb::new(92, 95, 119),
         blue: Rgb::new(30, 102, 245),
+        cyan: Rgb::new(23, 146, 153), // Teal
         green: Rgb::new(64, 160, 43),
         yellow: Rgb::new(223, 142, 29),
         red: Rgb::new(210, 15, 57),
@@ -93,6 +96,7 @@ pub fn catppuccin_frappe() -> ThemePalette {
         text: Rgb::new(198, 208, 245),
         subtext: Rgb::new(181, 191, 226),
         blue: Rgb::new(140, 170, 238),
+        cyan: Rgb::new(129, 200, 190), // Teal
         green: Rgb::new(166, 209, 137),
         yellow: Rgb::new(229, 200, 144),
         red: Rgb::new(231, 130, 132),
@@ -113,6 +117,7 @@ pub fn catppuccin_mocha() -> ThemePalette {
         text: Rgb::new(205, 214, 244),
         subtext: Rgb::new(186, 194, 222),
         blue: Rgb::new(137, 180, 250),
+        cyan: Rgb::new(148, 226, 213), // Teal
         green: Rgb::new(166, 227, 161),
         yellow: Rgb::new(249, 226, 175),
         red: Rgb::new(243, 139, 168),
@@ -137,6 +142,7 @@ pub fn dracula() -> ThemePalette {
         text: Rgb::new(248, 248, 242),    // Foreground
         subtext: Rgb::new(189, 147, 249), // Purple (subtext)
         blue: Rgb::new(139, 233, 253),    // Cyan (directories)
+        cyan: Rgb::new(139, 233, 253),    // Cyan (symlinks)
         green: Rgb::new(80, 250, 123),    // Green (executables)
         yellow: Rgb::new(241, 250, 140),  // Yellow (headers)
         red: Rgb::new(255, 85, 85),       // Red (errors)
@@ -161,6 +167,7 @@ pub fn nord() -> ThemePalette {
         text: Rgb::new(236, 239, 244),     // nord6 - Snow Storm
         subtext: Rgb::new(229, 233, 240),  // nord5
         blue: Rgb::new(136, 192, 208),     // nord8 - Frost (directories)
+        cyan: Rgb::new(143, 188, 187),     // nord7 - Frost (symlinks)
         green: Rgb::new(163, 190, 140),    // nord14 - Aurora (executables)
         yellow: Rgb::new(235, 203, 139),   // nord13 - Aurora (headers)
         red: Rgb::new(191, 97, 106),       // nord11 - Aurora (errors)
@@ -185,6 +192,7 @@ pub fn solarized_light() -> ThemePalette {
         text: Rgb::new(88, 110, 117),      // base01  - Primary text
         subtext: Rgb::new(101, 123, 131),  // base0 - Body text
         blue: Rgb::new(38, 139, 210),      // blue (directories)
+        cyan: Rgb::new(42, 161, 152),      // cyan (symlinks)
         green: Rgb::new(133, 153, 0),      // green (executables)
         yellow: Rgb::new(181, 137, 0),     // yellow (headers)
         red: Rgb::new(220, 50, 47),        // red (errors)
@@ -209,6 +217,7 @@ pub fn mariana() -> ThemePalette {
         text: Rgb::new(213, 220, 230),     // Foreground #d5dce6
         subtext: Rgb::new(180, 188, 198),  // Secondary text
         blue: Rgb::new(102, 175, 224),     // Blue #66afe0 (directories)
+        cyan: Rgb::new(95, 179, 179),      // Teal (symlinks)
         green: Rgb::new(153, 199, 148),    // Green #99c794 (executables)
         yellow: Rgb::new(250, 200, 99),    // Yellow #fac863 (headers)
         red: Rgb::new(236, 95, 103),       // Red #ec5f67 (errors)
@@ -233,6 +242,7 @@ pub fn breakers() -> ThemePalette {
         text: Rgb::new(48, 56, 65),        // Dark text (Mariana's bg)
         subtext: Rgb::new(80, 90, 100),    // Secondary text
         blue: Rgb::new(53, 124, 176),      // Blue (directories)
+        cyan: Rgb::new(65, 145, 155),      // Teal (symlinks)
         green: Rgb::new(85, 145, 85),      // Green (executables)
         yellow: Rgb::new(180, 140, 40),    // Yellow/orange (headers)
         red: Rgb::new(200, 60, 70),        // Red (errors)

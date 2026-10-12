@@ -142,9 +142,9 @@ impl FileEntry {
 
         let name = entry.file_name().to_string_lossy().to_string();
         let is_symlink = file_type.is_symlink();
-        #[cfg_attr(not(windows), allow(unused_mut))]
         let mut is_dir = file_type.is_dir();
 
+        // Windows reports whether a reparse point targets a directory directly.
         #[cfg(windows)]
         {
             use std::os::windows::fs::FileTypeExt;
@@ -153,11 +153,15 @@ impl FileEntry {
             }
         }
 
-        // On Windows/Unix, we might want to follow symlinks to see if they are directories
-        // However, following symlinks is expensive over network drives.
-        // For now, we trust the entry's reported is_dir.
-        // If it's a symlink, is_dir will be true only if it's a directory symlink/junction
-        // that was resolved by the OS during iteration (common on Windows).
+        // `DirEntry::file_type` and `DirEntry::metadata` use `lstat` semantics, so
+        // on Unix a symlink is always reported as a non-directory. Resolving the
+        // link here keeps linked directories enterable (`is_dir` gates navigation)
+        // and lets them render as directories instead of as `lrwxrwxrwx`, which
+        // would otherwise look executable. `metadata` follows the link; a broken
+        // link simply keeps `is_dir == false` and stays listed as a file.
+        if is_symlink && !is_dir {
+            is_dir = std::fs::metadata(entry.path()).is_ok_and(|m| m.is_dir());
+        }
 
         let size = if is_dir { None } else { Some(meta.len()) };
         let modified = meta.modified().ok();
@@ -453,6 +457,10 @@ pub fn is_executable(full_path: &std::path::Path, e: &FileEntry) -> bool {
         return false;
     }
 
+    if e.is_symlink {
+        return false;
+    }
+
     // Entries carrying Unix-style permissions are authoritative, on every
     // platform: remote filesystems and archives mark scripts and binaries
     // executable through an `x` bit, which has no relation to the file name.
@@ -635,6 +643,52 @@ mod tests {
     #[test]
     fn test_format_size_symlink() {
         assert_eq!(format_size(None, true, true), "  <LNK>");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_symlink_to_dir_is_listed_as_dir() {
+        use std::os::unix::fs::symlink;
+
+        let base = std::env::temp_dir().join(format!("fm_test_symlink_dir_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("target")).unwrap();
+        std::fs::write(base.join("target/file.txt"), b"x").unwrap();
+        symlink(base.join("target"), base.join("link_dir")).unwrap();
+        symlink(base.join("target/file.txt"), base.join("link_file")).unwrap();
+        symlink(base.join("missing"), base.join("link_broken")).unwrap();
+
+        let entries = list_dir(&base).unwrap();
+        let by_name: std::collections::HashMap<&str, &FileEntry> =
+            entries.iter().map(|e| (e.name.as_str(), e)).collect();
+
+        // A link to a directory must be enterable, so `is_dir` follows the link.
+        let link_dir = by_name["link_dir"];
+        assert!(link_dir.is_symlink);
+        assert!(link_dir.is_dir);
+        assert!(link_dir.size.is_none());
+        assert!(link_dir.attributes.starts_with('l'));
+
+        // A link to a file stays a file.
+        let link_file = by_name["link_file"];
+        assert!(link_file.is_symlink);
+        assert!(!link_file.is_dir);
+        // ... and is not runnable, even though `lrwxrwxrwx` sets every `x` bit.
+        assert!(!is_executable(&base.join("link_file"), link_file));
+
+        // A broken link keeps neither, so it stays openable as a file.
+        let broken = by_name["link_broken"];
+        assert!(broken.is_symlink);
+        assert!(!broken.is_dir);
+
+        // Directories (including linked ones) sort before plain files.
+        let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["..", "link_dir", "target", "link_broken", "link_file"]
+        );
+
+        std::fs::remove_dir_all(&base).ok();
     }
 
     #[test]
@@ -890,6 +944,23 @@ mod tests {
             &FileEntry {
                 is_dir: true,
                 ..file("link", "lrwxrwxrwx")
+            }
+        ));
+        // Neither are symlinked files: `lrwxrwxrwx` describes the link, not the
+        // target, so Enter must not launch them in a terminal.
+        assert!(!is_executable(
+            &remote_path,
+            &FileEntry {
+                is_symlink: true,
+                ..file("notes.txt", "lrwxrwxrwx")
+            }
+        ));
+        // The target's own execute bit is irrelevant to the link's display.
+        assert!(!is_executable(
+            &remote_path,
+            &FileEntry {
+                is_symlink: true,
+                ..file("deploy", "lrwxrwxrwx")
             }
         ));
     }

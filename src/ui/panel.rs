@@ -1,7 +1,7 @@
 use crate::app_state::tabs::Tab;
 use crate::app_state::tabs::{SortColumn, SortDirection};
 use crate::fs::utils::{FileEntry, format_modified, format_size};
-use crate::theme::ThemePalette;
+use crate::theme::{Rgb, ThemePalette};
 use crate::ui::ui_utils::{
     TabScrollbarContext, draw_tab_scrollbar, is_root_user, lighten_red, panel_bg_color,
     truncate_middle_with_ellipsis, truncate_path_str,
@@ -124,28 +124,30 @@ fn calculate_column_widths(panel: &Tab, area: Rect) -> ColumnWidths {
     }
 }
 
-/// Get style for a file entry based on its type
+/// Get style for a file entry based on its type.
 fn style_for_entry(entry: &FileEntry, current_dir: &Path, palette: &ThemePalette) -> Style {
-    let text_fg = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
-
+    if entry.is_symlink {
+        return Style::default().fg(Color::Rgb(palette.cyan.r, palette.cyan.g, palette.cyan.b));
+    }
     if entry.is_dir {
-        Style::default().fg(Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b))
-    } else if crate::fs::utils::is_executable(&current_dir.join(&entry.name), entry) {
-        Style::default().fg(Color::Rgb(
+        return Style::default().fg(Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b));
+    }
+    if crate::fs::utils::is_executable(&current_dir.join(&entry.name), entry) {
+        return Style::default().fg(Color::Rgb(
             palette.green.r,
             palette.green.g,
             palette.green.b,
-        ))
-    } else {
-        Style::default().fg(text_fg)
+        ));
     }
+    Style::default().fg(Color::Rgb(palette.text.r, palette.text.g, palette.text.b))
 }
 
 /// Style a single character of the Unix attributes string (`drwxrwxrwx`):
-/// the `d` matches directories (blue), `x` matches executables (green),
-/// `w` uses the normal text color, and `r`/`-` use the muted overlay color
-/// (same as the inactive tab title). Local files on Windows use a different
-/// attribute-flag format, so their attributes keep the plain text color.
+/// the `d` matches directories (blue), `l` matches symlinks (cyan), `x` matches
+/// executables (green), `w` uses the normal text color, and `r`/`-` use the
+/// muted overlay color (same as the inactive tab title). Local files on Windows
+/// use a different attribute-flag format, so their attributes keep the plain
+/// text color.
 fn attributes_cell(
     attrs: &str,
     palette: &ThemePalette,
@@ -154,34 +156,27 @@ fn attributes_cell(
 ) -> Cell<'static> {
     let default_style = Style::default().fg(text_fg);
     if unix_style {
-        let dir_style =
-            Style::default().fg(Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b));
-        let exec_style = Style::default().fg(Color::Rgb(
-            palette.green.r,
-            palette.green.g,
-            palette.green.b,
-        ));
-        let muted_style = Style::default().fg(Color::Rgb(
-            palette.overlay0.r,
-            palette.overlay0.g,
-            palette.overlay0.b,
-        ));
         let spans: Vec<Span> = attrs
             .chars()
-            .map(|c| {
-                let style = match c {
-                    'd' => dir_style,
-                    'x' => exec_style,
-                    'r' | '-' => muted_style,
-                    _ => default_style,
-                };
-                Span::styled(c.to_string(), style)
-            })
+            .map(|c| Span::styled(c.to_string(), attributes_char_style(c, palette, text_fg)))
             .collect();
         Cell::from(Line::from(spans))
     } else {
         Cell::from(attrs.to_string()).style(default_style)
     }
+}
+
+/// Style of a single character of a Unix attributes string.
+fn attributes_char_style(c: char, palette: &ThemePalette, text_fg: Color) -> Style {
+    let rgb = |c: Rgb| Color::Rgb(c.r, c.g, c.b);
+    let color = match c {
+        'd' => rgb(palette.blue),
+        'l' => rgb(palette.cyan),
+        'x' => rgb(palette.green),
+        'r' | '-' => rgb(palette.overlay0),
+        _ => text_fg,
+    };
+    Style::default().fg(color)
 }
 
 /// Render a single entry row
@@ -220,6 +215,7 @@ fn render_entry_row<'a>(
             let icon = crate::icons::get_icon(
                 &entry.name,
                 entry.is_dir,
+                entry.is_symlink,
                 crate::fs::utils::is_executable(&ctx.current_dir.join(&entry.name), entry),
             );
             spans.push(Span::raw(format!("{icon} ")));
@@ -269,6 +265,7 @@ fn render_entry_row<'a>(
             let icon = crate::icons::get_icon(
                 &entry.name,
                 entry.is_dir,
+                entry.is_symlink,
                 crate::fs::utils::is_executable(&ctx.current_dir.join(&entry.name), entry),
             );
             format!("{icon} {truncated_name}")
@@ -1053,6 +1050,7 @@ fn get_task_progress_spans(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theme::Rgb;
 
     #[test]
     fn test_task_progress_truncation() {
@@ -1159,5 +1157,110 @@ mod tests {
 
     fn calculate_name_col_for(total: usize, attributes: u16) -> usize {
         super::name_col_width_for(total, attributes)
+    }
+
+    fn fg_of(style: Style) -> Option<Color> {
+        style.fg
+    }
+
+    fn entry(name: &str, is_dir: bool, is_symlink: bool, attributes: &str) -> FileEntry {
+        FileEntry {
+            name: name.to_string(),
+            is_dir,
+            is_symlink,
+            size: None,
+            modified: None,
+            attributes: attributes.to_string(),
+            selected: false,
+        }
+    }
+
+    #[test]
+    fn test_symlink_uses_its_own_color() {
+        let palette = crate::theme::catppuccin_macchiato();
+        let current_dir = Path::new("/nonexistent");
+        let rgb = |c: Rgb| Color::Rgb(c.r, c.g, c.b);
+
+        // A real directory stays blue and a plain executable stays green.
+        let dir = entry("real", true, false, "drwxr-xr-x ");
+        assert_eq!(
+            fg_of(style_for_entry(&dir, current_dir, &palette)),
+            Some(rgb(palette.blue))
+        );
+        let exec = entry("run", false, false, "-rwxr-xr-x");
+        assert_eq!(
+            fg_of(style_for_entry(&exec, current_dir, &palette)),
+            Some(rgb(palette.green))
+        );
+
+        // A link to a directory is not blue: the cyan marks it as a link even
+        // though it is enterable and sorts with directories.
+        let linked_dir = entry("link", true, true, "lrwxrwxrwx ");
+        let dir_style = fg_of(style_for_entry(&linked_dir, current_dir, &palette));
+        assert_eq!(dir_style, Some(rgb(palette.cyan)));
+        assert_ne!(dir_style, Some(rgb(palette.blue)));
+        assert_ne!(dir_style, Some(rgb(palette.green)));
+
+        // A link to a file uses the same color, and never the executable green.
+        let linked_file = entry("link.txt", false, true, "lrwxrwxrwx ");
+        let file_style = fg_of(style_for_entry(&linked_file, current_dir, &palette));
+        assert_eq!(file_style, Some(rgb(palette.cyan)));
+        assert_ne!(file_style, Some(rgb(palette.green)));
+        assert_ne!(file_style, Some(rgb(palette.text)));
+
+        // A broken link falls back to the same cyan.
+        let broken = entry("broken", false, true, "lrwxrwxrwx ");
+        assert_eq!(
+            fg_of(style_for_entry(&broken, current_dir, &palette)),
+            Some(rgb(palette.cyan))
+        );
+    }
+
+    #[test]
+    fn test_every_theme_defines_a_symlink_color() {
+        for name in crate::theme::THEME_NAMES {
+            let palette = crate::theme::get_theme(name).unwrap();
+            assert_ne!(palette.cyan.r, 0, "{name} has an unset symlink color");
+        }
+    }
+
+    #[test]
+    fn test_attributes_type_char_colors() {
+        let palette = crate::theme::catppuccin_macchiato();
+        let text_fg = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
+        let rgb = |c: Rgb| Color::Rgb(c.r, c.g, c.b);
+
+        // `l` marks a symlink with the same cyan as its name, for both a linked
+        // directory and a linked file.
+        for attrs in ["lrwxrwxrwx", "lrwxrwxrwx "] {
+            assert_eq!(
+                attributes_char_style('l', &palette, text_fg).fg,
+                Some(rgb(palette.cyan)),
+                "unexpected color for the link marker of {attrs:?}"
+            );
+        }
+        // `d` keeps the directory blue.
+        assert_eq!(
+            attributes_char_style('d', &palette, text_fg).fg,
+            Some(rgb(palette.blue))
+        );
+        // `x` keeps the executable green.
+        assert_eq!(
+            attributes_char_style('x', &palette, text_fg).fg,
+            Some(rgb(palette.green))
+        );
+        // `r`/`-` stay muted, `w` uses the normal text color.
+        assert_eq!(
+            attributes_char_style('r', &palette, text_fg).fg,
+            Some(rgb(palette.overlay0))
+        );
+        assert_eq!(
+            attributes_char_style('-', &palette, text_fg).fg,
+            Some(rgb(palette.overlay0))
+        );
+        assert_eq!(
+            attributes_char_style('w', &palette, text_fg).fg,
+            Some(text_fg)
+        );
     }
 }
