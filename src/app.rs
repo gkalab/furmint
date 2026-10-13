@@ -148,6 +148,7 @@ pub enum PendingAction {
         original_checksum: [u8; 16],
     },
     ToggleConsole,
+    #[cfg(windows)]
     WindowsContextMenu(PathBuf),
 }
 

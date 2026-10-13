@@ -251,11 +251,9 @@ pub async fn run() -> Result<()> {
                     enable_mouse_capture()?;
                 }
             }
+            #[cfg(windows)]
             Some(PendingAction::WindowsContextMenu(path)) => {
-                #[cfg(windows)]
                 crate::context_menu::show_context_menu(&path);
-                #[cfg(not(windows))]
-                let _ = path;
             }
             None => {
                 break;
