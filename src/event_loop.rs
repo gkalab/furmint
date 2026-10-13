@@ -246,7 +246,14 @@ async fn handle_watcher_event(event: crate::fs::watcher::WatcherEvent, app: &mut
         crate::fs::watcher::WatcherEvent::RemoteReloadRequested => {
             app.reload_remote();
         }
-        crate::fs::watcher::WatcherEvent::Error(_) => {}
+        crate::fs::watcher::WatcherEvent::Error(msg) => {
+            // Fallback only: a tab error from a failed navigation or
+            // refresh is more specific and must not be clobbered.
+            let tab = app.active_tab_mut();
+            if tab.error.is_none() {
+                tab.error = Some(format!("File watcher error: {msg}"));
+            }
+        }
     }
 }
 

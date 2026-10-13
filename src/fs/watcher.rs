@@ -7,9 +7,7 @@ use tokio::sync::mpsc::UnboundedSender;
 #[derive(Debug)]
 pub enum WatcherEvent {
     FileSystemChange(Vec<PathBuf>),
-    // The message is carried for diagnostics but the event loop currently
-    // discards it.
-    Error(#[allow(dead_code)] String),
+    Error(String),
     RemoteReloadRequested,
 }
 

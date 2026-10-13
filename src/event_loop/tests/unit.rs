@@ -94,11 +94,26 @@ async fn test_handle_watcher_event_preserves_selection() {
 }
 
 #[tokio::test]
-async fn test_handle_watcher_event_error() {
+async fn test_handle_watcher_event_error_sets_tab_error() {
     use crate::fs::watcher::WatcherEvent;
     let mut app = crate::app::AppState::test_default();
     let event = WatcherEvent::Error("test error".to_string());
     super::super::handle_watcher_event(event, &mut app).await;
-    // Should not panic or change error field
-    assert!(app.panels.left.active_tab().error.is_none());
+    assert_eq!(
+        app.panels.left.active_tab().error.as_deref(),
+        Some("File watcher error: test error")
+    );
+}
+
+#[tokio::test]
+async fn test_handle_watcher_event_error_does_not_clobber_existing_error() {
+    use crate::fs::watcher::WatcherEvent;
+    let mut app = crate::app::AppState::test_default();
+    app.panels.left.active_tab_mut().error = Some("existing error".to_string());
+    let event = WatcherEvent::Error("test error".to_string());
+    super::super::handle_watcher_event(event, &mut app).await;
+    assert_eq!(
+        app.panels.left.active_tab().error.as_deref(),
+        Some("existing error")
+    );
 }
