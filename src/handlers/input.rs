@@ -374,7 +374,6 @@ fn handle_calc_dir_size(app: &mut AppState) {
                     Ok(size) => {
                         tx.send(crate::tasks::UiEvent::Fs(
                             crate::tasks::FsEvent::DirSizeCalculated {
-                                task_id: id,
                                 path: path_clone,
                                 size,
                             },

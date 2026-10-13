@@ -149,13 +149,7 @@ pub enum SshEvent {
 #[derive(Debug)]
 pub enum FsEvent {
     /// Directory size calculation completed.
-    DirSizeCalculated {
-        // The owning task already tracked its own status separately.
-        #[allow(dead_code)]
-        task_id: usize,
-        path: std::path::PathBuf,
-        size: u64,
-    },
+    DirSizeCalculated { path: std::path::PathBuf, size: u64 },
     RemoteReloadCompleted {
         side: crate::app_state::tabs::PanelSide,
         tab_index: usize,

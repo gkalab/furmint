@@ -104,7 +104,7 @@ async fn dispatch_ssh_event(e: crate::tasks::SshEvent, app: &mut crate::app::App
 
 async fn dispatch_fs_event(e: crate::tasks::FsEvent, app: &mut crate::app::AppState) {
     match e {
-        crate::tasks::FsEvent::DirSizeCalculated { path, size, .. } => {
+        crate::tasks::FsEvent::DirSizeCalculated { path, size } => {
             handle_dir_size_calculated(app, &path, size);
         }
         crate::tasks::FsEvent::RemoteReloadCompleted {
