@@ -39,12 +39,12 @@ async fn test_7z_create_dir() {
 
     archive_fs.create_dir(Path::new("new_dir")).await.unwrap();
     let entry = archive_fs.get_entry(Path::new("new_dir")).unwrap();
-    assert!(entry.file_entry.is_dir);
-    assert_eq!(entry.file_entry.name, "new_dir");
+    assert!(entry.is_dir);
+    assert_eq!(entry.name, "new_dir");
 
     archive_fs.create_dir(Path::new("a/b/c")).await.unwrap();
     let nested = archive_fs.get_entry(Path::new("a/b/c")).unwrap();
-    assert!(nested.file_entry.is_dir);
+    assert!(nested.is_dir);
 }
 
 #[tokio::test]
@@ -150,7 +150,7 @@ async fn test_7z_set_modified_time() {
     assert!(ok, "set_modified_time should succeed");
 
     let entry = archive_fs.get_entry(Path::new("file.txt")).unwrap();
-    let modified = entry.file_entry.modified.unwrap();
+    let modified = entry.modified.unwrap();
 
     let diff = if modified > old_time {
         modified.duration_since(old_time).unwrap()
@@ -448,9 +448,9 @@ fn test_7z_single_file_has_no_directory_size() {
 
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
     let entry = archive_fs.get_entry(Path::new("f.txt")).unwrap();
-    assert!(!entry.file_entry.is_dir);
-    assert_eq!(entry.file_entry.size, Some(4));
-    assert!(entry.file_entry.modified.is_some());
+    assert!(!entry.is_dir);
+    assert_eq!(entry.size, Some(4));
+    assert!(entry.modified.is_some());
 }
 
 #[cfg(unix)]
@@ -487,7 +487,6 @@ async fn test_7z_scan_shows_unix_mode_from_attributes() {
         archive_fs
             .get_entry(Path::new("run.sh"))
             .unwrap()
-            .file_entry
             .attributes,
         "-rwxr-xr-x"
     );
@@ -495,7 +494,6 @@ async fn test_7z_scan_shows_unix_mode_from_attributes() {
         archive_fs
             .get_entry(Path::new("plain.txt"))
             .unwrap()
-            .file_entry
             .attributes,
         "-rw-r--r--"
     );
@@ -503,7 +501,6 @@ async fn test_7z_scan_shows_unix_mode_from_attributes() {
         archive_fs
             .get_entry(Path::new("scripts"))
             .unwrap()
-            .file_entry
             .attributes,
         "drwxr-xr-x"
     );
@@ -540,7 +537,6 @@ async fn test_7z_add_preserves_executable_permission() {
         archive_fs
             .get_entry(Path::new("bin/run.sh"))
             .unwrap()
-            .file_entry
             .attributes,
         "-rwxr-xr-x"
     );
@@ -548,7 +544,6 @@ async fn test_7z_add_preserves_executable_permission() {
         archive_fs
             .get_entry(Path::new("bin/plain.txt"))
             .unwrap()
-            .file_entry
             .attributes,
         "-rw-r--r--"
     );

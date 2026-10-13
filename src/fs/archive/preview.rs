@@ -1,5 +1,5 @@
 use crate::fs::archive::ScanResult;
-use crate::fs::archive_fs::ArchiveEntry;
+use crate::fs::utils::FileEntry;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -32,7 +32,7 @@ fn build_subtree(
     dir: &Path,
     prefix: &str,
     depth: usize,
-    entries: &HashMap<PathBuf, ArchiveEntry>,
+    entries: &HashMap<PathBuf, FileEntry>,
     tree: &HashMap<PathBuf, Vec<PathBuf>>,
     rows: &mut Vec<ArchiveTreeRow>,
 ) {
@@ -44,10 +44,10 @@ fn build_subtree(
     children.sort_by(|a, b| {
         let a_is_dir = entries
             .get(a)
-            .map_or_else(|| tree.contains_key(a), |e| e.file_entry.is_dir);
+            .map_or_else(|| tree.contains_key(a), |e| e.is_dir);
         let b_is_dir = entries
             .get(b)
-            .map_or_else(|| tree.contains_key(b), |e| e.file_entry.is_dir);
+            .map_or_else(|| tree.contains_key(b), |e| e.is_dir);
 
         let a_name = a.file_name().unwrap_or_default().to_string_lossy();
         let b_name = b.file_name().unwrap_or_default().to_string_lossy();
@@ -80,8 +80,8 @@ fn build_subtree(
 
         let is_dir = entries
             .get(child)
-            .map_or_else(|| tree.contains_key(child), |e| e.file_entry.is_dir);
-        let size = entry_opt.and_then(|e| e.file_entry.size);
+            .map_or_else(|| tree.contains_key(child), |e| e.is_dir);
+        let size = entry_opt.and_then(|e| e.size);
 
         rows.push(ArchiveTreeRow {
             prefix: current_prefix,
@@ -99,7 +99,6 @@ fn build_subtree(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fs::utils::FileEntry;
 
     #[test]
     fn test_build_archive_tree() {
@@ -113,49 +112,40 @@ mod tests {
 
         entries.insert(
             dir1.clone(),
-            ArchiveEntry {
-                file_entry: FileEntry {
-                    name: "src".to_string(),
-                    is_dir: true,
-                    is_symlink: false,
-                    size: None,
-                    modified: None,
-                    attributes: String::new(),
-                    selected: false,
-                },
-                position: None,
+            FileEntry {
+                name: "src".to_string(),
+                is_dir: true,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
             },
         );
 
         entries.insert(
             file1.clone(),
-            ArchiveEntry {
-                file_entry: FileEntry {
-                    name: "main.rs".to_string(),
-                    is_dir: false,
-                    is_symlink: false,
-                    size: Some(1024),
-                    modified: None,
-                    attributes: String::new(),
-                    selected: false,
-                },
-                position: None,
+            FileEntry {
+                name: "main.rs".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: Some(1024),
+                modified: None,
+                attributes: String::new(),
+                selected: false,
             },
         );
 
         entries.insert(
             file2.clone(),
-            ArchiveEntry {
-                file_entry: FileEntry {
-                    name: "README.md".to_string(),
-                    is_dir: false,
-                    is_symlink: false,
-                    size: Some(512),
-                    modified: None,
-                    attributes: String::new(),
-                    selected: false,
-                },
-                position: None,
+            FileEntry {
+                name: "README.md".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: Some(512),
+                modified: None,
+                attributes: String::new(),
+                selected: false,
             },
         );
 

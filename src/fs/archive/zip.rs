@@ -201,7 +201,6 @@ impl ZipHandler {
                     size: Some(size),
                     modified: Some(modified),
                     attributes,
-                    position: None,
                 },
                 &mut entries_map,
                 &mut tree_map,

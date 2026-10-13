@@ -753,10 +753,10 @@ async fn test_archive_fs_plain_gz_attributes() {
     let archive_fs = crate::fs::archive_fs::ArchiveFs::new(&archive_path).unwrap();
 
     let entry = archive_fs.get_entry(Path::new("test")).unwrap();
-    assert_eq!(entry.file_entry.name, "test");
-    assert_eq!(entry.file_entry.size, Some(12));
-    assert!(!entry.file_entry.is_dir);
-    assert!(!entry.file_entry.is_symlink);
+    assert_eq!(entry.name, "test");
+    assert_eq!(entry.size, Some(12));
+    assert!(!entry.is_dir);
+    assert!(!entry.is_symlink);
 }
 
 #[tokio::test]
@@ -1051,7 +1051,7 @@ async fn test_tar_timestamp_preservation() {
 }
 
 #[tokio::test]
-async fn test_archive_fs_download_tar_gz_optimized() {
+async fn test_archive_fs_download_tar_gz() {
     use flate2::Compression;
     use flate2::write::GzEncoder;
 
@@ -1075,21 +1075,15 @@ async fn test_archive_fs_download_tar_gz_optimized() {
         builder.finish().unwrap();
     }
 
-    // 2. Load ArchiveFs (this will decompress to temp and populate positions)
+    // 2. Load ArchiveFs (this will decompress to a temp tar)
     let archive_fs = crate::fs::archive_fs::ArchiveFs::new(&archive_path).unwrap();
 
-    // Verify position is populated
-    {
-        let entry = archive_fs
-            .get_entry(Path::new("hello.txt"))
-            .expect("entry not found");
-        assert!(
-            entry.position.is_some(),
-            "position should be populated for tar.gz entries"
-        );
-    }
+    assert!(
+        archive_fs.get_entry(Path::new("hello.txt")).is_some(),
+        "entry not found"
+    );
 
-    // 3. Test download (optimized extraction from temp tar)
+    // 3. Test download (extraction from the temp tar)
     let dest_file = temp_dir.path().join("extracted_hello.txt");
 
     let (raw_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<crate::tasks::UiEvent>();
@@ -1379,7 +1373,7 @@ async fn test_zip_delete_and_add() {
     );
 
     let entry = archive_fs.get_entry(Path::new("extra.txt")).unwrap();
-    let entry_mtime = entry.file_entry.modified.unwrap();
+    let entry_mtime = entry.modified.unwrap();
     let diff = if entry_mtime > mtime {
         entry_mtime.duration_since(mtime).unwrap()
     } else {
@@ -1388,7 +1382,7 @@ async fn test_zip_delete_and_add() {
     assert!(diff < Duration::from_secs(2)); // ZIP resolution
     #[cfg(unix)]
     {
-        assert!(entry.file_entry.attributes.contains('x'));
+        assert!(entry.attributes.contains('x'));
     }
 }
 

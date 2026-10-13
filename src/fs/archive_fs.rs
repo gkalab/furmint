@@ -14,20 +14,11 @@ use std::sync::{Arc, Mutex};
 const ADD_BATCH_BUDGET: usize = 64 * 1024 * 1024;
 
 #[derive(Clone)]
-pub struct ArchiveEntry {
-    pub file_entry: FileEntry,
-    // Byte offset of the member inside the archive. Computed while scanning but
-    // never consumed: members are decoded whole.
-    #[allow(dead_code)]
-    pub position: Option<u64>,
-}
-
-#[derive(Clone)]
 pub struct ArchiveFs {
     archive_path: PathBuf,
-    // We map "internal path" -> ArchiveEntry
+    // We map "internal path" -> FileEntry
     // The "internal path" should be relative to archive root, e.g. "folder/file.txt"
-    entries: Arc<Mutex<HashMap<PathBuf, ArchiveEntry>>>,
+    entries: Arc<Mutex<HashMap<PathBuf, FileEntry>>>,
     // Store children for fast directory listing: "folder" -> ["folder/sub", "folder/file.txt"]
     tree: Arc<Mutex<HashMap<PathBuf, Vec<PathBuf>>>>,
     handler: Arc<dyn ArchiveFormat>,
@@ -67,7 +58,7 @@ impl ArchiveFs {
     #[must_use]
     /// Gets an archive entry by path.
     #[cfg(test)]
-    pub fn get_entry(&self, path: &Path) -> Option<ArchiveEntry> {
+    pub fn get_entry(&self, path: &Path) -> Option<FileEntry> {
         let entries = self
             .entries
             .lock()
@@ -187,7 +178,7 @@ impl ArchiveFs {
         if let Some(children) = tree.get(&search_path) {
             for child_path in children {
                 if let Some(entry) = entries_map.get(child_path) {
-                    result.push(entry.file_entry.clone());
+                    result.push(entry.clone());
                 }
             }
         }
@@ -356,7 +347,7 @@ impl ArchiveFs {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .get(&p)
-                .is_some_and(|e| e.file_entry.is_dir)
+                .is_some_and(|e| e.is_dir)
         }
     }
 
@@ -388,8 +379,8 @@ impl ArchiveFs {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let entry = entries.get(p)?;
         Some(FileMetadata {
-            size: entry.file_entry.size.unwrap_or(0),
-            modified: entry.file_entry.modified,
+            size: entry.size.unwrap_or(0),
+            modified: entry.modified,
             permissions: Some(0o444),
         })
     }
@@ -425,7 +416,7 @@ impl ArchiveFs {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .get(p)
-            .and_then(|e| e.file_entry.modified)
+            .and_then(|e| e.modified)
     }
 
     fn set_modified_time_sync(&self, path: &Path, mtime: std::time::SystemTime) -> bool {
@@ -457,7 +448,7 @@ impl ArchiveFs {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         match entries.get(&target) {
-            Some(entry) if !entry.file_entry.is_dir => return entry.file_entry.size.unwrap_or(0),
+            Some(entry) if !entry.is_dir => return entry.size.unwrap_or(0),
             _ => {}
         }
 
@@ -467,9 +458,9 @@ impl ArchiveFs {
             if let Some(children) = tree.get(&dir) {
                 for child in children {
                     if let Some(entry) = entries.get(child) {
-                        if entry.file_entry.is_dir {
+                        if entry.is_dir {
                             stack.push(child.clone());
-                        } else if let Some(size) = entry.file_entry.size {
+                        } else if let Some(size) = entry.size {
                             total = total.saturating_add(size);
                         }
                     }
@@ -708,7 +699,7 @@ impl FileSystemProvider for ArchiveFs {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .get(&p)
-                .map(|e| e.file_entry.is_dir)
+                .map(|e| e.is_dir)
         })
         .await
         .unwrap_or(None)

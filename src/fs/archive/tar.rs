@@ -139,7 +139,6 @@ impl TarHandler {
             let size = entry.size();
             let modified = SystemTime::UNIX_EPOCH
                 + std::time::Duration::from_secs(entry.header().mtime().unwrap_or(0));
-            let position = entry.raw_header_position();
             let is_symlink = entry.header().entry_type().is_symlink();
             let unix_mode = entry
                 .header()
@@ -155,7 +154,6 @@ impl TarHandler {
                     size: Some(size),
                     modified: Some(modified),
                     attributes,
-                    position: Some(position),
                 },
                 &mut entries_map,
                 &mut tree_map,

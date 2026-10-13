@@ -167,7 +167,6 @@ impl SevenZHandler {
                     size,
                     modified,
                     attributes,
-                    position: None,
                 },
                 &mut entries_map,
                 &mut tree_map,

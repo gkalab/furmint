@@ -1,5 +1,4 @@
 use crate::fs::archive::{ArchiveFormat, ScanResult, common};
-use crate::fs::archive_fs::ArchiveEntry;
 use crate::fs::provider::TaskProgressContext;
 use crate::fs::utils::FileEntry;
 use anyhow::{Result, anyhow};
@@ -404,13 +403,7 @@ impl ArchiveFormat for RpmHandler {
                 selected: false,
             };
 
-            entries.insert(
-                p.clone(),
-                ArchiveEntry {
-                    file_entry,
-                    position: None,
-                },
-            );
+            entries.insert(p.clone(), file_entry);
 
             let mut curr = p.clone();
             while let Some(parent) = curr.parent() {
@@ -435,13 +428,7 @@ impl ArchiveFormat for RpmHandler {
                         attributes: crate::fs::utils::mode_to_attributes(0o40755, true, false),
                         selected: false,
                     };
-                    entries.insert(
-                        parent_path.clone(),
-                        ArchiveEntry {
-                            file_entry: dir_entry,
-                            position: None,
-                        },
-                    );
+                    entries.insert(parent_path.clone(), dir_entry);
                 }
 
                 let children = tree.entry(parent_path.clone()).or_default();
@@ -760,11 +747,11 @@ mod tests {
 
         let (entries, _tree) = handler.scan().unwrap();
         let file = entries.get(&PathBuf::from("usr/hello.txt")).unwrap();
-        assert_eq!(file.file_entry.name, "hello.txt");
-        assert!(!file.file_entry.is_dir);
-        assert_eq!(file.file_entry.size, Some(b"hello rpm".len() as u64));
+        assert_eq!(file.name, "hello.txt");
+        assert!(!file.is_dir);
+        assert_eq!(file.size, Some(b"hello rpm".len() as u64));
         let dir = entries.get(&PathBuf::from("usr")).unwrap();
-        assert!(dir.file_entry.is_dir);
+        assert!(dir.is_dir);
 
         assert_eq!(handler.read_file("usr/hello.txt").unwrap(), b"hello rpm");
 

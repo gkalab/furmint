@@ -1,4 +1,3 @@
-use crate::fs::archive_fs::ArchiveEntry;
 use crate::fs::utils::FileEntry;
 use anyhow::{Context, Result, anyhow};
 use filetime::{FileTime, set_file_handle_times, set_file_mtime};
@@ -26,9 +25,6 @@ pub struct ArchiveEntryMetadata {
     pub size: Option<u64>,
     pub modified: Option<SystemTime>,
     pub attributes: String,
-    // Feeds `ArchiveEntry::position`; see the note there.
-    #[allow(dead_code)]
-    pub position: Option<u64>,
 }
 
 /// Adds an archive entry and its parent directories to the entry and tree maps.
@@ -39,24 +35,21 @@ pub struct ArchiveEntryMetadata {
 pub fn add_to_tree<S: BuildHasher + Default>(
     path: PathBuf,
     meta: ArchiveEntryMetadata,
-    entries_map: &mut HashMap<PathBuf, ArchiveEntry, S>,
+    entries_map: &mut HashMap<PathBuf, FileEntry, S>,
     tree_map: &mut HashMap<PathBuf, HashSet<PathBuf, S>, S>,
 ) {
-    let entry = ArchiveEntry {
-        file_entry: FileEntry {
-            name: path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string(),
-            is_dir: meta.is_dir,
-            is_symlink: meta.is_symlink,
-            size: meta.size,
-            modified: meta.modified,
-            attributes: meta.attributes,
-            selected: false,
-        },
-        position: meta.position,
+    let entry = FileEntry {
+        name: path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string(),
+        is_dir: meta.is_dir,
+        is_symlink: meta.is_symlink,
+        size: meta.size,
+        modified: meta.modified,
+        attributes: meta.attributes,
+        selected: false,
     };
 
     entries_map.insert(path.clone(), entry);
@@ -83,21 +76,18 @@ pub fn add_to_tree<S: BuildHasher + Default>(
                 break;
             }
             if !entries_map.contains_key(p_norm) {
-                let implicit_entry = ArchiveEntry {
-                    file_entry: FileEntry {
-                        name: p_norm
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .to_string(),
-                        is_dir: true,
-                        is_symlink: false,
-                        size: None,
-                        modified: None,
-                        attributes: "dr-xr-xr-x".to_string(),
-                        selected: false,
-                    },
-                    position: None,
+                let implicit_entry = FileEntry {
+                    name: p_norm
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string(),
+                    is_dir: true,
+                    is_symlink: false,
+                    size: None,
+                    modified: None,
+                    attributes: "dr-xr-xr-x".to_string(),
+                    selected: false,
                 };
                 entries_map.insert(p_norm.to_path_buf(), implicit_entry);
                 if let Some(pp) = p_norm.parent() {

@@ -30,13 +30,13 @@ async fn test_zip_create_dir() {
 
     // 4. Verify directory exists in archive
     let entry = archive_fs.get_entry(Path::new("new_dir")).unwrap();
-    assert!(entry.file_entry.is_dir);
-    assert_eq!(entry.file_entry.name, "new_dir");
+    assert!(entry.is_dir);
+    assert_eq!(entry.name, "new_dir");
 
     // 5. Create a nested directory
     archive_fs.create_dir(Path::new("a/b/c")).await.unwrap();
     let entry_nested = archive_fs.get_entry(Path::new("a/b/c")).unwrap();
-    assert!(entry_nested.file_entry.is_dir);
+    assert!(entry_nested.is_dir);
 }
 
 #[tokio::test]
@@ -75,7 +75,7 @@ async fn test_zip_create_dir_timestamp() {
 
     // 4. Verify directory timestamp is close to now
     let entry = archive_fs.get_entry(Path::new("new_dir")).unwrap();
-    let modified = entry.file_entry.modified.unwrap();
+    let modified = entry.modified.unwrap();
 
     // Zip precision is 2 seconds
     let diff_before = modified
@@ -145,7 +145,7 @@ async fn test_zip_copy_dir_preserves_timestamp() {
     // Verify timestamp in archive
     let archive_fs = ArchiveFs::new(&archive_path).unwrap();
     let entry = archive_fs.get_entry(Path::new("copied_dir")).unwrap();
-    let modified = entry.file_entry.modified.unwrap();
+    let modified = entry.modified.unwrap();
 
     let diff = if modified > old_time {
         modified.duration_since(old_time).unwrap()

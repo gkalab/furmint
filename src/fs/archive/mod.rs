@@ -1,5 +1,5 @@
-use crate::fs::archive_fs::ArchiveEntry;
 use crate::fs::provider::TaskProgressContext;
+use crate::fs::utils::FileEntry;
 use anyhow::Result;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -12,10 +12,7 @@ pub mod sevenz;
 pub mod tar;
 pub mod zip;
 
-pub type ScanResult = (
-    HashMap<PathBuf, ArchiveEntry>,
-    HashMap<PathBuf, Vec<PathBuf>>,
-);
+pub type ScanResult = (HashMap<PathBuf, FileEntry>, HashMap<PathBuf, Vec<PathBuf>>);
 
 /// A new archive entry whose content is already in memory.
 ///

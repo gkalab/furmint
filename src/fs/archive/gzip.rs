@@ -1,5 +1,4 @@
 use super::ArchiveFormat;
-use crate::fs::archive_fs::ArchiveEntry;
 use crate::fs::provider::TaskProgressContext;
 use crate::fs::utils::{FileEntry, get_attributes};
 use anyhow::{Context, Result};
@@ -112,17 +111,14 @@ impl ArchiveFormat for GzipHandler {
             |m| get_attributes(m, false, false),
         );
 
-        let entry = ArchiveEntry {
-            file_entry: FileEntry {
-                name: self.original_name.clone(),
-                is_dir: false,
-                is_symlink: false,
-                size: Some(decompressed_size),
-                modified: mtime,
-                attributes,
-                selected: false,
-            },
-            position: Some(0),
+        let entry = FileEntry {
+            name: self.original_name.clone(),
+            is_dir: false,
+            is_symlink: false,
+            size: Some(decompressed_size),
+            modified: mtime,
+            attributes,
+            selected: false,
         };
 
         let mut entries_map = std::collections::HashMap::new();
