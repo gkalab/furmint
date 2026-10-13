@@ -141,30 +141,59 @@ pub fn finalize_tree<S: BuildHasher + Clone>(
     final_tree
 }
 
-/// Preserves directory modification times by applying them in reverse-depth order.
+/// Directory metadata collected during extraction and applied once every entry
+/// below the directory has been written.
+///
+/// A directory's mode cannot be applied when the directory is created: an
+/// archive that stores a read-only directory (`0o500`) ahead of the files
+/// inside it would make those files impossible to create. Mode and mtime are
+/// therefore deferred and restored together in one deepest-first pass, which is
+/// what `tar` and `unzip` do.
+pub struct PendingDirMeta {
+    path: PathBuf,
+    mtime: Option<SystemTime>,
+    /// Unix permission bits, already masked to [`PERM_BITS`].
+    #[cfg_attr(not(unix), allow(dead_code))]
+    mode: Option<u32>,
+}
+
+/// Restores directory modes and modification times by applying them in
+/// reverse-depth order.
+///
+/// Both are best-effort: a filesystem that refuses a `chmod` or a `utimes`
+/// (e.g. an exFAT mount) must not fail an extraction whose content has already
+/// been written in full.
 ///
 /// # Panics
 ///
 /// This function never panics.
-pub fn preserve_mtimes(mut dir_mtimes: Vec<(PathBuf, SystemTime)>) {
-    sort_dir_mtimes_deepest_first(&mut dir_mtimes);
-    for (dir, mtime) in dir_mtimes {
-        let _ = set_file_mtime(&dir, FileTime::from_system_time(mtime));
+pub fn restore_dir_metadata(mut pending: Vec<PendingDirMeta>) {
+    sort_dirs_deepest_first(&mut pending);
+    for dir in pending {
+        #[cfg(unix)]
+        if let Some(mode) = dir.mode {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&dir.path, std::fs::Permissions::from_mode(mode));
+        }
+        if let Some(mtime) = dir.mtime {
+            let _ = set_file_mtime(&dir.path, FileTime::from_system_time(mtime));
+        }
     }
 }
 
-/// Sorts directory mtime restorations deepest-first (reverse depth order), so
-/// that a directory's time is restored after all of its descendants. Ties are
+/// Sorts directory metadata restorations deepest-first (reverse depth order), so
+/// that a directory's metadata is restored after all of its descendants. Ties are
 /// broken by path for a deterministic order.
 ///
 /// Depth is the component count, not the OS-string length (a shallow path
 /// with a long name must not sort before a deep path with short names).
-fn sort_dir_mtimes_deepest_first(dir_mtimes: &mut [(PathBuf, SystemTime)]) {
-    dir_mtimes.sort_by(|a, b| {
-        b.0.components()
+fn sort_dirs_deepest_first(dirs: &mut [PendingDirMeta]) {
+    dirs.sort_by(|a, b| {
+        b.path
+            .components()
             .count()
-            .cmp(&a.0.components().count())
-            .then_with(|| b.0.cmp(&a.0))
+            .cmp(&a.path.components().count())
+            .then_with(|| b.path.cmp(&a.path))
     });
 }
 
@@ -222,6 +251,13 @@ pub const MAX_TOTAL_EXTRACT_BYTES: u64 = 1 << 40; // 1 TiB
 /// Buffer size for bounded copies.
 const IO_BUFFER_SIZE: usize = 64 * 1024;
 
+/// The permission bits [`chmod`] takes: setuid, setgid, sticky and rwx. The
+/// file-type bits that zip, 7z and rpm carry alongside them in `st_mode` are
+/// masked off before they reach the filesystem.
+///
+/// [`chmod`]: std::fs::set_permissions
+const PERM_BITS: u32 = 0o7777;
+
 /// Options for archive extraction.
 ///
 /// `dest` must be canonicalized once per extraction via [`canonicalize_dest`]
@@ -229,9 +265,6 @@ const IO_BUFFER_SIZE: usize = 64 * 1024;
 pub struct ExtractOptions<'a> {
     pub src_str: &'a str,
     pub dest: &'a Path,
-    // Populated but never applied: extraction does not restore unix modes.
-    #[allow(dead_code)]
-    pub is_dir: bool,
     pub progress: &'a crate::fs::provider::TaskProgressContext,
 }
 
@@ -242,9 +275,18 @@ pub struct ExtractionEntryMetadata<'a> {
     pub is_symlink: bool,
     pub size: u64,
     pub mtime: Option<SystemTime>,
-    // Populated from the archive header (zip/tar/rpm/7z) but never applied:
-    // extraction does not restore unix modes.
-    #[allow(dead_code)]
+    /// Unix permission bits as stored in the archive header (zip external
+    /// attributes, tar header, rpm entry mode, 7z attributes).
+    ///
+    /// Applied on Unix: to a file as soon as it is written, to a directory via
+    /// [`restore_dir_metadata`] once the extraction has finished (see
+    /// [`PendingDirMeta`]). Symlinks keep the mode the platform gave them.
+    /// `None` keeps the mode the extraction would have created anyway.
+    ///
+    /// Unused on Windows, where `std::fs::Permissions` models a read-only flag
+    /// and nothing else: the MS-DOS attribute of a zip entry is not an rwx
+    /// triple, so there is nothing sensible to map the mode onto.
+    #[cfg_attr(not(unix), allow(dead_code))]
     pub mode: Option<u32>,
 }
 
@@ -313,25 +355,23 @@ fn normalize_relative(name: &str) -> Option<PathBuf> {
     Some(out)
 }
 
-/// Creates the target directory and, on Unix, applies its mode.
+/// Creates the target directory and defers its mode and mtime to the end of the
+/// extraction.
 ///
 /// # Errors
 ///
-/// Returns an error if the directory cannot be created or its permissions set.
+/// Returns an error if the directory cannot be created.
 fn extract_dir_entry(
     target: &Path,
     meta: &ExtractionEntryMetadata<'_>,
-    dir_mtimes: &mut Vec<(PathBuf, SystemTime)>,
+    pending_dirs: &mut Vec<PendingDirMeta>,
 ) -> anyhow::Result<()> {
     std::fs::create_dir_all(target)?;
-    if let Some(mt) = meta.mtime {
-        dir_mtimes.push((target.to_path_buf(), mt));
-    }
-    #[cfg(unix)]
-    if let Some(mode) = meta.mode {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(target, std::fs::Permissions::from_mode(mode))?;
-    }
+    pending_dirs.push(PendingDirMeta {
+        path: target.to_path_buf(),
+        mtime: meta.mtime,
+        mode: meta.mode.map(|m| m & PERM_BITS),
+    });
     Ok(())
 }
 
@@ -473,7 +513,7 @@ fn write_entry_file<R: std::io::Read>(
     #[cfg(unix)]
     if let Some(mode) = meta.mode {
         use std::os::unix::fs::PermissionsExt;
-        out.set_permissions(std::fs::Permissions::from_mode(mode))?;
+        out.set_permissions(std::fs::Permissions::from_mode(mode & PERM_BITS))?;
     }
 
     out.sync_all()?;
@@ -521,6 +561,9 @@ fn extract_symlink_entry<R: std::io::Read>(
 
 /// Handles extraction of a single archive entry.
 ///
+/// Directory metadata is only queued here; the caller must pass the queue to
+/// [`restore_dir_metadata`] once every entry has been handled.
+///
 /// Returns `Ok(true)` if the entry was extracted, `Ok(false)` if it was skipped.
 ///
 /// # Errors
@@ -530,7 +573,7 @@ pub fn handle_extraction_entry<R: std::io::Read>(
     reader: R,
     entry_meta: &ExtractionEntryMetadata<'_>,
     opts: &ExtractOptions,
-    dir_mtimes: &mut Vec<(PathBuf, SystemTime)>,
+    pending_dirs: &mut Vec<PendingDirMeta>,
     last_update: &mut std::time::Instant,
 ) -> anyhow::Result<bool> {
     let name = entry_meta.name_raw.replace('\\', "/");
@@ -575,7 +618,7 @@ pub fn handle_extraction_entry<R: std::io::Read>(
     }
 
     if entry_meta.is_dir {
-        extract_dir_entry(&target, entry_meta, dir_mtimes)?;
+        extract_dir_entry(&target, entry_meta, pending_dirs)?;
     } else if entry_meta.is_symlink {
         #[cfg(unix)]
         extract_symlink_entry(reader, &target, dest, name)?;
@@ -642,10 +685,9 @@ mod tests {
         let opts = ExtractOptions {
             src_str,
             dest: &dest,
-            is_dir: true,
             progress: &opts_progress,
         };
-        let mut dir_mtimes = Vec::new();
+        let mut pending_dirs = Vec::new();
         let mut last_update = std::time::Instant::now();
         let mut result = None;
         for entry in archive.entries()? {
@@ -671,11 +713,37 @@ mod tests {
                     mode,
                 },
                 &opts,
-                &mut dir_mtimes,
+                &mut pending_dirs,
                 &mut last_update,
             )?);
         }
+        restore_dir_metadata(pending_dirs);
         Ok(result.unwrap_or(false))
+    }
+
+    /// Builds a tar blob, giving every entry its own mode. Entries whose name
+    /// ends in `/` are written as directory headers with no data.
+    #[cfg(unix)]
+    fn build_tar_with_modes(entries: &[(&str, u32, &[u8])]) -> Vec<u8> {
+        let mut b = Vec::new();
+        {
+            let mut w = tar::Builder::new(&mut b);
+            for (name, mode, data) in entries {
+                let mut header = tar::Header::new_gnu();
+                header.set_mode(*mode);
+                header.set_path(name).unwrap();
+                if name.ends_with('/') {
+                    header.set_entry_type(tar::EntryType::Directory);
+                    header.set_size(0);
+                } else {
+                    header.set_size(data.len() as u64);
+                }
+                header.set_cksum();
+                w.append(&header, *data).unwrap();
+            }
+            w.finish().unwrap();
+        }
+        b
     }
 
     fn build_tar(entries: &[(&str, &[u8])]) -> Vec<u8> {
@@ -694,13 +762,53 @@ mod tests {
         b
     }
 
+    /// Extracts a batch of hand-built entries the way a format handler does: one
+    /// `handle_extraction_entry` call per entry, then a single deferred
+    /// directory restoration once the batch is complete.
+    #[cfg(unix)]
+    fn extract_entries(
+        dest: &Path,
+        entries: &[(ExtractionEntryMetadata<'_>, &[u8])],
+    ) -> Result<()> {
+        let opts_progress = test_progress();
+        let dest = canonicalize_dest(dest);
+        let opts = ExtractOptions {
+            src_str: "",
+            dest: &dest,
+            progress: &opts_progress,
+        };
+        let mut pending_dirs = Vec::new();
+        for (meta, data) in entries {
+            handle_extraction_entry(
+                &mut Cursor::new(*data),
+                meta,
+                &opts,
+                &mut pending_dirs,
+                &mut std::time::Instant::now(),
+            )?;
+        }
+        restore_dir_metadata(pending_dirs);
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    fn mode_of(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o7777
+    }
+
+    #[cfg(unix)]
+    fn make_writable(path: &Path) {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755));
+    }
+
     fn extract_plain_name(name: &str, dest: &Path) -> Result<bool> {
         let opts_progress = test_progress();
         let dest = canonicalize_dest(dest);
         let opts = ExtractOptions {
             src_str: "",
             dest: &dest,
-            is_dir: true,
             progress: &opts_progress,
         };
         let mut cursor = Cursor::new(b"evil".as_slice());
@@ -774,7 +882,6 @@ mod tests {
         let opts = ExtractOptions {
             src_str: "out.txt",
             dest: &dest,
-            is_dir: false,
             progress: &opts_progress,
         };
         let mut cursor = Cursor::new(b"hello".as_slice());
@@ -800,7 +907,6 @@ mod tests {
         let opts2 = ExtractOptions {
             src_str: "a/b.txt",
             dest: &dest2,
-            is_dir: false,
             progress: &opts_progress,
         };
         let mut cursor = Cursor::new(b"world".as_slice());
@@ -852,7 +958,6 @@ mod tests {
         let opts = ExtractOptions {
             src_str: "",
             dest: &dest,
-            is_dir: true,
             progress: &opts_progress,
         };
         // The reader streams 10 bytes although the entry declares 4.
@@ -890,7 +995,6 @@ mod tests {
         let opts = ExtractOptions {
             src_str: "",
             dest: &dest,
-            is_dir: true,
             progress: &opts_progress,
         };
         // Declared size 0 means "unknown" (e.g. a zip entry written with a
@@ -931,13 +1035,142 @@ mod tests {
     }
 
     #[test]
-    fn dir_mtime_restoration_sorts_by_depth_not_string_length() {
-        let t = SystemTime::UNIX_EPOCH;
+    fn dir_metadata_restoration_sorts_by_depth_not_string_length() {
         let mut v = vec![
-            (PathBuf::from("/deep/a/b/c"), t),
-            (PathBuf::from("/shallow_but_long_name_1234567890"), t),
+            dir_meta("/shallow_but_long_name_1234567890"),
+            dir_meta("/deep/a/b/c"),
         ];
-        sort_dir_mtimes_deepest_first(&mut v);
-        assert_eq!(v[0].0, PathBuf::from("/deep/a/b/c"));
+        sort_dirs_deepest_first(&mut v);
+        assert_eq!(v[0].path, PathBuf::from("/deep/a/b/c"));
+    }
+
+    fn dir_meta(path: &str) -> PendingDirMeta {
+        PendingDirMeta {
+            path: PathBuf::from(path),
+            mtime: Some(SystemTime::UNIX_EPOCH),
+            mode: None,
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_mode_is_restored_with_the_file_type_bits_masked() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("dest");
+        std::fs::create_dir_all(&dest).unwrap();
+
+        // 0o100_600 is a regular file: the file-type bits must not reach
+        // `chmod`, which is only specified for the permission bits.
+        extract_entries(
+            &dest,
+            &[(
+                ExtractionEntryMetadata {
+                    name_raw: "f.txt",
+                    is_dir: false,
+                    is_symlink: false,
+                    size: 5,
+                    mtime: None,
+                    mode: Some(0o100_600),
+                },
+                b"hello",
+            )],
+        )
+        .unwrap();
+
+        assert_eq!(mode_of(&dest.join("f.txt")), 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_only_directory_mode_is_deferred_until_the_end() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("dest");
+        std::fs::create_dir_all(&dest).unwrap();
+
+        // A directory mode applied the moment the directory is created makes
+        // every later entry inside it unwritable, so the archive would fail
+        // here with EACCES.
+        extract_entries(
+            &dest,
+            &[
+                (
+                    ExtractionEntryMetadata {
+                        name_raw: "ro",
+                        is_dir: true,
+                        is_symlink: false,
+                        size: 0,
+                        mtime: None,
+                        mode: Some(0o040_500),
+                    },
+                    b"",
+                ),
+                (
+                    ExtractionEntryMetadata {
+                        name_raw: "ro/f.txt",
+                        is_dir: false,
+                        is_symlink: false,
+                        size: 5,
+                        mtime: None,
+                        mode: Some(0o100_644),
+                    },
+                    b"hello",
+                ),
+            ],
+        )
+        .unwrap();
+
+        let ro = dest.join("ro");
+        assert_eq!(std::fs::read_to_string(ro.join("f.txt")).unwrap(), "hello");
+        assert_eq!(mode_of(&ro), 0o500);
+
+        make_writable(&ro);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn nested_read_only_directories_are_restored_deepest_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("dest");
+        std::fs::create_dir_all(&dest).unwrap();
+
+        let blob = build_tar_with_modes(&[
+            ("a/", 0o040_500, b"".as_slice()),
+            ("a/b/", 0o040_500, b"".as_slice()),
+            ("a/b/c.txt", 0o100_640, b"deep".as_slice()),
+        ]);
+        extract_blob(&blob, &dest, "").unwrap();
+
+        let a = dest.join("a");
+        let b = a.join("b");
+        assert_eq!(std::fs::read_to_string(b.join("c.txt")).unwrap(), "deep");
+        assert_eq!(mode_of(&b.join("c.txt")), 0o640);
+        // Deepest first, so the inner directory is still reachable (and still
+        // writable) when its parent's mode is applied.
+        assert_eq!(mode_of(&b), 0o500);
+        assert_eq!(mode_of(&a), 0o500);
+
+        make_writable(&b);
+        make_writable(&a);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tar_directory_and_file_modes_are_restored_end_to_end() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("dest");
+        std::fs::create_dir_all(&dest).unwrap();
+
+        let blob = build_tar_with_modes(&[
+            ("pkg/", 0o040_750, b"".as_slice()),
+            ("pkg/bin/", 0o040_755, b"".as_slice()),
+            ("pkg/bin/run.sh", 0o100_755, b"#!/bin/sh\n".as_slice()),
+            ("pkg/notes.txt", 0o100_640, b"notes".as_slice()),
+        ]);
+        extract_blob(&blob, &dest, "").unwrap();
+
+        assert_eq!(mode_of(&dest.join("pkg")), 0o750);
+        assert_eq!(mode_of(&dest.join("pkg/bin")), 0o755);
+        assert_eq!(mode_of(&dest.join("pkg/bin/run.sh")), 0o755);
+        assert_eq!(mode_of(&dest.join("pkg/notes.txt")), 0o640);
     }
 }

@@ -188,26 +188,26 @@ impl SevenZHandler {
         &self,
         src_str: &str,
         dest: &Path,
-        is_dir: bool,
+        _is_dir: bool,
         progress: &TaskProgressContext,
     ) -> Result<()> {
         let mut reader = self.open_reader()?;
 
         let is_root = src_str.is_empty() || src_str == ".";
-        let mut dir_mtimes = Vec::new();
+        let mut pending_dirs = Vec::new();
         let mut last_update = std::time::Instant::now();
         let dest = common::canonicalize_dest(dest);
 
         let opts = common::ExtractOptions {
             src_str,
             dest: &dest,
-            is_dir,
             progress,
         };
 
         reader
             .for_each_entries(|entry, data| {
                 if progress.cancel.load(Ordering::Relaxed) {
+                    common::restore_dir_metadata(std::mem::take(&mut pending_dirs));
                     return Ok(false);
                 }
 
@@ -242,7 +242,7 @@ impl SevenZHandler {
                         mode,
                     },
                     &opts,
-                    &mut dir_mtimes,
+                    &mut pending_dirs,
                     &mut last_update,
                 )
                 .map_err(|e| sevenz_rust2::Error::Other(e.to_string().into()))?;
@@ -250,7 +250,7 @@ impl SevenZHandler {
             })
             .map_err(|e| anyhow::anyhow!("7z extraction failed: {e}"))?;
 
-        common::preserve_mtimes(dir_mtimes);
+        common::restore_dir_metadata(pending_dirs);
 
         let p = progress.processed_items.load(Ordering::Relaxed);
         progress.tx.send(crate::tasks::UiEvent::Task(

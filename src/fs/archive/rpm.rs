@@ -491,7 +491,7 @@ impl ArchiveFormat for RpmHandler {
         &self,
         src_path: &str,
         dest: &Path,
-        is_dir: bool,
+        _is_dir: bool,
         progress: &TaskProgressContext,
     ) -> Result<()> {
         let mut reader = self.get_payload_reader()?;
@@ -500,15 +500,15 @@ impl ArchiveFormat for RpmHandler {
         let opts = common::ExtractOptions {
             src_str: src_path,
             dest: &dest,
-            is_dir,
             progress,
         };
 
-        let mut dir_mtimes = Vec::new();
+        let mut pending_dirs = Vec::new();
         let mut last_update = std::time::Instant::now();
 
         loop {
             if progress.cancel.load(Ordering::Relaxed) {
+                common::restore_dir_metadata(std::mem::take(&mut pending_dirs));
                 return Ok(());
             }
 
@@ -542,14 +542,14 @@ impl ArchiveFormat for RpmHandler {
                     mode,
                 },
                 &opts,
-                &mut dir_mtimes,
+                &mut pending_dirs,
                 &mut last_update,
             )?;
 
             reader = entry_reader.finish()?;
         }
 
-        common::preserve_mtimes(dir_mtimes);
+        common::restore_dir_metadata(pending_dirs);
         let p_final = progress.processed_items.load(Ordering::Relaxed);
         progress.tx.send(crate::tasks::UiEvent::Task(
             crate::tasks::TaskEvent::UpdateProgress {
