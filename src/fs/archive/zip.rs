@@ -622,3 +622,6 @@ impl ArchiveFormat for ZipHandler {
         self.do_add_entries(entries)
     }
 }
+
+#[cfg(test)]
+mod tests;

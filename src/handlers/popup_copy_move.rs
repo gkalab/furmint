@@ -853,3 +853,6 @@ pub fn spawn_copy_move_task(
         .task_decision_txs
         .insert(id, decision_tx);
 }
+
+#[cfg(test)]
+mod tests;

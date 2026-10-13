@@ -210,3 +210,6 @@ async fn handle_post_create_actions(app: &mut AppState, path_buf: std::path::Pat
     }
     true
 }
+
+#[cfg(test)]
+mod tests;

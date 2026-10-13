@@ -124,3 +124,6 @@ pub fn handle_confirm_delete(app: &mut AppState) {
         entry.selected = false;
     }
 }
+
+#[cfg(test)]
+mod tests;

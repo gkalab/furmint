@@ -44,14 +44,6 @@ impl LayoutState {
     }
 
     #[must_use]
-    pub fn tab_areas(&self, side: PanelSide) -> &[Rect] {
-        match side {
-            PanelSide::Left => &self.left_tab_areas,
-            PanelSide::Right => &self.right_tab_areas,
-        }
-    }
-
-    #[must_use]
     pub fn panel_area(&self, side: PanelSide) -> &Rect {
         match side {
             PanelSide::Left => &self.left_panel_area,

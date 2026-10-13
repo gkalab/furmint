@@ -103,6 +103,7 @@ impl FilterableListState {
         }
     }
 
+    #[cfg(test)]
     pub fn move_cursor_left(&mut self) {
         if self.cursor_position > 0 {
             self.cursor_position -= 1;
@@ -113,16 +114,19 @@ impl FilterableListState {
     ///
     /// `cursor_position` is a char index (see `input_utils::handle_text_input`),
     /// so it must be bounded by the char count, not the byte length.
+    #[cfg(test)]
     pub fn move_cursor_right(&mut self) {
         if self.cursor_position < self.input.chars().count() {
             self.cursor_position += 1;
         }
     }
 
+    #[cfg(test)]
     pub fn move_cursor_home(&mut self) {
         self.cursor_position = 0;
     }
 
+    #[cfg(test)]
     pub fn move_cursor_end(&mut self) {
         self.cursor_position = self.input.chars().count();
     }

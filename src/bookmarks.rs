@@ -78,7 +78,7 @@ impl BookmarkStore {
         Ok(state_dir.join("bookmarks.json"))
     }
 
-    #[cfg(any(test, feature = "test-utils"))]
+    #[cfg(test)]
     #[must_use]
     pub fn test_default() -> Self {
         Self {
@@ -92,6 +92,7 @@ impl BookmarkStore {
     /// # Errors
     ///
     /// Returns an error if the store cannot be persisted to disk.
+    #[cfg(test)]
     pub fn add(&mut self, path: PathBuf) -> Result<bool> {
         self.add_with_ssh(path, None, None, None)
     }
@@ -102,6 +103,7 @@ impl BookmarkStore {
     /// # Errors
     ///
     /// Returns an error if the store cannot be persisted to disk.
+    #[cfg(test)]
     pub fn add_with_ssh(
         &mut self,
         path: PathBuf,
@@ -203,6 +205,7 @@ impl BookmarkStore {
         results.into_iter().map(|(entry, _)| entry).collect()
     }
 
+    #[cfg(test)]
     #[must_use]
     pub fn find_entry(&self, path: &Path, is_remote: bool) -> Option<&BookmarkEntry> {
         self.entries
@@ -210,12 +213,14 @@ impl BookmarkStore {
             .find(|e| e.path == path && e.ssh_host.is_some() == is_remote)
     }
 
+    #[cfg(test)]
     #[must_use]
     pub fn contains(&self, path: &Path) -> bool {
         self.entries.iter().any(|e| e.path == path)
     }
 
     /// Returns the paths of [`Self::fuzzy_search_entries`], in the same order.
+    #[cfg(test)]
     #[must_use]
     pub fn fuzzy_search(&self, query: &str) -> Vec<PathBuf> {
         self.fuzzy_search_entries(query)

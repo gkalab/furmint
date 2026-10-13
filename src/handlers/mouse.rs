@@ -1020,3 +1020,6 @@ pub(crate) fn is_in_rect(pos: (u16, u16), rect: Rect) -> bool {
         && pos.1 >= rect.y
         && pos.1 < rect.y + rect.height
 }
+
+#[cfg(test)]
+mod tests;

@@ -1,0 +1,185 @@
+use crate::app_state::tabs::PanelSide;
+use crate::app_state::tabs::{Tab, TabManager};
+use crate::fs::local::LocalFs;
+use crate::fs::utils::FileEntry;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+fn create_test_tab(name: &str, entries: Vec<FileEntry>) -> Tab {
+    let current_dir = PathBuf::from(format!("/tmp/{name}"));
+    Tab {
+        provider: Arc::new(LocalFs::new()),
+        current_dir: current_dir.clone(),
+        entries,
+        cursor: 0,
+        search: crate::app_state::tabs::IncrementalSearch::default(),
+        sort: crate::app_state::tabs::SortSettings::default(),
+        scroll_offset: 0,
+        error: None,
+        custom_title: None,
+        ssh_session_id: None,
+        status_msg: None,
+        dir_sizes: std::collections::HashMap::new(),
+        is_reloading: false,
+        visible_indices: Vec::new(),
+        filter: crate::state::FileFilterState::new(),
+    }
+}
+
+#[test]
+fn test_multi_tab_search_timeout() {
+    let mut left_tab = create_test_tab(
+        "left",
+        vec![FileEntry {
+            name: "apple.txt".to_string(),
+            is_dir: false,
+            is_symlink: false,
+            size: Some(10),
+            modified: None,
+            attributes: String::new(),
+            selected: false,
+        }],
+    );
+    left_tab.search.buffer = "a".to_string();
+    left_tab.search.last_type_time =
+        Some(Instant::now().checked_sub(Duration::from_secs(2)).unwrap()); // Expired
+
+    let mut right_tab = create_test_tab(
+        "right",
+        vec![FileEntry {
+            name: "banana.txt".to_string(),
+            is_dir: false,
+            is_symlink: false,
+            size: Some(10),
+            modified: None,
+            attributes: String::new(),
+            selected: false,
+        }],
+    );
+    right_tab.search.buffer = "b".to_string();
+    right_tab.search.last_type_time = Some(Instant::now()); // Still active
+
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut app = crate::test_utils::TestAppBuilder::new()
+        .left(TabManager {
+            tabs: vec![left_tab],
+            active_tab_index: 0,
+        })
+        .right(TabManager {
+            tabs: vec![right_tab],
+            active_tab_index: 0,
+        })
+        .task_tx(tx)
+        .build();
+    app.panels.active = PanelSide::Right;
+
+    // Before reset
+    assert_ne!(app.panels.left.tabs[0].search.buffer, "");
+    assert_ne!(app.panels.right.tabs[0].search.buffer, "");
+
+    // Run reset logic
+    crate::handlers::navigation::reset_expired_search(&mut app);
+
+    // After reset: left (background, expired) should be cleared. right (active, not expired) should remain.
+    assert!(
+        app.panels.left.tabs[0].search.buffer.is_empty(),
+        "Expired background tab should be cleared"
+    );
+    assert!(
+        !app.panels.right.tabs[0].search.buffer.is_empty(),
+        "Active valid tab should NOT be cleared"
+    );
+}
+
+#[test]
+fn test_reload_optimization_and_persistence() {
+    let mut tab = create_test_tab(
+        "test",
+        vec![
+            FileEntry {
+                name: "..".to_string(),
+                is_dir: true,
+                is_symlink: false,
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+            FileEntry {
+                name: "apple.txt".to_string(),
+                is_dir: false,
+                is_symlink: false,
+                size: Some(10),
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+        ],
+    );
+
+    // Simulate active search
+    tab.search.buffer = "ap".to_string();
+    tab.search.last_type_time = Some(Instant::now());
+    tab.apply_search_highlights();
+    assert!(!tab.search.highlights.is_empty());
+
+    // 1. Reload with logically same entries (reordered)
+    let reordered_entries = vec![
+        FileEntry {
+            name: "apple.txt".to_string(),
+            is_dir: false,
+            is_symlink: false,
+            size: Some(10),
+            modified: None,
+            attributes: String::new(),
+            selected: false,
+        },
+        FileEntry {
+            name: "..".to_string(),
+            is_dir: true,
+            is_symlink: false,
+            size: None,
+            modified: None,
+            attributes: String::new(),
+            selected: false,
+        },
+    ];
+    let reloaded = tab.reload_preserving_state(reordered_entries);
+    assert!(
+        !reloaded,
+        "Should skip reload for logically equivalent entries"
+    );
+    assert!(
+        !tab.search.highlights.is_empty(),
+        "Highlights should persist"
+    );
+
+    // 2. Reload with actual meta change
+    let changed_entries = vec![
+        FileEntry {
+            name: "..".to_string(),
+            is_dir: true,
+            is_symlink: false,
+            size: None,
+            modified: None,
+            attributes: String::new(),
+            selected: false,
+        },
+        FileEntry {
+            name: "apple.txt".to_string(),
+            is_dir: false,
+            is_symlink: false,
+            size: Some(20),
+            modified: None,
+            attributes: String::new(),
+            selected: false,
+        },
+    ];
+    let reloaded = tab.reload_preserving_state(changed_entries);
+    assert!(reloaded, "Should reload for metadata change");
+    assert!(
+        !tab.search.highlights.is_empty(),
+        "Highlights should NOT be cleared during actual reload if search is active"
+    );
+}

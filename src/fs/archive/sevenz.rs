@@ -571,3 +571,6 @@ impl ArchiveFormat for SevenZHandler {
         self.do_rename_file(from, to)
     }
 }
+
+#[cfg(test)]
+mod tests;

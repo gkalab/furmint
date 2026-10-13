@@ -1,23 +1,23 @@
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 use crate::app::{AppState, Popups};
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 use crate::app_state::tabs::{IncrementalSearch, PanelSide, SortSettings, Tab, TabManager};
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 use crate::fs::local::LocalFs;
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 use crate::fs::provider::{FileMetadata, FileSystemProvider};
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 use crate::fs::utils::FileEntry;
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 use async_trait::async_trait;
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 use std::path::PathBuf;
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 use std::sync::Arc;
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 #[must_use]
 pub fn create_test_tab() -> Tab {
     Tab {
@@ -39,7 +39,7 @@ pub fn create_test_tab() -> Tab {
     }
 }
 
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 #[must_use]
 pub fn create_test_tab_with_entries() -> Tab {
     let entries = vec![
@@ -105,7 +105,7 @@ pub fn create_test_tab_with_entries() -> Tab {
 /// Centralizes the full `AppState` struct literal so tests only override the
 /// pieces they need (tabs, task channel, opener) instead of duplicating every
 /// field. Any field added to `AppState` only needs to be handled here.
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 #[derive(Default)]
 pub struct TestAppBuilder {
     left: Option<TabManager>,
@@ -114,7 +114,7 @@ pub struct TestAppBuilder {
     opener: Option<std::sync::Arc<dyn crate::opener::FileOpener + Send + Sync>>,
 }
 
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 impl TestAppBuilder {
     #[must_use]
     pub fn new() -> Self {
@@ -216,7 +216,7 @@ impl TestAppBuilder {
 /// # Panics
 ///
 /// Panics if `DirectoryHistory` or `SshConnectionHistory` fails to initialize.
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 #[must_use]
 pub fn create_test_app() -> AppState {
     TestAppBuilder::new().build()
@@ -224,10 +224,10 @@ pub fn create_test_app() -> AppState {
 
 /// Test-support filesystem: async `tokio::fs` implementation of the unified
 /// `FileSystemProvider` trait, used by unit tests that need a real provider.
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 pub struct StdFileSystem;
 
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(test)]
 #[async_trait]
 impl FileSystemProvider for StdFileSystem {
     async fn list_dir(&self, path: &std::path::Path) -> anyhow::Result<Vec<FileEntry>> {

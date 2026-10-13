@@ -236,3 +236,6 @@ pub fn handle_external_viewer(app: &mut AppState) -> bool {
     }
     false
 }
+
+#[cfg(test)]
+mod tests;

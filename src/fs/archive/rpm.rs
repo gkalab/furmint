@@ -21,7 +21,6 @@ pub struct RpmHandler {
 pub enum RpmValue {
     String(String),
     Int32(i32),
-    Int64(i64),
     StringArray(Vec<String>),
     Binary(Vec<u8>),
 }
@@ -32,7 +31,6 @@ impl RpmValue {
         match self {
             RpmValue::String(s) => s.clone(),
             RpmValue::Int32(i) => i.to_string(),
-            RpmValue::Int64(i) => i.to_string(),
             RpmValue::StringArray(arr) => arr.join(", "),
             RpmValue::Binary(_) => "<binary>".to_string(),
         }

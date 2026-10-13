@@ -16,6 +16,9 @@ const ADD_BATCH_BUDGET: usize = 64 * 1024 * 1024;
 #[derive(Clone)]
 pub struct ArchiveEntry {
     pub file_entry: FileEntry,
+    // Byte offset of the member inside the archive. Computed while scanning but
+    // never consumed: members are decoded whole.
+    #[allow(dead_code)]
     pub position: Option<u64>,
 }
 
@@ -63,17 +66,13 @@ impl ArchiveFs {
 
     #[must_use]
     /// Gets an archive entry by path.
+    #[cfg(test)]
     pub fn get_entry(&self, path: &Path) -> Option<ArchiveEntry> {
         let entries = self
             .entries
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         entries.get(path).cloned()
-    }
-
-    #[must_use]
-    pub fn get_entry_for_extraction(&self, path: &Path) -> Option<ArchiveEntry> {
-        self.get_entry(path)
     }
 
     /// Resolves a path against the archive's virtual tree, collapsing `.` and `..`
@@ -147,6 +146,7 @@ impl ArchiveFs {
         Ok(())
     }
 
+    #[cfg(test)]
     pub async fn extract(
         &self,
         src: &Path,
@@ -869,10 +869,6 @@ impl FileSystemProvider for ArchiveFs {
         dest_fs.is_local()
     }
 
-    async fn supports_copy_from_local(&self, src_fs: &dyn FileSystemProvider, _src: &Path) -> bool {
-        src_fs.is_local()
-    }
-
     /// Copies from any provider (another archive, a remote host) by decoding
     /// entries through the provider API and appending them to this archive.
     async fn copy_from_source(
@@ -922,3 +918,6 @@ impl FileSystemProvider for ArchiveFs {
         )
     }
 }
+
+#[cfg(test)]
+mod tests;

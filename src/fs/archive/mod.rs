@@ -351,7 +351,7 @@ pub fn get_archive_handler(path: &Path) -> Result<Box<dyn ArchiveFormat>> {
         ArchiveFormatKind::Zip => Ok(Box::new(zip::ZipHandler::new(path))),
         ArchiveFormatKind::SevenZ => Ok(Box::new(sevenz::SevenZHandler::new(path))),
         ArchiveFormatKind::Tar => Ok(Box::new(tar::TarHandler::new(path)?)),
-        ArchiveFormatKind::Gzip => Ok(Box::new(gzip::GzipHandler::new(path)?)),
+        ArchiveFormatKind::Gzip => Ok(Box::new(gzip::GzipHandler::new(path))),
         ArchiveFormatKind::Rpm => Ok(Box::new(rpm::RpmHandler::new(path))),
     }
 }

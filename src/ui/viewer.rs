@@ -102,7 +102,7 @@ fn render_text_content(
     borders: bool,
     icons_enabled: bool,
 ) {
-    let visible_lines = viewer.visible_lines(geometry);
+    let visible_lines = FileViewerState::visible_lines(geometry);
     let (max_lines, is_large_file) = if let Some(indexer) = &viewer.text.large_file_indexer {
         (indexer.total_lines(), true)
     } else {

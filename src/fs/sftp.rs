@@ -1157,8 +1157,4 @@ impl FileSystemProvider for SftpFs {
         // `copy_to_local` handles files only; directories are recursed into.
         !self.is_dir(src).await
     }
-
-    async fn supports_copy_from_local(&self, src_fs: &dyn FileSystemProvider, src: &Path) -> bool {
-        !src_fs.is_dir(src).await
-    }
 }

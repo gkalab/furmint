@@ -109,3 +109,6 @@ pub fn handle_text_input(
     }
     false
 }
+
+#[cfg(test)]
+mod tests;

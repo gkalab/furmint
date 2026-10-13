@@ -74,6 +74,7 @@ pub enum TaskEvent {
         task_id: usize,
         filename: String,
     },
+    #[cfg_attr(not(unix), allow(dead_code))]
     SetRsyncMode {
         task_id: usize,
         rsync: bool,
@@ -149,6 +150,8 @@ pub enum SshEvent {
 pub enum FsEvent {
     /// Directory size calculation completed.
     DirSizeCalculated {
+        // The owning task already tracked its own status separately.
+        #[allow(dead_code)]
         task_id: usize,
         path: std::path::PathBuf,
         size: u64,
@@ -272,6 +275,7 @@ impl EventBus {
     }
 
     /// Returns true once the consumer is gone and events are being discarded.
+    #[cfg(test)]
     #[must_use]
     pub fn is_closed(&self) -> bool {
         self.tx.is_closed()

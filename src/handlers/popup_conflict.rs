@@ -37,3 +37,6 @@ pub async fn handle_conflict_event(code: KeyCode, app: &mut AppState) -> bool {
     }
     false
 }
+
+#[cfg(test)]
+mod tests;

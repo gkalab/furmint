@@ -1032,6 +1032,7 @@ impl TabManager {
     /// # Errors
     ///
     /// Returns an error if the directory cannot be read.
+    #[cfg(test)]
     pub async fn new_tab(&mut self, path: &Path, cursor: Option<usize>) -> anyhow::Result<()> {
         self.new_tab_with_provider(path, Arc::new(LocalFs::new()), cursor)
             .await
@@ -1115,3 +1116,6 @@ impl PanelSide {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

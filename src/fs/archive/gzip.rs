@@ -18,19 +18,17 @@ pub struct GzipHandler {
 
 impl GzipHandler {
     /// Creates a new `GzipHandler` for the given path.
-    ///
-    /// # Errors
-    /// Returns an error if the file cannot be opened.
-    pub fn new(path: &Path) -> Result<Self> {
+    #[must_use]
+    pub fn new(path: &Path) -> Self {
         let original_name = path
             .file_stem()
             .and_then(|s| s.to_str())
             .map_or_else(|| "unknown".to_string(), std::string::ToString::to_string);
 
-        Ok(Self {
+        Self {
             path: path.to_path_buf(),
             original_name,
-        })
+        }
     }
 
     /// Opens the gzip file and returns a streaming decoder.

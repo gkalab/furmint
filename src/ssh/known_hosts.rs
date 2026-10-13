@@ -108,6 +108,7 @@ impl KnownHosts {
     }
 
     /// For tests: create with an explicit file path.
+    #[cfg(test)]
     #[must_use]
     pub fn with_path(path: PathBuf) -> Self {
         let entries = Self::parse_file(&path).unwrap_or_default();
@@ -115,11 +116,6 @@ impl KnownHosts {
             path,
             entries: RwLock::new(entries),
         }
-    }
-
-    #[must_use]
-    pub fn path(&self) -> &Path {
-        &self.path
     }
 
     /// Host key used in the `HashMap`: `host` for port 22, `[host]:port` otherwise.

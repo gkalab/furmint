@@ -26,6 +26,8 @@ pub struct ArchiveEntryMetadata {
     pub size: Option<u64>,
     pub modified: Option<SystemTime>,
     pub attributes: String,
+    // Feeds `ArchiveEntry::position`; see the note there.
+    #[allow(dead_code)]
     pub position: Option<u64>,
 }
 
@@ -227,6 +229,8 @@ const IO_BUFFER_SIZE: usize = 64 * 1024;
 pub struct ExtractOptions<'a> {
     pub src_str: &'a str,
     pub dest: &'a Path,
+    // Populated but never applied: extraction does not restore unix modes.
+    #[allow(dead_code)]
     pub is_dir: bool,
     pub progress: &'a crate::fs::provider::TaskProgressContext,
 }
@@ -238,6 +242,9 @@ pub struct ExtractionEntryMetadata<'a> {
     pub is_symlink: bool,
     pub size: u64,
     pub mtime: Option<SystemTime>,
+    // Populated from the archive header (zip/tar/rpm/7z) but never applied:
+    // extraction does not restore unix modes.
+    #[allow(dead_code)]
     pub mode: Option<u32>,
 }
 

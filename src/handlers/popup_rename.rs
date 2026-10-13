@@ -149,3 +149,6 @@ pub(crate) async fn perform_rename(app: &mut AppState, overwrite: bool) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

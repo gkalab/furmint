@@ -48,14 +48,6 @@ pub struct TextViewerState {
 
 impl TextViewerState {
     #[must_use]
-    pub fn with_theme(theme: Option<lumis::themes::Theme>) -> Self {
-        Self {
-            theme,
-            ..Self::default()
-        }
-    }
-
-    #[must_use]
     pub fn with_theme_name(name: &str, theme: Option<lumis::themes::Theme>) -> Self {
         Self {
             theme,
@@ -861,7 +853,7 @@ impl TextViewerState {
         tokio::spawn(async move {
             let result_path = path.clone();
             let index = tokio::task::spawn_blocking(move || {
-                let reader = crate::large_text::file_reader::FileReader::new(path, encoding)?;
+                let reader = crate::large_text::file_reader::FileReader::new(&path, encoding)?;
                 let mut indexer = crate::large_text::line_indexer::LineIndexer::new();
                 indexer.index_file(&reader);
                 Ok::<_, anyhow::Error>((reader, indexer))

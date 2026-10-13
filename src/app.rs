@@ -99,11 +99,13 @@ macro_rules! declare_popups {
 
         impl PopupKind {
             /// Every popup kind, in declaration order.
+            #[cfg(test)]
             pub fn all() -> impl Iterator<Item = Self> {
                 [$( Self::$variant ),*].into_iter()
             }
 
             /// Returns `true` if this popup is currently visible in `popups`.
+            #[cfg(test)]
             #[must_use]
             pub fn is_visible(self, popups: &Popups) -> bool {
                 match self {
@@ -808,9 +810,12 @@ impl AppState {
         self.sync_watcher();
     }
 
-    #[cfg(any(test, feature = "test-utils"))]
+    #[cfg(test)]
     #[must_use]
     pub fn test_default() -> Self {
         crate::test_utils::create_test_app()
     }
 }
+
+#[cfg(test)]
+mod tests;

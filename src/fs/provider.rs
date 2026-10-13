@@ -232,6 +232,7 @@ pub trait FileSystemProvider: Send + Sync {
     /// # Errors
     ///
     /// Returns an error if the copy fails.
+    #[cfg(test)]
     async fn copy(&self, src: &Path, dst: &Path) -> Result<()> {
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         let tx = crate::tasks::EventBus::new(tx);
@@ -434,6 +435,7 @@ pub trait FileSystemProvider: Send + Sync {
     fn context_key(&self) -> ContextKey;
 
     /// Get the password if this is a password-authenticated connection.
+    #[cfg_attr(not(unix), allow(dead_code))]
     fn get_password(&self) -> Option<SecretString> {
         None
     }
@@ -521,17 +523,6 @@ pub trait FileSystemProvider: Send + Sync {
     /// `dest_fs`. Must not perform the transfer, so callers can check
     /// applicability before making a conflict decision.
     async fn supports_copy_to_local(&self, _src: &Path, _dest_fs: &dyn FileSystemProvider) -> bool {
-        false
-    }
-
-    /// Capability probe for `copy_from_local`: returns `true` if this provider
-    /// has an optimized path for transferring `src` (on `src_fs`) to a
-    /// destination on this provider. Must not perform the transfer.
-    async fn supports_copy_from_local(
-        &self,
-        _src_fs: &dyn FileSystemProvider,
-        _src: &Path,
-    ) -> bool {
         false
     }
 }

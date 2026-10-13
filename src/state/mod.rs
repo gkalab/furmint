@@ -30,12 +30,11 @@ pub use empty_trash::EmptyTrashState;
 pub use error::ErrorState;
 pub use file_filter::{FileFilterState, compile_glob, effective_glob};
 pub use file_viewer::{
-    ContentLoadResult, FileViewerSearchState, FileViewerState, HighlightBatch, HighlightRequest,
-    HighlightWorker, ImageLoadResult, ImageViewerState, LineSegments, TextViewerState,
-    parse_hex_color,
+    ContentLoadResult, FileViewerSearchState, FileViewerState, HighlightBatch, HighlightWorker,
+    ImageLoadResult, parse_hex_color,
 };
 pub use help::HelpState;
-pub use host_key::{HostKeyPrompt, HostKeyState};
+pub use host_key::HostKeyState;
 pub use quit::QuitConfirmationState;
 pub use remote_edit::RemoteEditState;
 pub use rename::RenameState;

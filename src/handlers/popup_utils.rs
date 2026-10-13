@@ -9,16 +9,6 @@ pub enum ChoiceResult {
     None,
 }
 
-/// Standard confirmation handling for popups (Y/N/Enter/Esc)
-#[must_use]
-pub fn get_choice(code: KeyCode) -> ChoiceResult {
-    match code {
-        KeyCode::Enter | KeyCode::Char('y' | 'Y') => ChoiceResult::Confirmed,
-        KeyCode::Escape | KeyCode::Char('n' | 'N') => ChoiceResult::Cancelled,
-        _ => ChoiceResult::None,
-    }
-}
-
 /// Cycle button focus with Left/Right/Tab/BackTab
 /// Returns true if the key was consumed (focus moved)
 pub fn handle_button_nav(code: KeyCode, focused: &mut usize, len: usize) -> bool {

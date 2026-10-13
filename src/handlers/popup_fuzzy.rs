@@ -148,3 +148,6 @@ pub(crate) async fn handle_fuzzy_search_event(
     }
     false
 }
+
+#[cfg(test)]
+mod tests;

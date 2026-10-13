@@ -2,11 +2,10 @@ use anyhow::Result;
 use encoding_rs::{Encoding, UTF_8, UTF_16BE, UTF_16LE, WINDOWS_1252};
 use memmap2::Mmap;
 use std::fs::File;
-use std::path::PathBuf;
+use std::path::Path;
 
 pub struct FileReader {
     mmap: Mmap,
-    path: PathBuf,
     encoding: &'static Encoding,
 }
 
@@ -17,19 +16,15 @@ impl FileReader {
     ///
     /// Returns an error if the file cannot be opened, metadata cannot be read,
     /// the file is empty, or memory-mapping fails.
-    pub fn new(path: PathBuf, encoding: &'static Encoding) -> Result<Self> {
-        let file = File::open(&path)?;
+    pub fn new(path: &Path, encoding: &'static Encoding) -> Result<Self> {
+        let file = File::open(path)?;
         let metadata = file.metadata()?;
         if metadata.len() == 0 {
             anyhow::bail!("Cannot memory-map an empty file: {}", path.display());
         }
         let mmap = unsafe { Mmap::map(&file)? };
 
-        Ok(Self {
-            mmap,
-            path,
-            encoding,
-        })
+        Ok(Self { mmap, encoding })
     }
 
     #[must_use]
@@ -45,32 +40,8 @@ impl FileReader {
     }
 
     #[must_use]
-    pub fn get_bytes(&self, start: usize, end: usize) -> &[u8] {
-        let end = end.min(self.mmap.len());
-        if start >= end {
-            return &[];
-        }
-        &self.mmap[start..end]
-    }
-
-    #[must_use]
     pub fn len(&self) -> usize {
         self.mmap.len()
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.mmap.is_empty()
-    }
-
-    #[must_use]
-    pub fn path(&self) -> &PathBuf {
-        &self.path
-    }
-
-    #[must_use]
-    pub fn encoding(&self) -> &'static Encoding {
-        self.encoding
     }
 
     #[must_use]

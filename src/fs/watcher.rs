@@ -7,7 +7,9 @@ use tokio::sync::mpsc::UnboundedSender;
 #[derive(Debug)]
 pub enum WatcherEvent {
     FileSystemChange(Vec<PathBuf>),
-    Error(String),
+    // The message is carried for diagnostics but the event loop currently
+    // discards it.
+    Error(#[allow(dead_code)] String),
     RemoteReloadRequested,
 }
 
@@ -24,12 +26,7 @@ pub trait FileSystemWatcher {
     ///
     /// Returns an error if polling fails.
     fn poll(&mut self) -> anyhow::Result<()>;
-    /// Starts watching a path.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if watching fails.
-    fn watch(&mut self, path: &Path) -> anyhow::Result<()>;
+
     /// Stops watching a path.
     ///
     /// # Errors
@@ -149,10 +146,6 @@ impl FileSystemWatcher for AppWatcher {
         Ok(()) // Local watcher is event-driven
     }
 
-    fn watch(&mut self, path: &Path) -> anyhow::Result<()> {
-        self.watch(path)
-    }
-
     fn unwatch(&mut self, path: &Path) -> anyhow::Result<()> {
         self.unwatch(path)
     }
@@ -187,10 +180,6 @@ impl FileSystemWatcher for RemoteWatcher {
             let _ = self.tx.send(WatcherEvent::RemoteReloadRequested);
             self.last_poll = std::time::Instant::now();
         }
-        Ok(())
-    }
-
-    fn watch(&mut self, _path: &Path) -> anyhow::Result<()> {
         Ok(())
     }
 

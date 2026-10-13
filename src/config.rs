@@ -662,3 +662,6 @@ pub fn create_default_config() -> Result<PathBuf> {
 
     Ok(path)
 }
+
+#[cfg(test)]
+mod tests;

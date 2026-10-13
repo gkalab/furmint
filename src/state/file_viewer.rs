@@ -9,9 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::layout::ViewerGeometry;
 
-pub use highlight::{
-    HighlightBatch, HighlightRequest, HighlightWorker, LineSegments, parse_hex_color,
-};
+pub use highlight::{HighlightBatch, HighlightWorker, parse_hex_color};
 pub use image::{ImageLoadResult, ImageViewerState};
 pub use text::{ContentLoadResult, TextViewerState};
 
@@ -112,10 +110,6 @@ impl FileViewerState {
     /// while it cannot be seen. The image is reloaded the next time the viewer is shown.
     pub fn release_image(&mut self) {
         self.image.release_decoded();
-    }
-
-    pub fn init_picker_detached(&mut self) {
-        self.image.init_picker_detached();
     }
 
     pub async fn init_picker(&mut self) {
@@ -316,7 +310,7 @@ impl FileViewerState {
 
     /// Number of lines that fit in the viewer's visible area (borders excluded).
     #[must_use]
-    pub fn visible_lines(&self, geometry: &ViewerGeometry) -> usize {
+    pub fn visible_lines(geometry: &ViewerGeometry) -> usize {
         geometry.area.height.saturating_sub(2) as usize
     }
 
@@ -325,12 +319,7 @@ impl FileViewerState {
     pub fn max_scroll_offset(&self, geometry: &ViewerGeometry) -> usize {
         self.text
             .total_lines()
-            .saturating_sub(self.visible_lines(geometry))
-    }
-
-    #[must_use]
-    pub fn get_line(&self, idx: usize) -> Option<String> {
-        self.text.get_line(idx)
+            .saturating_sub(Self::visible_lines(geometry))
     }
 
     #[must_use]
@@ -384,6 +373,7 @@ impl FileViewerState {
     }
 
     /// Scale factor that fits the image proportionally into the viewport (capped at 1.0).
+    #[cfg(test)]
     #[must_use]
     pub fn fit_scale(&self, geometry: &ViewerGeometry) -> f32 {
         self.image.fit_scale(geometry.render_area)
@@ -398,3 +388,6 @@ impl FileViewerState {
         self.image.prepare_protocol(geometry.render_area);
     }
 }
+
+#[cfg(test)]
+mod tests;

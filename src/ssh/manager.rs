@@ -29,7 +29,6 @@ pub enum NetworkError {
     ConnectionTimedOut,
     HostUnreachable,
     NoRoute,
-    InvalidAddress,
     Other(String),
 }
 
@@ -92,7 +91,6 @@ impl std::fmt::Display for NetworkError {
             NetworkError::ConnectionTimedOut => write!(f, "Connection timed out"),
             NetworkError::HostUnreachable => write!(f, "Host unreachable"),
             NetworkError::NoRoute => write!(f, "No route to host"),
-            NetworkError::InvalidAddress => write!(f, "Invalid address"),
             NetworkError::Other(s) => write!(f, "{s}"),
         }
     }
@@ -474,6 +472,7 @@ impl SshManager {
     }
 
     /// Gets a cached password for a session.
+    #[cfg(test)]
     #[must_use]
     pub fn get_cached_password(&self, session_id: &str) -> Option<SecretString> {
         let cache = self

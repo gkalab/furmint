@@ -47,10 +47,9 @@ const DIALOG_POLL_INTERVAL: Duration = Duration::from_millis(10);
 /// Blocks until the user dismisses the menu or selects an item, then executes
 /// the chosen shell verb (if any).
 ///
-/// # Errors
-///
-/// Returns an error if the path cannot be resolved or any Win32/COM call fails.
-pub fn show_context_menu(path: &Path) -> Result<()> {
+/// The call returns as soon as the menu thread is spawned; failures inside that
+/// thread are currently swallowed.
+pub fn show_context_menu(path: &Path) {
     let path_buf = path.to_path_buf();
 
     // Spawn a dedicated STA OS thread. This is critical because Windows Shell UI
@@ -77,8 +76,6 @@ pub fn show_context_menu(path: &Path) -> Result<()> {
             }
         }
     });
-
-    Ok(())
 }
 
 // Free the PIDL on exit via a guard.

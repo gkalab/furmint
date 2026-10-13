@@ -55,7 +55,7 @@ impl DirectoryHistory {
 
     /// Creates a `DirectoryHistory` pointed at a per-process temp file so
     /// tests never read or write the developer's real history cache.
-    #[cfg(any(test, feature = "test-utils"))]
+    #[cfg(test)]
     #[must_use]
     pub fn test_default() -> Self {
         let dir =
@@ -292,3 +292,6 @@ impl DirectoryHistory {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;

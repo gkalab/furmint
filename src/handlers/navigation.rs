@@ -107,25 +107,6 @@ fn archive_path_and_ext(app: &mut AppState) -> Option<(PathBuf, String, String)>
     }
 }
 
-// Moves up to the parent directory.
-pub async fn handle_left(app: &mut AppState) {
-    let panel = app.active_tab_mut();
-    // If we are at the root of an archive, we might want to exit it?
-    // Current go_up implementation handles ".." logic typically.
-    // But if we are at "/" of an archive, go_up might do nothing or we might want to "leave" the provider.
-    // However, the standard `enter_dir` on ".." handles going up.
-    // If we want Left Arrow to go to parent:
-    if let Err(e) = panel.go_up().await {
-        panel.error = Some(e.to_string());
-    }
-    update_viewer_content(app).await;
-}
-
-// Enters the selected directory (same as Enter for now).
-pub async fn handle_right(app: &mut AppState) {
-    handle_enter(app).await;
-}
-
 // Moves the cursor to the home position.
 pub async fn handle_home(app: &mut AppState) {
     app.active_tab_mut().move_cursor_home_filtered();
@@ -562,3 +543,6 @@ pub async fn navigate_with_fallback(
 
     Err(original_error)
 }
+
+#[cfg(test)]
+mod tests;

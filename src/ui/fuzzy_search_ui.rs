@@ -20,23 +20,6 @@ impl FuzzySearchState {
         self.list.reset();
     }
 
-    // Compatibility methods delegating to the inner list
-    #[must_use]
-    pub fn is_visible(&self) -> bool {
-        self.list.is_visible
-    }
-    pub fn set_visible(&mut self, visible: bool) {
-        self.list.is_visible = visible;
-    }
-    #[must_use]
-    pub fn input(&self) -> &str {
-        &self.list.input
-    }
-    #[must_use]
-    pub fn selected_index(&self) -> usize {
-        self.list.selected_index
-    }
-
     pub fn move_selection_up(&mut self) {
         self.list.move_selection_up();
     }
@@ -53,23 +36,6 @@ impl FuzzySearchState {
     #[must_use]
     pub fn get_selected_dir(&self) -> Option<PathBuf> {
         self.list.get_selected_item().map(|item| item.path)
-    }
-
-    pub fn update_scroll(&mut self, visible_rows: usize) {
-        self.list.update_scroll(visible_rows);
-    }
-
-    pub fn move_cursor_left(&mut self) {
-        self.list.move_cursor_left();
-    }
-    pub fn move_cursor_right(&mut self) {
-        self.list.move_cursor_right();
-    }
-    pub fn move_cursor_home(&mut self) {
-        self.list.move_cursor_home();
-    }
-    pub fn move_cursor_end(&mut self) {
-        self.list.move_cursor_end();
     }
 }
 

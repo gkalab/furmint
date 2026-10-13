@@ -567,11 +567,13 @@ if ($ok) {
 
 /// In-memory clipboard for tests - does not use OS clipboard
 /// Use this in tests to avoid parallel test interference on Windows
+#[cfg(test)]
 #[derive(Clone, Default)]
 pub struct InMemoryFileClipboard {
     inner: Option<FileClipboardData>,
 }
 
+#[cfg(test)]
 impl InMemoryFileClipboard {
     #[must_use]
     pub fn new() -> Self {
@@ -579,6 +581,7 @@ impl InMemoryFileClipboard {
     }
 }
 
+#[cfg(test)]
 impl FileClipboard for InMemoryFileClipboard {
     fn set(&mut self, data: FileClipboardData) -> anyhow::Result<()> {
         self.inner = Some(data);

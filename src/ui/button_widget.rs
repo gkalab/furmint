@@ -65,18 +65,6 @@ impl<'a> ButtonWidget<'a> {
     }
 
     #[must_use]
-    pub fn hovered(mut self, hovered: bool) -> Self {
-        self.is_hovered = hovered;
-        self
-    }
-
-    #[must_use]
-    pub fn pressed(mut self, pressed: bool) -> Self {
-        self.is_pressed = pressed;
-        self
-    }
-
-    #[must_use]
     pub fn focused(mut self, focused: bool) -> Self {
         self.is_focused = focused;
         self

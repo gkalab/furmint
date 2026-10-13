@@ -52,7 +52,7 @@ impl SshConnectionHistory {
         Ok(Self { connections, path })
     }
 
-    #[cfg(any(test, feature = "test-utils"))]
+    #[cfg(test)]
     #[must_use]
     pub fn test_default() -> Self {
         Self {
@@ -112,11 +112,13 @@ impl SshConnectionHistory {
         }
         Ok(())
     }
+
     /// Loads the SSH connection history from disk.
     ///
     /// # Errors
     ///
     /// Returns an error if the history cannot be read or parsed.
+    #[cfg(test)]
     pub fn load(&mut self) -> anyhow::Result<()> {
         if self.path.exists() {
             let content = fs::read_to_string(&self.path)?;
@@ -187,3 +189,6 @@ impl SshConnectionHistory {
             })
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -57,18 +57,6 @@ pub fn compute_button_rects(labels: &[&str], area: Rect) -> Vec<Rect> {
         .collect()
 }
 
-pub fn draw_button_row(
-    f: &mut ratatui::Frame<'_>,
-    labels: &[&str],
-    area: Rect,
-    palette: &crate::theme::ThemePalette,
-    bg_color: Color,
-    focused_index: Option<usize>,
-) {
-    let button_areas = compute_button_rects(labels, area);
-    draw_button_row_at(f, labels, &button_areas, palette, bg_color, focused_index);
-}
-
 /// Draws a button row at pre-computed areas.
 ///
 /// Callers that have a [`crate::popup_layout::ButtonGeometry`] use this so the
@@ -647,6 +635,7 @@ impl InputLayoutContext {
     }
 }
 
+#[allow(clippy::struct_field_names)] // the `_color` suffix is the point
 pub struct InputStyleContext {
     pub text_color: Color,
     pub placeholder_color: Color,
@@ -912,3 +901,6 @@ fn draw_input_text_and_cursor(
         ));
     }
 }
+
+#[cfg(test)]
+mod tests;

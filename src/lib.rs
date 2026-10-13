@@ -1,30 +1,33 @@
-pub mod app;
-pub mod app_state;
-pub mod bookmarks;
-pub mod clipboard;
+// Everything except `config` is crate-internal: `main.rs` is a separate crate
+// and only needs `config::create_default_config`, so the rest stays private.
 pub mod config;
+
+pub(crate) mod app;
+pub(crate) mod app_state;
+pub(crate) mod bookmarks;
+pub(crate) mod clipboard;
 #[cfg(windows)]
-pub mod context_menu;
-pub mod dir_history;
-pub mod event_loop;
-pub mod fs;
-pub mod handlers;
-pub mod icons;
-pub mod large_text;
-pub mod layout;
-pub mod opener;
-pub mod paths;
-pub mod popup_layout;
-pub mod ssh;
-pub mod state;
-pub mod tasks;
-pub mod test_utils;
-pub mod theme;
-pub mod ui;
+pub(crate) mod context_menu;
+pub(crate) mod dir_history;
+pub(crate) mod event_loop;
+pub(crate) mod fs;
+pub(crate) mod handlers;
+pub(crate) mod icons;
+pub(crate) mod large_text;
+pub(crate) mod layout;
+pub(crate) mod opener;
+pub(crate) mod paths;
+pub(crate) mod popup_layout;
+pub(crate) mod ssh;
+pub(crate) mod state;
+pub(crate) mod tasks;
+pub(crate) mod test_utils;
+pub(crate) mod theme;
+pub(crate) mod ui;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-pub use crate::app::AppState;
+pub(crate) use crate::app::AppState;
 use crate::app::PendingAction;
 use crate::config::KeyboardConfig;
 use crate::config::load_config;
@@ -250,9 +253,7 @@ pub async fn run() -> Result<()> {
             }
             Some(PendingAction::WindowsContextMenu(path)) => {
                 #[cfg(windows)]
-                if let Err(e) = crate::context_menu::show_context_menu(&path) {
-                    app.active_tab_mut().error = Some(e.to_string());
-                }
+                crate::context_menu::show_context_menu(&path);
                 #[cfg(not(windows))]
                 let _ = path;
             }
