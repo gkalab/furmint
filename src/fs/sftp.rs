@@ -19,6 +19,7 @@ use russh::keys::ssh_key;
 use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::{FileAttributes, OpenFlags};
 use secrecy::{ExposeSecret, SecretString};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -603,55 +604,106 @@ impl Drop for SftpFs {
     }
 }
 
+/// Builds the listing for `path`, resolving each symbolic link's target with a
+/// STAT so linked directories are reported with `is_dir` and stay enterable
+/// (mirrors the local `list_dir` behavior, which follows links too).
+///
+/// Link targets are resolved concurrently: listing a link-heavy remote
+/// directory (e.g. `/usr/lib`, `/etc`) must not stall on sequential network
+/// round trips. `SftpSession` is `Send + Sync`, so each target is looked up
+/// with `metadata` (an SFTP STAT, which *follows* the link). A broken link, or
+/// one removed mid-listing, keeps `is_dir == false` and stays a file, matching
+/// local behavior.
+async fn build_dir_listing(sftp: &Arc<SftpSession>, path: &Path) -> Result<Vec<FileEntry>> {
+    let path_str = normalize_sftp_path(path);
+    let entries = sftp
+        .read_dir(&path_str)
+        .await
+        .map_err(|e| anyhow!("Failed to read directory: {e}"))?;
+
+    let mut names = Vec::new();
+    let mut metas = Vec::new();
+    let mut link_targets = Vec::new();
+
+    for entry in entries {
+        let name = entry.file_name();
+        if name.is_empty() || name == "." || name == ".." {
+            continue;
+        }
+        let meta = entry.metadata();
+        let is_symlink = meta
+            .permissions
+            .is_some_and(|p| (p & 0o170_000) == 0o120_000);
+        if is_symlink {
+            // `base` drops any trailing `/` so root `/` and nested paths both
+            // work; the child path is resolved with a follow-stat.
+            let base = path_str.trim_end_matches('/');
+            link_targets.push((name.clone(), format!("{base}/{name}")));
+        }
+        names.push(name);
+        metas.push(meta);
+    }
+
+    // Resolve every symlink's target concurrently.
+    let mut tasks = tokio::task::JoinSet::new();
+    for (name, child) in link_targets {
+        let sftp = Arc::clone(sftp);
+        tasks.spawn(async move {
+            let is_dir = sftp.metadata(&child).await.is_ok_and(|m| m.is_dir());
+            (name, is_dir)
+        });
+    }
+    let mut link_is_dir: HashMap<String, bool> = HashMap::new();
+    while let Some(Ok((name, is_dir))) = tasks.join_next().await {
+        link_is_dir.insert(name, is_dir);
+    }
+
+    let mut result = Vec::with_capacity(names.len() + 1);
+    // prepend ".." for parent navigation
+    result.push(FileEntry {
+        name: "..".to_string(),
+        is_dir: true,
+        is_symlink: false,
+        size: None,
+        modified: None,
+        attributes: String::new(),
+        selected: false,
+    });
+
+    for (name, meta) in names.iter().zip(&metas) {
+        let is_symlink = meta
+            .permissions
+            .is_some_and(|p| (p & 0o170_000) == 0o120_000);
+        // `is_dir` follows the link for symlinks (resolved above with a
+        // follow-stat); everything else keeps the READDIR type bits.
+        let is_dir = if is_symlink {
+            link_is_dir.get(name).copied().unwrap_or(false)
+        } else {
+            meta.is_dir()
+        };
+        let size = if is_dir { None } else { meta.size };
+        let modified = meta
+            .mtime
+            .map(|t| std::time::UNIX_EPOCH + std::time::Duration::from_secs(u64::from(t)));
+        result.push(FileEntry {
+            name: name.clone(),
+            is_dir,
+            is_symlink,
+            size,
+            modified,
+            attributes: format_sftp_permissions(meta.permissions.unwrap_or(0)),
+            selected: false,
+        });
+    }
+    Ok(result)
+}
+
 #[async_trait]
 impl FileSystemProvider for SftpFs {
     // ---- directory listing ------------------------------------------------
 
     async fn list_dir(&self, path: &Path) -> Result<Vec<FileEntry>> {
-        let sftp = &*self.sftp;
-        let path_str = normalize_sftp_path(path);
-        let entries = sftp
-            .read_dir(&path_str)
-            .await
-            .map_err(|e| anyhow!("Failed to read directory: {e}"))?;
-
-        let mut result = Vec::new();
-        // prepend ".." for parent navigation
-        result.push(FileEntry {
-            name: "..".to_string(),
-            is_dir: true,
-            is_symlink: false,
-            size: None,
-            modified: None,
-            attributes: String::new(),
-            selected: false,
-        });
-
-        for entry in entries {
-            let name = entry.file_name().clone();
-            if name.is_empty() || name == "." || name == ".." {
-                continue;
-            }
-            let meta = entry.metadata();
-            let is_dir = meta.is_dir();
-            let is_symlink = meta
-                .permissions
-                .is_some_and(|p| (p & 0o170_000) == 0o120_000);
-            let size = if is_dir { None } else { meta.size };
-            let modified = meta
-                .mtime
-                .map(|t| std::time::UNIX_EPOCH + std::time::Duration::from_secs(u64::from(t)));
-            result.push(FileEntry {
-                name,
-                is_dir,
-                is_symlink,
-                size,
-                modified,
-                attributes: format_sftp_permissions(meta.permissions.unwrap_or(0)),
-                selected: false,
-            });
-        }
-        Ok(result)
+        build_dir_listing(&self.sftp, path).await
     }
 
     async fn create_dir(&self, path: &Path) -> Result<()> {
@@ -1155,3 +1207,6 @@ impl FileSystemProvider for SftpFs {
         !self.is_dir(src).await
     }
 }
+
+#[cfg(test)]
+mod tests;
