@@ -115,6 +115,7 @@ async fn test_zip_copy_dir_preserves_timestamp() {
         cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         processed_bytes: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        total_bytes: 0,
     };
 
     let decision_rx = std::sync::Arc::new(tokio::sync::Mutex::new(tokio::sync::mpsc::channel(1).1));
@@ -255,6 +256,7 @@ async fn test_zip_add_files_batch() {
         cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         processed_bytes: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        total_bytes: 0,
     };
 
     // This should trigger the recursive copy_from_local optimization
@@ -318,6 +320,7 @@ async fn test_zip_batch_add_uses_forward_slashes() {
         cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         processed_bytes: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        total_bytes: 0,
     };
     archive_fs
         .copy_from_local(&LocalFs::new(), &src_dir, Path::new("top"), &progress)

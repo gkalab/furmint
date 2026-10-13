@@ -16,7 +16,7 @@ use secrecy::SecretString;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
+use std::sync::atomic::AtomicBool;
 use std::time::SystemTime;
 
 /// Identifier for a filesystem context.
@@ -66,8 +66,49 @@ pub struct TaskProgressContext {
     pub id: usize,
     pub tx: crate::tasks::EventBus,
     pub cancel: Arc<AtomicBool>,
+    /// Bytes transferred so far by the whole task. One counter is shared by
+    /// every file of the task, so a transfer that only knows its own file can
+    /// still report in task-wide coordinates.
     pub processed_bytes: Arc<std::sync::atomic::AtomicU64>,
     pub processed_items: Arc<std::sync::atomic::AtomicUsize>,
+    /// Bytes the task as a whole is expected to transfer, or `0` when that is
+    /// not known (e.g. an rsync transfer, which reports its own totals).
+    /// `0` makes [`Self::report_file_bytes`] keep the per-file pair.
+    pub total_bytes: u64,
+}
+
+impl TaskProgressContext {
+    /// Report `file_done` of `file_total` bytes for the file currently in
+    /// flight.
+    ///
+    /// With a task total, the report is task-wide: `base` is the byte count
+    /// read before this file started, so the per-file offsets a provider
+    /// accumulates can be lifted into task coordinates, and the total is
+    /// clamped to at least the progress reported — the pre-operation walk
+    /// swallows a failing `get_size`, so the total it computed can undercount
+    /// and a task must never render above 100%.
+    ///
+    /// Without one (rsync parses its own totals out of its progress line, and
+    /// the walk is skipped for it) there is nothing to measure against, so the
+    /// pair is left per-file.
+    ///
+    /// Callers must add what they transferred to [`Self::processed_bytes`],
+    /// which is what `base` is read from.
+    pub fn report_file_bytes(&self, base: u64, file_done: u64, file_total: u64) {
+        let (processed, total) = if self.total_bytes == 0 {
+            (file_done, file_total)
+        } else {
+            let processed = base.saturating_add(file_done);
+            (processed, self.total_bytes.max(processed))
+        };
+        self.tx.send(crate::tasks::UiEvent::Task(
+            crate::tasks::TaskEvent::UpdateByteProgress {
+                task_id: self.id,
+                processed,
+                total,
+            },
+        ));
+    }
 }
 
 /// Files at or below this size are copied with a single whole-file
@@ -237,12 +278,24 @@ pub trait FileSystemProvider: Send + Sync {
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         let tx = crate::tasks::EventBus::new(tx);
         let cancel = Arc::new(AtomicBool::new(false));
-        self.copy_with_progress(src, dst, 0, &tx, &cancel).await
+        let progress = TaskProgressContext {
+            id: 0,
+            tx,
+            cancel,
+            processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            total_bytes: 0,
+        };
+        self.copy_with_progress(src, dst, &progress).await
     }
 
     /// Copy a file within the same filesystem, reporting byte progress.
     /// Whole-file copies are used up to `WHOLE_FILE_COPY_LIMIT`; larger
     /// files are streamed in optimal-size chunks.
+    ///
+    /// The byte reports are task-wide: they are measured against
+    /// [`TaskProgressContext::total_bytes`] and continue from whatever the
+    /// previous file of the task already transferred.
     ///
     /// The copy is written to a temporary file in the destination directory
     /// and renamed into place on success, so a cancelled or failed copy never
@@ -255,9 +308,7 @@ pub trait FileSystemProvider: Send + Sync {
         &self,
         src: &Path,
         dst: &Path,
-        id: usize,
-        tx: &crate::tasks::EventBus,
-        cancel: &Arc<AtomicBool>,
+        progress: &TaskProgressContext,
     ) -> Result<()> {
         let src_buf = src.to_path_buf();
         let dst_buf = dst.to_path_buf();
@@ -270,18 +321,17 @@ pub trait FileSystemProvider: Send + Sync {
         let mtime = info.modified;
         let perms = info.permissions;
 
+        // Transfers run one at a time within a task, so the counter holds
+        // exactly what the previous files transferred.
+        let base = progress
+            .processed_bytes
+            .load(std::sync::atomic::Ordering::Relaxed);
+
         let tmp_buf = temp_copy_path(&dst_buf);
         let target = tmp_buf.clone().unwrap_or_else(|| dst_buf.clone());
 
-        let progress = TaskProgressContext {
-            id,
-            tx: tx.clone(),
-            cancel: cancel.clone(),
-            processed_bytes: Arc::new(AtomicU64::new(0)),
-            processed_items: Arc::new(AtomicUsize::new(0)),
-        };
         let completed = self
-            .copy_to_target(&src_buf, &target, total_size, &progress, perms)
+            .copy_to_target(&src_buf, &target, total_size, progress, perms, base)
             .await;
 
         match completed {
@@ -309,6 +359,11 @@ pub trait FileSystemProvider: Send + Sync {
     }
 
     /// Transfer `src` to `target`, reporting byte progress.
+    ///
+    /// `base` is the task-wide byte count from before this file started (see
+    /// [`TaskProgressContext::report_file_bytes`]); the chunks written here
+    /// are added to the task's shared counter and reported against it.
+    ///
     /// Returns `Ok(true)` when the transfer finished, `Ok(false)` when it was
     /// cancelled before anything was committed, `Err` on failure.
     async fn copy_to_target(
@@ -318,6 +373,7 @@ pub trait FileSystemProvider: Send + Sync {
         total_size: u64,
         progress: &TaskProgressContext,
         perms: Option<u32>,
+        base: u64,
     ) -> Result<bool> {
         if total_size <= WHOLE_FILE_COPY_LIMIT {
             let data = self.read_file(src).await?;
@@ -327,13 +383,10 @@ pub trait FileSystemProvider: Send + Sync {
             self.write_file_with_permissions(target, &data, perms)
                 .await?;
             let processed = data.len() as u64;
-            progress.tx.send(crate::tasks::UiEvent::Task(
-                crate::tasks::TaskEvent::UpdateByteProgress {
-                    task_id: progress.id,
-                    processed,
-                    total: total_size.max(processed),
-                },
-            ));
+            progress
+                .processed_bytes
+                .fetch_add(processed, std::sync::atomic::Ordering::Relaxed);
+            progress.report_file_bytes(base, processed, total_size);
         } else {
             let chunk_size = crate::fs::utils::calculate_optimal_chunk_size(total_size);
             let mut offset = 0u64;
@@ -354,13 +407,10 @@ pub trait FileSystemProvider: Send + Sync {
                 }
                 self.write_file_at(target, offset, &chunk).await?;
                 offset += chunk.len() as u64;
-                progress.tx.send(crate::tasks::UiEvent::Task(
-                    crate::tasks::TaskEvent::UpdateByteProgress {
-                        task_id: progress.id,
-                        processed: offset,
-                        total: total_size.max(offset),
-                    },
-                ));
+                progress
+                    .processed_bytes
+                    .fetch_add(chunk.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                progress.report_file_bytes(base, offset, total_size);
             }
 
             if offset == 0 {
@@ -698,6 +748,25 @@ mod tests {
         events
     }
 
+    /// A progress context for a `copy_with_progress` call.
+    ///
+    /// `total_bytes: 0` keeps the reported pair per-file, which is what a
+    /// single-file copy wants; `task_total` exercises the task-wide fold.
+    fn copy_progress(
+        bus: &crate::tasks::EventBus,
+        cancel: &Arc<AtomicBool>,
+        task_total: u64,
+    ) -> TaskProgressContext {
+        TaskProgressContext {
+            id: 7,
+            tx: bus.clone(),
+            cancel: cancel.clone(),
+            processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            total_bytes: task_total,
+        }
+    }
+
     #[tokio::test]
     async fn test_copy_with_progress_small_file_whole() {
         let dir = tempfile::tempdir().unwrap();
@@ -710,7 +779,7 @@ mod tests {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let bus = crate::tasks::EventBus::new(tx);
         let cancel = Arc::new(AtomicBool::new(false));
-        fs().copy_with_progress(&src, &dst, 7, &bus, &cancel)
+        fs().copy_with_progress(&src, &dst, &copy_progress(&bus, &cancel, 0))
             .await
             .unwrap();
 
@@ -742,7 +811,7 @@ mod tests {
         let bus = crate::tasks::EventBus::new(tx);
         let cancel = Arc::new(AtomicBool::new(false));
         flaky
-            .copy_with_progress(&src, &dst, 7, &bus, &cancel)
+            .copy_with_progress(&src, &dst, &copy_progress(&bus, &cancel, 0))
             .await
             .unwrap();
 
@@ -783,7 +852,7 @@ mod tests {
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         let bus = crate::tasks::EventBus::new(tx);
         let cancel = Arc::new(AtomicBool::new(false));
-        fs().copy_with_progress(&src, &dst, 1, &bus, &cancel)
+        fs().copy_with_progress(&src, &dst, &copy_progress(&bus, &cancel, 0))
             .await
             .unwrap();
         assert!(dst.exists());
@@ -800,7 +869,7 @@ mod tests {
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         let bus = crate::tasks::EventBus::new(tx);
         let cancel = Arc::new(AtomicBool::new(true));
-        fs().copy_with_progress(&src, &dst, 1, &bus, &cancel)
+        fs().copy_with_progress(&src, &dst, &copy_progress(&bus, &cancel, 0))
             .await
             .unwrap();
         assert!(!dst.exists());
@@ -818,7 +887,7 @@ mod tests {
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         let bus = crate::tasks::EventBus::new(tx);
         flaky
-            .copy_with_progress(&src, &dst, 1, &bus, &flaky.cancel)
+            .copy_with_progress(&src, &dst, &copy_progress(&bus, &flaky.cancel, 0))
             .await
             .unwrap();
 
@@ -844,7 +913,7 @@ mod tests {
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         let bus = crate::tasks::EventBus::new(tx);
         let res = flaky
-            .copy_with_progress(&src, &dst, 1, &bus, &flaky.cancel)
+            .copy_with_progress(&src, &dst, &copy_progress(&bus, &flaky.cancel, 0))
             .await;
         assert!(res.is_err(), "the injected write failure must surface");
 

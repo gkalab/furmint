@@ -424,6 +424,10 @@ async fn try_rsync_directory(
                 cancel: ctx.task.cancel.clone(),
                 processed_bytes: ctx.task.processed_bytes.clone(),
                 processed_items: ctx.task.processed_items.clone(),
+                // rsync parses its own totals out of its progress line, and
+                // the pre-operation walk was skipped for it, so there is no
+                // task-wide byte total to measure against.
+                total_bytes: 0,
             };
 
             if crate::fs::rsync::rsync_transfer(

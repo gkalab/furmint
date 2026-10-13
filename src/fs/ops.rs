@@ -118,8 +118,9 @@ pub struct RecursiveOpContext<'a> {
     pub tx: &'a crate::tasks::EventBus,
     pub id: usize,
     pub total: usize,
-    // Carried from the task's progress total but never read by the operation.
-    #[allow(dead_code)]
+    /// Bytes the task as a whole is expected to transfer, from the
+    /// pre-operation walk. `0` when the walk was skipped (an rsync-eligible
+    /// transfer), in which case each file reports against its own size.
     pub total_bytes: u64,
     pub processed: &'a std::sync::Arc<std::sync::atomic::AtomicUsize>,
     pub processed_bytes: &'a std::sync::Arc<std::sync::atomic::AtomicU64>,
@@ -142,6 +143,54 @@ enum WorkItem {
     },
 }
 
+impl RecursiveOpContext<'_> {
+    /// The task's progress context, shared by every file of the operation.
+    ///
+    /// Handing the same counters to each transfer is what lets a file that
+    /// only knows its own size report against the task total: the byte
+    /// reports land on one task-wide line instead of restarting per file.
+    fn progress_ctx(&self) -> TaskProgressContext {
+        TaskProgressContext {
+            id: self.id,
+            tx: self.tx.clone(),
+            cancel: self.cancel.clone(),
+            processed_bytes: self.processed_bytes.clone(),
+            processed_items: self.processed.clone(),
+            total_bytes: self.total_bytes,
+        }
+    }
+}
+
+/// Bytes of `path`'s subtree that the task counted but will not transfer,
+/// because the user skipped it or it was carried by a rename. From the
+/// pre-operation walk, falling back to a stat when there was no walk.
+async fn untransferred_bytes(ctx: &RecursiveOpContext<'_>, path: &std::path::Path) -> u64 {
+    if let Some(&(_, bytes)) = ctx.subtree_counts.get(path) {
+        return bytes;
+    }
+    ctx.src_fs.get_size(path).await.unwrap_or(0)
+}
+
+/// Credit bytes that the task counted but that no transfer will move, so the
+/// byte line still reaches the total. Nothing is reported when the task has
+/// no total (rsync reports its own).
+fn credit_untransferred_bytes(ctx: &RecursiveOpContext<'_>, bytes: u64) {
+    if bytes == 0 || ctx.total_bytes == 0 {
+        return;
+    }
+    let processed = ctx
+        .processed_bytes
+        .fetch_add(bytes, std::sync::atomic::Ordering::Relaxed)
+        + bytes;
+    ctx.tx.send(crate::tasks::UiEvent::Task(
+        crate::tasks::TaskEvent::UpdateByteProgress {
+            task_id: ctx.id,
+            processed,
+            total: ctx.total_bytes.max(processed),
+        },
+    ));
+}
+
 async fn try_rename_move_optimization(
     ctx: &RecursiveOpContext<'_>,
     src: &std::path::Path,
@@ -154,10 +203,11 @@ async fn try_rename_move_optimization(
             // Successfully moved! The rename carried the entire subtree in one
             // go and nothing below it will be processed individually, so credit
             // every item in it (the subtree root included).
-            let count = match ctx.subtree_counts.get(src) {
-                Some(&(count, _)) => count,
-                None => count_items(ctx.dest_fs, &[dest.to_path_buf()]).await,
+            let (count, bytes) = match ctx.subtree_counts.get(src) {
+                Some(&(count, bytes)) => (count, bytes),
+                None => count_items_and_size(ctx.dest_fs, &[dest.to_path_buf()]).await,
             };
+            credit_untransferred_bytes(ctx, bytes);
             let p = ctx
                 .processed
                 .fetch_add(count, std::sync::atomic::Ordering::Relaxed)
@@ -187,7 +237,12 @@ async fn handle_file(
     if dest_exists {
         match resolve_conflict(ctx, decision_state, dest).await? {
             ConflictResult::Perform => perform = true,
-            ConflictResult::Skip => perform = false,
+            ConflictResult::Skip => {
+                // Skipped: no bytes move, but the walk counted this file, so
+                // credit it or the task's byte line can never complete.
+                credit_untransferred_bytes(ctx, untransferred_bytes(ctx, src).await);
+                perform = false;
+            }
             ConflictResult::Cancel => return Ok(false),
         }
     }
@@ -250,6 +305,22 @@ pub fn recursive_op<'a>(
             },
         ));
 
+        // ...and the byte total every file's progress is measured against, so
+        // the line appears before the first chunk. A recursive operation runs
+        // once per top-level path, so this carries what the earlier paths
+        // already transferred.
+        if ctx.total_bytes > 0 {
+            ctx.tx.send(crate::tasks::UiEvent::Task(
+                crate::tasks::TaskEvent::UpdateByteProgress {
+                    task_id: ctx.id,
+                    processed: ctx
+                        .processed_bytes
+                        .load(std::sync::atomic::Ordering::Relaxed),
+                    total: ctx.total_bytes,
+                },
+            ));
+        }
+
         while let Some(item) = stack.pop() {
             if ctx.cancel.load(std::sync::atomic::Ordering::Relaxed) {
                 return Ok(()); // Cancelled
@@ -291,13 +362,7 @@ async fn handle_directory(
     dest: &std::path::Path,
     stack: &mut Vec<WorkItem>,
 ) -> Result<()> {
-    let progress = TaskProgressContext {
-        id: ctx.id,
-        tx: ctx.tx.clone(),
-        cancel: ctx.cancel.clone(),
-        processed_bytes: ctx.processed_bytes.clone(),
-        processed_items: ctx.processed.clone(),
-    };
+    let progress = ctx.progress_ctx();
 
     let dest_stat = ctx.dest_fs.stat_path(dest).await;
     let dest_is_dir = dest_stat.unwrap_or(false);
@@ -367,6 +432,8 @@ async fn handle_archive_directory(
         match resolve_conflict(ctx, decision_state, dest).await? {
             ConflictResult::Perform => {}
             ConflictResult::Skip => {
+                // The whole subtree is skipped, so its bytes are credited here.
+                credit_untransferred_bytes(ctx, untransferred_bytes(ctx, src).await);
                 mark_processed(ctx);
                 return Ok(());
             }
@@ -415,6 +482,8 @@ async fn handle_copy_to_local_with_existing_dir(
     match resolve_conflict(ctx, decision_state, dest).await? {
         ConflictResult::Perform => {}
         ConflictResult::Skip => {
+            // The whole subtree is skipped, so its bytes are credited here.
+            credit_untransferred_bytes(ctx, untransferred_bytes(ctx, src).await);
             let p = ctx
                 .processed
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
@@ -624,13 +693,7 @@ async fn perform_cross_fs_copy(
     dest: &std::path::Path,
 ) -> Option<anyhow::Result<()>> {
     const RSYNC_MIN_SIZE: u64 = 1024 * 1024; // 1 MB threshold
-    let progress = TaskProgressContext {
-        id: ctx.id,
-        tx: ctx.tx.clone(),
-        cancel: ctx.cancel.clone(),
-        processed_bytes: ctx.processed_bytes.clone(),
-        processed_items: ctx.processed.clone(),
-    };
+    let progress = ctx.progress_ctx();
 
     // Try rsync first for local-remote copy operations, but only for larger files
     // Small files have more overhead with rsync than benefit
@@ -683,7 +746,7 @@ async fn perform_file_copy(
         let same_fs = ctx.src_fs.context_key() == ctx.dest_fs.context_key();
         let copy_res = if same_fs {
             ctx.src_fs
-                .copy_with_progress(src, dest, ctx.id, ctx.tx, ctx.cancel)
+                .copy_with_progress(src, dest, &ctx.progress_ctx())
                 .await
         } else if let Some(res) = perform_cross_fs_copy(ctx, src, dest).await {
             res

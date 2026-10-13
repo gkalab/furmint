@@ -12,6 +12,7 @@ fn make_progress() -> crate::fs::provider::TaskProgressContext {
         cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         processed_bytes: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        total_bytes: 0,
     }
 }
 

@@ -569,6 +569,7 @@ mod tests {
             cancel: Arc::new(AtomicBool::new(cancel)),
             processed_bytes: Arc::new(AtomicU64::new(0)),
             processed_items: Arc::new(AtomicUsize::new(0)),
+            total_bytes: 0,
         }
     }
 

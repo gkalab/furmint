@@ -1019,6 +1019,11 @@ impl FileSystemProvider for SftpFs {
         let chunk_size = calculate_optimal_chunk_size(total_size);
         let mut buf = vec![0u8; chunk_size];
         let mut offset = 0u64;
+        // Task-wide bytes before this file, so the chunk offsets below report
+        // against the task total rather than restarting per file.
+        let base = progress
+            .processed_bytes
+            .load(std::sync::atomic::Ordering::Relaxed);
 
         loop {
             if progress.cancel.load(std::sync::atomic::Ordering::Relaxed) {
@@ -1042,13 +1047,7 @@ impl FileSystemProvider for SftpFs {
             progress
                 .processed_bytes
                 .fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
-            progress.tx.send(crate::tasks::UiEvent::Task(
-                crate::tasks::TaskEvent::UpdateByteProgress {
-                    task_id: progress.id,
-                    processed: offset,
-                    total: total_size,
-                },
-            ));
+            progress.report_file_bytes(base, offset, total_size);
         }
 
         if let Some(p) = perms {
@@ -1098,6 +1097,10 @@ impl FileSystemProvider for SftpFs {
         };
 
         let mut offset = 0u64;
+        // Task-wide bytes before this file (see `copy_to_local`).
+        let base = progress
+            .processed_bytes
+            .load(std::sync::atomic::Ordering::Relaxed);
         loop {
             if progress.cancel.load(std::sync::atomic::Ordering::Relaxed) {
                 // Cancellation is not a failure (see `copy_to_local`): drop the
@@ -1123,13 +1126,7 @@ impl FileSystemProvider for SftpFs {
             progress
                 .processed_bytes
                 .fetch_add(chunk.len() as u64, std::sync::atomic::Ordering::Relaxed);
-            progress.tx.send(crate::tasks::UiEvent::Task(
-                crate::tasks::TaskEvent::UpdateByteProgress {
-                    task_id: progress.id,
-                    processed: offset,
-                    total: total_size,
-                },
-            ));
+            progress.report_file_bytes(base, offset, total_size);
         }
 
         if let Some(mode) = src_perms {

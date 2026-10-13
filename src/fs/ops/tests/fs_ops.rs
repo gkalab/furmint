@@ -268,9 +268,7 @@ impl FileSystemProvider for MockFileSystem {
         &self,
         src: &Path,
         dst: &Path,
-        _id: usize,
-        _tx: &crate::tasks::EventBus,
-        _cancel: &Arc<AtomicBool>,
+        _progress: &TaskProgressContext,
     ) -> anyhow::Result<()> {
         self.copy(src, dst).await
     }

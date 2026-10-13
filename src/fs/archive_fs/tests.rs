@@ -396,6 +396,7 @@ async fn test_zip_extract_attributes() {
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        total_bytes: 0,
     };
     let local_fs = LocalFs::new();
 
@@ -603,6 +604,7 @@ async fn test_archive_fs_read_and_download_zip() {
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        total_bytes: 0,
     };
     let local_fs = LocalFs::new();
 
@@ -668,6 +670,7 @@ async fn test_archive_fs_read_and_download_tar_gz() {
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        total_bytes: 0,
     };
     let local_fs = LocalFs::new();
 
@@ -719,6 +722,7 @@ async fn test_archive_fs_read_and_download_plain_gz() {
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        total_bytes: 0,
     };
     let local_fs = LocalFs::new();
 
@@ -793,6 +797,7 @@ async fn test_archive_download_empty_dir_and_nesting() {
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        total_bytes: 0,
     };
     let local_fs = LocalFs::new();
 
@@ -868,6 +873,7 @@ async fn test_archive_download_cancellation() {
         cancel: cancel_flag.clone(),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        total_bytes: 0,
     };
     let local_fs = LocalFs::new();
 
@@ -920,6 +926,7 @@ async fn test_zip_timestamp_preservation() {
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        total_bytes: 0,
     };
 
     let result: anyhow::Result<()> = archive_fs
@@ -1013,6 +1020,7 @@ async fn test_tar_timestamp_preservation() {
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        total_bytes: 0,
     };
 
     let result: anyhow::Result<()> = archive_fs
@@ -1094,6 +1102,7 @@ async fn test_archive_fs_download_tar_gz() {
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        total_bytes: 0,
     };
     let local_fs = LocalFs::new();
 
@@ -1151,6 +1160,7 @@ async fn test_archive_fs_read_and_download_xz() {
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        total_bytes: 0,
     };
     let local_fs = LocalFs::new();
 
@@ -1286,6 +1296,7 @@ async fn test_archive_fs_read_and_download_rpm() {
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        total_bytes: 0,
     };
     let local_fs = LocalFs::new();
 
@@ -1357,6 +1368,7 @@ async fn test_zip_delete_and_add() {
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        total_bytes: 0,
     };
 
     archive_fs
@@ -1468,6 +1480,7 @@ async fn test_zip_copy_directory_batch() {
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        total_bytes: 0,
     };
 
     archive_fs
