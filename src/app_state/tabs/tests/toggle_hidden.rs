@@ -6,14 +6,34 @@ use crate::fs::utils::FileEntry;
 use crate::handlers::toggle_hidden::handle_toggle_hidden;
 use std::path::PathBuf;
 
-/// A Unix-style listing: `..`, a dot-directory, a plain directory, a dotfile and
-/// a plain file. Sorts in the order given.
+/// Attributes of an entry that the hidden-file setting must withhold.
+///
+/// The two platforms mark hidden entries differently, so the fixture cannot rely
+/// on the leading dot alone: Unix only has the dot convention, whereas Windows
+/// ignores it and reads `FILE_ATTRIBUTE_HIDDEN`, which sits at index 2 of a
+/// DOS-style string (`d-h---` for a directory, `--h---` for a file).
+fn hidden_attrs(is_dir: bool) -> &'static str {
+    if cfg!(windows) {
+        if is_dir { "d-h---" } else { "--h---" }
+    } else if is_dir {
+        "drwxr-xr-x"
+    } else {
+        "-rw-r--r--"
+    }
+}
+
+/// A listing with two hidden entries — `.config` and `.env` — next to the plain
+/// `docs` and `README.md`, plus the `..` navigation entry. Sorts in the order
+/// given.
+///
+/// The hidden entries are dot-prefixed *and* carry [`hidden_attrs`], which is
+/// what makes them hidden on both platforms.
 fn listing() -> Vec<FileEntry> {
     vec![
         entry("..", true, ""),
-        entry(".config", true, "drwxr-xr-x"),
+        entry(".config", true, hidden_attrs(true)),
         entry("docs", true, "drwxr-xr-x"),
-        entry(".env", false, "-rw-r--r--"),
+        entry(".env", false, hidden_attrs(false)),
         entry("README.md", false, "-rw-r--r--"),
     ]
 }
@@ -167,8 +187,10 @@ fn test_hidden_gate_delegates_to_the_shared_is_hidden_predicate() {
     // must stay in `fs::utils::is_hidden` rather than being reimplemented here.
     let entries = vec![
         entry("..", true, ""),
+        // Hidden through the leading dot, which only counts on Unix-like systems.
         entry(".dotfile", false, "-rw-r--r--"),
-        entry("flagged", false, "-a-h"),
+        // Hidden through the attribute string, which is what counts on Windows.
+        entry("flagged", false, hidden_attrs(false)),
         entry("plain.txt", false, "-rw-r--r--"),
     ];
     let mut tab = tab_with(entries);
@@ -198,7 +220,7 @@ fn test_cursor_moves_onto_a_visible_entry() {
 fn test_cursor_pinned_to_zero_when_nothing_is_visible() {
     let mut tab = tab_with(vec![
         entry("..", true, ""),
-        entry(".env", false, "-rw-r--r--"),
+        entry(".env", false, hidden_attrs(false)),
     ]);
     tab.cursor = 1;
     tab.set_show_hidden(false);
