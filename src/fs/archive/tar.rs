@@ -129,6 +129,7 @@ impl TarHandler {
         let mut archive = tar::Archive::new(reader);
         let mut entries_map = HashMap::new();
         let mut tree_map = HashMap::new();
+        let mut symlinks = HashMap::new();
 
         for entry in archive.entries()? {
             let entry = entry?;
@@ -146,6 +147,13 @@ impl TarHandler {
                 .unwrap_or(if is_dir { 0o755 } else { 0o644 });
             let attributes = mode_to_attributes(unix_mode, is_dir, is_symlink);
 
+            if is_symlink
+                && let Ok(Some(target)) = entry.link_name()
+                && path != Path::new(".")
+            {
+                symlinks.insert(path.clone(), target.into_owned());
+            }
+
             common::add_to_tree(
                 path,
                 ArchiveEntryMetadata {
@@ -160,7 +168,11 @@ impl TarHandler {
             );
         }
 
-        Ok((entries_map, common::finalize_tree(tree_map)))
+        Ok(super::ScanResult::new(
+            entries_map,
+            common::finalize_tree(tree_map),
+            symlinks,
+        ))
     }
 }
 

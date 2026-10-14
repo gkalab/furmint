@@ -18,6 +18,112 @@ pub fn normalize_path(name: &str) -> PathBuf {
     PathBuf::from(normalized_path_str)
 }
 
+/// Maximum number of symbolic links followed while resolving one path.
+///
+/// Bounds the work for a hostile archive that chains or cycles links: once the
+/// limit is reached, further links are no longer followed and their names are
+/// kept as literal components, so the result simply resolves to no entry.
+const MAX_SYMLINK_HOPS: usize = 40;
+
+/// Resolves the symbolic links in `path` against `symlinks`, returning an
+/// archive-relative path with no `.`/`..` components.
+///
+/// `path` is a normalized path relative to the archive root (no leading slash,
+/// `.` for the root). Each component is looked up in `symlinks`; a link's raw
+/// target is spliced in place of the link, recursively. A target beginning with
+/// `/` is absolute and therefore relative to the archive root. Components that
+/// are not links are kept as they are, so a path that only names regular
+/// entries comes back unchanged.
+///
+/// # Panics
+///
+/// This function never panics.
+#[must_use]
+pub fn resolve_symlinks(path: &Path, symlinks: &HashMap<PathBuf, PathBuf>) -> PathBuf {
+    use std::collections::VecDeque;
+    use std::ffi::OsString;
+
+    let mut queue: VecDeque<OsString> = path
+        .components()
+        .filter_map(|c| match c {
+            Component::Normal(name) => Some(name.to_os_string()),
+            Component::ParentDir => Some(OsString::from("..")),
+            Component::CurDir | Component::RootDir | Component::Prefix(_) => None,
+        })
+        .collect();
+
+    let mut resolved: Vec<OsString> = Vec::new();
+    let mut hops = 0usize;
+
+    while let Some(comp) = queue.pop_front() {
+        if comp == ".." {
+            resolved.pop();
+            continue;
+        }
+
+        let mut candidate = PathBuf::new();
+        for part in &resolved {
+            candidate.push(part);
+        }
+        candidate.push(&comp);
+
+        if let Some(target) = symlinks.get(&candidate) {
+            hops += 1;
+            if hops <= MAX_SYMLINK_HOPS {
+                if target.is_absolute() {
+                    // An absolute target is relative to the archive root, so
+                    // discard everything accumulated so far.
+                    resolved.clear();
+                }
+                let mut parts: Vec<OsString> = target
+                    .components()
+                    .filter_map(|c| match c {
+                        Component::Normal(name) => Some(name.to_os_string()),
+                        Component::ParentDir => Some(OsString::from("..")),
+                        Component::CurDir | Component::RootDir | Component::Prefix(_) => None,
+                    })
+                    .collect();
+                parts.reverse();
+                for part in parts {
+                    queue.push_front(part);
+                }
+                continue;
+            }
+        }
+
+        resolved.push(comp);
+    }
+
+    if resolved.is_empty() {
+        PathBuf::from(".")
+    } else {
+        PathBuf::from(resolved.join(std::ffi::OsStr::new("/")))
+    }
+}
+
+/// Adjusts symlink entries in `entries` so they describe their resolved target:
+/// a link that points at a directory is marked as a directory (and loses its
+/// meaningless stored size), and a link to a file takes the target's size.
+/// `is_symlink` is left set so the entry still renders as a link.
+///
+/// # Panics
+///
+/// This function never panics.
+pub fn resolve_symlink_entries(
+    entries: &mut HashMap<PathBuf, FileEntry>,
+    symlinks: &HashMap<PathBuf, PathBuf>,
+) {
+    for link in symlinks.keys() {
+        let target = resolve_symlinks(link, symlinks);
+        let target_is_dir = entries.get(&target).is_some_and(|e| e.is_dir);
+        let target_size = entries.get(&target).and_then(|e| e.size);
+        if let Some(entry) = entries.get_mut(link) {
+            entry.is_dir = target_is_dir;
+            entry.size = if target_is_dir { None } else { target_size };
+        }
+    }
+}
+
 /// Metadata for an archive entry used by `add_to_tree`.
 pub struct ArchiveEntryMetadata {
     pub is_dir: bool,
@@ -1163,5 +1269,119 @@ mod tests {
         assert_eq!(mode_of(&dest.join("pkg/bin")), 0o755);
         assert_eq!(mode_of(&dest.join("pkg/bin/run.sh")), 0o755);
         assert_eq!(mode_of(&dest.join("pkg/notes.txt")), 0o640);
+    }
+
+    fn link_map(pairs: &[(&str, &str)]) -> HashMap<PathBuf, PathBuf> {
+        pairs
+            .iter()
+            .map(|(link, target)| (PathBuf::from(link), PathBuf::from(target)))
+            .collect()
+    }
+
+    #[test]
+    fn resolve_symlinks_leaves_plain_paths_unchanged() {
+        let symlinks = link_map(&[]);
+        assert_eq!(
+            resolve_symlinks(Path::new("a/b/c.txt"), &symlinks),
+            PathBuf::from("a/b/c.txt")
+        );
+    }
+
+    #[test]
+    fn resolve_symlinks_follows_relative_link_and_suffix() {
+        let symlinks = link_map(&[("lib", "usr/lib")]);
+        assert_eq!(
+            resolve_symlinks(Path::new("lib"), &symlinks),
+            PathBuf::from("usr/lib")
+        );
+        assert_eq!(
+            resolve_symlinks(Path::new("lib/foo.so"), &symlinks),
+            PathBuf::from("usr/lib/foo.so")
+        );
+    }
+
+    #[test]
+    fn resolve_symlinks_treats_absolute_target_as_archive_root_relative() {
+        let symlinks = link_map(&[("etc", "/usr/etc")]);
+        assert_eq!(
+            resolve_symlinks(Path::new("etc/hosts"), &symlinks),
+            PathBuf::from("usr/etc/hosts")
+        );
+    }
+
+    #[test]
+    fn resolve_symlinks_collapses_parent_components_in_target() {
+        let symlinks = link_map(&[("a/link", "../b")]);
+        assert_eq!(
+            resolve_symlinks(Path::new("a/link/file"), &symlinks),
+            PathBuf::from("b/file")
+        );
+    }
+
+    #[test]
+    fn resolve_symlinks_follows_a_chain_of_links() {
+        let symlinks = link_map(&[("a", "b"), ("b", "c")]);
+        assert_eq!(
+            resolve_symlinks(Path::new("a"), &symlinks),
+            PathBuf::from("c")
+        );
+    }
+
+    #[test]
+    fn resolve_symlinks_bounds_a_cycle() {
+        // A cycle must not hang; the result is whatever the hop limit left.
+        let symlinks = link_map(&[("a", "b"), ("b", "a")]);
+        let resolved = resolve_symlinks(Path::new("a"), &symlinks);
+        assert!(resolved == Path::new("a") || resolved == Path::new("b"));
+    }
+
+    fn entry(name: &str, is_dir: bool, is_symlink: bool, size: Option<u64>) -> FileEntry {
+        FileEntry {
+            name: name.to_string(),
+            is_dir,
+            is_symlink,
+            size,
+            modified: None,
+            attributes: String::new(),
+            selected: false,
+        }
+    }
+
+    #[test]
+    fn resolve_symlink_entries_marks_linked_directory_as_directory() {
+        let mut entries = HashMap::from([
+            (PathBuf::from("real"), entry("real", true, false, Some(0))),
+            (PathBuf::from("link"), entry("link", false, true, Some(0))),
+        ]);
+        let symlinks = link_map(&[("link", "real")]);
+
+        resolve_symlink_entries(&mut entries, &symlinks);
+
+        let link = entries.get(Path::new("link")).unwrap();
+        assert!(link.is_dir, "a linked directory must report as a directory");
+        assert!(link.is_symlink, "the entry must keep its symlink flag");
+        assert_eq!(link.size, None, "a linked directory has no stored size");
+    }
+
+    #[test]
+    fn resolve_symlink_entries_gives_linked_file_the_target_size() {
+        let mut entries = HashMap::from([
+            (
+                PathBuf::from("real.txt"),
+                entry("real.txt", false, false, Some(7)),
+            ),
+            (
+                PathBuf::from("link.txt"),
+                entry("link.txt", false, true, Some(0)),
+            ),
+        ]);
+        let symlinks = link_map(&[("link.txt", "real.txt")]);
+
+        resolve_symlink_entries(&mut entries, &symlinks);
+
+        let link = entries.get(Path::new("link.txt")).unwrap();
+        assert!(!link.is_dir);
+        assert!(link.is_symlink);
+        assert_eq!(link.size, Some(7));
     }
 }

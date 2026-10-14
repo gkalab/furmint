@@ -13,7 +13,8 @@ pub struct ArchiveTreeRow {
 
 #[must_use]
 pub fn build_archive_tree(scan_result: &ScanResult) -> Vec<ArchiveTreeRow> {
-    let (entries, tree) = scan_result;
+    let entries = &scan_result.entries;
+    let tree = &scan_result.tree;
     let mut rows = Vec::new();
 
     let root = if tree.contains_key(Path::new(".")) {
@@ -152,7 +153,7 @@ mod tests {
         tree.insert(root, vec![dir1.clone(), file2.clone()]);
         tree.insert(dir1, vec![file1]);
 
-        let rows = build_archive_tree(&(entries, tree));
+        let rows = build_archive_tree(&ScanResult::new(entries, tree, HashMap::new()));
 
         assert_eq!(rows.len(), 3);
         assert_eq!(rows[0].name, "src");

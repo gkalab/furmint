@@ -690,6 +690,171 @@ async fn test_archive_fs_read_and_download_tar_gz() {
     );
 }
 
+/// Creates a gzip-compressed tar at `path` from explicit directories, regular
+/// files and symbolic links, so tests can describe archives that contain links.
+fn make_tar_gz_with_links(
+    path: &Path,
+    dirs: &[&str],
+    files: &[(&str, &[u8])],
+    links: &[(&str, &str)],
+) {
+    let file = File::create(path).unwrap();
+    let enc = flate2::write::GzEncoder::new(file, Compression::default());
+    let mut tar = tar::Builder::new(enc);
+
+    for dir in dirs {
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::Directory);
+        header.set_mode(0o755);
+        header.set_size(0);
+        header.set_cksum();
+        tar.append_data(&mut header, dir, &[] as &[u8]).unwrap();
+    }
+
+    for (name, data) in files {
+        let mut header = tar::Header::new_gnu();
+        header.set_mode(0o644);
+        header.set_size(data.len() as u64);
+        tar.append_data(&mut header, name, *data).unwrap();
+    }
+
+    for (link, target) in links {
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::Symlink);
+        header.set_mode(0o777);
+        header.set_size(0);
+        tar.append_link(&mut header, link, target).unwrap();
+    }
+
+    tar.finish().unwrap();
+}
+
+/// A symbolic link to a directory must be presented as an enterable `<LNK>`:
+/// reported as a directory (so the size column shows `<LNK>`, not a byte count)
+/// while keeping its symlink flag, listing the target's children, and resolving
+/// paths that go through it.
+#[tokio::test]
+async fn test_tar_gz_symlink_to_directory_is_enterable() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive_path = temp_dir.path().join("links.tar.gz");
+    make_tar_gz_with_links(
+        &archive_path,
+        &["real"],
+        &[("real/inside.txt", b"deep")],
+        &[("linkdir", "real")],
+    );
+
+    let archive_fs = ArchiveFs::new(&archive_path).unwrap();
+
+    // The link entry keeps its identity as a link but reports as a directory.
+    let link = archive_fs.get_entry(Path::new("linkdir")).unwrap();
+    assert!(link.is_symlink, "the entry must keep its symlink flag");
+    assert!(link.is_dir, "a linked directory must report as a directory");
+    assert_eq!(link.size, None, "a linked directory has no byte size");
+    assert!(
+        link.attributes.starts_with('l'),
+        "expected a symlink attribute, got {:?}",
+        link.attributes
+    );
+
+    // Entering the link lists the target's children.
+    let listing = archive_fs.list_dir(Path::new("linkdir")).await.unwrap();
+    assert!(
+        listing.iter().any(|e| e.name == "inside.txt"),
+        "listing a linked directory must show the target's children: {listing:?}"
+    );
+
+    // A path through the link resolves to the target.
+    assert!(archive_fs.is_dir(Path::new("linkdir")).await);
+    assert_eq!(
+        archive_fs
+            .read_file(Path::new("linkdir/inside.txt"))
+            .await
+            .unwrap(),
+        b"deep"
+    );
+}
+
+/// A symbolic link to a file must read through to its target and report the
+/// target's size, so pressing F3 on it shows the file rather than nothing.
+#[tokio::test]
+async fn test_tar_gz_symlink_to_file_is_readable() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive_path = temp_dir.path().join("links.tar.gz");
+    make_tar_gz_with_links(
+        &archive_path,
+        &[],
+        &[("real.txt", b"hello")],
+        &[("link.txt", "real.txt")],
+    );
+
+    let archive_fs = ArchiveFs::new(&archive_path).unwrap();
+
+    let link = archive_fs.get_entry(Path::new("link.txt")).unwrap();
+    assert!(link.is_symlink);
+    assert!(!link.is_dir);
+    assert_eq!(link.size, Some(5), "a linked file takes the target's size");
+
+    assert_eq!(
+        archive_fs.read_file(Path::new("link.txt")).await.unwrap(),
+        b"hello"
+    );
+    assert!(!archive_fs.is_dir(Path::new("link.txt")).await);
+
+    let info = archive_fs
+        .get_file_info(Path::new("link.txt"))
+        .await
+        .unwrap();
+    assert_eq!(info.size, 5);
+}
+
+/// A symlink that survives extraction must still be created as a link (not
+/// followed into a copy of its target) after the entry-resolution changes.
+#[cfg(unix)]
+#[tokio::test]
+async fn test_tar_gz_symlink_extracts_as_link() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive_path = temp_dir.path().join("links.tar.gz");
+    make_tar_gz_with_links(
+        &archive_path,
+        &["real"],
+        &[("real/inside.txt", b"deep")],
+        &[("linkdir", "real")],
+    );
+
+    let archive_fs = ArchiveFs::new(&archive_path).unwrap();
+    let dest_dir = temp_dir.path().join("extracted");
+    std::fs::create_dir_all(&dest_dir).unwrap();
+
+    let (raw_tx, _rx) = mpsc::unbounded_channel::<UiEvent>();
+    let tx = crate::tasks::EventBus::new(raw_tx);
+    let progress = TaskProgressContext {
+        id: 0,
+        tx,
+        cancel: Arc::new(AtomicBool::new(false)),
+        processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        total_bytes: 0,
+    };
+    let local_fs = LocalFs::new();
+
+    archive_fs
+        .extract(Path::new("."), &local_fs, &dest_dir, &progress)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let meta = std::fs::symlink_metadata(dest_dir.join("linkdir")).unwrap();
+    assert!(
+        meta.file_type().is_symlink(),
+        "extraction must recreate the link, not a copy of the target"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dest_dir.join("linkdir/inside.txt")).unwrap(),
+        "deep"
+    );
+}
+
 #[tokio::test]
 async fn test_archive_fs_read_and_download_plain_gz() {
     use flate2::Compression;
@@ -1768,5 +1933,65 @@ async fn test_copy_directory_between_zip_and_7z() {
     assert_eq!(
         dest_fs.read_file(Path::new("tree/top.txt")).await.unwrap(),
         b"top"
+    );
+}
+
+/// Copying a local directory reached through a symlink into a zip must succeed.
+/// The walk has to follow the link, otherwise its root is yielded as a link
+/// rather than a directory and lands in the file list under the destination's
+/// own name, which makes the batch add fail.
+#[cfg(unix)]
+#[tokio::test]
+async fn test_copy_local_symlinked_directory_into_zip() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let real = temp_dir.path().join("realdir");
+    std::fs::create_dir_all(real.join("sub")).unwrap();
+    std::fs::write(real.join("top.txt"), b"top").unwrap();
+    std::fs::write(real.join("sub/deep.txt"), b"deep").unwrap();
+
+    let link = temp_dir.path().join("linkdir");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+
+    let zip_path = temp_dir.path().join("dest.zip");
+    make_archive(&zip_path, &[]);
+    let dest_fs = ArchiveFs::new(&zip_path).unwrap();
+    let local_fs = LocalFs::new();
+
+    let (raw_tx, mut rx) = mpsc::unbounded_channel::<UiEvent>();
+    let bus = crate::tasks::EventBus::new(raw_tx);
+    let progress = TaskProgressContext {
+        id: 1,
+        tx: bus,
+        cancel: Arc::new(AtomicBool::new(false)),
+        processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        total_bytes: 0,
+    };
+
+    dest_fs
+        .copy_from_local(&local_fs, &link, Path::new("linkdir"), &progress)
+        .await
+        .expect("archive copies from a local source")
+        .expect("copying a linked directory must succeed");
+
+    while let Ok(ev) = rx.try_recv() {
+        if let UiEvent::Alert(AlertEvent::TaskError { message, .. }) = ev {
+            panic!("copy reported an error: {message}");
+        }
+    }
+
+    assert_eq!(
+        dest_fs
+            .read_file(Path::new("linkdir/top.txt"))
+            .await
+            .unwrap(),
+        b"top"
+    );
+    assert_eq!(
+        dest_fs
+            .read_file(Path::new("linkdir/sub/deep.txt"))
+            .await
+            .unwrap(),
+        b"deep"
     );
 }

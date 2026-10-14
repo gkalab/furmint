@@ -207,7 +207,11 @@ impl ZipHandler {
             );
         }
 
-        Ok((entries_map, common::finalize_tree(tree_map)))
+        Ok(super::ScanResult::new(
+            entries_map,
+            common::finalize_tree(tree_map),
+            HashMap::new(),
+        ))
     }
 
     fn read_file(&self, path_str: &str) -> Result<Vec<u8>> {

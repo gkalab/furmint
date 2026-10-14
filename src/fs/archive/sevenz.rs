@@ -173,7 +173,11 @@ impl SevenZHandler {
             );
         }
 
-        Ok((entries_map, common::finalize_tree(tree_map)))
+        Ok(super::ScanResult::new(
+            entries_map,
+            common::finalize_tree(tree_map),
+            HashMap::new(),
+        ))
     }
 
     fn do_read_file(&self, path_str: &str) -> Result<Vec<u8>> {

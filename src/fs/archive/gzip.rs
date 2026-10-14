@@ -127,7 +127,11 @@ impl ArchiveFormat for GzipHandler {
         let mut tree_map = std::collections::HashMap::new();
         tree_map.insert(PathBuf::from("."), vec![PathBuf::from(&self.original_name)]);
 
-        Ok((entries_map, tree_map))
+        Ok(super::ScanResult::new(
+            entries_map,
+            tree_map,
+            std::collections::HashMap::new(),
+        ))
     }
 
     fn read_file(&self, path: &str) -> Result<Vec<u8>> {

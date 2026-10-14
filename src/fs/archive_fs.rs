@@ -21,6 +21,10 @@ pub struct ArchiveFs {
     entries: Arc<Mutex<HashMap<PathBuf, FileEntry>>>,
     // Store children for fast directory listing: "folder" -> ["folder/sub", "folder/file.txt"]
     tree: Arc<Mutex<HashMap<PathBuf, Vec<PathBuf>>>>,
+    // Symbolic links inside the archive: link path -> raw target. Lets lookups
+    // follow links, so a linked directory is enterable and a linked file can be
+    // read through, mirroring how a local filesystem follows symlinks.
+    symlinks: Arc<Mutex<HashMap<PathBuf, PathBuf>>>,
     handler: Arc<dyn ArchiveFormat>,
     // Single-entry cache of the last decoded member, so chunked reads
     // (e.g. copy_with_progress) don't re-decode the whole member per chunk.
@@ -41,12 +45,14 @@ impl ArchiveFs {
     pub fn new(path: &Path) -> Result<Self> {
         let entries = Arc::new(Mutex::new(HashMap::new()));
         let tree = Arc::new(Mutex::new(HashMap::new()));
+        let symlinks = Arc::new(Mutex::new(HashMap::new()));
         let handler = Arc::from(get_archive_handler(path)?);
 
         let fs = Self {
             archive_path: path.to_path_buf(),
             entries,
             tree,
+            symlinks,
             handler,
             read_cache: Arc::new(Mutex::new(None)),
         };
@@ -56,14 +62,16 @@ impl ArchiveFs {
     }
 
     #[must_use]
-    /// Gets an archive entry by path.
+    /// Gets an archive entry by path, exactly as stored (a symbolic link is
+    /// returned as the link entry, not as its target).
     #[cfg(test)]
     pub fn get_entry(&self, path: &Path) -> Option<FileEntry> {
+        let normalized = Self::resolve_internal_path(path);
         let entries = self
             .entries
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        entries.get(path).cloned()
+        entries.get(&normalized).cloned()
     }
 
     /// Resolves a path against the archive's virtual tree, collapsing `.` and `..`
@@ -121,20 +129,54 @@ impl ArchiveFs {
     }
 
     fn scan_archive(&self) -> Result<()> {
-        let (entries, tree) = self.handler.scan()?;
+        let scan = self.handler.scan()?;
         *self
             .entries
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = entries;
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = scan.entries;
         *self
             .tree
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = tree;
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = scan.tree;
+        *self
+            .symlinks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = scan.symlinks;
         *self
             .read_cache
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
         Ok(())
+    }
+
+    /// Normalizes `path` and follows any symbolic links in it, yielding the
+    /// archive-relative path of the real entry. A path with no links comes back
+    /// unchanged; a broken link resolves to a path that simply is not present.
+    ///
+    /// # Panics
+    ///
+    /// This function never panics.
+    #[must_use]
+    fn resolve_path(&self, path: &Path) -> PathBuf {
+        let normalized = Self::resolve_internal_path(path);
+        let symlinks = self
+            .symlinks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if symlinks.is_empty() {
+            return normalized;
+        }
+        crate::fs::archive::common::resolve_symlinks(&normalized, &symlinks)
+    }
+
+    /// Whether `path` is a symbolic link, without following it.
+    fn is_symlink_sync(&self, path: &Path) -> bool {
+        let normalized = Self::resolve_internal_path(path);
+        self.entries
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&normalized)
+            .is_some_and(|e| e.is_symlink)
     }
 
     #[cfg(test)]
@@ -150,6 +192,10 @@ impl ArchiveFs {
 
     fn list_dir_sync(&self, path: &Path) -> Vec<FileEntry> {
         let search_path = Self::resolve_internal_path(path);
+        // A linked directory lists its target's children, so resolve the link
+        // first; `search_path` stays unresolved so ".." still goes to the
+        // link's parent rather than the target's.
+        let target_path = self.resolve_path(path);
 
         let tree = self
             .tree
@@ -175,7 +221,7 @@ impl ArchiveFs {
             });
         }
 
-        if let Some(children) = tree.get(&search_path) {
+        if let Some(children) = tree.get(&target_path) {
             for child_path in children {
                 if let Some(entry) = entries_map.get(child_path) {
                     result.push(entry.clone());
@@ -260,9 +306,9 @@ impl ArchiveFs {
     /// Decodes `path` from the archive, serving repeated reads of the same
     /// member from a single-entry in-memory cache.
     fn read_decoded(&self, path: &Path) -> Result<Vec<u8>> {
-        let p_str = Self::resolve_internal_path(path)
-            .to_string_lossy()
-            .to_string();
+        // Reading a symbolic link reads its target, matching how a local
+        // filesystem follows a symlink.
+        let p_str = self.resolve_path(path).to_string_lossy().to_string();
         let mut cache = self
             .read_cache
             .lock()
@@ -329,7 +375,7 @@ impl ArchiveFs {
     }
 
     fn exists_sync(&self, path: &Path) -> bool {
-        let p = Self::resolve_internal_path(path);
+        let p = self.resolve_path(path);
         self.entries
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -338,7 +384,7 @@ impl ArchiveFs {
     }
 
     fn is_dir_sync(&self, path: &Path) -> bool {
-        let p = Self::resolve_internal_path(path);
+        let p = self.resolve_path(path);
 
         if p == Path::new(".") {
             true
@@ -357,18 +403,7 @@ impl ArchiveFs {
     }
 
     fn get_file_info_sync(&self, path: &Path) -> Option<FileMetadata> {
-        let rel_path = if path.has_root() {
-            path.strip_prefix("/").unwrap_or(path)
-        } else {
-            path
-        };
-        let p_str = rel_path.to_string_lossy().replace('\\', "/");
-        let p_norm = PathBuf::from(p_str.trim_end_matches('/'));
-        let p = if p_norm == Path::new("") {
-            Path::new(".")
-        } else {
-            &p_norm
-        };
+        let p = self.resolve_path(path);
 
         if p == Path::new(".") {
             return None;
@@ -377,7 +412,7 @@ impl ArchiveFs {
             .entries
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let entry = entries.get(p)?;
+        let entry = entries.get(&p)?;
         Some(FileMetadata {
             size: entry.size.unwrap_or(0),
             modified: entry.modified,
@@ -396,18 +431,7 @@ impl ArchiveFs {
     }
 
     fn get_modified_time_sync(&self, path: &Path) -> Option<std::time::SystemTime> {
-        let rel_path = if path.has_root() {
-            path.strip_prefix("/").unwrap_or(path)
-        } else {
-            path
-        };
-        let p_str = rel_path.to_string_lossy().replace('\\', "/");
-        let p_norm = PathBuf::from(p_str.trim_end_matches('/'));
-        let p = if p_norm == Path::new("") {
-            Path::new(".")
-        } else {
-            &p_norm
-        };
+        let p = self.resolve_path(path);
 
         if p == Path::new(".") {
             return None;
@@ -415,7 +439,7 @@ impl ArchiveFs {
         self.entries
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(p)
+            .get(&p)
             .and_then(|e| e.modified)
     }
 
@@ -437,7 +461,7 @@ impl ArchiveFs {
     }
 
     fn calc_dir_size_sync(&self, path: &Path) -> u64 {
-        let target = Self::resolve_internal_path(path);
+        let target = self.resolve_path(path);
         let tree = self
             .tree
             .lock()
@@ -691,7 +715,7 @@ impl FileSystemProvider for ArchiveFs {
         let fs = self.clone();
         let path = path.to_path_buf();
         tokio::task::spawn_blocking(move || {
-            let p = Self::resolve_internal_path(&path);
+            let p = fs.resolve_path(&path);
             if p == Path::new(".") {
                 return Some(true);
             }
@@ -815,8 +839,13 @@ impl FileSystemProvider for ArchiveFs {
                         dirs_to_add.push((dest_str.clone(), src.metadata()?.modified().ok()));
                     }
 
-                    // Walk directory and collect files/dirs
-                    for entry in walkdir::WalkDir::new(&src) {
+                    // Walk directory and collect files/dirs. Links are followed
+                    // so a linked directory (and links inside the tree) copy
+                    // their contents, matching a normal recursive copy. Without
+                    // this, the root of a linked directory is reported as a
+                    // link rather than a directory and lands in the file list
+                    // with the destination's own (possibly empty) name.
+                    for entry in walkdir::WalkDir::new(&src).follow_links(true) {
                         let entry = entry?;
                         let rel_path = entry.path().strip_prefix(&src)?;
                         let mut entry_dest = dest_str.clone();
@@ -889,7 +918,10 @@ impl FileSystemProvider for ArchiveFs {
         let src = src.to_path_buf();
         let dest = dest.to_path_buf();
         let progress = progress.clone();
-        let is_dir = self.is_dir_sync(&src);
+        // A symlink to a directory is enterable, but extracting it must create
+        // the link itself, not descend into the target: pass `is_dir = false`
+        // so the format handlers treat it as a single entry (as `tar` does).
+        let is_dir = self.is_dir_sync(&src) && !self.is_symlink_sync(&src);
         let handler = self.handler.clone();
 
         Some(

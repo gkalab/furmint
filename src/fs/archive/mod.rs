@@ -12,7 +12,39 @@ pub mod sevenz;
 pub mod tar;
 pub mod zip;
 
-pub type ScanResult = (HashMap<PathBuf, FileEntry>, HashMap<PathBuf, Vec<PathBuf>>);
+/// The result of scanning an archive: its entries, the directory tree, and the
+/// target of every symbolic link.
+///
+/// Symbolic links cannot be listed by following the link itself (a tar entry
+/// stores only the target path), so the scan records the raw target of each
+/// link. [`ScanResult::new`] then resolves every link against the archive's own
+/// entries, so a link to a directory is reported (and stays enterable) as a
+/// directory and a link to a file can be read through.
+pub struct ScanResult {
+    pub entries: HashMap<PathBuf, FileEntry>,
+    pub tree: HashMap<PathBuf, Vec<PathBuf>>,
+    /// Link path (normalized, relative to the archive root) -> raw target path
+    /// exactly as stored in the archive (`/`-separated, possibly absolute).
+    pub symlinks: HashMap<PathBuf, PathBuf>,
+}
+
+impl ScanResult {
+    /// Builds a scan result, resolving symbolic links against the collected
+    /// entries so a linked directory is reported as a directory.
+    #[must_use]
+    pub fn new(
+        mut entries: HashMap<PathBuf, FileEntry>,
+        tree: HashMap<PathBuf, Vec<PathBuf>>,
+        symlinks: HashMap<PathBuf, PathBuf>,
+    ) -> Self {
+        common::resolve_symlink_entries(&mut entries, &symlinks);
+        Self {
+            entries,
+            tree,
+            symlinks,
+        }
+    }
+}
 
 /// A new archive entry whose content is already in memory.
 ///

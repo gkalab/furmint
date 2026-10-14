@@ -444,7 +444,11 @@ impl ArchiveFormat for RpmHandler {
             reader = entry_reader.finish()?;
         }
 
-        Ok((entries, tree))
+        Ok(super::ScanResult::new(
+            entries,
+            tree,
+            std::collections::HashMap::new(),
+        ))
     }
 
     fn read_file(&self, path: &str) -> Result<Vec<u8>> {
@@ -746,7 +750,7 @@ mod tests {
         let rpm_path = write_rpm(tmp.path(), "test.rpm", &build_rpm(&build_cpio_payload()));
         let handler = RpmHandler::new(&rpm_path);
 
-        let (entries, _tree) = handler.scan().unwrap();
+        let entries = handler.scan().unwrap().entries;
         let file = entries.get(&PathBuf::from("usr/hello.txt")).unwrap();
         assert_eq!(file.name, "hello.txt");
         assert!(!file.is_dir);
