@@ -63,7 +63,7 @@ async fn test_set_file_filter_matches_files() {
     app.active_tab_mut().set_file_filter(Some("*.rs")).unwrap();
 
     let tab = app.active_tab();
-    assert!(tab.has_file_filter());
+    assert!(tab.has_visibility_restriction());
     // Directories are never filtered out
     assert!(tab.is_visible(0)); // ".."
     assert!(tab.is_visible(1)); // docs
@@ -124,7 +124,7 @@ async fn test_clear_file_filter_restores_all() {
 
     app.active_tab_mut().clear_file_filter();
     let tab = app.active_tab();
-    assert!(!tab.has_file_filter());
+    assert!(!tab.has_visibility_restriction());
     // All entries should be visible again
     assert_eq!(tab.visible_count(), 7);
 }
@@ -135,17 +135,17 @@ async fn test_invalid_glob_sets_error() {
     let result = app.active_tab_mut().set_file_filter(Some("[invalid"));
     assert!(result.is_err());
     // Filter should not be set
-    assert!(!app.active_tab().has_file_filter());
+    assert!(!app.active_tab().has_visibility_restriction());
 }
 
 #[tokio::test]
 async fn test_empty_pattern_clears_filter() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut().set_file_filter(Some("*.rs")).unwrap();
-    assert!(app.active_tab().has_file_filter());
+    assert!(app.active_tab().has_visibility_restriction());
 
     app.active_tab_mut().set_file_filter(Some("")).unwrap();
-    assert!(!app.active_tab().has_file_filter());
+    assert!(!app.active_tab().has_visibility_restriction());
     assert_eq!(app.active_tab().visible_count(), 7);
 }
 
@@ -155,7 +155,7 @@ async fn test_none_pattern_clears_filter() {
     app.active_tab_mut().set_file_filter(Some("*.rs")).unwrap();
 
     app.active_tab_mut().set_file_filter(None).unwrap();
-    assert!(!app.active_tab().has_file_filter());
+    assert!(!app.active_tab().has_visibility_restriction());
 }
 
 // ---------------------------------------------------------------------------

@@ -23,7 +23,7 @@ pub async fn handle_down(app: &mut AppState) {
 // Moves the cursor a page up.
 pub async fn handle_page_up(app: &mut AppState) {
     let tab = app.active_tab_mut();
-    if tab.has_file_filter() {
+    if tab.has_visibility_restriction() {
         let page = 20.min(tab.visible_count().saturating_sub(1));
         tab.move_cursor_page_up_filtered(page);
     } else {
@@ -35,7 +35,7 @@ pub async fn handle_page_up(app: &mut AppState) {
 // Moves the cursor a page down.
 pub async fn handle_page_down(app: &mut AppState) {
     let tab = app.active_tab_mut();
-    if tab.has_file_filter() {
+    if tab.has_visibility_restriction() {
         let page = 20.min(tab.visible_count().saturating_sub(1));
         tab.move_cursor_page_down_filtered(page);
     } else {
@@ -307,6 +307,8 @@ pub async fn handle_open_archive(app: &mut AppState, path: &PathBuf, filename: S
                         Some(format!("Failed to create archive tab from cache: {e}"));
                 }
             }
+            // The new tab was listed with the default (hidden shown); reconcile it.
+            app.apply_show_hidden();
             return;
         }
         // Cache invalid

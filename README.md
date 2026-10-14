@@ -61,6 +61,7 @@ Run `fm --create-config` to generate a default configuration.
 - `Ctrl+P`: Search/select recently used directories
 - `Ctrl+T`: New tab
 - `Ctrl+N`: Open SSH connection
+- `Alt+.`: Show/hide hidden files and directories
 
 ## Example Configuration
 
@@ -85,6 +86,7 @@ edit_file = ["F4"]
 copy_to = ["F5"]
 move_to = ["F6"]
 open_ssh = ["Ctrl-n"]
+toggle_hidden = ["Alt-."]
 ```
 
 #### Editor/Viewer configuration

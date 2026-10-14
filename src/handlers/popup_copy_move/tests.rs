@@ -28,7 +28,7 @@ fn make_fileentry(name: &str, selected: bool, is_dir: bool) -> FileEntry {
 
 fn make_tab(path: &str, entries: Vec<FileEntry>, cursor: usize) -> Tab {
     let current_dir = PathBuf::from(path);
-    Tab {
+    let mut tab = Tab {
         provider: Arc::new(LocalFs::new()),
         current_dir: current_dir.clone(),
         entries,
@@ -44,7 +44,12 @@ fn make_tab(path: &str, entries: Vec<FileEntry>, cursor: usize) -> Tab {
         is_reloading: false,
         visible_indices: Vec::new(),
         filter: crate::state::FileFilterState::new(),
-    }
+        show_hidden: true,
+    };
+    // Real tabs always carry a populated visible set; `is_visible` reads it.
+    tab.recompute_visible_indices();
+    tab.cursor = cursor;
+    tab
 }
 
 fn make_tab_manager(tab: Tab) -> TabManager {

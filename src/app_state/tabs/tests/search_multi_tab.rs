@@ -24,6 +24,7 @@ fn create_test_tab(name: &str, entries: Vec<FileEntry>) -> Tab {
         is_reloading: false,
         visible_indices: Vec::new(),
         filter: crate::state::FileFilterState::new(),
+        show_hidden: true,
     }
 }
 

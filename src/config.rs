@@ -47,6 +47,7 @@ pub struct KeyboardConfig {
     pub tab_move_left: Option<Vec<String>>,
     pub tab_move_right: Option<Vec<String>>,
     pub file_filter: Option<Vec<String>>,
+    pub toggle_hidden: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -183,6 +184,7 @@ pub fn default_keyboard_config() -> KeyboardConfig {
         tab_move_left: Some(vec!["Ctrl-Shift-Left".to_string()]),
         tab_move_right: Some(vec!["Ctrl-Shift-Right".to_string()]),
         file_filter: Some(vec!["/".to_string()]),
+        toggle_hidden: Some(vec!["Alt-.".to_string()]),
     }
 }
 
@@ -252,6 +254,7 @@ pub fn merge_keyboard_config(
         tab_move_left: merge_opt!(tab_move_left),
         tab_move_right: merge_opt!(tab_move_right),
         file_filter: merge_opt!(file_filter),
+        toggle_hidden: merge_opt!(toggle_hidden),
     }
 }
 
@@ -362,6 +365,7 @@ pub fn validate_keyboard_config(config: &KeyboardConfig) -> Result<()> {
         ("tab_move_left", &config.tab_move_left),
         ("tab_move_right", &config.tab_move_right),
         ("file_filter", &config.file_filter),
+        ("toggle_hidden", &config.toggle_hidden),
     ];
 
     for (name, keys) in fields {

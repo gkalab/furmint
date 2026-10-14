@@ -694,7 +694,7 @@ fn panel_scrollbar_metrics(app: &AppState, side: PanelSide) -> (usize, usize) {
         PanelSide::Left => app.panels.left.active_tab(),
         PanelSide::Right => app.panels.right.active_tab(),
     };
-    let content_length = if tab.has_file_filter() {
+    let content_length = if tab.has_visibility_restriction() {
         tab.visible_count()
     } else {
         tab.entries.len()
@@ -951,15 +951,25 @@ pub async fn update_drag_scroll(app: &mut AppState, _x: u16, y: u16) {
             let start_y = area.y + 2;
             let height = area.height.saturating_sub(3);
             let visible_rows = height as usize;
-            let total = if tab.has_file_filter() {
+            let total = if tab.has_visibility_restriction() {
                 tab.visible_count()
             } else {
                 tab.entries.len()
             };
             if total > 0 {
                 let idx = calculate_scroll_from_y(y, start_y, height, total);
-                if tab.cursor != idx {
-                    tab.cursor = idx;
+                // `idx` indexes the visible listing, which is not the same as
+                // the entry list once a file filter or the hidden-file setting
+                // withholds entries.
+                let entry_idx = if tab.has_visibility_restriction() {
+                    tab.visible_indices.get(idx).copied()
+                } else {
+                    Some(idx)
+                };
+                if let Some(entry_idx) = entry_idx
+                    && tab.cursor != entry_idx
+                {
+                    tab.cursor = entry_idx;
                     tab.scroll_to_cursor(visible_rows);
                     crate::handlers::navigation::update_viewer_content(app).await;
                 }
@@ -1006,10 +1016,16 @@ async fn handle_scroll(app: &mut AppState, up: bool) {
         PanelSide::Right => app.panels.right.active_tab_mut(),
     };
 
-    if up {
-        tab.cursor = tab.cursor.saturating_sub(3);
-    } else {
-        tab.cursor = (tab.cursor + 3).min(tab.entries.len().saturating_sub(1));
+    // Step through the visible listing rather than raw entry indices, so the
+    // wheel cannot land the cursor on an entry withheld by the file filter or
+    // the hidden-file setting. Three single steps clamp identically to the
+    // previous `+3`/`-3`.
+    for _ in 0..3 {
+        if up {
+            tab.move_cursor_up_filtered();
+        } else {
+            tab.move_cursor_down_filtered();
+        }
     }
     crate::handlers::navigation::update_viewer_content(app).await;
 }

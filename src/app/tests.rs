@@ -50,6 +50,7 @@ fn remote_tab(host: &'static str) -> Tab {
         is_reloading: false,
         visible_indices: Vec::new(),
         filter: crate::state::FileFilterState::new(),
+        show_hidden: true,
     }
 }
 
@@ -445,6 +446,7 @@ async fn test_drive_navigation_matches_opposite_pane() {
             is_reloading: false,
             visible_indices: Vec::new(),
             filter: crate::state::FileFilterState::new(),
+            show_hidden: true,
         };
         let right_tab = Tab {
             provider: provider.clone(),
@@ -462,6 +464,7 @@ async fn test_drive_navigation_matches_opposite_pane() {
             is_reloading: false,
             visible_indices: Vec::new(),
             filter: crate::state::FileFilterState::new(),
+            show_hidden: true,
         };
         app.panels.left.tabs = vec![left_tab];
         app.panels.right.tabs = vec![right_tab];
@@ -506,6 +509,7 @@ async fn test_drive_navigation_matches_opposite_pane() {
             is_reloading: false,
             visible_indices: Vec::new(),
             filter: crate::state::FileFilterState::new(),
+            show_hidden: true,
         };
         let right_tab = Tab {
             provider: provider.clone(),
@@ -523,6 +527,7 @@ async fn test_drive_navigation_matches_opposite_pane() {
             is_reloading: false,
             visible_indices: Vec::new(),
             filter: crate::state::FileFilterState::new(),
+            show_hidden: true,
         };
         app.panels.left.tabs = vec![left_tab];
         app.panels.right.tabs = vec![right_tab];
@@ -567,6 +572,7 @@ async fn test_drive_navigation_matches_opposite_pane() {
             is_reloading: false,
             visible_indices: Vec::new(),
             filter: crate::state::FileFilterState::new(),
+            show_hidden: true,
         };
         let right_tab = Tab {
             provider: provider.clone(),
@@ -584,6 +590,7 @@ async fn test_drive_navigation_matches_opposite_pane() {
             is_reloading: false,
             visible_indices: Vec::new(),
             filter: crate::state::FileFilterState::new(),
+            show_hidden: true,
         };
         app.panels.left.tabs = vec![left_tab];
         app.panels.right.tabs = vec![right_tab];
@@ -732,4 +739,41 @@ async fn reload_skips_tabs_already_reloading() {
     app.reload_remote_throttled();
     assert!(app.panels.left.active_tab().is_reloading);
     assert!(app.panels.right.active_tab().is_reloading);
+}
+
+fn empty_persistent_state(show_hidden: bool) -> crate::app::PersistentState {
+    crate::app::PersistentState {
+        left: crate::app_state::tabs::PersistentPanel {
+            tabs: vec![],
+            active_tab_index: 0,
+        },
+        right: crate::app_state::tabs::PersistentPanel {
+            tabs: vec![],
+            active_tab_index: 0,
+        },
+        active_side: PanelSide::Left,
+        show_hidden,
+    }
+}
+
+#[test]
+fn persistent_state_round_trips_show_hidden() {
+    for value in [true, false] {
+        let json = serde_json::to_string(&empty_persistent_state(value)).unwrap();
+        let restored: crate::app::PersistentState = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.show_hidden, value);
+    }
+}
+
+#[test]
+fn persistent_state_written_before_the_toggle_still_shows_hidden() {
+    // A state file from an older build has no `show_hidden` key. It must load as
+    // "show hidden", which was the only behaviour back then.
+    let legacy = r#"{
+        "left": {"tabs": [], "active_tab_index": 0},
+        "right": {"tabs": [], "active_tab_index": 0},
+        "active_side": "Left"
+    }"#;
+    let restored: crate::app::PersistentState = serde_json::from_str(legacy).unwrap();
+    assert!(restored.show_hidden);
 }

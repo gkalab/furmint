@@ -248,6 +248,12 @@ pub struct AppState {
     pub ssh_history: crate::ssh::history::SshConnectionHistory,
     pub os: OsServices,
     pub cache: CacheState,
+    /// Whether hidden entries are listed, in every tab of both panels.
+    ///
+    /// This is the source of truth; [`Self::apply_show_hidden`] mirrors it onto
+    /// each [`crate::app_state::tabs::Tab::show_hidden`]. It is persisted as part
+    /// of [`PersistentState`].
+    pub show_hidden: bool,
     /// Layout rects, recomputed once per frame before draw and input handling
     pub layout: LayoutState,
     pub pending_action: Option<PendingAction>,
@@ -263,6 +269,14 @@ pub struct PersistentState {
     pub left: PersistentPanel,
     pub right: PersistentPanel,
     pub active_side: PanelSide,
+    /// Absent in state files written before the hidden-file toggle existed, which
+    /// must keep the original behaviour of showing hidden entries.
+    #[serde(default = "default_show_hidden")]
+    pub show_hidden: bool,
+}
+
+fn default_show_hidden() -> bool {
+    true
 }
 
 pub struct AppConfigContext<'a> {
@@ -272,6 +286,7 @@ pub struct AppConfigContext<'a> {
     pub editor_cfg: crate::config::EditorConfig,
     pub viewer_cfg: crate::config::ViewerConfig,
     pub ssh_cfg: crate::config::SshConfig,
+    pub show_hidden: bool,
     pub dir_history: crate::dir_history::DirectoryHistory,
     pub watcher: Option<Box<dyn crate::fs::watcher::FileSystemWatcher>>,
     pub remote_watcher: Option<Box<dyn crate::fs::watcher::FileSystemWatcher>>,
@@ -292,7 +307,7 @@ impl AppState {
         active: PanelSide,
         ctx: AppConfigContext,
     ) -> Self {
-        Self {
+        let mut app = Self {
             panels: PanelState {
                 left,
                 right,
@@ -334,6 +349,29 @@ impl AppState {
             pending_action: None,
             mouse: MouseState::default(),
             remote_reloaded_at: std::collections::HashMap::new(),
+            show_hidden: ctx.show_hidden,
+        };
+        app.apply_show_hidden();
+        app
+    }
+
+    /// Sets the hidden-file setting and reconciles every tab of both panels.
+    pub fn set_show_hidden(&mut self, show_hidden: bool) {
+        self.show_hidden = show_hidden;
+        self.apply_show_hidden();
+    }
+
+    /// Mirrors [`Self::show_hidden`] onto every tab of both panels, recomputing
+    /// each tab's visible set.
+    ///
+    /// Call this after toggling the setting and after inserting a freshly loaded
+    /// tab, so no tab is left showing an entry the setting says is hidden.
+    pub fn apply_show_hidden(&mut self) {
+        let show_hidden = self.show_hidden;
+        for panel in [&mut self.panels.left, &mut self.panels.right] {
+            for tab in &mut panel.tabs {
+                tab.set_show_hidden(show_hidden);
+            }
         }
     }
 
@@ -347,6 +385,7 @@ impl AppState {
             left: self.panels.left.to_persistent(),
             right: self.panels.right.to_persistent(),
             active_side: self.panels.active,
+            show_hidden: self.show_hidden,
         };
 
         let path = Self::get_state_file_path()?;
@@ -776,6 +815,8 @@ impl AppState {
                 self.active_tab_mut().error = Some(format!("Failed to browse SFTP: {e}"));
             }
         }
+        // The new tab was listed with the default (hidden shown); reconcile it.
+        self.apply_show_hidden();
         // Sync watcher if needed (though SFTP won't be watched by local watcher)
         self.sync_watcher();
     }

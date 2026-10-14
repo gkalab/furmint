@@ -208,6 +208,19 @@ async fn handle_global_interceptors(
         return Some(false);
     }
 
+    // Show/hide hidden files. Checked before the focused-viewer branch below so
+    // it still works while the viewer has keyboard focus, but after the popup
+    // stage in `route_event`, so open popups and the file filter input keep
+    // capturing keys.
+    if keyboard
+        .toggle_hidden
+        .as_ref()
+        .is_some_and(|keys| keys.iter().any(|s| s == shortcut))
+    {
+        crate::handlers::toggle_hidden::handle_toggle_hidden(app);
+        return Some(false);
+    }
+
     // Focused viewer events
     if app.file_viewer.focused {
         handle_file_viewer_event(code, modifiers, app);

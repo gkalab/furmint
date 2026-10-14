@@ -364,6 +364,8 @@ async fn handle_archive_loaded(
             manager.active_tab_mut().error = Some(format!("Failed to create archive tab: {e}"));
         }
     }
+    // The new tab was listed with the default (hidden shown); reconcile it.
+    app.apply_show_hidden();
 }
 
 /// Reports a failed archive open on the panel status line of the side that requested it.

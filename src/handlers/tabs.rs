@@ -36,15 +36,19 @@ pub(crate) async fn handle_new_tab(app: &mut AppState) {
         }
     };
 
-    let tab_manager = app.active_tab_manager_mut();
-    if let Err(e) = tab_manager
-        .new_tab_with_provider(&target_dir, provider, cursor)
-        .await
     {
-        tab_manager.active_tab_mut().error = Some(format!("Error creating tab: {e}"));
-    } else {
-        tab_manager.active_tab_mut().ssh_session_id = ssh_session_id;
+        let tab_manager = app.active_tab_manager_mut();
+        if let Err(e) = tab_manager
+            .new_tab_with_provider(&target_dir, provider, cursor)
+            .await
+        {
+            tab_manager.active_tab_mut().error = Some(format!("Error creating tab: {e}"));
+        } else {
+            tab_manager.active_tab_mut().ssh_session_id = ssh_session_id;
+        }
     }
+    // The new tab was listed with the default (hidden shown); reconcile it.
+    app.apply_show_hidden();
 }
 
 pub(crate) async fn handle_next_tab(app: &mut AppState) {

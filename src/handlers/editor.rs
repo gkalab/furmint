@@ -396,13 +396,13 @@ pub async fn open_file_in_editor_with_env_handling(
     let panel = app.active_tab_mut();
     if let Ok(entries) = panel.provider.list_dir(&panel_current_dir).await {
         panel.entries = entries;
+        // Rebuilds the visible set too, so the cursor can be placed safely.
         panel.sort_entries();
-        if let Some(name) = filename_to_select {
-            if let Some(idx) = panel.entries.iter().position(|e| e.name == name) {
-                panel.cursor = idx;
-            } else if panel.cursor >= panel.entries.len() {
-                panel.cursor = panel.entries.len().saturating_sub(1);
-            }
+        if let Some(name) = filename_to_select
+            && let Some(idx) = panel.entries.iter().position(|e| e.name == name)
+            && panel.is_visible(idx)
+        {
+            panel.cursor = idx;
         }
     }
     if let Some(e) = err {

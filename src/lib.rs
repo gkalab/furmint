@@ -100,6 +100,9 @@ async fn initialize_app() -> Result<InitializedApp> {
         editor_cfg,
         viewer_cfg,
         ssh_cfg,
+        // Hidden entries are shown unless a previously saved session said
+        // otherwise, so first runs get the documented default.
+        show_hidden: persistent_state.as_ref().is_none_or(|s| s.show_hidden),
         dir_history,
         watcher: watcher.map(|w| Box::new(w) as Box<dyn fs::watcher::FileSystemWatcher>),
         remote_watcher: Some(Box::new(fs::watcher::RemoteWatcher::new(&watcher_tx))

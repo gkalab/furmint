@@ -82,11 +82,18 @@ pub struct Tab {
     pub dir_sizes: std::collections::HashMap<PathBuf, u64>,
     pub is_reloading: bool,
     /// Indices into self.entries that pass the file filter, in ascending order.
-    /// Directories are always included; only files are filtered (all entries if
-    /// no filter). The ascending invariant is what makes [`Self::is_visible`] a
-    /// binary search, so it must be preserved by every writer.
+    /// Entries that are hidden by the hidden-file setting are excluded first, and
+    /// of what remains, directories are always included while only files are
+    /// matched against the glob (all entries if no filter). The ascending
+    /// invariant is what makes [`Self::is_visible`] a binary search, so it must be
+    /// preserved by every writer.
     pub visible_indices: Vec<usize>,
     pub filter: crate::state::FileFilterState,
+    /// Whether hidden entries (dotfiles on Unix, `FILE_ATTRIBUTE_HIDDEN` on
+    /// Windows) are listed. Mirrors [`crate::app::AppState::show_hidden`], which
+    /// is the source of truth; every tab must be updated together via
+    /// [`crate::app::AppState::apply_show_hidden`].
+    pub show_hidden: bool,
 }
 
 impl Tab {
@@ -130,6 +137,7 @@ impl Tab {
             is_reloading: false,
             visible_indices: Vec::new(),
             filter: crate::state::FileFilterState::new(),
+            show_hidden: true,
         };
         tab.sort_entries();
         tab.recompute_visible_indices();
@@ -234,7 +242,7 @@ impl Tab {
 
     /// Move cursor to the first visible entry.
     pub fn move_cursor_home_filtered(&mut self) {
-        if self.has_file_filter() {
+        if self.has_visibility_restriction() {
             if let Some(&first) = self.visible_indices.first() {
                 self.cursor = first;
             }
@@ -245,7 +253,7 @@ impl Tab {
 
     /// Move cursor to the last visible entry.
     pub fn move_cursor_end_filtered(&mut self) {
-        if self.has_file_filter() {
+        if self.has_visibility_restriction() {
             if let Some(&last) = self.visible_indices.last() {
                 self.cursor = last;
             }
@@ -275,7 +283,7 @@ impl Tab {
     /// resolves through `visible_indices`.
     #[must_use]
     pub fn visible_row_to_entry_index(&self, row: usize) -> Option<usize> {
-        if self.has_file_filter() {
+        if self.has_visibility_restriction() {
             let pos = self.scroll_offset + row;
             self.visible_indices.get(pos).copied()
         } else {
@@ -401,11 +409,6 @@ impl Tab {
         self.recompute_visible_indices();
     }
 
-    #[must_use]
-    pub fn has_file_filter(&self) -> bool {
-        self.filter.is_active()
-    }
-
     pub fn init_file_filter(&mut self) {
         self.filter.previous_filter = self.filter.applied.clone();
         self.filter.pattern.clear();
@@ -449,9 +452,41 @@ impl Tab {
         }
     }
 
-    /// Recompute `visible_indices` from entries based on the current file filter.
-    /// Directories (including "..") are always included; files are included only
-    /// if they match the glob (or if no filter is active).
+    /// Whether `entry` survives the hidden-file setting.
+    ///
+    /// This is the hidden gate only: the file filter is deliberately not
+    /// consulted, so the gate always runs first and an active glob can never
+    /// surface a hidden entry. `..` is a navigation entry rather than a hidden
+    /// one, so it always survives.
+    #[must_use]
+    pub fn entry_is_listed(&self, entry: &FileEntry) -> bool {
+        self.show_hidden
+            || entry.name == ".."
+            || !crate::fs::utils::is_hidden(&entry.name, &entry.attributes)
+    }
+
+    /// The number of files that exist under the current hidden-file setting,
+    /// ignoring any active file filter.
+    ///
+    /// This is the honest denominator for the `Filter: <pattern> <visible>/<total>
+    /// files` status label and the file count in the plain status line, since it
+    /// only counts files that are actually listed.
+    #[must_use]
+    pub fn listed_file_count(&self) -> usize {
+        self.entries
+            .iter()
+            .filter(|e| !e.is_dir && self.entry_is_listed(e))
+            .count()
+    }
+
+    /// Recompute `visible_indices` from entries based on the hidden-file setting
+    /// and the current file filter.
+    ///
+    /// The hidden gate is applied first, so hidden files and hidden directories
+    /// (including ".." excepted) never reach the listing. Of what remains,
+    /// directories are always included; files are included only if they match the
+    /// glob (or if no filter is active).
+    ///
     /// Also adjusts `cursor` to ensure it points to a visible entry.
     pub fn recompute_visible_indices(&mut self) {
         let indices: Vec<usize> = self
@@ -459,7 +494,9 @@ impl Tab {
             .iter()
             .enumerate()
             .filter_map(|(i, e)| {
-                if e.is_dir {
+                if !self.entry_is_listed(e) {
+                    None
+                } else if e.is_dir {
                     Some(i)
                 } else if let Some(ref glob) = self.filter.glob {
                     if glob.is_match(e.name.as_str()) {
@@ -474,17 +511,52 @@ impl Tab {
             .collect();
         self.visible_indices = indices;
 
-        // Ensure cursor is on a visible entry
-        if !self.visible_indices.is_empty() && !self.is_visible(self.cursor) {
-            // Move cursor to nearest visible entry above
-            let mut new_cursor = self.cursor;
-            while new_cursor > 0 && !self.is_visible(new_cursor) {
-                new_cursor -= 1;
+        // Ensure cursor is on a visible entry. When nothing is visible there is
+        // nothing to land on, so pin it to 0 rather than leaving it pointing at
+        // an entry that is not on screen.
+        if self.visible_indices.is_empty() {
+            self.cursor = 0;
+        } else if !self.is_visible(self.cursor) {
+            // Nearest visible entry above the cursor, else the first visible one.
+            let pos = self.visible_indices.partition_point(|&i| i < self.cursor);
+            self.cursor = if pos > 0 {
+                self.visible_indices[pos - 1]
+            } else {
+                self.visible_indices[0]
+            };
+        }
+    }
+
+    /// Whether entries are withheld from the listing.
+    ///
+    /// True when hidden entries are excluded or a file filter is applied. Callers
+    /// use this to decide between indexing [`Self::entries`] directly and walking
+    /// [`Self::visible_indices`].
+    #[must_use]
+    pub fn has_visibility_restriction(&self) -> bool {
+        self.filter.is_active() || !self.show_hidden
+    }
+
+    /// Reconcile the visible set with a new hidden-file setting.
+    ///
+    /// Idempotent: the visible set is always recomputed from `entries`, so this
+    /// also repairs a stale [`Self::visible_indices`]. The tab's file filter is
+    /// left untouched, so an active glob is re-evaluated against the new setting
+    /// rather than being cleared.
+    pub fn set_show_hidden(&mut self, show_hidden: bool) {
+        self.show_hidden = show_hidden;
+        self.recompute_visible_indices();
+
+        // Never leave an invisible entry selected: operations act on `selected`
+        // and would otherwise touch files that are not on screen. Collect first,
+        // then mutate, so the `selected` read and write do not overlap.
+        if !show_hidden {
+            let deselect: Vec<usize> = (0..self.entries.len())
+                .filter(|&i| self.entries[i].selected && !self.is_visible(i))
+                .collect();
+            for i in deselect {
+                self.entries[i].selected = false;
             }
-            if !self.is_visible(new_cursor) {
-                new_cursor = self.visible_indices[0];
-            }
-            self.cursor = new_cursor;
         }
     }
 
@@ -507,7 +579,7 @@ impl Tab {
 
     /// Move cursor up, skipping hidden entries.
     pub fn move_cursor_up_filtered(&mut self) {
-        if self.has_file_filter() {
+        if self.has_visibility_restriction() {
             if let Some(pos) = self.cursor_visible_pos()
                 && pos > 0
             {
@@ -520,7 +592,7 @@ impl Tab {
 
     /// Move cursor down, skipping hidden entries.
     pub fn move_cursor_down_filtered(&mut self) {
-        if self.has_file_filter() {
+        if self.has_visibility_restriction() {
             if let Some(pos) = self.cursor_visible_pos()
                 && pos + 1 < self.visible_indices.len()
             {
@@ -628,7 +700,7 @@ impl Tab {
     }
 
     pub fn select_all(&mut self) {
-        if self.has_file_filter() {
+        if self.has_visibility_restriction() {
             self.select_all_visible();
         } else {
             for entry in &mut self.entries {
@@ -639,10 +711,15 @@ impl Tab {
         }
     }
 
+    /// Sorts `entries` in place and rebuilds the visible set.
+    ///
+    /// Entry order defines the order of [`Self::visible_indices`], so the two can
+    /// only be kept consistent here: any reorder invalidates the index list.
     pub fn sort_entries(&mut self) {
         let mut entries = std::mem::take(&mut self.entries);
         self.sort_entries_list(&mut entries);
         self.entries = entries;
+        self.recompute_visible_indices();
     }
 
     pub fn sort_entries_list(&self, entries: &mut [crate::fs::utils::FileEntry]) {
@@ -795,16 +872,17 @@ impl Tab {
         }
         let current_selection = self.current_entry().map(|e| e.name.clone());
         self.sort_entries();
-        // Try to keep cursor on the same item
+        // Try to keep cursor on the same item, but only if it is still listed.
         if let Some(pos) =
             current_selection.and_then(|name| self.entries.iter().position(|e| e.name == name))
+            && self.is_visible(pos)
         {
             self.cursor = pos;
         }
     }
 
     pub fn scroll_to_cursor(&mut self, visible_rows: usize) {
-        if self.has_file_filter() {
+        if self.has_visibility_restriction() {
             if let Some(pos) = self.cursor_visible_pos() {
                 if pos < self.scroll_offset {
                     self.scroll_offset = pos;
@@ -846,7 +924,7 @@ impl Tab {
         }
 
         let query = self.search.buffer.to_lowercase();
-        let filtering = self.has_file_filter();
+        let filtering = self.has_visibility_restriction();
         self.search.matching_indices.clear();
         self.search.highlights.clear();
 

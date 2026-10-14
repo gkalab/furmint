@@ -28,3 +28,4 @@ pub mod input_utils;
 pub mod popup_utils;
 pub mod suspended_ui;
 pub mod terminal;
+pub mod toggle_hidden;

@@ -36,6 +36,7 @@ pub fn create_test_tab() -> Tab {
         is_reloading: false,
         visible_indices: Vec::new(),
         filter: crate::state::FileFilterState::new(),
+        show_hidden: true,
     }
 }
 
@@ -97,6 +98,7 @@ pub fn create_test_tab_with_entries() -> Tab {
         is_reloading: false,
         visible_indices: Vec::new(),
         filter: crate::state::FileFilterState::new(),
+        show_hidden: true,
     }
 }
 
@@ -160,7 +162,7 @@ impl TestAppBuilder {
     pub fn build(self) -> AppState {
         let test_tab = create_test_tab();
 
-        AppState {
+        let mut app = AppState {
             panels: crate::app::PanelState {
                 left: self.left.unwrap_or_else(|| TabManager {
                     tabs: vec![test_tab.clone()],
@@ -207,7 +209,12 @@ impl TestAppBuilder {
             pending_action: None,
             mouse: crate::app::MouseState::default(),
             remote_reloaded_at: std::collections::HashMap::new(),
-        }
+            show_hidden: true,
+        };
+        // `AppState::new` does this in production; keep the test double faithful
+        // so `is_visible` and the visible-file counts behave the same.
+        app.apply_show_hidden();
+        app
     }
 }
 

@@ -101,6 +101,36 @@ fn test_validate_keyboard_config_same_action_no_conflict() {
 }
 
 #[test]
+fn test_toggle_hidden_default_binding() {
+    let config = default_keyboard_config();
+    assert_eq!(
+        config.toggle_hidden,
+        Some(vec!["Alt-.".to_string()]),
+        "hidden-file toggle defaults to Alt-."
+    );
+}
+
+#[test]
+fn test_toggle_hidden_can_be_rebound() {
+    let user = KeyboardConfig {
+        toggle_hidden: Some(vec!["Ctrl-h".to_string()]),
+        ..KeyboardConfig::default()
+    };
+    let merged = merge_keyboard_config(Some(&user), &default_keyboard_config());
+    assert_eq!(merged.toggle_hidden, Some(vec!["Ctrl-h".to_string()]));
+    assert!(validate_keyboard_config(&merged).is_ok());
+}
+
+#[test]
+fn test_toggle_hidden_conflict_is_detected() {
+    let mut config = default_keyboard_config();
+    config.toggle_hidden = Some(vec!["Ctrl-q".to_string()]);
+    let err = validate_keyboard_config(&config).unwrap_err().to_string();
+    assert!(err.contains("Keybinding conflict"), "{err}");
+    assert!(err.contains("toggle_hidden"), "{err}");
+}
+
+#[test]
 fn test_validate_editor_viewer_config() {
     let editor = EditorConfig {
         command: Some("vim".to_string()),

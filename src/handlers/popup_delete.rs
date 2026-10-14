@@ -26,7 +26,11 @@ pub fn handle_init_delete(app: &mut AppState, permanent: bool) {
         .map(|e| tab.current_dir.join(&e.name))
         .collect();
 
+    // Fall back to the entry under the cursor only when it is on screen: with
+    // hidden entries or a file filter withheld it, acting on it would delete a
+    // file the user cannot see.
     if selected.is_empty()
+        && tab.is_visible(tab.cursor)
         && let Some(entry) = tab.current_entry()
         && entry.name != ".."
     {

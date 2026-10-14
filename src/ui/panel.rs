@@ -401,7 +401,7 @@ fn draw_selection_markers(
     let yellow_color = Color::Rgb(palette.yellow.r, palette.yellow.g, palette.yellow.b);
 
     // Determine which indices to render (respecting file filter)
-    let render_indices: Box<dyn Iterator<Item = usize>> = if panel.has_file_filter() {
+    let render_indices: Box<dyn Iterator<Item = usize>> = if panel.has_visibility_restriction() {
         Box::new(panel.visible_indices.iter().copied())
     } else {
         Box::new(0..panel.entries.len())
@@ -443,7 +443,7 @@ fn draw_scrollbar(
     visible_rows: usize,
     ctx: &TabScrollbarContext,
 ) {
-    let total_entries = if panel.has_file_filter() {
+    let total_entries = if panel.has_visibility_restriction() {
         panel.visible_count()
     } else {
         panel.entries.len()
@@ -526,7 +526,7 @@ pub fn draw_panel(
     };
 
     // Determine which entries to render (respecting file filter)
-    let render_indices: Vec<usize> = if panel.has_file_filter() {
+    let render_indices: Vec<usize> = if panel.has_visibility_restriction() {
         panel.visible_indices[panel.scroll_offset..]
             .iter()
             .take(visible_rows)
@@ -579,7 +579,7 @@ pub fn draw_panel(
     };
 
     // Map cursor to the visible row position
-    let highlighted_row = if panel.has_file_filter() {
+    let highlighted_row = if panel.has_visibility_restriction() {
         panel
             .cursor_visible_pos()
             .map(|pos| pos.saturating_sub(panel.scroll_offset))
@@ -632,7 +632,9 @@ pub fn draw_panel_status(
     }
 
     let error = panel.error.as_deref().unwrap_or("");
-    let file_count = panel.entries.iter().filter(|e| !e.is_dir).count();
+    // Count only files that are actually listed, so the totals do not include
+    // entries withheld by the hidden-file setting.
+    let file_count = panel.listed_file_count();
     let dir_count = panel
         .entries
         .iter()
