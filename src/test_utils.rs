@@ -20,7 +20,7 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 #[cfg(test)]
 #[must_use]
 pub fn create_test_tab() -> Tab {
-    Tab {
+    let mut tab = Tab {
         provider: Arc::new(LocalFs::new()),
         current_dir: PathBuf::from("/test"),
         entries: vec![],
@@ -37,7 +37,11 @@ pub fn create_test_tab() -> Tab {
         visible_indices: Vec::new(),
         filter: crate::state::FileFilterState::new(),
         show_hidden: true,
-    }
+    };
+    // The visible listing is the cursor's coordinate space, so a tab built by
+    // hand must materialise it just like `Tab::new` does.
+    tab.recompute_visible_indices();
+    tab
 }
 
 #[cfg(test)]

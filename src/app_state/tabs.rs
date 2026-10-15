@@ -211,9 +211,11 @@ impl Tab {
 
     /// Move cursor up by one.
     pub fn move_cursor_up(&mut self) {
-        if self.cursor > 0 {
-            self.cursor -= 1;
-        }
+        // Clamp as well as decrement: a stale cursor (past the end of the
+        // visible listing) lands on the last visible row instead of staying out
+        // of range, mirroring `move_cursor_page_down`/`move_cursor_end`.
+        let last = self.visible_indices.len().saturating_sub(1);
+        self.cursor = self.cursor.saturating_sub(1).min(last);
     }
 
     /// Move cursor down by one.
@@ -316,7 +318,9 @@ impl Tab {
             }
         }
 
-        self.sort_entries();
+        // `new_entries` was already sorted above, so only the visible set needs
+        // rebuilding before the cursor restore below indexes through it.
+        self.recompute_visible_indices();
 
         // Try to restore the cursor to the same file. The cursor is a position
         // in the visible listing, so resolve the entry's new row through the
@@ -351,8 +355,6 @@ impl Tab {
         } else {
             self.search.highlights.clear();
         }
-
-        self.recompute_visible_indices();
 
         true
     }
