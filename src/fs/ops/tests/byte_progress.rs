@@ -68,20 +68,22 @@ async fn setup_in_tmp() -> (tempfile::TempDir, Harness) {
 
 async fn run(h: &Harness, action: CopyMoveAction) -> anyhow::Result<()> {
     let ctx = RecursiveOpContext {
-        src_fs: &h.fs,
-        dest_fs: &h.fs,
+        transfer: crate::fs::ops::Transfer {
+            src_fs: &h.fs,
+            dest_fs: &h.fs,
+            action,
+            cancel: &h.cancel,
+            tx: &h.tx,
+            id: 1,
+            total: h.total_items,
+            total_bytes: h.total_bytes,
+            processed: &h.processed,
+            processed_bytes: &h.processed_bytes,
+            decision_rx: &h.decision_rx,
+            subtree_counts: &h.subtree_counts,
+        },
         src: &h.src,
         dest: &h.dest,
-        action,
-        cancel: &h.cancel,
-        tx: &h.tx,
-        id: 1,
-        total: h.total_items,
-        total_bytes: h.total_bytes,
-        processed: &h.processed,
-        processed_bytes: &h.processed_bytes,
-        decision_rx: &h.decision_rx,
-        subtree_counts: &h.subtree_counts,
     };
     recursive_op(ctx, &mut DecisionState::new()).await
 }

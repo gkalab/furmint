@@ -104,15 +104,75 @@ impl DecisionState {
     }
 }
 
-// Recursive operation
-// Returns Result<(), String>
-// Iterative operation to avoid stack overflow
-// Returns Result<(), String>
-pub struct RecursiveOpContext<'a> {
+/// Which prompt a transfer is waiting on. The conflict and error popups put
+/// different buttons behind the same decision channel, so knowing the prompt's
+/// kind — not just the raw [`crate::tasks::TaskDecision`] — is what gives an
+/// answer its meaning.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DecisionKind {
+    /// The destination already exists: overwrite it, skip it, or cancel.
+    Conflict,
+    /// A transfer failed: retry it, skip the rest, or cancel.
+    Error,
+}
+
+/// A [`crate::tasks::TaskDecision`] normalised to the transfer-wide vocabulary.
+/// Both the recursive walker and the rsync path act on these, so a button means
+/// the same thing no matter which path raised the prompt.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Decision {
+    Overwrite,
+    OverwriteAll,
+    Skip,
+    SkipAll,
+    Retry,
+    Cancel,
+}
+
+impl Decision {
+    /// Translate the UI's answer for `kind`. Every variant is matched
+    /// explicitly — a new [`crate::tasks::TaskDecision`] must be given a meaning
+    /// here rather than silently falling through a wildcard — and a dropped
+    /// channel (the task is gone) reads as "skip".
+    // The repeated `Self::Skip` arms are deliberate: each names the variant of
+    // one prompt, so adding a `TaskDecision` fails to compile here instead of
+    // being absorbed into a wildcard.
+    #[allow(clippy::match_same_arms)]
+    fn from_task_decision(kind: DecisionKind, raw: Option<crate::tasks::TaskDecision>) -> Self {
+        use crate::tasks::TaskDecision as D;
+        match (kind, raw) {
+            (_, None) => Self::Skip,
+
+            // The conflict popup maps 'm' to Merge; the recursive walker has
+            // already descended into the destination by the time a file
+            // conflict is raised, so merging is the same as overwriting.
+            (DecisionKind::Conflict, Some(D::Overwrite | D::Merge)) => Self::Overwrite,
+            (DecisionKind::Conflict, Some(D::OverwriteAll)) => Self::OverwriteAll,
+            (DecisionKind::Conflict, Some(D::Skip)) => Self::Skip,
+            (DecisionKind::Conflict, Some(D::SkipAll)) => Self::SkipAll,
+            (DecisionKind::Conflict, Some(D::Cancel)) => Self::Cancel,
+            // Retry belongs to the error prompt; ignore one that arrives here.
+            (DecisionKind::Conflict, Some(D::Retry)) => Self::Skip,
+
+            (DecisionKind::Error, Some(D::Retry)) => Self::Retry,
+            (DecisionKind::Error, Some(D::Skip)) => Self::Skip,
+            (DecisionKind::Error, Some(D::SkipAll)) => Self::SkipAll,
+            (DecisionKind::Error, Some(D::Cancel)) => Self::Cancel,
+            // Overwrite/Merge belong to the conflict prompt; ignore them here.
+            (DecisionKind::Error, Some(D::Overwrite | D::OverwriteAll | D::Merge)) => Self::Skip,
+        }
+    }
+}
+
+/// The state every spawned copy/move transfer shares: the filesystem pair, the
+/// task's progress counters, and the channel the UI answers prompts on.
+///
+/// Both the recursive walker and the rsync shortcut take one of these, so the
+/// decision protocol lives in one place instead of being re-derived per path.
+#[derive(Clone, Copy)]
+pub struct Transfer<'a> {
     pub src_fs: &'a dyn FileSystemProvider,
     pub dest_fs: &'a dyn FileSystemProvider,
-    pub src: &'a std::path::Path,
-    pub dest: &'a std::path::Path,
     pub action: crate::state::CopyMoveAction,
     pub cancel: &'a std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub tx: &'a crate::tasks::EventBus,
@@ -132,6 +192,86 @@ pub struct RecursiveOpContext<'a> {
     pub subtree_counts: &'a SubtreeCounts,
 }
 
+impl Transfer<'_> {
+    /// The task's progress context, shared by every file of the operation.
+    ///
+    /// Handing the same counters to each transfer is what lets a file that
+    /// only knows its own size report against the task total: the byte
+    /// reports land on one task-wide line instead of restarting per file.
+    pub fn progress_ctx(&self) -> TaskProgressContext {
+        TaskProgressContext {
+            id: self.id,
+            tx: self.tx.clone(),
+            cancel: self.cancel.clone(),
+            processed_bytes: self.processed_bytes.clone(),
+            processed_items: self.processed.clone(),
+            total_bytes: self.total_bytes,
+        }
+    }
+
+    /// Send the prompt for `kind` and wait for the user's answer, normalised to
+    /// the transfer-wide [`Decision`]. "Apply to all" answers are sticky and
+    /// honoured before prompting; a cancel flips the task's cancel flag.
+    pub async fn request_decision(
+        &self,
+        kind: DecisionKind,
+        decision_state: &mut DecisionState,
+        path: &std::path::Path,
+        error_message: Option<String>,
+    ) -> Decision {
+        // Apply-to-all answers persist for the rest of the task.
+        match kind {
+            DecisionKind::Conflict if decision_state.should_overwrite() => {
+                return Decision::OverwriteAll;
+            }
+            _ if decision_state.should_skip() => return Decision::SkipAll,
+            _ => {}
+        }
+
+        let alert = match kind {
+            DecisionKind::Conflict => crate::tasks::AlertEvent::Conflict {
+                task_id: self.id,
+                path: path.to_path_buf(),
+                conflict_type: crate::tasks::ConflictType::FileExists,
+            },
+            DecisionKind::Error => crate::tasks::AlertEvent::TaskError {
+                task_id: self.id,
+                path: path.display().to_string(),
+                message: error_message.unwrap_or_default(),
+            },
+        };
+        self.tx.send(crate::tasks::UiEvent::Alert(alert));
+
+        let decision =
+            Decision::from_task_decision(kind, self.decision_rx.lock().await.recv().await);
+        match decision {
+            Decision::OverwriteAll => decision_state.overwrite_all = true,
+            Decision::SkipAll => decision_state.skip_all = true,
+            Decision::Cancel => {
+                self.cancel
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                self.tx.send(crate::tasks::UiEvent::Task(
+                    crate::tasks::TaskEvent::UpdateStatus {
+                        task_id: self.id,
+                        status: crate::tasks::TaskStatus::Cancelled,
+                    },
+                ));
+            }
+            _ => {}
+        }
+        decision
+    }
+}
+
+/// A recursive copy/move of one `src` onto one `dest`. It owns the operation's
+/// shared [`Transfer`] state; the pair of paths is all that distinguishes it
+/// from any other path in the same task.
+pub struct RecursiveOpContext<'a> {
+    pub transfer: Transfer<'a>,
+    pub src: &'a std::path::Path,
+    pub dest: &'a std::path::Path,
+}
+
 // Internal enum for stack
 enum WorkItem {
     Process {
@@ -143,50 +283,32 @@ enum WorkItem {
     },
 }
 
-impl RecursiveOpContext<'_> {
-    /// The task's progress context, shared by every file of the operation.
-    ///
-    /// Handing the same counters to each transfer is what lets a file that
-    /// only knows its own size report against the task total: the byte
-    /// reports land on one task-wide line instead of restarting per file.
-    fn progress_ctx(&self) -> TaskProgressContext {
-        TaskProgressContext {
-            id: self.id,
-            tx: self.tx.clone(),
-            cancel: self.cancel.clone(),
-            processed_bytes: self.processed_bytes.clone(),
-            processed_items: self.processed.clone(),
-            total_bytes: self.total_bytes,
-        }
-    }
-}
-
 /// Bytes of `path`'s subtree that the task counted but will not transfer,
 /// because the user skipped it or it was carried by a rename. From the
 /// pre-operation walk, falling back to a stat when there was no walk.
-async fn untransferred_bytes(ctx: &RecursiveOpContext<'_>, path: &std::path::Path) -> u64 {
-    if let Some(&(_, bytes)) = ctx.subtree_counts.get(path) {
+async fn untransferred_bytes(transfer: &Transfer<'_>, path: &std::path::Path) -> u64 {
+    if let Some(&(_, bytes)) = transfer.subtree_counts.get(path) {
         return bytes;
     }
-    ctx.src_fs.get_size(path).await.unwrap_or(0)
+    transfer.src_fs.get_size(path).await.unwrap_or(0)
 }
 
 /// Credit bytes that the task counted but that no transfer will move, so the
 /// byte line still reaches the total. Nothing is reported when the task has
 /// no total (rsync reports its own).
-fn credit_untransferred_bytes(ctx: &RecursiveOpContext<'_>, bytes: u64) {
-    if bytes == 0 || ctx.total_bytes == 0 {
+fn credit_untransferred_bytes(transfer: &Transfer<'_>, bytes: u64) {
+    if bytes == 0 || transfer.total_bytes == 0 {
         return;
     }
-    let processed = ctx
+    let processed = transfer
         .processed_bytes
         .fetch_add(bytes, std::sync::atomic::Ordering::Relaxed)
         + bytes;
-    ctx.tx.send(crate::tasks::UiEvent::Task(
+    transfer.tx.send(crate::tasks::UiEvent::Task(
         crate::tasks::TaskEvent::UpdateByteProgress {
-            task_id: ctx.id,
+            task_id: transfer.id,
             processed,
-            total: ctx.total_bytes.max(processed),
+            total: transfer.total_bytes.max(processed),
         },
     ));
 }
@@ -196,27 +318,28 @@ async fn try_rename_move_optimization(
     src: &std::path::Path,
     dest: &std::path::Path,
 ) -> Result<bool> {
-    let same_fs = ctx.src_fs.context_key() == ctx.dest_fs.context_key();
-    if ctx.action == crate::state::CopyMoveAction::Move && same_fs {
-        let dest_exists = ctx.dest_fs.stat_path(dest).await.is_some();
-        if !dest_exists && ctx.src_fs.rename(src, dest).await.is_ok() {
+    let t = &ctx.transfer;
+    let same_fs = t.src_fs.context_key() == t.dest_fs.context_key();
+    if t.action == crate::state::CopyMoveAction::Move && same_fs {
+        let dest_exists = t.dest_fs.stat_path(dest).await.is_some();
+        if !dest_exists && t.src_fs.rename(src, dest).await.is_ok() {
             // Successfully moved! The rename carried the entire subtree in one
             // go and nothing below it will be processed individually, so credit
             // every item in it (the subtree root included).
-            let (count, bytes) = match ctx.subtree_counts.get(src) {
+            let (count, bytes) = match t.subtree_counts.get(src) {
                 Some(&(count, bytes)) => (count, bytes),
-                None => count_items_and_size(ctx.dest_fs, &[dest.to_path_buf()]).await,
+                None => count_items_and_size(t.dest_fs, &[dest.to_path_buf()]).await,
             };
-            credit_untransferred_bytes(ctx, bytes);
-            let p = ctx
+            credit_untransferred_bytes(t, bytes);
+            let p = t
                 .processed
                 .fetch_add(count, std::sync::atomic::Ordering::Relaxed)
                 + count;
-            ctx.tx.send(crate::tasks::UiEvent::Task(
+            t.tx.send(crate::tasks::UiEvent::Task(
                 crate::tasks::TaskEvent::UpdateProgress {
-                    task_id: ctx.id,
+                    task_id: t.id,
                     processed: p,
-                    total: ctx.total,
+                    total: t.total,
                 },
             ));
             return Ok(true);
@@ -231,8 +354,9 @@ async fn handle_file(
     src: &std::path::Path,
     dest: &std::path::Path,
 ) -> Result<bool> {
+    let t = &ctx.transfer;
     let mut perform = true;
-    let dest_exists = ctx.dest_fs.stat_path(dest).await.is_some();
+    let dest_exists = t.dest_fs.stat_path(dest).await.is_some();
 
     if dest_exists {
         match resolve_conflict(ctx, decision_state, dest).await? {
@@ -240,7 +364,7 @@ async fn handle_file(
             ConflictResult::Skip => {
                 // Skipped: no bytes move, but the walk counted this file, so
                 // credit it or the task's byte line can never complete.
-                credit_untransferred_bytes(ctx, untransferred_bytes(ctx, src).await);
+                credit_untransferred_bytes(t, untransferred_bytes(t, src).await);
                 perform = false;
             }
             ConflictResult::Cancel => return Ok(false),
@@ -249,9 +373,9 @@ async fn handle_file(
 
     if perform {
         // Update current file
-        ctx.tx.send(crate::tasks::UiEvent::Task(
+        t.tx.send(crate::tasks::UiEvent::Task(
             crate::tasks::TaskEvent::UpdateCurrentFile {
-                task_id: ctx.id,
+                task_id: t.id,
                 filename: src
                     .file_name()
                     .unwrap_or_default()
@@ -265,10 +389,10 @@ async fn handle_file(
         }
     }
 
-    if ctx.action == crate::state::CopyMoveAction::Move && perform {
+    if t.action == crate::state::CopyMoveAction::Move && perform {
         // The file was already copied to the destination. If we fail to remove the
         // source, a Move would silently degrade into a Copy, so surface the error.
-        if let Err(e) = ctx.src_fs.delete(src, false).await {
+        if let Err(e) = t.src_fs.delete(src, false).await {
             return Err(anyhow!(
                 "Failed to delete source {} after move: {e}",
                 src.display()
@@ -277,11 +401,11 @@ async fn handle_file(
     }
 
     // Update progress
-    let p = ctx
+    let p = t
         .processed
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         + 1;
-    update_progress_if_needed(ctx, decision_state, p);
+    update_progress_if_needed(t, decision_state, p);
 
     Ok(true)
 }
@@ -291,17 +415,18 @@ pub fn recursive_op<'a>(
     decision_state: &'a mut DecisionState,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
     Box::pin(async move {
+        let t = ctx.transfer;
         let mut stack = vec![WorkItem::Process {
             src: ctx.src.to_path_buf(),
             dest: ctx.dest.to_path_buf(),
         }];
 
         // Send initial progress update
-        ctx.tx.send(crate::tasks::UiEvent::Task(
+        t.tx.send(crate::tasks::UiEvent::Task(
             crate::tasks::TaskEvent::UpdateProgress {
-                task_id: ctx.id,
-                processed: ctx.processed.load(std::sync::atomic::Ordering::Relaxed),
-                total: ctx.total,
+                task_id: t.id,
+                processed: t.processed.load(std::sync::atomic::Ordering::Relaxed),
+                total: t.total,
             },
         ));
 
@@ -309,27 +434,25 @@ pub fn recursive_op<'a>(
         // the line appears before the first chunk. A recursive operation runs
         // once per top-level path, so this carries what the earlier paths
         // already transferred.
-        if ctx.total_bytes > 0 {
-            ctx.tx.send(crate::tasks::UiEvent::Task(
+        if t.total_bytes > 0 {
+            t.tx.send(crate::tasks::UiEvent::Task(
                 crate::tasks::TaskEvent::UpdateByteProgress {
-                    task_id: ctx.id,
-                    processed: ctx
-                        .processed_bytes
-                        .load(std::sync::atomic::Ordering::Relaxed),
-                    total: ctx.total_bytes,
+                    task_id: t.id,
+                    processed: t.processed_bytes.load(std::sync::atomic::Ordering::Relaxed),
+                    total: t.total_bytes,
                 },
             ));
         }
 
         while let Some(item) = stack.pop() {
-            if ctx.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            if t.cancel.load(std::sync::atomic::Ordering::Relaxed) {
                 return Ok(()); // Cancelled
             }
 
             match item {
                 WorkItem::PostProcessDir { src } => {
                     // Remove empty directory after move
-                    let _ = ctx.src_fs.delete(&src, false).await;
+                    let _ = t.src_fs.delete(&src, false).await;
                 }
                 WorkItem::Process { src, dest } => {
                     // Move optimization: Try rename first if it's a move operation and same FS
@@ -337,7 +460,7 @@ pub fn recursive_op<'a>(
                         continue;
                     }
 
-                    if ctx.src_fs.is_dir(&src).await {
+                    if t.src_fs.is_dir(&src).await {
                         handle_directory(&ctx, decision_state, &src, &dest, &mut stack).await?;
                     } else if !handle_file(&ctx, decision_state, &src, &dest).await? {
                         return Ok(()); // Cancelled
@@ -362,15 +485,16 @@ async fn handle_directory(
     dest: &std::path::Path,
     stack: &mut Vec<WorkItem>,
 ) -> Result<()> {
-    let progress = ctx.progress_ctx();
+    let t = &ctx.transfer;
+    let progress = t.progress_ctx();
 
-    let dest_stat = ctx.dest_fs.stat_path(dest).await;
+    let dest_stat = t.dest_fs.stat_path(dest).await;
     let dest_is_dir = dest_stat.unwrap_or(false);
     let dest_exists = dest_stat.is_some();
 
     // For archive destinations, hand off the whole directory at once so the
     // entire tree is added in a single batched rewrite (archives cannot append).
-    if ctx.dest_fs.is_archive() {
+    if t.dest_fs.is_archive() {
         return handle_archive_directory(ctx, decision_state, src, dest, dest_exists, &progress)
             .await;
     }
@@ -390,12 +514,12 @@ async fn handle_directory(
     }
 
     // Normal recursive path (no download optimisation).
-    let src_mtime = ctx.src_fs.get_modified_time(src).await;
+    let src_mtime = t.src_fs.get_modified_time(src).await;
     if !ensure_dest_directory(ctx, decision_state, dest, dest_exists, dest_is_dir).await? {
         return Ok(());
     }
     if let Some(mtime) = src_mtime {
-        let _ = ctx.dest_fs.set_modified_time(dest, mtime).await;
+        let _ = t.dest_fs.set_modified_time(dest, mtime).await;
     }
 
     update_progress_and_postprocess(ctx, decision_state, src, stack);
@@ -410,20 +534,21 @@ async fn handle_archive_directory(
     dest_exists: bool,
     progress: &TaskProgressContext,
 ) -> Result<()> {
-    let tree_count = match ctx.subtree_counts.get(src) {
+    let t = &ctx.transfer;
+    let tree_count = match t.subtree_counts.get(src) {
         Some(&(count, _)) => count,
-        None => count_items(ctx.src_fs, &[src.to_path_buf()]).await,
+        None => count_items(t.src_fs, &[src.to_path_buf()]).await,
     };
-    let mark_processed = |ctx: &RecursiveOpContext<'_>| {
-        let p = ctx
+    let mark_processed = |t: &Transfer<'_>| {
+        let p = t
             .processed
             .fetch_add(tree_count, std::sync::atomic::Ordering::Relaxed)
             + tree_count;
-        ctx.tx.send(crate::tasks::UiEvent::Task(
+        t.tx.send(crate::tasks::UiEvent::Task(
             crate::tasks::TaskEvent::UpdateProgress {
-                task_id: ctx.id,
+                task_id: t.id,
                 processed: p,
-                total: ctx.total,
+                total: t.total,
             },
         ));
     };
@@ -433,8 +558,8 @@ async fn handle_archive_directory(
             ConflictResult::Perform => {}
             ConflictResult::Skip => {
                 // The whole subtree is skipped, so its bytes are credited here.
-                credit_untransferred_bytes(ctx, untransferred_bytes(ctx, src).await);
-                mark_processed(ctx);
+                credit_untransferred_bytes(t, untransferred_bytes(t, src).await);
+                mark_processed(t);
                 return Ok(());
             }
             ConflictResult::Cancel => return Ok(()),
@@ -443,24 +568,24 @@ async fn handle_archive_directory(
 
     // Prefer the destination pulling from the local filesystem; if the source is
     // not local (e.g. another archive), let it read through the provider API.
-    let res = if let Some(res) = ctx
+    let res = if let Some(res) = t
         .dest_fs
-        .copy_from_local(ctx.src_fs, src, dest, progress)
+        .copy_from_local(t.src_fs, src, dest, progress)
         .await
     {
         Some(res)
     } else {
-        ctx.dest_fs
-            .copy_from_source(ctx.src_fs, src, dest, progress)
+        t.dest_fs
+            .copy_from_source(t.src_fs, src, dest, progress)
             .await
     };
     if let Some(res) = res {
         if res.is_ok()
-            && let Some(mtime) = ctx.src_fs.get_modified_time(src).await
+            && let Some(mtime) = t.src_fs.get_modified_time(src).await
         {
-            let _ = ctx.dest_fs.set_modified_time(dest, mtime).await;
+            let _ = t.dest_fs.set_modified_time(dest, mtime).await;
         }
-        mark_processed(ctx);
+        mark_processed(t);
         return res;
     }
     Ok(())
@@ -473,9 +598,10 @@ async fn handle_copy_to_local_with_existing_dir(
     dest: &std::path::Path,
     progress: &TaskProgressContext,
 ) -> Result<Option<Result<()>>> {
+    let t = &ctx.transfer;
     // Probe the capability without transferring: running `copy_to_local` here
     // would write the destination before the user has even seen the conflict.
-    if !ctx.src_fs.supports_copy_to_local(src, ctx.dest_fs).await {
+    if !t.src_fs.supports_copy_to_local(src, t.dest_fs).await {
         return Ok(None);
     }
 
@@ -483,33 +609,30 @@ async fn handle_copy_to_local_with_existing_dir(
         ConflictResult::Perform => {}
         ConflictResult::Skip => {
             // The whole subtree is skipped, so its bytes are credited here.
-            credit_untransferred_bytes(ctx, untransferred_bytes(ctx, src).await);
-            let p = ctx
+            credit_untransferred_bytes(t, untransferred_bytes(t, src).await);
+            let p = t
                 .processed
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
                 + 1;
-            update_progress_if_needed(ctx, decision_state, p);
+            update_progress_if_needed(t, decision_state, p);
             return Ok(Some(Ok(())));
         }
         ConflictResult::Cancel => return Ok(Some(Ok(()))),
     }
 
     // User said overwrite — run the transfer now (exactly once).
-    let res = ctx
-        .src_fs
-        .copy_to_local(src, ctx.dest_fs, dest, progress)
-        .await;
+    let res = t.src_fs.copy_to_local(src, t.dest_fs, dest, progress).await;
     if let Some(res) = res {
         if res.is_ok() {
-            if let Some(mtime) = ctx.src_fs.get_modified_time(src).await {
-                let _ = ctx.dest_fs.set_modified_time(dest, mtime).await;
+            if let Some(mtime) = t.src_fs.get_modified_time(src).await {
+                let _ = t.dest_fs.set_modified_time(dest, mtime).await;
             }
-            let p = ctx.processed.load(std::sync::atomic::Ordering::Relaxed);
-            ctx.tx.send(crate::tasks::UiEvent::Task(
+            let p = t.processed.load(std::sync::atomic::Ordering::Relaxed);
+            t.tx.send(crate::tasks::UiEvent::Task(
                 crate::tasks::TaskEvent::UpdateProgress {
-                    task_id: ctx.id,
+                    task_id: t.id,
                     processed: p,
-                    total: ctx.total,
+                    total: t.total,
                 },
             ));
         }
@@ -524,22 +647,19 @@ async fn handle_copy_to_local_direct(
     dest: &std::path::Path,
     progress: &TaskProgressContext,
 ) -> Result<Option<Result<()>>> {
+    let t = &ctx.transfer;
     // Destination doesn't exist yet — copy directly, no conflict.
-    if let Some(res) = ctx
-        .src_fs
-        .copy_to_local(src, ctx.dest_fs, dest, progress)
-        .await
-    {
+    if let Some(res) = t.src_fs.copy_to_local(src, t.dest_fs, dest, progress).await {
         if res.is_ok() {
-            if let Some(mtime) = ctx.src_fs.get_modified_time(src).await {
-                let _ = ctx.dest_fs.set_modified_time(dest, mtime).await;
+            if let Some(mtime) = t.src_fs.get_modified_time(src).await {
+                let _ = t.dest_fs.set_modified_time(dest, mtime).await;
             }
-            let p = ctx.processed.load(std::sync::atomic::Ordering::Relaxed);
-            ctx.tx.send(crate::tasks::UiEvent::Task(
+            let p = t.processed.load(std::sync::atomic::Ordering::Relaxed);
+            t.tx.send(crate::tasks::UiEvent::Task(
                 crate::tasks::TaskEvent::UpdateProgress {
-                    task_id: ctx.id,
+                    task_id: t.id,
                     processed: p,
-                    total: ctx.total,
+                    total: t.total,
                 },
             ));
         }
@@ -555,8 +675,9 @@ async fn ensure_dest_directory(
     dest_exists: bool,
     dest_is_dir: bool,
 ) -> Result<bool> {
+    let t = &ctx.transfer;
     if !dest_exists {
-        if let Err(e) = ctx.dest_fs.create_dir_all(dest).await {
+        if let Err(e) = t.dest_fs.create_dir_all(dest).await {
             return Err(anyhow!(
                 "Failed to create directory {}: {e}",
                 dest.display(),
@@ -570,8 +691,8 @@ async fn ensure_dest_directory(
         match resolve_conflict(ctx, decision_state, dest).await? {
             ConflictResult::Perform => {
                 // Remove the blocking file and create the directory.
-                let _ = ctx.dest_fs.delete(dest, false).await;
-                if let Err(e) = ctx.dest_fs.create_dir_all(dest).await {
+                let _ = t.dest_fs.delete(dest, false).await;
+                if let Err(e) = t.dest_fs.create_dir_all(dest).await {
                     return Err(anyhow!(
                         "Failed to create directory {}: {e}",
                         dest.display(),
@@ -580,11 +701,11 @@ async fn ensure_dest_directory(
                 return Ok(true);
             }
             ConflictResult::Skip => {
-                let p = ctx
+                let p = t
                     .processed
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
                     + 1;
-                update_progress_if_needed(ctx, decision_state, p);
+                update_progress_if_needed(t, decision_state, p);
                 return Ok(false);
             }
             ConflictResult::Cancel => return Ok(false),
@@ -599,7 +720,8 @@ async fn add_children_to_stack(
     dest: &std::path::Path,
     stack: &mut Vec<WorkItem>,
 ) -> Result<()> {
-    let children = ctx
+    let t = &ctx.transfer;
+    let children = t
         .src_fs
         .read_dir(src)
         .await
@@ -623,14 +745,15 @@ fn update_progress_and_postprocess(
     src: &std::path::Path,
     stack: &mut Vec<WorkItem>,
 ) {
+    let t = &ctx.transfer;
     // Increment progress for the directory itself
-    let p = ctx
+    let p = t
         .processed
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         + 1;
-    update_progress_if_needed(ctx, decision_state, p);
+    update_progress_if_needed(t, decision_state, p);
 
-    if ctx.action == crate::state::CopyMoveAction::Move {
+    if t.action == crate::state::CopyMoveAction::Move {
         stack.push(WorkItem::PostProcessDir {
             src: src.to_path_buf(),
         });
@@ -642,46 +765,16 @@ async fn resolve_conflict(
     decision_state: &mut DecisionState,
     dest: &std::path::Path,
 ) -> Result<ConflictResult> {
-    if decision_state.should_overwrite() {
-        return Ok(ConflictResult::Perform);
-    }
-    if decision_state.should_skip() {
-        return Ok(ConflictResult::Skip);
-    }
-
-    // Ask user
-    ctx.tx.send(crate::tasks::UiEvent::Alert(
-        crate::tasks::AlertEvent::Conflict {
-            task_id: ctx.id,
-            path: dest.to_path_buf(),
-            conflict_type: crate::tasks::ConflictType::FileExists,
-        },
-    ));
-
-    // Wait for decision
-    let decision = ctx.decision_rx.lock().await.recv().await;
-
-    match decision {
-        Some(crate::tasks::TaskDecision::Overwrite) => Ok(ConflictResult::Perform),
-        Some(crate::tasks::TaskDecision::OverwriteAll) => {
-            decision_state.overwrite_all = true;
-            Ok(ConflictResult::Perform)
-        }
-        Some(crate::tasks::TaskDecision::SkipAll) => {
-            decision_state.skip_all = true;
-            Ok(ConflictResult::Skip)
-        }
-        Some(crate::tasks::TaskDecision::Cancel) => {
-            ctx.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
-            ctx.tx.send(crate::tasks::UiEvent::Task(
-                crate::tasks::TaskEvent::UpdateStatus {
-                    task_id: ctx.id,
-                    status: crate::tasks::TaskStatus::Cancelled,
-                },
-            ));
-            Ok(ConflictResult::Cancel)
-        }
-        _ => Ok(ConflictResult::Skip), // Default skip or error
+    match ctx
+        .transfer
+        .request_decision(DecisionKind::Conflict, decision_state, dest, None)
+        .await
+    {
+        Decision::Overwrite | Decision::OverwriteAll => Ok(ConflictResult::Perform),
+        // Retry is not offered by the conflict prompt, but a non-answer falls
+        // back to skipping rather than guessing.
+        Decision::Skip | Decision::SkipAll | Decision::Retry => Ok(ConflictResult::Skip),
+        Decision::Cancel => Ok(ConflictResult::Cancel),
     }
 }
 
@@ -693,35 +786,36 @@ async fn perform_cross_fs_copy(
     dest: &std::path::Path,
 ) -> Option<anyhow::Result<()>> {
     const RSYNC_MIN_SIZE: u64 = 1024 * 1024; // 1 MB threshold
-    let progress = ctx.progress_ctx();
+    let t = &ctx.transfer;
+    let progress = t.progress_ctx();
 
     // Try rsync first for local-remote copy operations, but only for larger files
     // Small files have more overhead with rsync than benefit
 
-    let file_size = ctx.src_fs.get_size(src).await.unwrap_or(0);
+    let file_size = t.src_fs.get_size(src).await.unwrap_or(0);
 
-    if crate::fs::rsync::should_use_rsync(ctx.src_fs, ctx.dest_fs, ctx.action)
+    if crate::fs::rsync::should_use_rsync(t.src_fs, t.dest_fs, t.action)
         && file_size >= RSYNC_MIN_SIZE
         && let Ok(()) =
-            crate::fs::rsync::rsync_transfer(ctx.src_fs, ctx.dest_fs, src, dest, &progress).await
+            crate::fs::rsync::rsync_transfer(t.src_fs, t.dest_fs, src, dest, &progress).await
     {
         return Some(Ok(()));
     }
     // If rsync not used or fails, fall through to the provider-specific paths
 
     // Try source-optimized copy first
-    if let Some(res) = ctx
+    if let Some(res) = t
         .src_fs
-        .copy_to_local(src, ctx.dest_fs, dest, &progress)
+        .copy_to_local(src, t.dest_fs, dest, &progress)
         .await
     {
         return Some(res);
     }
 
     // Try destination-optimized upload next
-    if let Some(res) = ctx
+    if let Some(res) = t
         .dest_fs
-        .copy_from_local(ctx.src_fs, src, dest, &progress)
+        .copy_from_local(t.src_fs, src, dest, &progress)
         .await
     {
         return Some(res);
@@ -729,8 +823,8 @@ async fn perform_cross_fs_copy(
 
     // Neither side can read a local file, so fall back to pulling the content
     // through the provider API (e.g. copying between two archives).
-    ctx.dest_fs
-        .copy_from_source(ctx.src_fs, src, dest, &progress)
+    t.dest_fs
+        .copy_from_source(t.src_fs, src, dest, &progress)
         .await
 }
 
@@ -740,22 +834,23 @@ async fn perform_file_copy(
     src: &std::path::Path,
     dest: &std::path::Path,
 ) -> Result<bool> {
+    let t = &ctx.transfer;
     let mut perform = true;
     loop {
         // Check if it's the same filesystem type
-        let same_fs = ctx.src_fs.context_key() == ctx.dest_fs.context_key();
+        let same_fs = t.src_fs.context_key() == t.dest_fs.context_key();
         let copy_res = if same_fs {
-            ctx.src_fs
-                .copy_with_progress(src, dest, &ctx.progress_ctx())
+            t.src_fs
+                .copy_with_progress(src, dest, &t.progress_ctx())
                 .await
         } else if let Some(res) = perform_cross_fs_copy(ctx, src, dest).await {
             res
         } else {
             // Other, cross-filesystem copies - should currently not be reached.
             // Warn in UI just in case this ever triggers.
-            ctx.tx.send(crate::tasks::UiEvent::Alert(
+            t.tx.send(crate::tasks::UiEvent::Alert(
                 crate::tasks::AlertEvent::TaskError {
-                    task_id: ctx.id,
+                    task_id: t.id,
                     path: "<unsupported>".to_string(),
                     message: "Unsupported file operation between filesystems".to_string(),
                 },
@@ -769,43 +864,30 @@ async fn perform_file_copy(
             Ok(()) => {
                 // copy_with_progress already preserves mtime on same-fs copies;
                 // only the cross-fs SFTP path needs an explicit sync.
-                if !same_fs && let Some(mtime) = ctx.src_fs.get_modified_time(src).await {
-                    let _ = ctx.dest_fs.set_modified_time(dest, mtime).await;
+                if !same_fs && let Some(mtime) = t.src_fs.get_modified_time(src).await {
+                    let _ = t.dest_fs.set_modified_time(dest, mtime).await;
                 }
                 break;
             }
             Err(e) => {
-                if decision_state.should_skip() {
-                    perform = false;
-                    break;
-                }
-                ctx.tx.send(crate::tasks::UiEvent::Alert(
-                    crate::tasks::AlertEvent::TaskError {
-                        task_id: ctx.id,
-                        path: src.display().to_string(),
-                        message: format!("Failed to copy to {}: {e}", dest.display()),
-                    },
-                ));
-                let decision = ctx.decision_rx.lock().await.recv().await;
+                let decision = t
+                    .request_decision(
+                        DecisionKind::Error,
+                        decision_state,
+                        src,
+                        Some(format!("Failed to copy to {}: {e}", dest.display())),
+                    )
+                    .await;
                 match decision {
-                    Some(crate::tasks::TaskDecision::Retry) => {}
-                    Some(crate::tasks::TaskDecision::SkipAll) => {
-                        decision_state.skip_all = true;
-                        perform = false;
-                        break;
-                    }
-                    Some(crate::tasks::TaskDecision::Cancel) => {
-                        ctx.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
-                        ctx.tx.send(crate::tasks::UiEvent::Task(
-                            crate::tasks::TaskEvent::UpdateStatus {
-                                task_id: ctx.id,
-                                status: crate::tasks::TaskStatus::Cancelled,
-                            },
-                        ));
-                        perform = false;
-                        break;
-                    }
-                    _ => {
+                    // Try the copy again (the `loop` re-enters it).
+                    Decision::Retry => {}
+                    // Everything else stops this file. Overwrite/Merge belong to
+                    // the conflict prompt and are ignored here.
+                    Decision::Skip
+                    | Decision::SkipAll
+                    | Decision::Cancel
+                    | Decision::Overwrite
+                    | Decision::OverwriteAll => {
                         perform = false;
                         break;
                     }
@@ -817,19 +899,19 @@ async fn perform_file_copy(
 }
 
 fn update_progress_if_needed(
-    ctx: &RecursiveOpContext<'_>,
+    transfer: &Transfer<'_>,
     decision_state: &mut DecisionState,
     p: usize,
 ) {
     let now = std::time::Instant::now();
     if now.duration_since(decision_state.last_update) > std::time::Duration::from_millis(100)
-        || p == ctx.total
+        || p == transfer.total
     {
-        ctx.tx.send(crate::tasks::UiEvent::Task(
+        transfer.tx.send(crate::tasks::UiEvent::Task(
             crate::tasks::TaskEvent::UpdateProgress {
-                task_id: ctx.id,
+                task_id: transfer.id,
                 processed: p,
-                total: ctx.total,
+                total: transfer.total,
             },
         ));
         decision_state.last_update = now;

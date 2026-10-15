@@ -122,20 +122,22 @@ async fn test_zip_copy_dir_preserves_timestamp() {
 
     let subtree_counts = crate::fs::ops::SubtreeCounts::new();
     let ctx = crate::fs::ops::RecursiveOpContext {
-        src_fs: &src_fs,
-        dest_fs: &dest_fs,
+        transfer: crate::fs::ops::Transfer {
+            src_fs: &src_fs,
+            dest_fs: &dest_fs,
+            action: crate::state::CopyMoveAction::Copy,
+            cancel: &progress.cancel,
+            tx: &progress.tx,
+            id: progress.id,
+            total: 1,
+            total_bytes: 0,
+            processed: &progress.processed_items,
+            processed_bytes: &progress.processed_bytes,
+            decision_rx: &decision_rx,
+            subtree_counts: &subtree_counts,
+        },
         src: &src_dir,
         dest: Path::new("copied_dir"),
-        action: crate::state::CopyMoveAction::Copy,
-        cancel: &progress.cancel,
-        tx: &progress.tx,
-        id: progress.id,
-        total: 1,
-        total_bytes: 0,
-        processed: &progress.processed_items,
-        processed_bytes: &progress.processed_bytes,
-        decision_rx: &decision_rx,
-        subtree_counts: &subtree_counts,
     };
 
     let mut decision_state = crate::fs::ops::DecisionState::new();

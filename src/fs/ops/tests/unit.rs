@@ -116,6 +116,47 @@ async fn test_set_modified_time() {
     );
 }
 
+/// The conflict prompt's answers, normalised once for every receiver.
+#[test]
+fn conflict_prompt_decision_protocol() {
+    use crate::tasks::TaskDecision as D;
+    let conflict = |d| Decision::from_task_decision(DecisionKind::Conflict, d);
+
+    assert_eq!(conflict(Some(D::Overwrite)), Decision::Overwrite);
+    assert_eq!(conflict(Some(D::OverwriteAll)), Decision::OverwriteAll);
+    assert_eq!(conflict(Some(D::Skip)), Decision::Skip);
+    assert_eq!(conflict(Some(D::SkipAll)), Decision::SkipAll);
+    assert_eq!(conflict(Some(D::Cancel)), Decision::Cancel);
+
+    // 'm' merges: the walker has already descended into the destination, so a
+    // merge proceeds rather than silently discarding the source.
+    assert_eq!(conflict(Some(D::Merge)), Decision::Overwrite);
+
+    // The error prompt's Retry is not a conflict answer; it stops the item
+    // instead of being mistaken for an overwrite.
+    assert_eq!(conflict(Some(D::Retry)), Decision::Skip);
+    // A dropped channel (the task is gone) reads as skip.
+    assert_eq!(conflict(None), Decision::Skip);
+}
+
+/// The error prompt's answers, normalised once for every receiver.
+#[test]
+fn error_prompt_decision_protocol() {
+    use crate::tasks::TaskDecision as D;
+    let error = |d| Decision::from_task_decision(DecisionKind::Error, d);
+
+    assert_eq!(error(Some(D::Retry)), Decision::Retry);
+    assert_eq!(error(Some(D::Skip)), Decision::Skip);
+    assert_eq!(error(Some(D::SkipAll)), Decision::SkipAll);
+    assert_eq!(error(Some(D::Cancel)), Decision::Cancel);
+
+    // Conflict-only answers must never overwrite a file from the error path.
+    assert_eq!(error(Some(D::Overwrite)), Decision::Skip);
+    assert_eq!(error(Some(D::OverwriteAll)), Decision::Skip);
+    assert_eq!(error(Some(D::Merge)), Decision::Skip);
+    assert_eq!(error(None), Decision::Skip);
+}
+
 #[tokio::test]
 async fn test_copy_preserves_content_and_modified_time() {
     let tmp_dir = tempfile::tempdir().unwrap();

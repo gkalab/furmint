@@ -319,20 +319,22 @@ async fn test_recursive_copy_nested() {
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let subtree_counts = crate::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
-        src_fs: &fs,
-        dest_fs: &fs,
+        transfer: crate::fs::ops::Transfer {
+            src_fs: &fs,
+            dest_fs: &fs,
+            action: CopyMoveAction::Copy,
+            cancel: &cancel,
+            tx: &tx,
+            id: 1,
+            total: 3,
+            total_bytes,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+            subtree_counts: &subtree_counts,
+        },
         src: &src_root,
         dest: &dest_root,
-        action: CopyMoveAction::Copy,
-        cancel: &cancel,
-        tx: &tx,
-        id: 1,
-        total: 3,
-        total_bytes,
-        processed: &processed,
-        processed_bytes: &processed_bytes,
-        decision_rx: &decision_rx,
-        subtree_counts: &subtree_counts,
     };
     let mut decision_state = DecisionState {
         overwrite_all: false,
@@ -378,20 +380,22 @@ async fn test_recursive_copy_overwrite_all() {
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let subtree_counts = crate::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
-        src_fs: &fs,
-        dest_fs: &fs,
+        transfer: crate::fs::ops::Transfer {
+            src_fs: &fs,
+            dest_fs: &fs,
+            action: CopyMoveAction::Copy,
+            cancel: &Arc::new(AtomicBool::new(false)),
+            tx: &tx,
+            id: 1,
+            total: 2,
+            total_bytes,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+            subtree_counts: &subtree_counts,
+        },
         src: &src_root,
         dest: &dest_root,
-        action: CopyMoveAction::Copy,
-        cancel: &Arc::new(AtomicBool::new(false)),
-        tx: &tx,
-        id: 1,
-        total: 2,
-        total_bytes,
-        processed: &processed,
-        processed_bytes: &processed_bytes,
-        decision_rx: &decision_rx,
-        subtree_counts: &subtree_counts,
     };
     let mut decision_state = DecisionState {
         overwrite_all: false,
@@ -445,20 +449,22 @@ async fn test_recursive_copy_cancel() {
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let subtree_counts = crate::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
-        src_fs: &fs,
-        dest_fs: &fs,
+        transfer: crate::fs::ops::Transfer {
+            src_fs: &fs,
+            dest_fs: &fs,
+            action: CopyMoveAction::Copy,
+            cancel: &Arc::new(AtomicBool::new(false)),
+            tx: &tx,
+            id: 1,
+            total: 2,
+            total_bytes,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+            subtree_counts: &subtree_counts,
+        },
         src: &src_root,
         dest: &dest_root,
-        action: CopyMoveAction::Copy,
-        cancel: &Arc::new(AtomicBool::new(false)),
-        tx: &tx,
-        id: 1,
-        total: 2,
-        total_bytes,
-        processed: &processed,
-        processed_bytes: &processed_bytes,
-        decision_rx: &decision_rx,
-        subtree_counts: &subtree_counts,
     };
     let mut decision_state = DecisionState {
         overwrite_all: false,
@@ -511,20 +517,22 @@ async fn test_recursive_copy_skip_all() {
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let subtree_counts = crate::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
-        src_fs: &fs,
-        dest_fs: &fs,
+        transfer: crate::fs::ops::Transfer {
+            src_fs: &fs,
+            dest_fs: &fs,
+            action: CopyMoveAction::Copy,
+            cancel: &Arc::new(AtomicBool::new(false)),
+            tx: &tx,
+            id: 1,
+            total: 2,
+            total_bytes,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+            subtree_counts: &subtree_counts,
+        },
         src: &src_root,
         dest: &dest_root,
-        action: CopyMoveAction::Copy,
-        cancel: &Arc::new(AtomicBool::new(false)),
-        tx: &tx,
-        id: 1,
-        total: 2,
-        total_bytes,
-        processed: &processed,
-        processed_bytes: &processed_bytes,
-        decision_rx: &decision_rx,
-        subtree_counts: &subtree_counts,
     };
     let mut decision_state = DecisionState {
         overwrite_all: false,
@@ -574,20 +582,22 @@ async fn test_mock_simple_move_conflict_overwrite() {
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let subtree_counts = crate::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
-        src_fs: &fs,
-        dest_fs: &fs,
+        transfer: crate::fs::ops::Transfer {
+            src_fs: &fs,
+            dest_fs: &fs,
+            action: CopyMoveAction::Copy,
+            cancel: &Arc::new(AtomicBool::new(false)),
+            tx: &tx,
+            id: 1,
+            total: 1,
+            total_bytes,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+            subtree_counts: &subtree_counts,
+        },
         src: &src,
         dest: &dst,
-        action: CopyMoveAction::Copy,
-        cancel: &Arc::new(AtomicBool::new(false)),
-        tx: &tx,
-        id: 1,
-        total: 1,
-        total_bytes,
-        processed: &processed,
-        processed_bytes: &processed_bytes,
-        decision_rx: &decision_rx,
-        subtree_counts: &subtree_counts,
     };
     let mut decision_state = DecisionState {
         overwrite_all: false,
@@ -641,20 +651,22 @@ async fn test_recursive_op_retry() {
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let subtree_counts = crate::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
-        src_fs: &fs,
-        dest_fs: &fs,
+        transfer: crate::fs::ops::Transfer {
+            src_fs: &fs,
+            dest_fs: &fs,
+            action: CopyMoveAction::Copy,
+            cancel: &Arc::new(AtomicBool::new(false)),
+            tx: &tx,
+            id: 1,
+            total: 1,
+            total_bytes,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+            subtree_counts: &subtree_counts,
+        },
         src: &src,
         dest: &dst,
-        action: CopyMoveAction::Copy,
-        cancel: &Arc::new(AtomicBool::new(false)),
-        tx: &tx,
-        id: 1,
-        total: 1,
-        total_bytes,
-        processed: &processed,
-        processed_bytes: &processed_bytes,
-        decision_rx: &decision_rx,
-        subtree_counts: &subtree_counts,
     };
     let mut decision_state = DecisionState {
         overwrite_all: false,
@@ -706,20 +718,22 @@ async fn test_recursive_op_error_skip_all() {
     let cancel = Arc::new(AtomicBool::new(false));
     let subtree_counts = crate::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
-        src_fs: &fs,
-        dest_fs: &fs,
+        transfer: crate::fs::ops::Transfer {
+            src_fs: &fs,
+            dest_fs: &fs,
+            action: CopyMoveAction::Copy,
+            cancel: &cancel,
+            tx: &tx,
+            id: 1,
+            total: 2,
+            total_bytes,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+            subtree_counts: &subtree_counts,
+        },
         src: &src_root,
         dest: &dest_root,
-        action: CopyMoveAction::Copy,
-        cancel: &cancel,
-        tx: &tx,
-        id: 1,
-        total: 2,
-        total_bytes,
-        processed: &processed,
-        processed_bytes: &processed_bytes,
-        decision_rx: &decision_rx,
-        subtree_counts: &subtree_counts,
     };
     let mut decision_state = DecisionState {
         overwrite_all: false,
@@ -775,20 +789,22 @@ async fn test_recursive_op_error_cancel() {
     let cancel = Arc::new(AtomicBool::new(false));
     let subtree_counts = crate::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
-        src_fs: &fs,
-        dest_fs: &fs,
+        transfer: crate::fs::ops::Transfer {
+            src_fs: &fs,
+            dest_fs: &fs,
+            action: CopyMoveAction::Copy,
+            cancel: &cancel,
+            tx: &tx,
+            id: 1,
+            total: 2,
+            total_bytes,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+            subtree_counts: &subtree_counts,
+        },
         src: &src_root,
         dest: &dest_root,
-        action: CopyMoveAction::Copy,
-        cancel: &cancel,
-        tx: &tx,
-        id: 1,
-        total: 2,
-        total_bytes,
-        processed: &processed,
-        processed_bytes: &processed_bytes,
-        decision_rx: &decision_rx,
-        subtree_counts: &subtree_counts,
     };
     let mut decision_state = DecisionState {
         overwrite_all: false,
@@ -847,20 +863,22 @@ async fn test_recursive_op_error_skip() {
     let cancel = Arc::new(AtomicBool::new(false));
     let subtree_counts = crate::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
-        src_fs: &fs,
-        dest_fs: &fs,
+        transfer: crate::fs::ops::Transfer {
+            src_fs: &fs,
+            dest_fs: &fs,
+            action: CopyMoveAction::Copy,
+            cancel: &cancel,
+            tx: &tx,
+            id: 1,
+            total: 2,
+            total_bytes,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+            subtree_counts: &subtree_counts,
+        },
         src: &src_root,
         dest: &dest_root,
-        action: CopyMoveAction::Copy,
-        cancel: &cancel,
-        tx: &tx,
-        id: 1,
-        total: 2,
-        total_bytes,
-        processed: &processed,
-        processed_bytes: &processed_bytes,
-        decision_rx: &decision_rx,
-        subtree_counts: &subtree_counts,
     };
     let mut decision_state = DecisionState {
         overwrite_all: false,
@@ -911,20 +929,22 @@ async fn test_move_rename_optimization_no_conflict() {
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let subtree_counts = crate::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
-        src_fs: &fs,
-        dest_fs: &fs,
+        transfer: crate::fs::ops::Transfer {
+            src_fs: &fs,
+            dest_fs: &fs,
+            action: CopyMoveAction::Move,
+            cancel: &cancel,
+            tx: &tx,
+            id: 1,
+            total: 2,
+            total_bytes,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+            subtree_counts: &subtree_counts,
+        },
         src: &src,
         dest: &dst,
-        action: CopyMoveAction::Move,
-        cancel: &cancel,
-        tx: &tx,
-        id: 1,
-        total: 2,
-        total_bytes,
-        processed: &processed,
-        processed_bytes: &processed_bytes,
-        decision_rx: &decision_rx,
-        subtree_counts: &subtree_counts,
     };
     let mut decision_state = DecisionState {
         overwrite_all: false,
@@ -975,20 +995,22 @@ async fn test_move_rename_optimization_directory() {
     let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let subtree_counts = crate::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
-        src_fs: &fs,
-        dest_fs: &fs,
+        transfer: crate::fs::ops::Transfer {
+            src_fs: &fs,
+            dest_fs: &fs,
+            action: CopyMoveAction::Move,
+            cancel: &Arc::new(AtomicBool::new(false)),
+            tx: &tx,
+            id: 1,
+            total: 3, // src_dir + file1.txt + file2.txt
+            total_bytes,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+            subtree_counts: &subtree_counts,
+        },
         src: &src_dir,
         dest: &dest_dir,
-        action: CopyMoveAction::Move,
-        cancel: &Arc::new(AtomicBool::new(false)),
-        tx: &tx,
-        id: 1,
-        total: 3, // src_dir + file1.txt + file2.txt
-        total_bytes,
-        processed: &processed,
-        processed_bytes: &processed_bytes,
-        decision_rx: &decision_rx,
-        subtree_counts: &subtree_counts,
     };
     let mut decision_state = DecisionState {
         overwrite_all: false,
@@ -1054,20 +1076,22 @@ async fn test_handle_directory_dest_exists_as_dir_merge() {
 
     let subtree_counts = crate::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
-        src_fs: &fs,
-        dest_fs: &fs,
+        transfer: crate::fs::ops::Transfer {
+            src_fs: &fs,
+            dest_fs: &fs,
+            action: CopyMoveAction::Copy,
+            cancel: &cancel,
+            tx: &tx,
+            id: 1,
+            total: 2,
+            total_bytes: 0,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+            subtree_counts: &subtree_counts,
+        },
         src: &src_root,
         dest: &dest_root,
-        action: CopyMoveAction::Copy,
-        cancel: &cancel,
-        tx: &tx,
-        id: 1,
-        total: 2,
-        total_bytes: 0,
-        processed: &processed,
-        processed_bytes: &processed_bytes,
-        decision_rx: &decision_rx,
-        subtree_counts: &subtree_counts,
     };
 
     let mut decision_state = DecisionState::new();
@@ -1102,20 +1126,22 @@ async fn test_handle_directory_download_success() {
 
     let subtree_counts = crate::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
-        src_fs: &fs,
-        dest_fs: &fs,
+        transfer: crate::fs::ops::Transfer {
+            src_fs: &fs,
+            dest_fs: &fs,
+            action: CopyMoveAction::Copy,
+            cancel: &cancel,
+            tx: &tx,
+            id: 1,
+            total: 1,
+            total_bytes: 0,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+            subtree_counts: &subtree_counts,
+        },
         src: &src_root,
         dest: &dest_root,
-        action: CopyMoveAction::Copy,
-        cancel: &cancel,
-        tx: &tx,
-        id: 1,
-        total: 1,
-        total_bytes: 0,
-        processed: &processed,
-        processed_bytes: &processed_bytes,
-        decision_rx: &decision_rx,
-        subtree_counts: &subtree_counts,
     };
 
     let mut decision_state = DecisionState::new();
@@ -1149,20 +1175,22 @@ async fn test_handle_directory_download_failure() {
 
     let subtree_counts = crate::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
-        src_fs: &fs,
-        dest_fs: &fs,
+        transfer: crate::fs::ops::Transfer {
+            src_fs: &fs,
+            dest_fs: &fs,
+            action: CopyMoveAction::Copy,
+            cancel: &cancel,
+            tx: &tx,
+            id: 1,
+            total: 1,
+            total_bytes: 0,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+            subtree_counts: &subtree_counts,
+        },
         src: &src_root,
         dest: &dest_root,
-        action: CopyMoveAction::Copy,
-        cancel: &cancel,
-        tx: &tx,
-        id: 1,
-        total: 1,
-        total_bytes: 0,
-        processed: &processed,
-        processed_bytes: &processed_bytes,
-        decision_rx: &decision_rx,
-        subtree_counts: &subtree_counts,
     };
 
     let mut decision_state = DecisionState::new();
@@ -1204,20 +1232,22 @@ async fn test_handle_directory_read_dir_error() {
 
     let subtree_counts = crate::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
-        src_fs: &fs,
-        dest_fs: &fs,
+        transfer: crate::fs::ops::Transfer {
+            src_fs: &fs,
+            dest_fs: &fs,
+            action: CopyMoveAction::Copy,
+            cancel: &cancel,
+            tx: &tx,
+            id: 1,
+            total: 1,
+            total_bytes: 0,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+            subtree_counts: &subtree_counts,
+        },
         src: &src_root,
         dest: &dest_root,
-        action: CopyMoveAction::Copy,
-        cancel: &cancel,
-        tx: &tx,
-        id: 1,
-        total: 1,
-        total_bytes: 0,
-        processed: &processed,
-        processed_bytes: &processed_bytes,
-        decision_rx: &decision_rx,
-        subtree_counts: &subtree_counts,
     };
 
     let mut decision_state = DecisionState::new();
@@ -1250,20 +1280,22 @@ async fn test_handle_directory_create_dir_error() {
 
     let subtree_counts = crate::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
-        src_fs: &fs,
-        dest_fs: &fs,
+        transfer: crate::fs::ops::Transfer {
+            src_fs: &fs,
+            dest_fs: &fs,
+            action: CopyMoveAction::Copy,
+            cancel: &cancel,
+            tx: &tx,
+            id: 1,
+            total: 1,
+            total_bytes: 0,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+            subtree_counts: &subtree_counts,
+        },
         src: &src_root,
         dest: &dest_root,
-        action: CopyMoveAction::Copy,
-        cancel: &cancel,
-        tx: &tx,
-        id: 1,
-        total: 1,
-        total_bytes: 0,
-        processed: &processed,
-        processed_bytes: &processed_bytes,
-        decision_rx: &decision_rx,
-        subtree_counts: &subtree_counts,
     };
 
     let mut decision_state = DecisionState::new();
@@ -1295,20 +1327,22 @@ async fn test_handle_directory_dest_exists_as_file_skip() {
 
     let subtree_counts = crate::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
-        src_fs: &fs,
-        dest_fs: &fs,
+        transfer: crate::fs::ops::Transfer {
+            src_fs: &fs,
+            dest_fs: &fs,
+            action: CopyMoveAction::Copy,
+            cancel: &cancel,
+            tx: &tx,
+            id: 1,
+            total: 1,
+            total_bytes: 0,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+            subtree_counts: &subtree_counts,
+        },
         src: &src_root,
         dest: &dest_root,
-        action: CopyMoveAction::Copy,
-        cancel: &cancel,
-        tx: &tx,
-        id: 1,
-        total: 1,
-        total_bytes: 0,
-        processed: &processed,
-        processed_bytes: &processed_bytes,
-        decision_rx: &decision_rx,
-        subtree_counts: &subtree_counts,
     };
 
     let mut decision_state = DecisionState::new();
@@ -1349,20 +1383,22 @@ async fn test_handle_directory_dest_exists_as_file_cancel() {
 
     let subtree_counts = crate::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
-        src_fs: &fs,
-        dest_fs: &fs,
+        transfer: crate::fs::ops::Transfer {
+            src_fs: &fs,
+            dest_fs: &fs,
+            action: CopyMoveAction::Copy,
+            cancel: &cancel,
+            tx: &tx,
+            id: 1,
+            total: 1,
+            total_bytes: 0,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+            subtree_counts: &subtree_counts,
+        },
         src: &src_root,
         dest: &dest_root,
-        action: CopyMoveAction::Copy,
-        cancel: &cancel,
-        tx: &tx,
-        id: 1,
-        total: 1,
-        total_bytes: 0,
-        processed: &processed,
-        processed_bytes: &processed_bytes,
-        decision_rx: &decision_rx,
-        subtree_counts: &subtree_counts,
     };
 
     let mut decision_state = DecisionState::new();
@@ -1405,20 +1441,22 @@ async fn test_handle_directory_download_fallback() {
 
     let subtree_counts = crate::fs::ops::SubtreeCounts::new();
     let ctx = RecursiveOpContext {
-        src_fs: &fs,
-        dest_fs: &fs,
+        transfer: crate::fs::ops::Transfer {
+            src_fs: &fs,
+            dest_fs: &fs,
+            action: CopyMoveAction::Copy,
+            cancel: &cancel,
+            tx: &tx,
+            id: 1,
+            total: 1,
+            total_bytes: 0,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+            subtree_counts: &subtree_counts,
+        },
         src: &src_root,
         dest: &dest_root,
-        action: CopyMoveAction::Copy,
-        cancel: &cancel,
-        tx: &tx,
-        id: 1,
-        total: 1,
-        total_bytes: 0,
-        processed: &processed,
-        processed_bytes: &processed_bytes,
-        decision_rx: &decision_rx,
-        subtree_counts: &subtree_counts,
     };
 
     let mut decision_state = DecisionState::new();

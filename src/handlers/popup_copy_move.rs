@@ -316,146 +316,71 @@ async fn ensure_dest_directory(
     true
 }
 
-/// Handle conflict resolution for rsync directory transfers
-/// Returns: Some(true) to proceed, Some(false) to skip, None to cancel
-async fn handle_rsync_conflict(
-    dest_fs: &dyn FileSystemProvider,
-    target: &std::path::Path,
-    decision_state: &mut crate::fs::ops::DecisionState,
-    decision_rx: &std::sync::Arc<
-        tokio::sync::Mutex<tokio::sync::mpsc::Receiver<crate::tasks::TaskDecision>>,
-    >,
-    tx: &crate::tasks::EventBus,
-    cancel: &std::sync::Arc<std::sync::atomic::AtomicBool>,
-    id: usize,
-) -> Option<bool> {
-    let target_exists = dest_fs.exists(target).await;
-    if !target_exists {
-        return Some(true);
-    }
-
-    // Check decision state for overwrite/skip all
-    if decision_state.skip_all {
-        return Some(false);
-    }
-    if decision_state.overwrite_all {
-        return Some(true);
-    }
-
-    // Ask user about conflict
-    tx.send(crate::tasks::UiEvent::Alert(
-        crate::tasks::AlertEvent::Conflict {
-            task_id: id,
-            path: target.to_path_buf(),
-            conflict_type: crate::tasks::ConflictType::FileExists,
-        },
-    ));
-
-    // Wait for decision
-    let decision = decision_rx.lock().await.recv().await;
-    match decision {
-        Some(crate::tasks::TaskDecision::Overwrite) => Some(true),
-        Some(crate::tasks::TaskDecision::OverwriteAll) => {
-            decision_state.overwrite_all = true;
-            Some(true)
-        }
-        Some(crate::tasks::TaskDecision::SkipAll) => {
-            decision_state.skip_all = true;
-            Some(false)
-        }
-        Some(crate::tasks::TaskDecision::Cancel) => {
-            cancel.store(true, std::sync::atomic::Ordering::Relaxed);
-            tx.send(crate::tasks::UiEvent::Task(
-                crate::tasks::TaskEvent::UpdateStatus {
-                    task_id: id,
-                    status: crate::tasks::TaskStatus::Cancelled,
-                },
-            ));
-            None
-        }
-        _ => Some(false),
-    }
-}
-
 /// Try rsync for directory transfer
 /// Returns: Some(true) if rsync succeeded, Some(false) if skipped, None if should fall through to `recursive_op`
 async fn try_rsync_directory(
-    ctx: &RsyncContext<'_>,
+    transfer: &crate::fs::ops::Transfer<'_>,
+    src: &std::path::Path,
+    target: &std::path::Path,
     decision_state: &mut crate::fs::ops::DecisionState,
 ) -> Option<bool> {
     // Check for conflicts before rsync transfer
-    let should_proceed = handle_rsync_conflict(
-        ctx.fs.dest_fs,
-        ctx.fs.target,
-        decision_state,
-        ctx.task.decision_rx,
-        ctx.task.tx,
-        ctx.task.cancel,
-        ctx.task.id,
-    )
-    .await;
-
-    match should_proceed {
-        None => None, // Cancelled
-        Some(false) => {
-            // Skipped - update progress and return
-            let p = ctx
-                .task
-                .processed_items
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-                + 1;
-            ctx.task.tx.send(crate::tasks::UiEvent::Task(
-                crate::tasks::TaskEvent::UpdateProgress {
-                    task_id: ctx.task.id,
-                    processed: p,
-                    total: ctx.task.total_items,
-                },
-            ));
-            Some(false)
-        }
-        Some(true) => {
-            // Proceed with rsync
-            let progress = crate::fs::provider::TaskProgressContext {
-                id: ctx.task.id,
-                tx: ctx.task.tx.clone(),
-                cancel: ctx.task.cancel.clone(),
-                processed_bytes: ctx.task.processed_bytes.clone(),
-                processed_items: ctx.task.processed_items.clone(),
-                // rsync parses its own totals out of its progress line, and
-                // the pre-operation walk was skipped for it, so there is no
-                // task-wide byte total to measure against.
-                total_bytes: 0,
-            };
-
-            if crate::fs::rsync::rsync_transfer(
-                ctx.fs.src_fs,
-                ctx.fs.dest_fs,
-                ctx.fs.src,
-                ctx.fs.target,
-                &progress,
+    if transfer.dest_fs.exists(target).await {
+        match transfer
+            .request_decision(
+                crate::fs::ops::DecisionKind::Conflict,
+                decision_state,
+                target,
+                None,
             )
             .await
-            .is_ok()
-            {
-                // Rsync succeeded - count directory as 1 item for progress
-                let p = ctx
-                    .task
-                    .processed_items
+        {
+            crate::fs::ops::Decision::Overwrite | crate::fs::ops::Decision::OverwriteAll => {}
+            crate::fs::ops::Decision::Skip
+            | crate::fs::ops::Decision::SkipAll
+            | crate::fs::ops::Decision::Retry => {
+                // Skipped - update progress and return
+                let p = transfer
+                    .processed
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
                     + 1;
-                ctx.task.tx.send(crate::tasks::UiEvent::Task(
+                transfer.tx.send(crate::tasks::UiEvent::Task(
                     crate::tasks::TaskEvent::UpdateProgress {
-                        task_id: ctx.task.id,
+                        task_id: transfer.id,
                         processed: p,
-                        total: ctx.task.total_items,
+                        total: transfer.total,
                     },
                 ));
-                return Some(true);
+                return Some(false);
             }
-            // Rsync failed - fall through to recursive_op
-            None
+            crate::fs::ops::Decision::Cancel => return None,
         }
     }
+
+    // Proceed with rsync. The pre-operation walk was skipped for rsync-eligible
+    // transfers, so `total_bytes` is 0 and rsync reports its own byte totals.
+    let progress = transfer.progress_ctx();
+
+    if crate::fs::rsync::rsync_transfer(transfer.src_fs, transfer.dest_fs, src, target, &progress)
+        .await
+        .is_ok()
+    {
+        // Rsync succeeded - count directory as 1 item for progress
+        let p = transfer
+            .processed
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            + 1;
+        transfer.tx.send(crate::tasks::UiEvent::Task(
+            crate::tasks::TaskEvent::UpdateProgress {
+                task_id: transfer.id,
+                processed: p,
+                total: transfer.total,
+            },
+        ));
+        return Some(true);
+    }
+    // Rsync failed - fall through to recursive_op
+    None
 }
 
 pub async fn handle_copy_move_event(
@@ -544,94 +469,22 @@ pub async fn handle_copy_move_event(
     false
 }
 
-struct ProcessPathContext<'a> {
-    src_fs: &'a dyn FileSystemProvider,
-    dest_fs: &'a dyn FileSystemProvider,
-    dest_path: &'a std::path::PathBuf,
+/// The task-level state for one spawned copy/move: the shared [`Transfer`] plus
+/// how a source name maps onto the requested destination.
+///
+/// [`Transfer`]: crate::fs::ops::Transfer
+struct CopyMoveTask<'a> {
+    transfer: crate::fs::ops::Transfer<'a>,
+    dest_path: &'a PathBuf,
     dest_str: &'a str,
     treat_as_dir: bool,
     dest_is_dir: bool,
     use_rsync: bool,
-    action: crate::state::CopyMoveAction,
-    id: usize,
-    total_items: usize,
-    total_bytes: u64,
-    tx: &'a crate::tasks::EventBus,
-    cancel: &'a Arc<std::sync::atomic::AtomicBool>,
-    decision_rx:
-        &'a Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<crate::tasks::TaskDecision>>>,
-    processed_items: &'a Arc<std::sync::atomic::AtomicUsize>,
-    processed_bytes: &'a Arc<std::sync::atomic::AtomicU64>,
-    subtree_counts: &'a crate::fs::ops::SubtreeCounts,
-}
-
-struct RsyncFsContext<'a> {
-    src_fs: &'a dyn FileSystemProvider,
-    dest_fs: &'a dyn FileSystemProvider,
-    src: &'a std::path::Path,
-    target: &'a std::path::Path,
-}
-
-struct RsyncTaskContext<'a> {
-    decision_rx: &'a std::sync::Arc<
-        tokio::sync::Mutex<tokio::sync::mpsc::Receiver<crate::tasks::TaskDecision>>,
-    >,
-    tx: &'a crate::tasks::EventBus,
-    cancel: &'a std::sync::Arc<std::sync::atomic::AtomicBool>,
-    processed_items: &'a std::sync::Arc<std::sync::atomic::AtomicUsize>,
-    processed_bytes: &'a std::sync::Arc<std::sync::atomic::AtomicU64>,
-    id: usize,
-    total_items: usize,
-}
-
-impl<'a> RsyncFsContext<'a> {
-    pub fn new(
-        src_fs: &'a dyn FileSystemProvider,
-        dest_fs: &'a dyn FileSystemProvider,
-        src: &'a std::path::Path,
-        target: &'a std::path::Path,
-    ) -> Self {
-        Self {
-            src_fs,
-            dest_fs,
-            src,
-            target,
-        }
-    }
-}
-
-impl<'a> RsyncTaskContext<'a> {
-    pub fn new(
-        decision_rx: &'a std::sync::Arc<
-            tokio::sync::Mutex<tokio::sync::mpsc::Receiver<crate::tasks::TaskDecision>>,
-        >,
-        tx: &'a crate::tasks::EventBus,
-        cancel: &'a std::sync::Arc<std::sync::atomic::AtomicBool>,
-        processed_items: &'a std::sync::Arc<std::sync::atomic::AtomicUsize>,
-        processed_bytes: &'a std::sync::Arc<std::sync::atomic::AtomicU64>,
-        id: usize,
-        total_items: usize,
-    ) -> Self {
-        Self {
-            decision_rx,
-            tx,
-            cancel,
-            processed_items,
-            processed_bytes,
-            id,
-            total_items,
-        }
-    }
-}
-
-struct RsyncContext<'a> {
-    fs: RsyncFsContext<'a>,
-    task: RsyncTaskContext<'a>,
 }
 
 async fn process_single_path(
     src: &PathBuf,
-    ctx: &ProcessPathContext<'_>,
+    ctx: &CopyMoveTask<'_>,
     decision_state: &mut crate::fs::ops::DecisionState,
 ) -> Result<(), String> {
     let Some(file_name) = src.file_name() else {
@@ -645,33 +498,23 @@ async fn process_single_path(
         file_name,
         ctx.treat_as_dir,
         ctx.dest_is_dir,
-        ctx.dest_fs.is_local(),
+        ctx.transfer.dest_fs.is_local(),
     );
 
     // Try rsync for directories when applicable
-    let src_is_dir = ctx.src_fs.is_dir(src).await;
+    let src_is_dir = ctx.transfer.src_fs.is_dir(src).await;
     if ctx.use_rsync && src_is_dir {
-        let fs_ctx = RsyncFsContext::new(ctx.src_fs, ctx.dest_fs, src, &target);
-        let task_ctx = RsyncTaskContext::new(
-            ctx.decision_rx,
-            ctx.tx,
-            ctx.cancel,
-            ctx.processed_items,
-            ctx.processed_bytes,
-            ctx.id,
-            ctx.total_items,
-        );
-        let rsync_ctx = RsyncContext {
-            fs: fs_ctx,
-            task: task_ctx,
-        };
-        let rsync_res = try_rsync_directory(&rsync_ctx, decision_state).await;
+        let rsync_res = try_rsync_directory(&ctx.transfer, src, &target, decision_state).await;
 
         match rsync_res {
             Some(true | false) => return Ok(()), // Succeeded or Skipped
             None => {
                 // Either cancelled OR failed (and should fall back)
-                if ctx.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                if ctx
+                    .transfer
+                    .cancel
+                    .load(std::sync::atomic::Ordering::Relaxed)
+                {
                     return Ok(());
                 }
                 // Fall through to recursive_op
@@ -681,20 +524,9 @@ async fn process_single_path(
 
     // Recursive copy/move (also handles per-file rsync as fallback)
     let ops_ctx = crate::fs::ops::RecursiveOpContext {
-        src_fs: ctx.src_fs,
-        dest_fs: ctx.dest_fs,
+        transfer: ctx.transfer,
         src,
         dest: &target,
-        action: ctx.action,
-        cancel: ctx.cancel,
-        tx: ctx.tx,
-        id: ctx.id,
-        total: ctx.total_items,
-        total_bytes: ctx.total_bytes,
-        processed: ctx.processed_items,
-        processed_bytes: ctx.processed_bytes,
-        decision_rx: ctx.decision_rx,
-        subtree_counts: ctx.subtree_counts,
     };
     crate::fs::ops::recursive_op(ops_ctx, decision_state)
         .await
@@ -793,24 +625,30 @@ pub fn spawn_copy_move_task(
 
             let mut failures = Vec::new();
 
-            let ctx = ProcessPathContext {
+            // One transfer owns the fs pair, the task-wide counters and the
+            // decision channel; every path of this task shares it.
+            let transfer = crate::fs::ops::Transfer {
                 src_fs: src_provider.as_ref(),
                 dest_fs: dest_provider.as_ref(),
+                action,
+                cancel: &cancel,
+                tx: &tx,
+                id,
+                total: total_items,
+                total_bytes,
+                processed: &processed_items,
+                processed_bytes: &processed_bytes,
+                decision_rx: &decision_rx,
+                subtree_counts: &subtree_counts,
+            };
+
+            let ctx = CopyMoveTask {
+                transfer,
                 dest_path: &dest_path,
                 dest_str: &dest_str,
                 treat_as_dir,
                 dest_is_dir,
                 use_rsync,
-                action,
-                id,
-                total_items,
-                total_bytes,
-                tx: &tx,
-                cancel: &cancel,
-                decision_rx: &decision_rx,
-                processed_items: &processed_items,
-                processed_bytes: &processed_bytes,
-                subtree_counts: &subtree_counts,
             };
 
             for src in &paths {

@@ -67,20 +67,22 @@ fn build_ctx<'a>(
     subtree_counts: &'a crate::fs::ops::SubtreeCounts,
 ) -> RecursiveOpContext<'a> {
     RecursiveOpContext {
-        src_fs: archive,
-        dest_fs: local,
+        transfer: crate::fs::ops::Transfer {
+            src_fs: archive,
+            dest_fs: local,
+            action: CopyMoveAction::Copy,
+            cancel: &h.cancel,
+            tx: &h.tx,
+            id: 1,
+            total: 2,
+            total_bytes: 0,
+            processed: &h.processed,
+            processed_bytes: &h.processed_bytes,
+            decision_rx: &h.decision_rx,
+            subtree_counts,
+        },
         src: Path::new("payload"),
         dest,
-        action: CopyMoveAction::Copy,
-        cancel: &h.cancel,
-        tx: &h.tx,
-        id: 1,
-        total: 2,
-        total_bytes: 0,
-        processed: &h.processed,
-        processed_bytes: &h.processed_bytes,
-        decision_rx: &h.decision_rx,
-        subtree_counts,
     }
 }
 
@@ -145,4 +147,18 @@ async fn overwrite_transfers_exactly_once() {
     assert_eq!(conflict_alerts(&events), 1, "one conflict prompt expected");
     assert_eq!(content, "from-archive", "overwrite must copy the payload");
     assert_eq!(bytes, 12, "transfer must run exactly once");
+}
+
+/// 'm' merges: the conflict prompt's merge answer proceeds like an overwrite,
+/// so the payload is transferred rather than silently discarded.
+#[tokio::test]
+async fn merge_transfers_like_overwrite() {
+    let (events, _processed, bytes, content) = run_copy_with(TaskDecision::Merge).await;
+
+    assert_eq!(conflict_alerts(&events), 1, "one conflict prompt expected");
+    assert_eq!(
+        content, "from-archive",
+        "merge must not discard the payload"
+    );
+    assert_eq!(bytes, 12, "merge must run the transfer");
 }

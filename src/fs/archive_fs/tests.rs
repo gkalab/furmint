@@ -1707,20 +1707,22 @@ async fn test_recursive_op_copies_directory_tree_to_7z() {
     let total = 6; // src dir + top.txt + sub1 + a.txt + sub2 + b.txt
     let subtree_counts = crate::fs::ops::SubtreeCounts::new();
     let ctx = crate::fs::ops::RecursiveOpContext {
-        src_fs: &src_fs,
-        dest_fs: &dest_fs,
+        transfer: crate::fs::ops::Transfer {
+            src_fs: &src_fs,
+            dest_fs: &dest_fs,
+            action: crate::state::CopyMoveAction::Copy,
+            cancel: &cancel,
+            tx: &tx,
+            id: 1,
+            total,
+            total_bytes: 0,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+            subtree_counts: &subtree_counts,
+        },
         src: &src,
         dest: Path::new("tree"),
-        action: crate::state::CopyMoveAction::Copy,
-        cancel: &cancel,
-        tx: &tx,
-        id: 1,
-        total,
-        total_bytes: 0,
-        processed: &processed,
-        processed_bytes: &processed_bytes,
-        decision_rx: &decision_rx,
-        subtree_counts: &subtree_counts,
     };
     let mut decision_state = crate::fs::ops::DecisionState::new();
     crate::fs::ops::recursive_op(ctx, &mut decision_state)
@@ -1762,20 +1764,22 @@ async fn recursive_copy(
     let subtree_counts = crate::fs::ops::SubtreeCounts::new();
 
     let ctx = crate::fs::ops::RecursiveOpContext {
-        src_fs,
-        dest_fs,
+        transfer: crate::fs::ops::Transfer {
+            src_fs,
+            dest_fs,
+            action: crate::state::CopyMoveAction::Copy,
+            cancel: &cancel,
+            tx: &tx,
+            id: 1,
+            total,
+            total_bytes: 0,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+            subtree_counts: &subtree_counts,
+        },
         src,
         dest,
-        action: crate::state::CopyMoveAction::Copy,
-        cancel: &cancel,
-        tx: &tx,
-        id: 1,
-        total,
-        total_bytes: 0,
-        processed: &processed,
-        processed_bytes: &processed_bytes,
-        decision_rx: &decision_rx,
-        subtree_counts: &subtree_counts,
     };
     let mut decision_state = crate::fs::ops::DecisionState::new();
     let res = crate::fs::ops::recursive_op(ctx, &mut decision_state).await;
