@@ -14,6 +14,15 @@ impl RenameTabState {
         }
     }
 
+    /// Opens the rename-tab popup pre-filled with `current_title` and the
+    /// cursor at its end. Visibility is set here, so a caller cannot show the
+    /// popup without populating it.
+    pub fn show(&mut self, current_title: String) {
+        self.cursor_position = current_title.chars().count();
+        self.new_name = current_title;
+        self.is_visible = true;
+    }
+
     pub fn reset(&mut self) {
         self.is_visible = false;
         self.new_name.clear();

@@ -11,24 +11,13 @@ use std::time::{Duration, Instant};
 use termina::event::{KeyCode, Modifiers};
 
 pub fn handle_ssh_connection_init(app: &mut AppState) {
-    app.popups
-        .set_popup_visible(crate::app::PopupKind::SshConnection, true);
-    app.popups.ssh_connection.error = None;
-    app.popups.ssh_connection.active_field = crate::state::ssh::SshField::ConnectionString;
-    app.popups.ssh_password.from_bookmark = false;
-
-    // Clear fields on initialization
-    app.popups.ssh_connection.connection_string.clear();
-    app.popups.ssh_connection.name.clear();
-    app.popups.ssh_connection.port = "22".to_string();
-    app.popups.ssh_connection.selected_history_idx = if app.ssh_history.connections.is_empty() {
+    let selected_history_idx = if app.ssh_history.connections.is_empty() {
         None
     } else {
         Some(0)
     };
-    app.popups.ssh_connection.cursor_position = 0;
-    app.popups.ssh_connection.search_query.clear();
-    app.popups.ssh_connection.last_key_time = None;
+    app.popups.ssh_connection.show(selected_history_idx);
+    app.popups.ssh_password.from_bookmark = false;
 }
 
 use crate::state::{ConfirmationAction, ConfirmationState};
@@ -760,17 +749,12 @@ fn show_password_popup_for_reconnect(
     session: &crate::ssh::manager::SessionState,
     error: Option<String>,
 ) {
-    app.popups
-        .set_popup_visible(crate::app::PopupKind::SshPassword, true);
-    app.popups
-        .ssh_password
-        .session_id
-        .clone_from(&session.session_id);
-    app.popups.ssh_password.host.clone_from(&session.host);
-    app.popups.ssh_password.user.clone_from(&session.user);
-    app.popups.ssh_password.error = error;
-    app.popups.ssh_password.password = SecretString::new(String::new().into());
-    app.popups.ssh_password.cursor_position = 0;
+    app.popups.ssh_password.show(
+        session.session_id.clone(),
+        session.host.clone(),
+        session.user.clone(),
+        error,
+    );
 }
 
 pub fn handle_ssh_connection_mouse_click(

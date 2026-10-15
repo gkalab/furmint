@@ -63,13 +63,7 @@ pub fn init_copy_move(app: &mut AppState, action: crate::state::CopyMoveAction) 
     let inactive_tab = app.inactive_tab();
     let dest = inactive_tab.current_dir.to_string_lossy().to_string();
 
-    app.popups.copy_move.source_paths = paths;
-    app.popups.copy_move.action = action;
-    app.popups.copy_move.destination_input = dest;
-    app.popups.copy_move.cursor_position = app.popups.copy_move.destination_input.chars().count();
-    app.popups.copy_move.input_selected = false;
-    app.popups
-        .set_popup_visible(crate::app::PopupKind::CopyMove, true);
+    app.popups.copy_move.show(paths, action, dest);
 }
 
 pub fn handle_clipboard_copy(app: &mut AppState) {

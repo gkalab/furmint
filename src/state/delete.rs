@@ -20,6 +20,17 @@ impl DeleteState {
         }
     }
 
+    /// Opens the delete popup for `selected_paths`, defaulting the choice to
+    /// "no". Visibility is set here, so a caller cannot show the popup without
+    /// populating it.
+    pub fn show(&mut self, selected_paths: Vec<PathBuf>, permanent: bool) {
+        self.selected_paths = selected_paths;
+        self.is_permanent = permanent;
+        self.selected_no = true;
+        self.error = None;
+        self.is_visible = true;
+    }
+
     pub fn reset(&mut self) {
         self.is_visible = false;
         self.selected_paths.clear();

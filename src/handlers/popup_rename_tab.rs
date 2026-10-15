@@ -9,11 +9,7 @@ pub fn handle_init_rename_tab(app: &mut AppState) {
     }
 
     let current_title = tab.title().to_string();
-    app.popups
-        .set_popup_visible(crate::app::PopupKind::RenameTab, true);
-    let state = &mut app.popups.rename_tab;
-    state.new_name.clone_from(&current_title);
-    state.cursor_position = current_title.chars().count();
+    app.popups.rename_tab.show(current_title);
 }
 
 pub fn handle_rename_tab_event(code: KeyCode, modifiers: Modifiers, app: &mut AppState) -> bool {

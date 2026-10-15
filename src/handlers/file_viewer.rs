@@ -129,11 +129,8 @@ fn handle_viewer_shortcuts(code: KeyCode, modifiers: Modifiers, app: &mut AppSta
         .as_ref()
         .is_some_and(|keys| keys.contains(&shortcut))
     {
-        app.popups
-            .set_popup_visible(crate::app::PopupKind::ViewerSearch, true);
-        app.popups.viewer_search.query = app.file_viewer.search_query().to_string();
-        app.popups.viewer_search.cursor_position = app.popups.viewer_search.query.chars().count();
-        app.popups.viewer_search.error = None;
+        let query = app.file_viewer.search_query().to_string();
+        app.popups.viewer_search.show(query);
     } else if app
         .keyboard
         .help

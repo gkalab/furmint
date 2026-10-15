@@ -41,10 +41,7 @@ pub fn handle_init_delete(app: &mut AppState, permanent: bool) {
 
     let is_remote = !tab.provider.context_key().is_local();
 
-    app.popups.delete.selected_paths = selected;
-    app.popups.delete.is_permanent = permanent || is_remote;
-    app.popups
-        .set_popup_visible(crate::app::PopupKind::Delete, true);
+    app.popups.delete.show(selected, permanent || is_remote);
 }
 
 pub fn handle_confirm_delete(app: &mut AppState) {

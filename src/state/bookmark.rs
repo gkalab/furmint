@@ -16,6 +16,15 @@ impl BookmarkState {
         }
     }
 
+    /// Opens the bookmark list with an empty filter, ready to be filled by
+    /// [`crate::handlers::popup_bookmark::refresh_bookmark_list`]. Visibility is
+    /// set here, so a caller cannot show the list without resetting it.
+    pub fn show(&mut self) {
+        self.list.input.clear();
+        self.list.cursor_position = 0;
+        self.list.is_visible = true;
+    }
+
     pub fn reset(&mut self) {
         self.list.reset();
         self.confirmation = None;

@@ -16,6 +16,15 @@ impl CreateDirectoryState {
         }
     }
 
+    /// Opens the create-directory popup with an empty input. Visibility is set
+    /// here, so a caller cannot show the popup without populating it.
+    pub fn show(&mut self) {
+        self.new_name.clear();
+        self.cursor_position = 0;
+        self.error = None;
+        self.is_visible = true;
+    }
+
     pub fn reset(&mut self) {
         self.is_visible = false;
         self.new_name.clear();

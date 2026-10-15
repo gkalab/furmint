@@ -37,9 +37,7 @@ pub async fn handle_main_panel_event(
     if let Some(keys) = &keyboard.empty_trash
         && keys.contains(&shortcut)
     {
-        app.popups
-            .set_popup_visible(crate::app::PopupKind::EmptyTrash, true);
-        app.popups.empty_trash.selected_no = true;
+        app.popups.empty_trash.show();
         return false;
     }
 
@@ -423,10 +421,8 @@ fn handle_drive_selection(app: &mut AppState, keyboard: &KeyboardConfig, shortcu
         let drives = crate::ui::drive_select_ui::get_available_drives();
         if !drives.is_empty() {
             app.popups
-                .set_popup_visible(crate::app::PopupKind::DriveSelect, true);
-            app.popups.drive_select.drives = drives;
-            app.popups.drive_select.side = crate::app_state::tabs::PanelSide::Left;
-            app.popups.drive_select.selected_index = 0;
+                .drive_select
+                .show(drives, crate::app_state::tabs::PanelSide::Left);
         }
         return true;
     }
@@ -437,10 +433,8 @@ fn handle_drive_selection(app: &mut AppState, keyboard: &KeyboardConfig, shortcu
         let drives = crate::ui::drive_select_ui::get_available_drives();
         if !drives.is_empty() {
             app.popups
-                .set_popup_visible(crate::app::PopupKind::DriveSelect, true);
-            app.popups.drive_select.drives = drives;
-            app.popups.drive_select.side = crate::app_state::tabs::PanelSide::Right;
-            app.popups.drive_select.selected_index = 0;
+                .drive_select
+                .show(drives, crate::app_state::tabs::PanelSide::Right);
         }
         return true;
     }
@@ -555,10 +549,7 @@ fn handle_bookmark_shortcuts(
     if let Some(keys) = &keyboard.open_bookmarks
         && keys.iter().any(|s| s == shortcut)
     {
-        app.popups
-            .set_popup_visible(crate::app::PopupKind::Bookmark, true);
-        app.popups.bookmark.list.input.clear();
-        app.popups.bookmark.list.cursor_position = 0;
+        app.popups.bookmark.show();
         crate::handlers::popup_bookmark::refresh_bookmark_list(app);
         return true;
     }

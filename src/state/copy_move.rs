@@ -30,6 +30,24 @@ impl CopyMoveState {
         }
     }
 
+    /// Opens the copy/move popup for `source_paths` and `action`, pre-filled
+    /// with `destination` and the cursor at its end. Visibility is set here, so
+    /// a caller cannot show the popup without populating it.
+    pub fn show(
+        &mut self,
+        source_paths: Vec<PathBuf>,
+        action: CopyMoveAction,
+        destination: String,
+    ) {
+        self.cursor_position = destination.chars().count();
+        self.source_paths = source_paths;
+        self.action = action;
+        self.destination_input = destination;
+        self.input_selected = false;
+        self.error = None;
+        self.is_visible = true;
+    }
+
     pub fn reset(&mut self) {
         self.is_visible = false;
         self.source_paths.clear();

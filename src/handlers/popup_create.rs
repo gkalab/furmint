@@ -6,20 +6,11 @@ use termina::event::{KeyCode, Modifiers};
 
 pub fn handle_init_create_file(app: &mut AppState) {
     let parent_dir = app.active_tab().current_dir.clone();
-    app.popups
-        .set_popup_visible(crate::app::PopupKind::CreateFile, true);
-    app.popups.create_file.input_value.clear();
-    app.popups.create_file.cursor_position = 0;
-    app.popups.create_file.error = None;
-    app.popups.create_file.parent_dir = parent_dir;
+    app.popups.create_file.show(parent_dir);
 }
 
 pub fn handle_init_create_directory(app: &mut AppState) {
-    app.popups
-        .set_popup_visible(crate::app::PopupKind::CreateDirectory, true);
-    app.popups.create_directory.new_name.clear();
-    app.popups.create_directory.cursor_position = 0;
-    app.popups.create_directory.error = None;
+    app.popups.create_directory.show();
 }
 
 pub async fn handle_create_directory_event(

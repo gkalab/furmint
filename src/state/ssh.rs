@@ -40,6 +40,23 @@ impl SshConnectionState {
         }
     }
 
+    /// Opens a fresh connection dialog, focused on the connection-string field
+    /// and highlighting `selected_history_idx` (the first history entry, when
+    /// there is one). Visibility is set here, so a caller cannot show the popup
+    /// without populating it.
+    pub fn show(&mut self, selected_history_idx: Option<usize>) {
+        self.error = None;
+        self.active_field = SshField::ConnectionString;
+        self.connection_string.clear();
+        self.name.clear();
+        self.port = "22".to_string();
+        self.selected_history_idx = selected_history_idx;
+        self.cursor_position = 0;
+        self.search_query.clear();
+        self.last_key_time = None;
+        self.is_visible = true;
+    }
+
     /// Opens the dialog showing `error`, focused on the connection-string
     /// field. Visibility is set here, so a caller cannot show the popup without
     /// populating it.
