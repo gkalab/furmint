@@ -229,6 +229,121 @@ pub fn create_test_app() -> AppState {
     TestAppBuilder::new().build()
 }
 
+/// A no-op provider that reports itself as remote.
+///
+/// `is_local() == false` is the whole point: it puts a `Tab` on the same branch
+/// as a real SFTP tab (Unix attributes, non-local display paths) without needing
+/// a live SSH connection. Every filesystem operation is a stub — tests fill in
+/// `Tab::entries` directly.
+#[cfg(test)]
+pub struct RemoteFileSystem;
+
+#[cfg(test)]
+#[async_trait]
+impl FileSystemProvider for RemoteFileSystem {
+    async fn list_dir(&self, _path: &std::path::Path) -> anyhow::Result<Vec<FileEntry>> {
+        Ok(Vec::new())
+    }
+    async fn create_dir(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn create_dir_all(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn create_file(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn delete(&self, _path: &std::path::Path, _recursive: bool) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn rename(&self, _from: &std::path::Path, _to: &std::path::Path) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn read_file(&self, _path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
+        Ok(Vec::new())
+    }
+    async fn read_file_at(
+        &self,
+        _path: &std::path::Path,
+        _offset: u64,
+        _len: usize,
+    ) -> anyhow::Result<Vec<u8>> {
+        Ok(Vec::new())
+    }
+    async fn write_file(&self, _path: &std::path::Path, _data: &[u8]) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn write_file_at(
+        &self,
+        _path: &std::path::Path,
+        _offset: u64,
+        _data: &[u8],
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    fn display_prefix(&self) -> &'static str {
+        "[SSH]"
+    }
+    fn is_local(&self) -> bool {
+        false
+    }
+    async fn exists(&self, _path: &std::path::Path) -> bool {
+        true
+    }
+    async fn is_dir(&self, _path: &std::path::Path) -> bool {
+        true
+    }
+    async fn canonicalize(&self, path: &std::path::Path) -> anyhow::Result<PathBuf> {
+        Ok(path.to_path_buf())
+    }
+    async fn get_file_info(&self, _path: &std::path::Path) -> Option<FileMetadata> {
+        None
+    }
+    async fn get_permissions(&self, _path: &std::path::Path) -> Option<u32> {
+        None
+    }
+    async fn set_permissions(&self, _path: &std::path::Path, _mode: u32) -> bool {
+        false
+    }
+    async fn get_modified_time(&self, _path: &std::path::Path) -> Option<std::time::SystemTime> {
+        None
+    }
+    async fn set_modified_time(
+        &self,
+        _path: &std::path::Path,
+        _mtime: std::time::SystemTime,
+    ) -> bool {
+        false
+    }
+    fn context_key(&self) -> crate::fs::provider::ContextKey {
+        crate::fs::provider::ContextKey::Ssh {
+            user: "test".to_string(),
+            host: "test".to_string(),
+            port: 22,
+        }
+    }
+    fn display_path(&self, path: &std::path::Path) -> String {
+        crate::fs::utils::normalize_sftp_path(path)
+    }
+    #[allow(clippy::unused_async)]
+    async fn calc_dir_size(&self, _path: &std::path::Path) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+}
+
+/// Creates a `Tab` backed by [`RemoteFileSystem`], with `entries` filled in by
+/// the caller.
+#[cfg(test)]
+#[must_use]
+pub fn create_remote_test_tab(entries: Vec<FileEntry>) -> Tab {
+    let mut tab = create_test_tab();
+    tab.provider = Arc::new(RemoteFileSystem);
+    tab.current_dir = PathBuf::from("/remote");
+    tab.entries = entries;
+    tab.recompute_visible_indices();
+    tab
+}
+
 /// Test-support filesystem: async `tokio::fs` implementation of the unified
 /// `FileSystemProvider` trait, used by unit tests that need a real provider.
 #[cfg(test)]

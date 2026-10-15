@@ -559,17 +559,23 @@ pub fn is_dot_or_dotdot(name: &str) -> bool {
     name == "." || name == ".."
 }
 
-/// Returns true if a name marks a hidden entry on Unix-like systems, i.e. it
-/// starts with a dot.
+/// True when the entries of a filesystem follow the Unix conventions, i.e. they
+/// carry Unix-style permissions (`drwxr-xr-x`) and mark hidden entries with a
+/// leading dot.
+#[must_use]
+pub fn has_unix_attributes(local: bool) -> bool {
+    cfg!(not(windows)) || !local
+}
+
+/// Returns true if a name marks a hidden entry on a Unix-like filesystem, i.e.
+/// it starts with a dot. `unix_attributes` is [`has_unix_attributes`] for the
+/// filesystem the entry was listed from.
 ///
 /// `.` and `..` are navigation entries rather than hidden ones, so they are
 /// never reported as hidden.
 #[must_use]
-pub fn has_hidden_name(name: &str) -> bool {
-    if cfg!(windows) {
-        return false;
-    }
-    !is_dot_or_dotdot(name) && name.starts_with('.')
+pub fn has_hidden_name(name: &str, unix_attributes: bool) -> bool {
+    unix_attributes && !is_dot_or_dotdot(name) && name.starts_with('.')
 }
 
 /// Returns true if an attribute string carries the Windows
@@ -579,15 +585,15 @@ pub fn has_hidden_attribute(attributes: &str) -> bool {
     attributes.as_bytes().get(2) == Some(&b'h')
 }
 
-/// Returns true if an entry is hidden.
+/// Returns true if an entry is hidden on the filesystem it was listed from.
 ///
 /// Unix-like filesystems only have the leading-dot convention, whereas Windows
 /// marks hidden entries with `FILE_ATTRIBUTE_HIDDEN` instead, so a dot-prefixed
 /// name alone is not enough there. Windows therefore relies solely on the DOS
 /// flag, while Unix relies solely on the leading dot.
 #[must_use]
-pub fn is_hidden(name: &str, attributes: &str) -> bool {
-    has_hidden_attribute(attributes) || has_hidden_name(name)
+pub fn is_hidden(name: &str, attributes: &str, unix_attributes: bool) -> bool {
+    has_hidden_attribute(attributes) || has_hidden_name(name, unix_attributes)
 }
 
 /// Returns an optimal chunk size for SFTP transfers based on the total file size.
@@ -1070,24 +1076,35 @@ mod tests {
     }
 
     #[test]
-    fn test_hidden_name_only_follows_the_unix_convention() {
-        assert!(!has_hidden_name("env"));
-        assert!(!has_hidden_name("."));
-        assert!(!has_hidden_name(".."));
-
-        // The leading dot is the only Unix marker, and Windows has none.
-        assert_eq!(has_hidden_name(".env"), !cfg!(windows));
-        assert_eq!(has_hidden_name(".git"), !cfg!(windows));
+    fn test_unix_conventions_follow_the_filesystem_not_the_host() {
+        // Local on Windows is the only DOS-attribute filesystem; remote and
+        // archive entries always report Unix modes, on any host.
+        assert_eq!(has_unix_attributes(true), !cfg!(windows));
+        assert!(has_unix_attributes(false));
     }
 
-    #[cfg(not(windows))]
+    #[test]
+    fn test_hidden_name_follows_the_unix_convention_of_the_filesystem() {
+        assert!(!has_hidden_name("env", true));
+        assert!(!has_hidden_name(".", true));
+        assert!(!has_hidden_name("..", true));
+
+        // The leading dot is the only Unix marker; a filesystem without the
+        // convention has no hidden names at all.
+        assert!(has_hidden_name(".env", true));
+        assert!(has_hidden_name(".git", true));
+        assert!(!has_hidden_name(".env", false));
+        assert!(!has_hidden_name(".git", false));
+    }
+
     #[test]
     fn test_is_hidden_name_ignores_navigation_entries() {
-        assert!(has_hidden_name(".env"));
-        assert!(has_hidden_name(".git"));
-        assert!(!has_hidden_name("env"));
-        assert!(!has_hidden_name("."));
-        assert!(!has_hidden_name(".."));
+        // `.` and `..` are navigation entries, not hidden ones, on any
+        // filesystem.
+        assert!(!has_hidden_name(".", true));
+        assert!(!has_hidden_name("..", true));
+        assert!(!has_hidden_name(".", false));
+        assert!(!has_hidden_name("..", false));
     }
 
     #[test]
@@ -1114,41 +1131,61 @@ mod tests {
     #[test]
     fn test_is_hidden_accepts_either_signal() {
         // Windows marks hidden files with the DOS flag alone, dot or no dot.
-        assert!(is_hidden("env", "d-h---"));
-        assert!(is_hidden("AppData", "d-h---"));
-        assert!(is_hidden("config.ini", "--h---"));
-        assert!(is_hidden(".env", "--h---"));
+        assert!(is_hidden("env", "d-h---", false));
+        assert!(is_hidden("AppData", "d-h---", false));
+        assert!(is_hidden("config.ini", "--h---", false));
+        assert!(is_hidden(".env", "--h---", false));
+
+        // The DOS flag also hides a dot-prefixed entry on a Unix filesystem.
+        assert!(is_hidden(".env", "--h---", true));
 
         // The leading dot is only a marker on Unix-like filesystems.
-        assert_eq!(is_hidden(".env", "d----"), !cfg!(windows));
-        assert_eq!(is_hidden(".env", ""), !cfg!(windows));
+        assert!(is_hidden(".env", "d----", true));
+        assert!(is_hidden(".env", "", true));
+        assert!(!is_hidden(".env", "d----", false));
+        assert!(!is_hidden(".env", "", false));
 
         // Ordinary entries stay visible.
-        assert!(!is_hidden("env", "------"));
-        assert!(!is_hidden("env", "--s---"));
-        assert!(!is_hidden("Documents", "d----"));
-        assert!(!is_hidden(".", "d----"));
-        assert!(!is_hidden("..", "d----"));
+        assert!(!is_hidden("env", "------", false));
+        assert!(!is_hidden("env", "--s---", false));
+        assert!(!is_hidden("Documents", "d----", false));
+        assert!(!is_hidden(".", "d----", true));
+        assert!(!is_hidden("..", "d----", true));
+    }
+
+    #[test]
+    fn test_remote_dotfiles_are_hidden_even_from_a_windows_client() {
+        // The regression: a remote listing carries Unix permissions and has no
+        // DOS flags at all, so a `cfg!(windows)` gate made every dotfile look
+        // visible and left the hidden-file toggle with nothing to hide.
+        for name in [".env", ".git", ".config", ".bashrc"] {
+            assert!(
+                is_hidden(name, format_sftp_permissions(0o100_644).as_str(), true),
+                "{name:?} should be hidden in a remote listing"
+            );
+        }
+        assert!(!is_hidden("README.md", "-rw-r--r--", true));
+        assert!(!is_hidden("env", "-rw-r--r--", true));
     }
 
     #[cfg(windows)]
     #[test]
-    fn test_windows_dot_names_are_not_hidden() {
+    fn test_windows_dot_names_are_not_hidden_locally() {
         // Windows Explorer shows `.git` like any other directory, so a leading
-        // dot must not mute the entry.
+        // dot must not mute a *local* entry.
         for name in [".env", ".git", ".config"] {
             assert!(
-                !has_hidden_name(name),
-                "{name:?} should not be a hidden name on Windows"
+                !has_hidden_name(name, false),
+                "{name:?} should not be a hidden name on a local Windows filesystem"
             );
             assert!(
-                !is_hidden(name, "d----"),
+                !is_hidden(name, "d----", false),
                 "{name:?} should not be hidden on Windows without the DOS flag"
             );
         }
 
         // The DOS flag still hides a dot-prefixed entry.
-        assert!(is_hidden(".config", "d-h---"));
+        assert!(is_hidden(".config", "d-h---", false));
     }
 
     #[test]

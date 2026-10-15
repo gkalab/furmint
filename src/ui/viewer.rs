@@ -300,7 +300,8 @@ fn render_archive_line(
     let mut spans = Vec::new();
     let mut seg_start = 0;
     let prefix_style = Style::default().fg(overlay_color);
-    let hidden = crate::fs::utils::has_hidden_name(&row.name);
+    let hidden =
+        crate::fs::utils::has_hidden_name(&row.name, crate::fs::utils::has_unix_attributes(false));
     let name_fg = if hidden {
         subtext_color
     } else if row.is_dir {

@@ -89,9 +89,10 @@ pub struct Tab {
     /// preserved by every writer.
     pub visible_indices: Vec<usize>,
     pub filter: crate::state::FileFilterState,
-    /// Whether hidden entries (dotfiles on Unix, `FILE_ATTRIBUTE_HIDDEN` on
-    /// Windows) are listed. Mirrors [`crate::app::AppState::show_hidden`], which
-    /// is the source of truth; every tab must be updated together via
+    /// Whether hidden entries (dotfiles on a Unix filesystem,
+    /// `FILE_ATTRIBUTE_HIDDEN` on a local Windows one) are listed. Mirrors
+    /// [`crate::app::AppState::show_hidden`], which is the source of truth; every
+    /// tab must be updated together via
     /// [`crate::app::AppState::apply_show_hidden`].
     pub show_hidden: bool,
 }
@@ -462,7 +463,11 @@ impl Tab {
     pub fn entry_is_listed(&self, entry: &FileEntry) -> bool {
         self.show_hidden
             || entry.name == ".."
-            || !crate::fs::utils::is_hidden(&entry.name, &entry.attributes)
+            || !crate::fs::utils::is_hidden(
+                &entry.name,
+                &entry.attributes,
+                crate::fs::utils::has_unix_attributes(self.provider.is_local()),
+            )
     }
 
     /// The number of files that exist under the current hidden-file setting,

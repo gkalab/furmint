@@ -8,10 +8,10 @@ use std::path::PathBuf;
 
 /// Attributes of an entry that the hidden-file setting must withhold.
 ///
-/// The two platforms mark hidden entries differently, so the fixture cannot rely
-/// on the leading dot alone: Unix only has the dot convention, whereas Windows
-/// ignores it and reads `FILE_ATTRIBUTE_HIDDEN`, which sits at index 2 of a
-/// DOS-style string (`d-h---` for a directory, `--h---` for a file).
+/// The filesystems mark hidden entries differently, so the fixture cannot rely on
+/// the leading dot alone: a Unix filesystem only has the dot convention, whereas a
+/// local Windows one ignores it and reads `FILE_ATTRIBUTE_HIDDEN`, which sits at
+/// index 2 of a DOS-style string (`d-h---` for a directory, `--h---` for a file).
 fn hidden_attrs(is_dir: bool) -> &'static str {
     if cfg!(windows) {
         if is_dir { "d-h---" } else { "--h---" }
@@ -27,13 +27,25 @@ fn hidden_attrs(is_dir: bool) -> &'static str {
 /// given.
 ///
 /// The hidden entries are dot-prefixed *and* carry [`hidden_attrs`], which is
-/// what makes them hidden on both platforms.
+/// what makes them hidden on every filesystem.
 fn listing() -> Vec<FileEntry> {
     vec![
         entry("..", true, ""),
         entry(".config", true, hidden_attrs(true)),
         entry("docs", true, "drwxr-xr-x"),
         entry(".env", false, hidden_attrs(false)),
+        entry("README.md", false, "-rw-r--r--"),
+    ]
+}
+
+/// A listing shaped like a real remote (SFTP) one: Unix permission strings and
+/// no DOS attribute flags, so the leading dot is the only hidden signal there is.
+fn remote_listing() -> Vec<FileEntry> {
+    vec![
+        entry("..", true, ""),
+        entry(".config", true, "drwxr-xr-x"),
+        entry("docs", true, "drwxr-xr-x"),
+        entry(".env", false, "-rw-r--r--"),
         entry("README.md", false, "-rw-r--r--"),
     ]
 }
@@ -56,6 +68,10 @@ fn tab_with(entries: Vec<FileEntry>) -> Tab {
     tab.current_dir = PathBuf::from("/tmp");
     tab.recompute_visible_indices();
     tab
+}
+
+fn remote_tab_with(entries: Vec<FileEntry>) -> Tab {
+    crate::test_utils::create_remote_test_tab(entries)
 }
 
 fn names(tab: &Tab) -> Vec<&str> {
@@ -183,24 +199,26 @@ fn test_toggle_back_restores_hidden_entries() {
 
 #[test]
 fn test_hidden_gate_delegates_to_the_shared_is_hidden_predicate() {
-    // The platform difference (leading dot on Unix, DOS attribute on Windows)
-    // must stay in `fs::utils::is_hidden` rather than being reimplemented here.
+    // The filesystem-dependent difference (leading dot on Unix filesystems, DOS
+    // attribute on a local Windows one) must stay in `fs::utils::is_hidden`
+    // rather than being reimplemented here.
     let entries = vec![
         entry("..", true, ""),
-        // Hidden through the leading dot, which only counts on Unix-like systems.
+        // Hidden through the leading dot, which only counts on Unix filesystems.
         entry(".dotfile", false, "-rw-r--r--"),
         // Hidden through the attribute string, which is what counts on Windows.
         entry("flagged", false, hidden_attrs(false)),
         entry("plain.txt", false, "-rw-r--r--"),
     ];
     let mut tab = tab_with(entries);
+    let unix_attributes = crate::fs::utils::has_unix_attributes(tab.provider.is_local());
     tab.set_show_hidden(false);
 
     for i in 0..tab.entries.len() {
         let e = &tab.entries[i];
         assert_eq!(
             tab.is_visible(i),
-            e.name == ".." || !crate::fs::utils::is_hidden(&e.name, &e.attributes),
+            e.name == ".." || !crate::fs::utils::is_hidden(&e.name, &e.attributes, unix_attributes),
             "visibility of {:?} disagrees with is_hidden",
             e.name
         );
@@ -403,4 +421,66 @@ fn test_copy_still_works_on_a_visible_entry_with_hidden_hidden() {
     crate::handlers::popup_copy_move::handle_init_copy(&mut app);
     assert_eq!(app.popups.copy_move.source_paths.len(), 1);
     assert!(app.popups.copy_move.source_paths[0].ends_with("README.md"));
+}
+
+#[test]
+fn test_toggle_hides_dotfiles_in_a_remote_tab_on_every_platform() {
+    // Regression: hidden-ness was decided by `cfg!(windows)` on the client, so
+    // from Windows a remote tab withheld nothing at all — the toggle reported
+    // "Hidden files hidden" while every remote dotfile stayed listed. A remote
+    // listing reports Unix permissions and carries no DOS flags, so the dot
+    // convention must apply there regardless of where the app runs.
+    let mut tab = remote_tab_with(remote_listing());
+    assert_eq!(
+        names(&tab),
+        vec!["..", ".config", "docs", ".env", "README.md"]
+    );
+
+    tab.set_show_hidden(false);
+    assert_eq!(names(&tab), vec!["..", "docs", "README.md"]);
+
+    tab.set_show_hidden(true);
+    assert_eq!(
+        names(&tab),
+        vec!["..", ".config", "docs", ".env", "README.md"]
+    );
+}
+
+#[test]
+fn test_toggle_applies_to_a_remote_tab_through_the_app_entry_point() {
+    // The same through `handle_toggle_hidden`, which is what the key binding
+    // calls: a local and a remote tab in the two panels must both follow.
+    let mut app = crate::test_utils::TestAppBuilder::new()
+        .left(manager(tab_with(listing())))
+        .right(manager(remote_tab_with(remote_listing())))
+        .build();
+
+    handle_toggle_hidden(&mut app);
+
+    assert!(!app.show_hidden);
+    assert_eq!(
+        names(app.panels.left.active_tab()),
+        vec!["..", "docs", "README.md"]
+    );
+    assert_eq!(
+        names(app.panels.right.active_tab()),
+        vec!["..", "docs", "README.md"],
+        "a remote tab must honour the same toggle as a local one"
+    );
+}
+
+#[test]
+fn test_local_windows_tab_still_ignores_dot_prefixed_names() {
+    // The mirror image of the remote case: a local Windows filesystem has no
+    // dotfile convention, so an unflagged `.env` stays listed there.
+    if !cfg!(windows) {
+        return;
+    }
+    let mut tab = tab_with(vec![
+        entry("..", true, ""),
+        entry(".env", false, "------"),
+        entry("README.md", false, "------"),
+    ]);
+    tab.set_show_hidden(false);
+    assert_eq!(names(&tab), vec!["..", ".env", "README.md"]);
 }

@@ -27,21 +27,10 @@ const UNIX_ATTRIBUTES_COL_WIDTH: u16 = 10;
 /// are a type char plus 5 attributes (`d---r-`).
 const WINDOWS_FLAG_COL_WIDTH: u16 = 6;
 
-/// True when the entries of a filesystem carry Unix-style permissions
-/// (`drwxr-xr-x`) rather than the short Windows attribute flags.
-///
-/// Only the local filesystem on Windows reports DOS file attributes; remote and
-/// archive entries always carry Unix modes, so they render the full 10
-/// characters even when running on Windows.
-#[must_use]
-pub(crate) fn has_unix_attributes(local: bool) -> bool {
-    cfg!(not(windows)) || !local
-}
-
 /// Width of the attributes column for the given filesystem.
 #[must_use]
 pub(crate) fn attributes_col_width(local: bool) -> u16 {
-    if has_unix_attributes(local) {
+    if crate::fs::utils::has_unix_attributes(local) {
         UNIX_ATTRIBUTES_COL_WIDTH
     } else {
         WINDOWS_FLAG_COL_WIDTH
@@ -120,22 +109,29 @@ fn calculate_column_widths(panel: &Tab, area: Rect) -> ColumnWidths {
         name: name_col_width,
         size_header,
         attributes,
-        unix_attributes: has_unix_attributes(local),
+        unix_attributes: crate::fs::utils::has_unix_attributes(local),
     }
 }
 
 /// Get style for a file entry based on its type.
 ///
 /// Symlinks keep their own cyan regardless of the target. Everything else that
-/// is hidden (a leading dot on Unix, `FILE_ATTRIBUTE_HIDDEN` on Windows) is
-/// de-emphasized with the muted `subtext` color, whether it is a file or a
-/// directory.
-fn style_for_entry(entry: &FileEntry, current_dir: &Path, palette: &ThemePalette) -> Style {
+/// is hidden (a leading dot on a Unix filesystem, `FILE_ATTRIBUTE_HIDDEN` on a
+/// local Windows one) is de-emphasized with the muted `subtext` color, whether
+/// it is a file or a directory. `unix_attributes` is
+/// [`crate::fs::utils::has_unix_attributes`] for the browsed filesystem, so a
+/// remote tab mutes the remote host's dotfiles from any platform.
+fn style_for_entry(
+    entry: &FileEntry,
+    current_dir: &Path,
+    palette: &ThemePalette,
+    unix_attributes: bool,
+) -> Style {
     let rgb = |c: Rgb| Color::Rgb(c.r, c.g, c.b);
     if entry.is_symlink {
         return Style::default().fg(rgb(palette.cyan));
     }
-    if crate::fs::utils::is_hidden(&entry.name, &entry.attributes) {
+    if crate::fs::utils::is_hidden(&entry.name, &entry.attributes, unix_attributes) {
         return Style::default().fg(rgb(palette.subtext));
     }
     if entry.is_dir {
@@ -152,10 +148,15 @@ fn style_for_entry(entry: &FileEntry, current_dir: &Path, palette: &ThemePalette
 /// Only hidden directories deviate from their name color: their icon keeps the
 /// standard directory blue so the row still reads as a directory, while the
 /// muted name carries the "hidden" signal. Every other entry matches its name.
-fn style_for_icon(entry: &FileEntry, palette: &ThemePalette, name_style: Style) -> Style {
+fn style_for_icon(
+    entry: &FileEntry,
+    palette: &ThemePalette,
+    name_style: Style,
+    unix_attributes: bool,
+) -> Style {
     if entry.is_dir
         && !entry.is_symlink
-        && crate::fs::utils::is_hidden(&entry.name, &entry.attributes)
+        && crate::fs::utils::is_hidden(&entry.name, &entry.attributes, unix_attributes)
     {
         return Style::default().fg(Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b));
     }
@@ -218,8 +219,8 @@ fn render_entry_row<'a>(
     search_highlights: &'a HashMap<usize, Vec<usize>>,
 ) -> Row<'a> {
     let text_fg = Color::Rgb(ctx.palette.text.r, ctx.palette.text.g, ctx.palette.text.b);
-    let name_style = style_for_entry(entry, ctx.current_dir, ctx.palette);
-    let icon_style = style_for_icon(entry, ctx.palette, name_style);
+    let name_style = style_for_entry(entry, ctx.current_dir, ctx.palette, ctx.unix_attributes);
+    let icon_style = style_for_icon(entry, ctx.palette, name_style, ctx.unix_attributes);
 
     // Account for ratatui border: subtract 2 from available width
     // Also account for icon width (2 chars: icon + space) if icons are enabled
@@ -1158,6 +1159,7 @@ mod tests {
 
     #[test]
     fn test_attributes_column_width_per_filesystem() {
+        use crate::fs::utils::has_unix_attributes;
         // Remote and archive entries carry Unix permissions, so the column is
         // wide enough for all 10 characters even on Windows.
         if cfg!(windows) {
@@ -1202,6 +1204,28 @@ mod tests {
         }
     }
 
+    /// [`style_for_entry`] for a filesystem that follows the Unix conventions:
+    /// local on Unix, and every remote and archive tab on any host.
+    fn unix_entry_style(entry: &FileEntry, current_dir: &Path, palette: &ThemePalette) -> Style {
+        style_for_entry(entry, current_dir, palette, true)
+    }
+
+    /// [`style_for_icon`] for the same Unix-conventions filesystem.
+    fn unix_icon_style(entry: &FileEntry, palette: &ThemePalette, name_style: Style) -> Style {
+        style_for_icon(entry, palette, name_style, true)
+    }
+
+    /// [`style_for_entry`] for a local Windows filesystem, which reads the DOS
+    /// attribute flags and has no dotfile convention.
+    fn local_entry_style(entry: &FileEntry, current_dir: &Path, palette: &ThemePalette) -> Style {
+        style_for_entry(entry, current_dir, palette, false)
+    }
+
+    /// [`style_for_icon`] for a local Windows filesystem.
+    fn local_icon_style(entry: &FileEntry, palette: &ThemePalette, name_style: Style) -> Style {
+        style_for_icon(entry, palette, name_style, false)
+    }
+
     #[test]
     fn test_symlink_uses_its_own_color() {
         let palette = crate::theme::catppuccin_macchiato();
@@ -1211,26 +1235,26 @@ mod tests {
         // A real directory stays blue and a plain executable stays green.
         let dir = entry("real", true, false, "drwxr-xr-x ");
         assert_eq!(
-            fg_of(style_for_entry(&dir, current_dir, &palette)),
+            fg_of(unix_entry_style(&dir, current_dir, &palette)),
             Some(rgb(palette.blue))
         );
         let exec = entry("run", false, false, "-rwxr-xr-x");
         assert_eq!(
-            fg_of(style_for_entry(&exec, current_dir, &palette)),
+            fg_of(unix_entry_style(&exec, current_dir, &palette)),
             Some(rgb(palette.green))
         );
 
         // A link to a directory is not blue: the cyan marks it as a link even
         // though it is enterable and sorts with directories.
         let linked_dir = entry("link", true, true, "lrwxrwxrwx ");
-        let dir_style = fg_of(style_for_entry(&linked_dir, current_dir, &palette));
+        let dir_style = fg_of(unix_entry_style(&linked_dir, current_dir, &palette));
         assert_eq!(dir_style, Some(rgb(palette.cyan)));
         assert_ne!(dir_style, Some(rgb(palette.blue)));
         assert_ne!(dir_style, Some(rgb(palette.green)));
 
         // A link to a file uses the same color, and never the executable green.
         let linked_file = entry("link.txt", false, true, "lrwxrwxrwx ");
-        let file_style = fg_of(style_for_entry(&linked_file, current_dir, &palette));
+        let file_style = fg_of(unix_entry_style(&linked_file, current_dir, &palette));
         assert_eq!(file_style, Some(rgb(palette.cyan)));
         assert_ne!(file_style, Some(rgb(palette.green)));
         assert_ne!(file_style, Some(rgb(palette.text)));
@@ -1238,7 +1262,7 @@ mod tests {
         // A broken link falls back to the same cyan.
         let broken = entry("broken", false, true, "lrwxrwxrwx ");
         assert_eq!(
-            fg_of(style_for_entry(&broken, current_dir, &palette)),
+            fg_of(unix_entry_style(&broken, current_dir, &palette)),
             Some(rgb(palette.cyan))
         );
     }
@@ -1264,7 +1288,7 @@ mod tests {
             // text color.
             let hidden_file = entry(".env", false, false, "-rw-r--r--");
             assert_eq!(
-                fg_of(style_for_entry(&hidden_file, current_dir, &palette)),
+                fg_of(unix_entry_style(&hidden_file, current_dir, &palette)),
                 Some(rgb(palette.subtext)),
                 "{name} does not mute hidden files"
             );
@@ -1272,7 +1296,7 @@ mod tests {
             // Hidden directories use the same muted color as hidden files.
             let hidden_dir = entry(".git", true, false, "drwxr-xr-x ");
             assert_eq!(
-                fg_of(style_for_entry(&hidden_dir, current_dir, &palette)),
+                fg_of(unix_entry_style(&hidden_dir, current_dir, &palette)),
                 Some(rgb(palette.subtext)),
                 "{name} does not mute hidden directories"
             );
@@ -1280,7 +1304,7 @@ mod tests {
             // Hiding a file wins over the executable green.
             let hidden_exec = entry(".hidden.sh", false, false, "-rwxr-xr-x");
             assert_eq!(
-                fg_of(style_for_entry(&hidden_exec, current_dir, &palette)),
+                fg_of(unix_entry_style(&hidden_exec, current_dir, &palette)),
                 Some(rgb(palette.subtext)),
                 "{name} colors a hidden executable green"
             );
@@ -1288,7 +1312,7 @@ mod tests {
             // A visible file keeps the normal text color.
             let plain = entry("env", false, false, "-rw-r--r--");
             assert_eq!(
-                fg_of(style_for_entry(&plain, current_dir, &palette)),
+                fg_of(unix_entry_style(&plain, current_dir, &palette)),
                 Some(rgb(palette.text)),
                 "{name} does not keep the text color for visible files"
             );
@@ -1296,7 +1320,7 @@ mod tests {
             // A visible directory keeps the directory blue.
             let dir = entry("git", true, false, "drwxr-xr-x ");
             assert_eq!(
-                fg_of(style_for_entry(&dir, current_dir, &palette)),
+                fg_of(unix_entry_style(&dir, current_dir, &palette)),
                 Some(rgb(palette.blue)),
                 "{name} does not keep the directory color for visible directories"
             );
@@ -1312,31 +1336,31 @@ mod tests {
         for name in crate::theme::THEME_NAMES {
             let palette = crate::theme::get_theme(name).unwrap();
 
-            // Windows has no dotfile convention, so a leading dot must not mute
-            // the entry the way it does on Unix. These entries carry no DOS
-            // hidden flag, so nothing marks them hidden.
+            // A local Windows filesystem has no dotfile convention, so a leading
+            // dot must not mute the entry the way it does on Unix. These entries
+            // carry no DOS hidden flag, so nothing marks them hidden.
             let dot_file = entry(".env", false, false, "------");
-            let file_style = style_for_entry(&dot_file, current_dir, &palette);
+            let file_style = local_entry_style(&dot_file, current_dir, &palette);
             assert_eq!(
                 fg_of(file_style),
                 Some(rgb(palette.text)),
                 "{name} mutes a dot-prefixed file on Windows"
             );
             assert_eq!(
-                fg_of(style_for_icon(&dot_file, &palette, file_style)),
+                fg_of(local_icon_style(&dot_file, &palette, file_style)),
                 Some(rgb(palette.text)),
                 "{name} changes the icon of a dot-prefixed file on Windows"
             );
 
             let dot_dir = entry(".git", true, false, "d-----");
-            let dir_style = style_for_entry(&dot_dir, current_dir, &palette);
+            let dir_style = local_entry_style(&dot_dir, current_dir, &palette);
             assert_eq!(
                 fg_of(dir_style),
                 Some(rgb(palette.blue)),
                 "{name} mutes a dot-prefixed directory on Windows"
             );
             assert_eq!(
-                fg_of(style_for_icon(&dot_dir, &palette, dir_style)),
+                fg_of(local_icon_style(&dot_dir, &palette, dir_style)),
                 Some(rgb(palette.blue)),
                 "{name} changes the icon of a dot-prefixed directory on Windows"
             );
@@ -1344,21 +1368,21 @@ mod tests {
             // An executable keeps its green even behind a leading dot.
             let dot_exec = entry(".build.sh", false, false, "-rwxr-xr-x");
             assert_eq!(
-                fg_of(style_for_entry(&dot_exec, current_dir, &palette)),
+                fg_of(local_entry_style(&dot_exec, current_dir, &palette)),
                 Some(rgb(palette.green)),
                 "{name} mutes a dot-prefixed executable on Windows"
             );
 
             // A dot-prefixed symlink keeps its cyan link marker.
             let dot_link = entry(".link", true, true, "lrwxrwxrwx ");
-            let link_style = style_for_entry(&dot_link, current_dir, &palette);
+            let link_style = local_entry_style(&dot_link, current_dir, &palette);
             assert_eq!(
                 fg_of(link_style),
                 Some(rgb(palette.cyan)),
                 "{name} mutes a dot-prefixed symlink on Windows"
             );
             assert_eq!(
-                fg_of(style_for_icon(&dot_link, &palette, link_style)),
+                fg_of(local_icon_style(&dot_link, &palette, link_style)),
                 Some(rgb(palette.cyan)),
                 "{name} changes the icon of a dot-prefixed symlink on Windows"
             );
@@ -1377,14 +1401,14 @@ mod tests {
             // A hidden directory keeps the standard directory blue on its icon
             // while its name stays muted.
             let hidden_dir = entry(".git", true, false, "drwxr-xr-x ");
-            let name_style = style_for_entry(&hidden_dir, current_dir, &palette);
+            let name_style = unix_entry_style(&hidden_dir, current_dir, &palette);
             assert_eq!(
                 fg_of(name_style),
                 Some(rgb(palette.subtext)),
                 "{name} does not mute the name of a hidden directory"
             );
             assert_eq!(
-                fg_of(style_for_icon(&hidden_dir, &palette, name_style)),
+                fg_of(unix_icon_style(&hidden_dir, &palette, name_style)),
                 Some(rgb(palette.blue)),
                 "{name} does not keep the directory blue on the icon"
             );
@@ -1392,18 +1416,18 @@ mod tests {
             // Hidden files have no directory icon to keep, so theirs matches the
             // muted name.
             let hidden_file = entry(".env", false, false, "-rw-r--r--");
-            let file_style = style_for_entry(&hidden_file, current_dir, &palette);
+            let file_style = unix_entry_style(&hidden_file, current_dir, &palette);
             assert_eq!(
-                fg_of(style_for_icon(&hidden_file, &palette, file_style)),
+                fg_of(unix_icon_style(&hidden_file, &palette, file_style)),
                 fg_of(file_style),
                 "{name} does not keep hidden file icons muted"
             );
 
             // A visible directory is unchanged: icon and name both stay blue.
             let dir = entry("git", true, false, "drwxr-xr-x ");
-            let dir_style = style_for_entry(&dir, current_dir, &palette);
+            let dir_style = unix_entry_style(&dir, current_dir, &palette);
             assert_eq!(
-                fg_of(style_for_icon(&dir, &palette, dir_style)),
+                fg_of(unix_icon_style(&dir, &palette, dir_style)),
                 Some(rgb(palette.blue)),
                 "{name} changed the icon of a visible directory"
             );
@@ -1411,9 +1435,9 @@ mod tests {
             // A hidden symlink to a directory keeps its cyan link marker rather
             // than borrowing the plain directory blue.
             let linked_dir = entry(".link", true, true, "lrwxrwxrwx ");
-            let link_style = style_for_entry(&linked_dir, current_dir, &palette);
+            let link_style = unix_entry_style(&linked_dir, current_dir, &palette);
             assert_eq!(
-                fg_of(style_for_icon(&linked_dir, &palette, link_style)),
+                fg_of(unix_icon_style(&linked_dir, &palette, link_style)),
                 Some(rgb(palette.cyan)),
                 "{name} dropped the link color for a hidden symlinked directory"
             );
@@ -1428,38 +1452,38 @@ mod tests {
         for name in crate::theme::THEME_NAMES {
             let palette = crate::theme::get_theme(name).unwrap();
 
-            // Windows marks a hidden file with FILE_ATTRIBUTE_HIDDEN rather
-            // than a leading dot, so the name is muted without any dot.
+            // A local Windows filesystem marks a hidden file with FILE_ATTRIBUTE_HIDDEN
+            // rather than a leading dot, so the name is muted without any dot.
             let hidden_file = entry("AppData", false, false, "--h---");
-            let file_style = style_for_entry(&hidden_file, current_dir, &palette);
+            let file_style = local_entry_style(&hidden_file, current_dir, &palette);
             assert_eq!(
                 fg_of(file_style),
                 Some(rgb(palette.subtext)),
                 "{name} does not mute a file hidden via the DOS attribute"
             );
             assert_eq!(
-                fg_of(style_for_icon(&hidden_file, &palette, file_style)),
+                fg_of(local_icon_style(&hidden_file, &palette, file_style)),
                 fg_of(file_style),
                 "{name} does not keep a DOS-hidden file icon muted"
             );
 
             // A hidden Windows directory is muted too, icon aside.
             let hidden_dir = entry("AppData", true, false, "d-h---");
-            let dir_style = style_for_entry(&hidden_dir, current_dir, &palette);
+            let dir_style = local_entry_style(&hidden_dir, current_dir, &palette);
             assert_eq!(
                 fg_of(dir_style),
                 Some(rgb(palette.subtext)),
                 "{name} does not mute a directory hidden via the DOS attribute"
             );
             assert_eq!(
-                fg_of(style_for_icon(&hidden_dir, &palette, dir_style)),
+                fg_of(local_icon_style(&hidden_dir, &palette, dir_style)),
                 Some(rgb(palette.blue)),
                 "{name} does not keep the directory blue on a DOS-hidden icon"
             );
 
             // An ordinary Windows directory is untouched.
             let dir = entry("Documents", true, false, "d----");
-            let visible_style = style_for_entry(&dir, current_dir, &palette);
+            let visible_style = local_entry_style(&dir, current_dir, &palette);
             assert_eq!(
                 fg_of(visible_style),
                 Some(rgb(palette.blue)),
@@ -1477,13 +1501,61 @@ mod tests {
         for name in [".", ".."] {
             let nav = entry(name, true, false, "drwxr-xr-x ");
             assert!(
-                !crate::fs::utils::is_hidden(name, &nav.attributes),
+                !crate::fs::utils::is_hidden(name, &nav.attributes, true),
                 "{name} should not count as hidden"
             );
             assert_eq!(
-                fg_of(style_for_entry(&nav, current_dir, &palette)),
+                fg_of(unix_entry_style(&nav, current_dir, &palette)),
                 Some(rgb(palette.blue)),
                 "{name} should keep the directory color"
+            );
+        }
+    }
+
+    #[test]
+    fn test_remote_dotfiles_are_muted_on_every_platform() {
+        // A remote tab lists Unix permissions and never sets a DOS hidden flag,
+        // so its dotfiles must be muted even when the client runs on Windows.
+        // A `cfg!(windows)` gate left them fully colored, which is the visible
+        // half of the toggle doing nothing in a remote tab.
+        let current_dir = Path::new("/nonexistent");
+        let rgb = |c: Rgb| Color::Rgb(c.r, c.g, c.b);
+        let palette = crate::theme::catppuccin_macchiato();
+
+        for (name, is_dir, attributes, local_fg) in [
+            (".env", false, "-rw-r--r--", rgb(palette.text)),
+            (".git", true, "drwxr-xr-x ", rgb(palette.blue)),
+            (
+                ".hidden.sh",
+                false,
+                "-rwxr-xr-x",
+                rgb(palette.green), // an `x` bit reads as executable everywhere
+            ),
+        ] {
+            let remote = entry(name, is_dir, false, attributes);
+            let style = unix_entry_style(&remote, current_dir, &palette);
+            assert_eq!(
+                fg_of(style),
+                Some(rgb(palette.subtext)),
+                "{name:?} is not muted in a remote tab"
+            );
+            // A hidden remote directory keeps the directory blue on its icon, so
+            // the row still reads as a directory.
+            let icon_fg = fg_of(unix_icon_style(&remote, &palette, style));
+            assert_eq!(
+                icon_fg,
+                if is_dir {
+                    Some(rgb(palette.blue))
+                } else {
+                    Some(rgb(palette.subtext))
+                },
+                "{name:?} has the wrong icon color in a remote tab"
+            );
+            // A local Windows filesystem of the same shape keeps them unmuted.
+            assert_eq!(
+                fg_of(local_entry_style(&remote, current_dir, &palette)),
+                Some(local_fg),
+                "{name:?} must not be muted locally on Windows without the DOS flag"
             );
         }
     }
