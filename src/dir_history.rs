@@ -20,6 +20,10 @@ pub struct DirectoryHistory {
     pub entries: HashMap<String, HashMap<PathBuf, DirEntry>>,
     #[serde(skip)]
     pub cache_file: PathBuf,
+    // Keeps the temp dir alive for the lifetime of a test instance so it is
+    // removed on drop instead of littering /tmp.
+    #[serde(skip)]
+    _temp_guard: Option<tempfile::TempDir>,
 }
 
 impl DirectoryHistory {
@@ -36,6 +40,7 @@ impl DirectoryHistory {
         let mut history = Self {
             entries: HashMap::new(),
             cache_file,
+            _temp_guard: None,
         };
         history.load()?;
         Ok(history)
@@ -58,12 +63,12 @@ impl DirectoryHistory {
     #[cfg(test)]
     #[must_use]
     pub fn test_default() -> Self {
-        let dir =
-            std::env::temp_dir().join(format!("furmint-test-dir-history-{}", std::process::id()));
-        let _ = fs::create_dir_all(&dir);
+        // TempDir removes the directory on drop, so test runs leave no litter.
+        let dir = tempfile::tempdir().unwrap();
         Self {
             entries: HashMap::new(),
-            cache_file: dir.join("dir_history.json"),
+            cache_file: dir.path().join("dir_history.json"),
+            _temp_guard: Some(dir),
         }
     }
 

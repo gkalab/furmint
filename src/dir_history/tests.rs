@@ -7,6 +7,7 @@ fn test_record_visit() {
     let mut history = DirectoryHistory {
         entries: HashMap::new(),
         cache_file: PathBuf::from("/tmp/test.json"),
+        _temp_guard: None,
     };
 
     let path = PathBuf::from("/home/user");
@@ -40,6 +41,7 @@ fn test_fuzzy_search() {
     let mut history = DirectoryHistory {
         entries: HashMap::new(),
         cache_file: PathBuf::from("/tmp/test.json"),
+        _temp_guard: None,
     };
 
     history.record_visit("local", &PathBuf::from("/home/user"));
@@ -60,6 +62,7 @@ fn test_fuzzy_search_sorting() {
     let mut history = DirectoryHistory {
         entries: HashMap::new(),
         cache_file: PathBuf::from("/tmp/test_fuzzy_sorting.json"),
+        _temp_guard: None,
     };
 
     let path_a = PathBuf::from("/home/user/documents");
@@ -92,6 +95,7 @@ fn test_history_limit() {
     let mut history = DirectoryHistory {
         entries: HashMap::new(),
         cache_file: cache_file.clone(),
+        _temp_guard: None,
     };
 
     // Add 250 local entries
@@ -118,6 +122,7 @@ fn test_history_limit() {
     let mut new_history = DirectoryHistory {
         entries: HashMap::new(),
         cache_file,
+        _temp_guard: None,
     };
     new_history.load().unwrap();
 
@@ -171,6 +176,7 @@ fn test_remove_entry() {
     let mut history = DirectoryHistory {
         entries: HashMap::new(),
         cache_file: PathBuf::from("/tmp/test.json"),
+        _temp_guard: None,
     };
 
     let path = PathBuf::from("/home/user");
