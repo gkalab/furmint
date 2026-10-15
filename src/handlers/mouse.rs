@@ -60,6 +60,86 @@ pub async fn handle_mouse_event(app: &mut AppState, event: MouseEvent) {
     }
 }
 
+/// Mouse handler for the help popup: the wheel scrolls the help table.
+#[allow(clippy::unused_async)] // uniform handler signature, awaited by the registry
+pub(crate) async fn handle_help_popup_mouse(
+    app: &mut AppState,
+    event: MouseEvent,
+    _is_double_click: bool,
+) -> bool {
+    match event.kind {
+        MouseEventKind::ScrollUp => {
+            crate::handlers::popup_help::handle_help_popup_event(KeyCode::Up, app);
+            true
+        }
+        MouseEventKind::ScrollDown => {
+            crate::handlers::popup_help::handle_help_popup_event(KeyCode::Down, app);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Mouse handler for the SSH connection popup: a confirmation overlay is a
+/// modal button row, otherwise the popup's own fields and history list handle
+/// the click.
+#[allow(clippy::unused_async)] // uniform handler signature, awaited by the registry
+pub(crate) async fn handle_ssh_popup_mouse(
+    app: &mut AppState,
+    event: MouseEvent,
+    is_double_click: bool,
+) -> bool {
+    if let MouseEventKind::Down(MouseButton::Left) = event.kind {
+        if app.popups.ssh_connection.confirmation.is_some() {
+            handle_popup_down(app, event.column, event.row);
+        } else {
+            crate::handlers::popup_ssh::handle_ssh_connection_mouse_click(
+                app,
+                event.column,
+                event.row,
+                is_double_click,
+            );
+        }
+        true
+    } else {
+        false
+    }
+}
+
+/// Mouse handler for the bookmark popup: clicks select a row (or a confirmation
+/// button), and the wheel moves the selection.
+pub(crate) async fn handle_bookmark_popup_mouse(
+    app: &mut AppState,
+    event: MouseEvent,
+    is_double_click: bool,
+) -> bool {
+    match event.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            if app.popups.bookmark.confirmation.is_some() {
+                handle_popup_down(app, event.column, event.row);
+            } else {
+                crate::handlers::popup_bookmark::handle_bookmark_mouse_click(
+                    app,
+                    event.column,
+                    event.row,
+                    is_double_click,
+                )
+                .await;
+            }
+            true
+        }
+        MouseEventKind::ScrollUp => {
+            app.popups.bookmark.list.move_selection_up();
+            true
+        }
+        MouseEventKind::ScrollDown => {
+            app.popups.bookmark.list.move_selection_down();
+            true
+        }
+        _ => false,
+    }
+}
+
 async fn handle_fuzzy_search_mouse(app: &mut AppState, event: MouseEvent, is_double_click: bool) {
     match event.kind {
         MouseEventKind::Down(MouseButton::Left) => {
@@ -105,32 +185,12 @@ async fn handle_popup_mouse(app: &mut AppState, event: MouseEvent, is_double_cli
             {
                 return;
             }
-            if app.popups.ssh_connection.is_visible {
-                if app.popups.ssh_connection.confirmation.is_some() {
-                    handle_popup_down(app, event.column, event.row);
-                } else {
-                    crate::handlers::popup_ssh::handle_ssh_connection_mouse_click(
-                        app,
-                        event.column,
-                        event.row,
-                        is_double_click,
-                    );
-                }
-            } else if app.popups.bookmark.list.is_visible {
-                if app.popups.bookmark.confirmation.is_some() {
-                    handle_popup_down(app, event.column, event.row);
-                } else {
-                    crate::handlers::popup_bookmark::handle_bookmark_mouse_click(
-                        app,
-                        event.column,
-                        event.row,
-                        is_double_click,
-                    )
-                    .await;
-                }
-            } else {
-                handle_popup_down(app, event.column, event.row);
+            // Registered popups get first refusal (list rows, confirmations);
+            // anything they leave falls through to the shared button hit-test.
+            if app.route_popup_mouse(event, is_double_click).await {
+                return;
             }
+            handle_popup_down(app, event.column, event.row);
         }
         MouseEventKind::Up(MouseButton::Left) => {
             app.mouse.active_drag = None;
@@ -139,17 +199,8 @@ async fn handle_popup_mouse(app: &mut AppState, event: MouseEvent, is_double_cli
         MouseEventKind::Drag(MouseButton::Left) if app.mouse.active_drag.is_some() => {
             update_drag_scroll(app, event.column, event.row).await;
         }
-        MouseEventKind::ScrollUp if app.popups.help.is_visible => {
-            crate::ui::help_ui::handle_help_popup_event(KeyCode::Up, app);
-        }
-        MouseEventKind::ScrollDown if app.popups.help.is_visible => {
-            crate::ui::help_ui::handle_help_popup_event(KeyCode::Down, app);
-        }
-        MouseEventKind::ScrollUp if app.popups.bookmark.list.is_visible => {
-            app.popups.bookmark.list.move_selection_up();
-        }
-        MouseEventKind::ScrollDown if app.popups.bookmark.list.is_visible => {
-            app.popups.bookmark.list.move_selection_down();
+        MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+            app.route_popup_mouse(event, is_double_click).await;
         }
         _ => {}
     }
@@ -255,7 +306,7 @@ fn active_button_popup(app: &AppState) -> Option<PopupKind> {
         .find(|&kind| is_button_popup_active(app, kind))
 }
 
-fn handle_popup_down(app: &mut AppState, x: u16, y: u16) {
+pub(crate) fn handle_popup_down(app: &mut AppState, x: u16, y: u16) {
     if let Some(i) = find_button_index(app, x, y) {
         app.mouse.mouse_button_down_index = Some(i);
 
@@ -275,61 +326,14 @@ async fn handle_popup_up(app: &mut AppState, x: u16, y: u16) {
         return;
     }
 
-    // Button click confirmed — apply visual feedback and trigger the action
+    // Button click confirmed — apply visual feedback, then hand the press to
+    // the popup's registered key handler as an Enter.
     let Some(kind) = active_button_popup(app) else {
         return;
     };
     set_focused_button(app, kind, down_index);
-
-    match kind {
-        PopupKind::Error => {
-            crate::handlers::popup_error::handle_error_event(KeyCode::Enter, app).await;
-        }
-        PopupKind::Conflict => {
-            crate::handlers::popup_conflict::handle_conflict_event(KeyCode::Enter, app).await;
-        }
-        PopupKind::Rename => {
-            crate::handlers::popup_rename::handle_rename_event(
-                KeyCode::Enter,
-                Modifiers::NONE,
-                app,
-            )
-            .await;
-        }
-        PopupKind::RemoteEdit => {
-            crate::handlers::editor::handle_remote_edit_event(KeyCode::Enter, app).await;
-        }
-        PopupKind::QuitConfirmation => {
-            crate::handlers::popup_quit::handle_quit_popup_event(KeyCode::Enter, app);
-        }
-        PopupKind::Delete => {
-            crate::handlers::popup_delete::handle_delete_event(KeyCode::Enter, app);
-        }
-        PopupKind::EmptyTrash => {
-            crate::ui::empty_trash_ui::handle_empty_trash_popup_event(KeyCode::Enter, app);
-        }
-        PopupKind::HostKey => {
-            crate::ui::host_key_ui::handle_host_key_popup_event(KeyCode::Enter, app);
-        }
-        PopupKind::SshConnection => {
-            // `handle_ssh_connection_event` routes Enter to the active
-            // confirmation overlay before anything else.
-            crate::handlers::popup_ssh::handle_ssh_connection_event(
-                app,
-                KeyCode::Enter,
-                Modifiers::NONE,
-            );
-        }
-        PopupKind::Bookmark => {
-            crate::handlers::popup_bookmark::handle_bookmark_event(
-                KeyCode::Enter,
-                Modifiers::NONE,
-                app,
-            )
-            .await;
-        }
-        _ => {}
-    }
+    kind.dispatch_key(app, KeyCode::Enter, Modifiers::NONE)
+        .await;
 }
 
 async fn handle_left_click(app: &mut AppState, x: u16, y: u16, is_double_click: bool) {

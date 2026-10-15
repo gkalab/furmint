@@ -3,7 +3,6 @@ use crate::theme::ThemePalette;
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table};
 use std::sync::LazyLock;
-use termina::event::KeyCode as CrosstermKeyCode;
 
 static VIEWER_ZOOM_IN_KEYS: LazyLock<Option<Vec<String>>> =
     LazyLock::new(|| Some(vec!["+/=".to_string()]));
@@ -108,53 +107,6 @@ pub fn draw_help_popup(
         table_style,
         palette,
     );
-}
-
-pub fn handle_help_popup_event(code: CrosstermKeyCode, app: &mut crate::app::AppState) -> bool {
-    // visible_height unused for now as we use hardcoded page_step
-    // Ideally, we store visible_height in state during draw, but for now we can assume a safe default or use a larger step.
-    // Or better, we only increment/decrement by 1 for arrow keys, and use a fixed step for page up/down.
-    // However, without knowing the rendered height, exact page scrolling is hard.
-    // Let's use a reasonable constant for page scroll, or just 10.
-    let page_step = 10;
-
-    // Total rows is also dynamic based on config. We can calculate it again or store it.
-    // Re-calculating cost is low.
-    // But we don't have access to keyboard config here easily to calculate exact rows.
-    // We can just guard against overflow in the draw function (which we did), passing a simplified max here?
-    // Actually, simply incrementing indefinitely is fine if draw clamps it?
-    // Yes, draw function clamps `app.popups.help.scroll_offset`.
-    // BUT, we need to know total rows to clamp here if we want "End" key to work perfectly immediately,
-    // or we rely on draw to clamp it on next frame.
-    // Let's rely on draw clamping for upper bound? No, because we modify state here.
-    // If we set it to usize::MAX, draw checks `if scroll > max { scroll = max }`.
-    // So for "End", we can set it to usize::MAX.
-
-    match code {
-        CrosstermKeyCode::Escape => {
-            app.popups.reset_popup(crate::app::PopupKind::Help);
-        }
-        CrosstermKeyCode::Up => {
-            app.popups.help.scroll_offset = app.popups.help.scroll_offset.saturating_sub(1);
-        }
-        CrosstermKeyCode::Down => {
-            app.popups.help.scroll_offset = app.popups.help.scroll_offset.saturating_add(1);
-        }
-        CrosstermKeyCode::PageUp => {
-            app.popups.help.scroll_offset = app.popups.help.scroll_offset.saturating_sub(page_step);
-        }
-        CrosstermKeyCode::PageDown => {
-            app.popups.help.scroll_offset = app.popups.help.scroll_offset.saturating_add(page_step);
-        }
-        CrosstermKeyCode::Home => {
-            app.popups.help.scroll_offset = 0;
-        }
-        CrosstermKeyCode::End => {
-            app.popups.help.scroll_offset = usize::MAX; // Draw will clamp
-        }
-        _ => return false,
-    }
-    true
 }
 
 #[allow(clippy::type_complexity)]

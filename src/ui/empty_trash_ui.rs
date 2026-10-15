@@ -2,7 +2,6 @@ use crate::state::EmptyTrashState;
 use crate::state::{ConfirmationAction, ConfirmationState};
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
-use termina::event::KeyCode;
 
 pub fn draw_empty_trash_popup(
     f: &mut ratatui::Frame,
@@ -33,26 +32,4 @@ pub fn draw_empty_trash_popup(
         6,
         bg_color,
     );
-}
-
-pub fn handle_empty_trash_popup_event(code: KeyCode, app: &mut crate::app::AppState) -> bool {
-    use crate::handlers::popup_utils::{ChoiceResult, get_choice_with_selection};
-    let choice = {
-        let state = &mut app.popups.empty_trash;
-        get_choice_with_selection(code, &mut state.selected_no)
-    };
-    match choice {
-        ChoiceResult::Confirmed => {
-            app.popups
-                .set_popup_visible(crate::app::PopupKind::EmptyTrash, false);
-            app.spawn_empty_trash_task();
-            true
-        }
-        ChoiceResult::Cancelled => {
-            app.popups
-                .set_popup_visible(crate::app::PopupKind::EmptyTrash, false);
-            false
-        }
-        ChoiceResult::None => false,
-    }
 }

@@ -7,6 +7,7 @@ use crate::fs::utils::FileEntry;
 use crate::state::{CreateFileState, HelpState};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use termina::event::{KeyCode, Modifiers};
 
 fn create_test_tab() -> Tab {
     crate::test_utils::create_test_tab_with_entries()
@@ -205,6 +206,42 @@ fn reset_popup_only_clears_the_requested_kind() {
         assert!(!kind.is_visible(&popups), "{kind:?} still visible");
         assert!(!popups.any_visible(), "{kind:?} survived reset_popup");
     }
+}
+
+/// Routes a key press to the first visible popup in registry order.
+#[tokio::test]
+async fn route_popup_key_dispatches_to_the_visible_popup() {
+    let mut app = AppState::test_default();
+    assert_eq!(
+        app.route_popup_key(KeyCode::Escape, Modifiers::NONE).await,
+        None,
+        "no popup is open, so nothing should be routed"
+    );
+
+    app.popups.set_popup_visible(PopupKind::Help, true);
+    let handled = app.route_popup_key(KeyCode::Escape, Modifiers::NONE).await;
+    assert_eq!(handled, Some(false));
+    assert!(
+        !app.popups.help.is_visible,
+        "Escape should have closed help"
+    );
+}
+
+/// When two registered popups are open, the first row of `declare_popups!`
+/// wins — Error precedes Help, so Escape reaches Error and leaves Help open.
+#[tokio::test]
+async fn route_popup_key_prefers_the_higher_priority_popup() {
+    let mut app = AppState::test_default();
+    app.popups.set_popup_visible(PopupKind::Error, true);
+    app.popups.set_popup_visible(PopupKind::Help, true);
+
+    app.route_popup_key(KeyCode::Escape, Modifiers::NONE).await;
+
+    assert!(!app.popups.error.is_visible, "Error is routed first");
+    assert!(
+        app.popups.help.is_visible,
+        "Help must not have been reached"
+    );
 }
 
 #[tokio::test]
@@ -476,7 +513,7 @@ async fn test_drive_navigation_matches_opposite_pane() {
         app.popups.drive_select.side = PanelSide::Left;
         app.popups.drive_select.selected_index = 1; // "D:\"
 
-        crate::ui::drive_select_ui::handle_drive_select_event(
+        crate::handlers::popup_drive_select::handle_drive_select_event(
             termina::event::KeyCode::Enter,
             &mut app,
         )
@@ -539,7 +576,7 @@ async fn test_drive_navigation_matches_opposite_pane() {
         app.popups.drive_select.side = PanelSide::Left;
         app.popups.drive_select.selected_index = 1; // "D:\"
 
-        crate::ui::drive_select_ui::handle_drive_select_event(
+        crate::handlers::popup_drive_select::handle_drive_select_event(
             termina::event::KeyCode::Enter,
             &mut app,
         )
@@ -602,7 +639,7 @@ async fn test_drive_navigation_matches_opposite_pane() {
         app.popups.drive_select.side = PanelSide::Left;
         app.popups.drive_select.selected_index = 0; // "C:\"
 
-        crate::ui::drive_select_ui::handle_drive_select_event(
+        crate::handlers::popup_drive_select::handle_drive_select_event(
             termina::event::KeyCode::Enter,
             &mut app,
         )

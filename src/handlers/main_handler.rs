@@ -4,17 +4,7 @@ use crate::handlers::file_filter::handle_file_filter_event;
 use crate::handlers::file_viewer::handle_file_viewer_event;
 use crate::handlers::input_utils::keyevent_to_string;
 use crate::handlers::navigation::update_viewer_content;
-use crate::handlers::popup_bookmark::handle_bookmark_event;
-use crate::handlers::popup_conflict::handle_conflict_event;
-use crate::handlers::popup_copy_move::handle_copy_move_event;
-use crate::handlers::popup_create::{handle_create_directory_event, handle_create_file_event};
-use crate::handlers::popup_delete::handle_delete_event;
-use crate::handlers::popup_error::handle_error_event;
 use crate::handlers::popup_fuzzy::handle_fuzzy_search_event;
-use crate::handlers::popup_quit::handle_quit_popup_event;
-use crate::handlers::popup_rename::handle_rename_event;
-use crate::handlers::popup_rename_tab::handle_rename_tab_event;
-use crate::handlers::popup_ssh::{handle_ssh_connection_event, handle_ssh_password_event};
 use crate::handlers::popup_task_manager::handle_task_manager_event;
 use crate::handlers::terminal::handle_toggle_console;
 use termina::event::{Event, KeyCode, KeyEvent, Modifiers};
@@ -99,70 +89,15 @@ async fn handle_popup_events(
     code: KeyCode,
     modifiers: Modifiers,
 ) -> Option<bool> {
-    if app.popups.error.is_visible {
-        return Some(handle_error_event(code, app).await);
+    // Every registered popup's key handling is routed through the table in
+    // `declare_popups!`; its order is that table's order.
+    if let Some(handled) = app.route_popup_key(code, modifiers).await {
+        return Some(handled);
     }
-    if app.popups.help.is_visible {
-        crate::ui::help_ui::handle_help_popup_event(code, app);
-        return Some(false);
-    }
-    if app.popups.empty_trash.is_visible {
-        crate::ui::empty_trash_ui::handle_empty_trash_popup_event(code, app);
-        return Some(false);
-    }
-    if app.popups.quit_confirmation.is_visible {
-        return Some(handle_quit_popup_event(code, app));
-    }
+
+    // Overlays that are not part of the `Popups` registry.
     if app.fuzzy_search.list.is_visible {
         return Some(handle_fuzzy_search_event(code, modifiers, app).await);
-    }
-    if app.popups.rename.is_visible {
-        return Some(handle_rename_event(code, modifiers, app).await);
-    }
-    if app.popups.rename_tab.is_visible {
-        return Some(handle_rename_tab_event(code, modifiers, app));
-    }
-    if app.popups.viewer_search.is_visible {
-        return Some(crate::handlers::file_viewer::handle_viewer_search_event(
-            code, modifiers, app,
-        ));
-    }
-    if app.popups.create_directory.is_visible {
-        return Some(handle_create_directory_event(code, modifiers, app).await);
-    }
-    if app.popups.create_file.is_visible {
-        return Some(handle_create_file_event(code, modifiers, app).await);
-    }
-    if app.popups.delete.is_visible {
-        return Some(handle_delete_event(code, app));
-    }
-    if app.popups.copy_move.is_visible {
-        return Some(handle_copy_move_event(code, modifiers, app).await);
-    }
-    if app.popups.drive_select.is_visible {
-        return Some(crate::ui::drive_select_ui::handle_drive_select_event(code, app).await);
-    }
-    if app.popups.conflict.is_visible {
-        return Some(handle_conflict_event(code, app).await);
-    }
-    if app.popups.ssh_connection.is_visible {
-        handle_ssh_connection_event(app, code, modifiers);
-        return Some(false);
-    }
-    if app.popups.bookmark.list.is_visible {
-        handle_bookmark_event(code, modifiers, app).await;
-        return Some(false);
-    }
-    if app.popups.ssh_password.is_visible {
-        return Some(handle_ssh_password_event(app, code, modifiers));
-    }
-    if app.popups.host_key.is_visible {
-        return Some(crate::ui::host_key_ui::handle_host_key_popup_event(
-            code, app,
-        ));
-    }
-    if app.popups.remote_edit.is_visible {
-        return Some(crate::handlers::editor::handle_remote_edit_event(code, app).await);
     }
     if app.active_tab().filter.active {
         return Some(handle_file_filter_event(code, modifiers, app));

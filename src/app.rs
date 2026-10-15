@@ -21,20 +21,29 @@ pub struct ArchiveCacheEntry {
     pub closed_at: Option<std::time::Instant>,
 }
 
-/// Declares every popup owned by [`Popups`].
+/// Declares every popup owned by [`Popups`] together with its event handlers.
 ///
-/// Each row is `Variant: field: Type`, optionally followed by `: subfield` when
-/// the popup keeps its `is_visible` flag on a nested field (the bookmark popup
-/// owns a `FilterableListState`). This single table is the only place a popup
-/// needs to be registered: the struct fields, [`Popups::new`], the
-/// [`PopupKind`] enum and every `PopupKind` dispatch are all derived from it,
-/// so adding a popup can no longer leave a `match` arm behind.
+/// Each row is
+/// `Variant: field: Type [: subfield] => key_handler [, mouse = mouse_handler]`,
+/// where the optional `: subfield` names a nested field that holds the popup's
+/// `is_visible` flag (the bookmark popup owns a `FilterableListState`).
+///
+/// This single table is the only place a popup needs to be registered: the
+/// struct fields, [`Popups::new`], the [`PopupKind`] enum and the key/mouse
+/// routing on [`PopupKind`] and [`AppState`] are all derived from it.
+///
+/// `key_handler` is called as `key_handler(app, code, modifiers)` while the
+/// popup is visible (first match in table order wins) and must yield a `bool`
+/// (or a future resolving to one) reporting whether the app should quit.
+/// `mouse_handler`, when present, is called as
+/// `mouse_handler(app, event, is_double_click)` and returns whether it consumed
+/// the event; popups without one fall back to the shared button/scroll handling.
 ///
 /// Every popup state must expose a `pub is_visible: bool` and an inherent
 /// `pub fn reset(&mut self)`.
 macro_rules! declare_popups {
     ($(
-        $variant:ident : $field:ident : $ty:ty $(: $sub:ident)?
+        $variant:ident : $field:ident : $ty:ty $(: $sub:ident)? => $key:expr $(; mouse = $mouse:expr)?
     ),* $(,)?) => {
         pub struct Popups {
             $( pub $field: $ty, )*
@@ -112,30 +121,156 @@ macro_rules! declare_popups {
                     $( Self::$variant => popups.$field$(.$sub)?.is_visible, )*
                 }
             }
+
+            /// Dispatches a key press to this popup's handler.
+            ///
+            /// The handler's return value reports whether the application should
+            /// quit, matching [`crate::handlers::main_handler::route_event`].
+            pub async fn dispatch_key(
+                self,
+                app: &mut AppState,
+                code: termina::event::KeyCode,
+                modifiers: termina::event::Modifiers,
+            ) -> bool {
+                match self {
+                    $( Self::$variant => ($key)(app, code, modifiers).await, )*
+                }
+            }
+
+            /// Offers a mouse event to this popup's handler, returning whether
+            /// the popup consumed it. Popups without a handler consume nothing,
+            /// so the caller's shared button/scroll handling can run.
+            pub async fn dispatch_mouse(
+                self,
+                app: &mut AppState,
+                event: termina::event::MouseEvent,
+                is_double_click: bool,
+            ) -> bool {
+                match self {
+                    $(
+                        Self::$variant => {
+                            $( if ($mouse)(app, event, is_double_click).await {
+                                return true;
+                            } )?
+                            false
+                        }
+                    )*
+                }
+            }
+        }
+
+        impl AppState {
+            /// Routes a key press to the topmost visible popup, in table order.
+            ///
+            /// Returns `None` when no registered popup is visible, so the caller
+            /// can fall back to popups outside the registry (fuzzy search, the
+            /// file filter and the task manager).
+            pub async fn route_popup_key(
+                &mut self,
+                code: termina::event::KeyCode,
+                modifiers: termina::event::Modifiers,
+            ) -> Option<bool> {
+                $(
+                    if self.popups.$field$(.$sub)?.is_visible {
+                        return Some(PopupKind::$variant.dispatch_key(self, code, modifiers).await);
+                    }
+                )*
+                None
+            }
+
+            /// Offers a mouse event to the visible popups, in table order, and
+            /// reports whether any of them consumed it.
+            pub async fn route_popup_mouse(
+                &mut self,
+                event: termina::event::MouseEvent,
+                is_double_click: bool,
+            ) -> bool {
+                $(
+                    if self.popups.$field$(.$sub)?.is_visible
+                        && PopupKind::$variant
+                            .dispatch_mouse(self, event, is_double_click)
+                            .await
+                    {
+                        return true;
+                    }
+                )*
+                false
+            }
         }
     };
 }
 
+// Row order is the key-routing priority order: the first visible popup handles
+// the key. Popups outside `Popups` (fuzzy search, the file filter and the task
+// manager) are checked by the caller after this registry returns `None`.
 declare_popups! {
-    Rename: rename: RenameState,
-    RenameTab: rename_tab: RenameTabState,
-    CreateDirectory: create_directory: CreateDirectoryState,
-    Delete: delete: DeleteState,
-    EmptyTrash: empty_trash: EmptyTrashState,
-    CopyMove: copy_move: CopyMoveState,
-    Conflict: conflict: ConflictState,
-    Error: error: ErrorState,
-    QuitConfirmation: quit_confirmation: QuitConfirmationState,
-    CreateFile: create_file: CreateFileState,
-    Help: help: HelpState,
-    DriveSelect: drive_select: DriveSelectState,
-    SshConnection: ssh_connection: SshConnectionState,
-    SshPassword: ssh_password: SshPasswordState,
-    HostKey: host_key: HostKeyState,
-    RemoteEdit: remote_edit: RemoteEditState,
-    // The bookmark popup's visibility flag lives on its nested filterable list.
-    Bookmark: bookmark: BookmarkState: list,
-    ViewerSearch: viewer_search: FileViewerSearchState,
+    Error: error: ErrorState =>
+        |app, code, _modifiers| crate::handlers::popup_error::handle_error_event(code, app),
+    Help: help: HelpState =>
+        |app, code, _modifiers| async move {
+            // `handle_help_popup_event` reports whether it consumed the key; the
+            // help popup never quits the app, so route `false` explicitly.
+            crate::handlers::popup_help::handle_help_popup_event(code, app);
+            false
+        };
+        mouse = crate::handlers::mouse::handle_help_popup_mouse,
+    EmptyTrash: empty_trash: EmptyTrashState =>
+        |app, code, _modifiers| async move {
+            // As with help, the handler's `bool` means "handled", and emptying
+            // the trash never quits the app.
+            crate::handlers::popup_empty_trash::handle_empty_trash_popup_event(code, app);
+            false
+        },
+    QuitConfirmation: quit_confirmation: QuitConfirmationState =>
+        |app, code, _modifiers| async move {
+            crate::handlers::popup_quit::handle_quit_popup_event(code, app)
+        },
+    Rename: rename: RenameState =>
+        |app, code, modifiers| crate::handlers::popup_rename::handle_rename_event(code, modifiers, app),
+    RenameTab: rename_tab: RenameTabState =>
+        |app, code, modifiers| async move {
+            crate::handlers::popup_rename_tab::handle_rename_tab_event(code, modifiers, app)
+        },
+    ViewerSearch: viewer_search: FileViewerSearchState =>
+        |app, code, modifiers| async move {
+            crate::handlers::file_viewer::handle_viewer_search_event(code, modifiers, app)
+        },
+    CreateDirectory: create_directory: CreateDirectoryState =>
+        |app, code, modifiers| crate::handlers::popup_create::handle_create_directory_event(code, modifiers, app),
+    CreateFile: create_file: CreateFileState =>
+        |app, code, modifiers| crate::handlers::popup_create::handle_create_file_event(code, modifiers, app),
+    Delete: delete: DeleteState =>
+        |app, code, _modifiers| async move {
+            crate::handlers::popup_delete::handle_delete_event(code, app)
+        },
+    CopyMove: copy_move: CopyMoveState =>
+        |app, code, modifiers| crate::handlers::popup_copy_move::handle_copy_move_event(code, modifiers, app),
+    DriveSelect: drive_select: DriveSelectState =>
+        |app, code, _modifiers| crate::handlers::popup_drive_select::handle_drive_select_event(code, app),
+    Conflict: conflict: ConflictState =>
+        |app, code, _modifiers| crate::handlers::popup_conflict::handle_conflict_event(code, app),
+    SshConnection: ssh_connection: SshConnectionState =>
+        |app, code, modifiers| async move {
+            crate::handlers::popup_ssh::handle_ssh_connection_event(app, code, modifiers);
+            false
+        };
+        mouse = crate::handlers::mouse::handle_ssh_popup_mouse,
+    Bookmark: bookmark: BookmarkState: list =>
+        |app, code, modifiers| async move {
+            crate::handlers::popup_bookmark::handle_bookmark_event(code, modifiers, app).await;
+            false
+        };
+        mouse = crate::handlers::mouse::handle_bookmark_popup_mouse,
+    SshPassword: ssh_password: SshPasswordState =>
+        |app, code, modifiers| async move {
+            crate::handlers::popup_ssh::handle_ssh_password_event(app, code, modifiers)
+        },
+    HostKey: host_key: HostKeyState =>
+        |app, code, _modifiers| async move {
+            crate::handlers::popup_host_key::handle_host_key_popup_event(code, app)
+        },
+    RemoteEdit: remote_edit: RemoteEditState =>
+        |app, code, _modifiers| crate::handlers::editor::handle_remote_edit_event(code, app),
 }
 
 #[derive(Clone)]
