@@ -127,7 +127,7 @@ fn test_sorting_rebuilds_the_visible_set() {
     ]);
     tab.set_file_filter(Some("rs")).unwrap();
     assert_eq!(names(&tab), vec!["alpha.rs", "beta"]);
-    tab.cursor = 1; // "alpha.rs", the only filtered-in file
+    tab.cursor = 0; // "alpha.rs", the only filtered-in file
 
     tab.handle_sort(crate::app_state::tabs::SortColumn::Name);
 
@@ -145,7 +145,11 @@ fn test_sorting_rebuilds_the_visible_set() {
         );
     }
     assert_eq!(names(&tab), vec!["beta", "alpha.rs"]);
-    assert!(tab.is_visible(tab.cursor));
+    assert_eq!(
+        tab.current_entry().map(|e| e.name.as_str()),
+        Some("alpha.rs"),
+        "the cursor stays on the same entry across the re-sort"
+    );
 }
 
 #[test]
@@ -154,16 +158,19 @@ fn test_wheel_stepping_skips_hidden_entries() {
     // on a withheld entry.
     let mut tab = tab_with(listing());
     tab.set_show_hidden(false);
-    tab.cursor = 2; // "docs", the first visible entry after ".."
+    // visible listing: [.., docs, README.md]
+    tab.cursor = 1; // "docs", the first visible entry after ".."
     for _ in 0..3 {
-        tab.move_cursor_down_filtered();
+        tab.move_cursor_down();
         assert!(
-            tab.is_visible(tab.cursor),
-            "cursor landed on {:?}",
-            tab.entries[tab.cursor].name
+            tab.is_visible(tab.cursor_entry_index().unwrap()),
+            "cursor landed on a withheld entry"
         );
     }
-    assert_eq!(tab.entries[tab.cursor].name, "README.md");
+    assert_eq!(
+        tab.current_entry().map(|e| e.name.as_str()),
+        Some("README.md")
+    );
 }
 
 #[test]
@@ -228,10 +235,10 @@ fn test_hidden_gate_delegates_to_the_shared_is_hidden_predicate() {
 #[test]
 fn test_cursor_moves_onto_a_visible_entry() {
     let mut tab = tab_with(listing());
-    tab.cursor = 3; // ".env"
+    tab.cursor = 3; // ".env", the last visible row while all entries are shown
     tab.set_show_hidden(false);
-    assert!(tab.is_visible(tab.cursor));
-    assert_eq!(tab.entries[tab.cursor].name, "docs");
+    assert!(tab.is_visible(tab.cursor_entry_index().unwrap()));
+    assert_eq!(tab.current_entry().map(|e| e.name.as_str()), Some("docs"));
 }
 
 #[test]
@@ -245,7 +252,7 @@ fn test_cursor_pinned_to_zero_when_nothing_is_visible() {
     // Only ".." survives; an empty set must not leave the cursor on ".env".
     assert_eq!(names(&tab), vec![".."]);
     assert_eq!(tab.cursor, 0);
-    assert_eq!(tab.entries[tab.cursor].name, "..");
+    assert_eq!(tab.current_entry().map(|e| e.name.as_str()), Some(".."));
 }
 
 #[test]
@@ -256,7 +263,7 @@ fn test_cursor_pinned_when_filter_matches_nothing() {
         entry("a.txt", false, "-rw-r--r--"),
         entry("b.txt", false, "-rw-r--r--"),
     ]);
-    tab.cursor = 1; // "b.txt"
+    tab.cursor = 1; // "b.txt", the last visible row
     tab.set_file_filter(Some("nothing-matches-this")).unwrap();
 
     assert_eq!(tab.visible_indices, Vec::<usize>::new());
@@ -385,12 +392,21 @@ fn test_toggle_reports_state_in_the_status_line() {
 }
 
 #[test]
-fn test_delete_ignores_a_cursor_sitting_on_a_hidden_entry() {
+fn test_delete_ignores_a_cursor_off_the_visible_listing() {
     let mut app = app_with(listing());
     app.set_show_hidden(false);
-    // Force the cursor onto the hidden entry, as a stale cursor would be.
-    app.active_tab_mut().cursor = 3;
-    assert_eq!(app.active_tab().entries[3].name, ".env");
+    // `.env` is withheld, so it has no row in the visible listing.
+    let env = app
+        .active_tab()
+        .entries
+        .iter()
+        .position(|e| e.name == ".env")
+        .unwrap();
+    assert!(!app.active_tab().is_visible(env));
+
+    // A cursor that no longer names a row (as a stale cursor could) must not
+    // fall back to acting on an entry that is not on screen.
+    app.active_tab_mut().cursor = app.active_tab().visible_count() + 5;
 
     crate::handlers::popup_delete::handle_init_delete(&mut app, false);
     assert!(
@@ -400,10 +416,10 @@ fn test_delete_ignores_a_cursor_sitting_on_a_hidden_entry() {
 }
 
 #[test]
-fn test_copy_ignores_a_cursor_sitting_on_a_hidden_entry() {
+fn test_copy_ignores_a_cursor_off_the_visible_listing() {
     let mut app = app_with(listing());
     app.set_show_hidden(false);
-    app.active_tab_mut().cursor = 3;
+    app.active_tab_mut().cursor = app.active_tab().visible_count() + 5;
 
     crate::handlers::popup_copy_move::handle_init_copy(&mut app);
     assert!(
@@ -416,7 +432,7 @@ fn test_copy_ignores_a_cursor_sitting_on_a_hidden_entry() {
 fn test_copy_still_works_on_a_visible_entry_with_hidden_hidden() {
     let mut app = app_with(listing());
     app.set_show_hidden(false);
-    app.active_tab_mut().cursor = 4; // "README.md"
+    app.active_tab_mut().cursor = 2; // "README.md", the last visible row
 
     crate::handlers::popup_copy_move::handle_init_copy(&mut app);
     assert_eq!(app.popups.copy_move.source_paths.len(), 1);

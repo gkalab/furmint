@@ -40,6 +40,7 @@ fn setup_test_app() -> AppState {
     app.panels.left.active_tab_mut().entries = entries;
     app.panels.left.active_tab_mut().current_dir = PathBuf::from("/test");
     app.panels.left.active_tab_mut().cursor = 0;
+    app.panels.left.active_tab_mut().recompute_visible_indices();
 
     app
 }
@@ -114,6 +115,7 @@ async fn test_mouse_scroll_updates_viewer() {
             selected: false,
         });
     }
+    app.panels.left.active_tab_mut().recompute_visible_indices();
 
     crate::handlers::navigation::update_viewer_content(&mut app).await;
     assert_eq!(app.file_viewer.path, PathBuf::from("/test/file1.txt"));
@@ -148,6 +150,7 @@ async fn test_mouse_tab_switch_updates_viewer() {
         attributes: "-rw-r--r--".to_string(),
         selected: false,
     }];
+    tab2.recompute_visible_indices();
     app.panels.left.tabs.push(tab2);
 
     // Set tab areas (simple mock)
@@ -574,6 +577,7 @@ async fn test_panel_scrollbar_drag() {
     let tab = app.panels.left.active_tab_mut();
     tab.entries = file_entries(50);
     tab.cursor = 0;
+    tab.recompute_visible_indices();
 
     let scrollbar_x = 39; // area.x + area.width - 1
     let scrollbar_y = 10; // halfway down start_y (2) .. start_y + height (17)
@@ -632,6 +636,7 @@ async fn test_panel_scrollbar_thumb_click_does_not_jump() {
     let tab = app.panels.left.active_tab_mut();
     tab.entries = file_entries(50);
     tab.cursor = 0;
+    tab.recompute_visible_indices();
 
     let scrollbar_x = 39;
     let thumb_y = 3; // thumb spans rows [1, 5) at offset 0

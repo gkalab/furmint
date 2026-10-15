@@ -16,16 +16,11 @@ fn get_paths_to_act_on(app: &AppState) -> Vec<PathBuf> {
 
     let selected_entries = tab.get_selected_entries();
     let entries = if selected_entries.is_empty() {
-        // Fall back to the entry under the cursor only when it is on screen:
-        // with hidden entries or a file filter withheld it, acting on it would
-        // copy or move a file the user cannot see.
-        if tab.is_visible(tab.cursor) {
-            match tab.current_entry() {
-                Some(entry) if entry.name != ".." => vec![entry],
-                _ => vec![],
-            }
-        } else {
-            vec![]
+        // Fall back to the entry under the cursor. The cursor always sits on a
+        // visible row, so anything under it is on screen.
+        match tab.current_entry() {
+            Some(entry) if entry.name != ".." => vec![entry],
+            _ => vec![],
         }
     } else {
         selected_entries

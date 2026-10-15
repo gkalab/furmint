@@ -234,6 +234,7 @@ async fn test_nested_archive_enter_reports_archive_context_error() {
     app.active_tab_mut().current_dir = PathBuf::from("/");
     app.active_tab_mut().entries = vec![create_file_entry("inner.zip", false)];
     app.active_tab_mut().cursor = 0;
+    app.active_tab_mut().recompute_visible_indices();
 
     handle_enter(&mut app).await;
 

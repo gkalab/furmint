@@ -27,6 +27,7 @@ async fn test_handle_insert_moves_cursor_down() {
             selected: false,
         },
     ];
+    app.panels.left.active_tab_mut().recompute_visible_indices();
     app.panels.right.active_tab_mut().current_dir = std::path::PathBuf::from("/mock");
 
     let keyboard = KeyboardConfig::default();

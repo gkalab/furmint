@@ -401,16 +401,9 @@ fn draw_selection_markers(
 ) {
     let yellow_color = Color::Rgb(palette.yellow.r, palette.yellow.g, palette.yellow.b);
 
-    // Determine which indices to render (respecting file filter)
-    let render_indices: Box<dyn Iterator<Item = usize>> = if panel.has_visibility_restriction() {
-        Box::new(panel.visible_indices.iter().copied())
-    } else {
-        Box::new(0..panel.entries.len())
-    };
-
-    for (row, idx) in render_indices
-        .skip(panel.scroll_offset)
-        .take(visible_rows)
+    // Row-to-entry mapping is shared with the mouse hit-testing code.
+    for (row, idx) in (0..visible_rows)
+        .map_while(|row| panel.visible_row_to_entry_index(row))
         .enumerate()
     {
         let entry = &panel.entries[idx];
@@ -444,11 +437,7 @@ fn draw_scrollbar(
     visible_rows: usize,
     ctx: &TabScrollbarContext,
 ) {
-    let total_entries = if panel.has_visibility_restriction() {
-        panel.visible_count()
-    } else {
-        panel.entries.len()
-    };
+    let total_entries = panel.visible_count();
 
     let scroll_area = Rect {
         x: area.x + area.width - 1,
@@ -462,7 +451,7 @@ fn draw_scrollbar(
         scroll_area,
         total_entries,
         visible_rows,
-        panel.cursor_visible_pos().unwrap_or(panel.cursor),
+        panel.cursor,
         ctx,
         false,
     );
@@ -526,23 +515,11 @@ pub fn draw_panel(
         unix_attributes: col_widths.unix_attributes,
     };
 
-    // Determine which entries to render (respecting file filter)
-    let render_indices: Vec<usize> = if panel.has_visibility_restriction() {
-        panel.visible_indices[panel.scroll_offset..]
-            .iter()
-            .take(visible_rows)
-            .copied()
-            .collect()
-    } else {
-        (panel.scroll_offset..)
-            .take(visible_rows)
-            .take(panel.entries.len())
-            .collect()
-    };
-
-    let rows: Vec<Row> = render_indices
-        .iter()
-        .map(|&idx| {
+    // Determine which entries to render. Both rendering and mouse hit-testing go
+    // through `visible_row_to_entry_index`, so they cannot disagree.
+    let rows: Vec<Row> = (0..visible_rows)
+        .map_while(|row| panel.visible_row_to_entry_index(row))
+        .map(|idx| {
             let entry = &panel.entries[idx];
             render_entry_row(entry, idx, &ctx, &panel.search.highlights)
         })
@@ -579,14 +556,9 @@ pub fn draw_panel(
         table
     };
 
-    // Map cursor to the visible row position
-    let highlighted_row = if panel.has_visibility_restriction() {
-        panel
-            .cursor_visible_pos()
-            .map(|pos| pos.saturating_sub(panel.scroll_offset))
-    } else {
-        Some(panel.cursor.saturating_sub(panel.scroll_offset))
-    };
+    // The cursor is already a visible row position; shift it into the rendered
+    // window.
+    let highlighted_row = Some(panel.cursor.saturating_sub(panel.scroll_offset));
 
     f.render_stateful_widget(
         table,

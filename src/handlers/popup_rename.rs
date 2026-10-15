@@ -135,10 +135,13 @@ pub(crate) async fn perform_rename(app: &mut AppState, overwrite: bool) {
                     // The new name may be withheld by the file filter or the
                     // hidden-file setting, in which case leave the cursor where
                     // `sort_entries` put it.
-                    if let Some(idx) = panel.entries.iter().position(|e| e.name == new_name)
-                        && panel.is_visible(idx)
+                    if let Some(row) = panel
+                        .entries
+                        .iter()
+                        .position(|e| e.name == new_name)
+                        .and_then(|idx| panel.entry_index_to_visible_row(idx))
                     {
-                        panel.cursor = idx;
+                        panel.cursor = row;
                     }
                     if app.is_any_tab_on_network_share() {
                         app.refresh_active_tabs().await;

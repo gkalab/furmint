@@ -10,37 +10,25 @@ use std::sync::Arc;
 
 // Moves the cursor up in the active panel.
 pub async fn handle_up(app: &mut AppState) {
-    app.active_tab_mut().move_cursor_up_filtered();
+    app.active_tab_mut().move_cursor_up();
     update_viewer_content(app).await;
 }
 
 // Moves the cursor down in the active panel.
 pub async fn handle_down(app: &mut AppState) {
-    app.active_tab_mut().move_cursor_down_filtered();
+    app.active_tab_mut().move_cursor_down();
     update_viewer_content(app).await;
 }
 
 // Moves the cursor a page up.
 pub async fn handle_page_up(app: &mut AppState) {
-    let tab = app.active_tab_mut();
-    if tab.has_visibility_restriction() {
-        let page = 20.min(tab.visible_count().saturating_sub(1));
-        tab.move_cursor_page_up_filtered(page);
-    } else {
-        tab.move_cursor_page_up(20);
-    }
+    app.active_tab_mut().move_cursor_page_up(20);
     update_viewer_content(app).await;
 }
 
 // Moves the cursor a page down.
 pub async fn handle_page_down(app: &mut AppState) {
-    let tab = app.active_tab_mut();
-    if tab.has_visibility_restriction() {
-        let page = 20.min(tab.visible_count().saturating_sub(1));
-        tab.move_cursor_page_down_filtered(page);
-    } else {
-        tab.move_cursor_page_down(20);
-    }
+    app.active_tab_mut().move_cursor_page_down(20);
     update_viewer_content(app).await;
 }
 
@@ -109,13 +97,13 @@ fn archive_path_and_ext(app: &mut AppState) -> Option<(PathBuf, String, String)>
 
 // Moves the cursor to the home position.
 pub async fn handle_home(app: &mut AppState) {
-    app.active_tab_mut().move_cursor_home_filtered();
+    app.active_tab_mut().move_cursor_home();
     update_viewer_content(app).await;
 }
 
 // Moves the cursor to the end position.
 pub async fn handle_end(app: &mut AppState) {
-    app.active_tab_mut().move_cursor_end_filtered();
+    app.active_tab_mut().move_cursor_end();
     update_viewer_content(app).await;
 }
 
@@ -135,7 +123,9 @@ pub async fn handle_type_char(app: &mut AppState, c: char) {
 
     // Select first match
     if let Some(&idx) = panel.search.matching_indices.first() {
-        panel.cursor = idx;
+        if let Some(row) = panel.entry_index_to_visible_row(idx) {
+            panel.cursor = row;
+        }
         panel.search.position = 0;
     }
     update_viewer_content(app).await;
@@ -157,7 +147,11 @@ pub async fn handle_up_search(app: &mut AppState) {
         panel.search.position -= 1;
     }
     // Move cursor to the matched index
-    panel.cursor = panel.search.matching_indices[panel.search.position];
+    if let Some(row) =
+        panel.entry_index_to_visible_row(panel.search.matching_indices[panel.search.position])
+    {
+        panel.cursor = row;
+    }
     update_viewer_content(app).await;
 }
 
@@ -173,7 +167,11 @@ pub async fn handle_down_search(app: &mut AppState) {
     // Increment position with wrap-around
     panel.search.position = (panel.search.position + 1) % panel.search.matching_indices.len();
     // Move cursor to the matched index
-    panel.cursor = panel.search.matching_indices[panel.search.position];
+    if let Some(row) =
+        panel.entry_index_to_visible_row(panel.search.matching_indices[panel.search.position])
+    {
+        panel.cursor = row;
+    }
     update_viewer_content(app).await;
 }
 

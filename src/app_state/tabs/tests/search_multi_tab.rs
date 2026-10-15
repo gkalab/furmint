@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 fn create_test_tab(name: &str, entries: Vec<FileEntry>) -> Tab {
     let current_dir = PathBuf::from(format!("/tmp/{name}"));
-    Tab {
+    let mut tab = Tab {
         provider: Arc::new(LocalFs::new()),
         current_dir: current_dir.clone(),
         entries,
@@ -25,7 +25,9 @@ fn create_test_tab(name: &str, entries: Vec<FileEntry>) -> Tab {
         visible_indices: Vec::new(),
         filter: crate::state::FileFilterState::new(),
         show_hidden: true,
-    }
+    };
+    tab.recompute_visible_indices();
+    tab
 }
 
 #[test]

@@ -70,6 +70,11 @@ pub struct Tab {
     pub provider: Arc<dyn FileSystemProvider>,
     pub current_dir: PathBuf,
     pub entries: Vec<FileEntry>,
+    /// Position of the cursor within the visible listing: an index into
+    /// [`Self::visible_indices`], not into [`Self::entries`]. `0` is the first
+    /// *visible* row, and the entry under the cursor is
+    /// `entries[visible_indices[cursor]]` (see [`Self::current_entry`]). When the
+    /// listing is empty the cursor is pinned to `0`.
     pub cursor: usize,
     pub search: IncrementalSearch,
     pub sort: SortSettings,
@@ -174,7 +179,15 @@ impl Tab {
     /// Returns the currently selected entry, if any.
     #[must_use]
     pub fn current_entry(&self) -> Option<&FileEntry> {
-        self.entries.get(self.cursor)
+        self.cursor_entry_index()
+            .and_then(|index| self.entries.get(index))
+    }
+
+    /// The index into [`Self::entries`] of the entry under the cursor, or `None`
+    /// when the visible listing is empty.
+    #[must_use]
+    pub fn cursor_entry_index(&self) -> Option<usize> {
+        self.visible_indices.get(self.cursor).copied()
     }
 
     /// Returns the tab title - `custom_title` if set, otherwise last component of path
@@ -205,28 +218,19 @@ impl Tab {
 
     /// Move cursor down by one.
     pub fn move_cursor_down(&mut self) {
-        if self.cursor + 1 < self.entries.len() {
+        if self.cursor + 1 < self.visible_indices.len() {
             self.cursor += 1;
         }
     }
 
     /// Move cursor up by `page_size`.
     pub fn move_cursor_page_up(&mut self, page_size: usize) {
-        if self.cursor >= page_size {
-            self.cursor -= page_size;
-        } else {
-            self.cursor = 0;
-        }
+        self.cursor = self.cursor.saturating_sub(page_size);
     }
 
     /// Move cursor down by `page_size`.
     pub fn move_cursor_page_down(&mut self, page_size: usize) {
-        let max_idx = self.entries.len().saturating_sub(1);
-        if self.cursor + page_size <= max_idx {
-            self.cursor += page_size;
-        } else {
-            self.cursor = max_idx;
-        }
+        self.cursor = (self.cursor + page_size).min(self.visible_indices.len().saturating_sub(1));
     }
 
     /// Move cursor to the first entry.
@@ -236,65 +240,27 @@ impl Tab {
 
     /// Move cursor to the last entry.
     pub fn move_cursor_end(&mut self) {
-        if !self.entries.is_empty() {
-            self.cursor = self.entries.len() - 1;
+        if !self.visible_indices.is_empty() {
+            self.cursor = self.visible_indices.len() - 1;
         }
     }
 
-    /// Move cursor to the first visible entry.
-    pub fn move_cursor_home_filtered(&mut self) {
-        if self.has_visibility_restriction() {
-            if let Some(&first) = self.visible_indices.first() {
-                self.cursor = first;
-            }
-        } else {
-            self.move_cursor_home();
-        }
-    }
-
-    /// Move cursor to the last visible entry.
-    pub fn move_cursor_end_filtered(&mut self) {
-        if self.has_visibility_restriction() {
-            if let Some(&last) = self.visible_indices.last() {
-                self.cursor = last;
-            }
-        } else {
-            self.move_cursor_end();
-        }
-    }
-
-    /// Move cursor up by `page_size`, skipping hidden entries.
-    pub fn move_cursor_page_up_filtered(&mut self, page_size: usize) {
-        if let Some(pos) = self.cursor_visible_pos() {
-            let new_pos = pos.saturating_sub(page_size);
-            self.cursor = self.visible_indices[new_pos];
-        }
-    }
-
-    /// Move cursor down by `page_size`, skipping hidden entries.
-    pub fn move_cursor_page_down_filtered(&mut self, page_size: usize) {
-        if let Some(pos) = self.cursor_visible_pos() {
-            let new_pos = (pos + page_size).min(self.visible_indices.len().saturating_sub(1));
-            self.cursor = self.visible_indices[new_pos];
-        }
-    }
-
-    /// Map a visible row position (as rendered on screen) to the actual entry index.
-    /// When no filter is active this is just `scroll_offset + row`; with a filter it
-    /// resolves through `visible_indices`.
+    /// Map a visible row position (as rendered on screen) to the actual entry
+    /// index.
+    ///
+    /// `row` is relative to the top of the viewport, so the scroll offset is
+    /// applied here. This is the single row-to-entry map shared by rendering and
+    /// mouse hit-testing.
     #[must_use]
     pub fn visible_row_to_entry_index(&self, row: usize) -> Option<usize> {
-        if self.has_visibility_restriction() {
-            let pos = self.scroll_offset + row;
-            self.visible_indices.get(pos).copied()
-        } else {
-            let idx = self.scroll_offset + row;
-            if idx < self.entries.len() {
-                Some(idx)
-            } else {
-                None
-            }
-        }
+        self.visible_indices.get(self.scroll_offset + row).copied()
+    }
+
+    /// The visible row of the entry at `entry_index`, or `None` when the entry is
+    /// not currently visible.
+    #[must_use]
+    pub fn entry_index_to_visible_row(&self, entry_index: usize) -> Option<usize> {
+        self.visible_indices.binary_search(&entry_index).ok()
     }
 
     /// Navigates to the specified path.
@@ -352,33 +318,33 @@ impl Tab {
 
         self.sort_entries();
 
-        // Try to restore cursor to same file
-        if let Some(name) = old_cursor_name {
-            if let Some(idx) = self.entries.iter().position(|e| e.name == name) {
-                self.cursor = idx;
-            } else {
-                // File gone, keep cursor within bounds
-                if self.cursor >= self.entries.len() {
-                    self.cursor = self.entries.len().saturating_sub(1);
-                }
-            }
-        } else {
-            // Adjust cursor if out of bounds
-            if self.cursor >= self.entries.len() {
-                self.cursor = self.entries.len().saturating_sub(1);
-            }
+        // Try to restore the cursor to the same file. The cursor is a position
+        // in the visible listing, so resolve the entry's new row through the
+        // freshly rebuilt visible set.
+        if let Some(name) = old_cursor_name
+            && let Some(row) = self
+                .entries
+                .iter()
+                .position(|e| e.name == name)
+                .and_then(|idx| self.entry_index_to_visible_row(idx))
+        {
+            self.cursor = row;
+        } else if self.cursor >= self.visible_indices.len() {
+            self.cursor = self.visible_indices.len().saturating_sub(1);
         }
 
         // If search is active, re-apply highlights to new entries
         if self.search.is_active() {
             self.apply_search_highlights();
 
-            // Update search_position to match the current cursor in new matching_indices
-            if let Some(pos) = self
-                .search
-                .matching_indices
-                .iter()
-                .position(|&idx| idx == self.cursor)
+            // Update search_position to match the current cursor in new
+            // matching_indices (which are entry indices).
+            if let Some(entry_index) = self.cursor_entry_index()
+                && let Some(pos) = self
+                    .search
+                    .matching_indices
+                    .iter()
+                    .position(|&idx| idx == entry_index)
             {
                 self.search.position = pos;
             }
@@ -401,13 +367,13 @@ impl Tab {
     /// Returns `globset::Error` if the pattern is not a valid glob.
     pub fn set_file_filter(&mut self, pattern: Option<&str>) -> Result<(), globset::Error> {
         self.filter.set(pattern)?;
-        self.recompute_visible_indices();
+        self.rebuild_visible_preserving_cursor();
         Ok(())
     }
 
     pub fn clear_file_filter(&mut self) {
         self.filter.clear();
-        self.recompute_visible_indices();
+        self.rebuild_visible_preserving_cursor();
     }
 
     pub fn init_file_filter(&mut self) {
@@ -516,27 +482,48 @@ impl Tab {
             .collect();
         self.visible_indices = indices;
 
-        // Ensure cursor is on a visible entry. When nothing is visible there is
-        // nothing to land on, so pin it to 0 rather than leaving it pointing at
-        // an entry that is not on screen.
+        // Keep the cursor inside the visible listing. When nothing is visible
+        // there is no row to land on, so pin it to 0 rather than leaving it
+        // pointing past the end.
         if self.visible_indices.is_empty() {
             self.cursor = 0;
-        } else if !self.is_visible(self.cursor) {
-            // Nearest visible entry above the cursor, else the first visible one.
-            let pos = self.visible_indices.partition_point(|&i| i < self.cursor);
-            self.cursor = if pos > 0 {
-                self.visible_indices[pos - 1]
-            } else {
-                self.visible_indices[0]
-            };
+        } else if self.cursor >= self.visible_indices.len() {
+            self.cursor = self.visible_indices.len() - 1;
+        }
+    }
+
+    /// Rebuild the visible set while keeping the cursor on the entry it was on,
+    /// if that entry survives the new restriction. When the entry is withheld the
+    /// cursor lands on the nearest visible entry above it (else the first
+    /// visible one), and an empty listing pins it to `0`.
+    ///
+    /// Used when the restriction itself changes (the file filter, the hidden-file
+    /// setting): the cursor is a row in the visible listing, so the same row would
+    /// otherwise name a different entry after the rebuild.
+    fn rebuild_visible_preserving_cursor(&mut self) {
+        let previous_entry = self.cursor_entry_index();
+        self.recompute_visible_indices();
+        let Some(entry_index) = previous_entry else {
+            return;
+        };
+        // Keep the cursor on the same entry when it survives the new restriction.
+        if let Some(row) = self.entry_index_to_visible_row(entry_index) {
+            self.cursor = row;
+            return;
+        }
+        // Otherwise land on the nearest visible entry above it, else the first.
+        if !self.visible_indices.is_empty() {
+            let above = self.visible_indices.partition_point(|&i| i < entry_index);
+            self.cursor = above.saturating_sub(1);
         }
     }
 
     /// Whether entries are withheld from the listing.
     ///
-    /// True when hidden entries are excluded or a file filter is applied. Callers
-    /// use this to decide between indexing [`Self::entries`] directly and walking
-    /// [`Self::visible_indices`].
+    /// True when hidden entries are excluded or a file filter is applied. The
+    /// visible view is always materialised, so this is no longer needed to pick
+    /// an indexing scheme; it survives only where the restricted listing behaves
+    /// genuinely differently (see [`Self::select_all`]).
     #[must_use]
     pub fn has_visibility_restriction(&self) -> bool {
         self.filter.is_active() || !self.show_hidden
@@ -550,7 +537,7 @@ impl Tab {
     /// rather than being cleared.
     pub fn set_show_hidden(&mut self, show_hidden: bool) {
         self.show_hidden = show_hidden;
-        self.recompute_visible_indices();
+        self.rebuild_visible_preserving_cursor();
 
         // Never leave an invisible entry selected: operations act on `selected`
         // and would otherwise touch files that are not on screen. Collect first,
@@ -571,41 +558,6 @@ impl Tab {
     #[must_use]
     pub fn is_visible(&self, index: usize) -> bool {
         self.visible_indices.binary_search(&index).is_ok()
-    }
-
-    /// Get the cursor position within the visible entries list.
-    /// Returns None if the cursor is not on a visible entry.
-    #[must_use]
-    pub fn cursor_visible_pos(&self) -> Option<usize> {
-        let pos = self.visible_indices.partition_point(|&i| i < self.cursor);
-        (pos < self.visible_indices.len() && self.visible_indices[pos] == self.cursor)
-            .then_some(pos)
-    }
-
-    /// Move cursor up, skipping hidden entries.
-    pub fn move_cursor_up_filtered(&mut self) {
-        if self.has_visibility_restriction() {
-            if let Some(pos) = self.cursor_visible_pos()
-                && pos > 0
-            {
-                self.cursor = self.visible_indices[pos - 1];
-            }
-        } else {
-            self.move_cursor_up();
-        }
-    }
-
-    /// Move cursor down, skipping hidden entries.
-    pub fn move_cursor_down_filtered(&mut self) {
-        if self.has_visibility_restriction() {
-            if let Some(pos) = self.cursor_visible_pos()
-                && pos + 1 < self.visible_indices.len()
-            {
-                self.cursor = self.visible_indices[pos + 1];
-            }
-        } else {
-            self.move_cursor_down();
-        }
     }
 
     /// Get the count of visible entries.
@@ -658,8 +610,13 @@ impl Tab {
     /// Returns an error if the directory cannot be listed.
     pub async fn reload_and_focus(&mut self, name: &str) -> anyhow::Result<()> {
         self.reload().await?;
-        if let Some(idx) = self.entries.iter().position(|e| e.name == name) {
-            self.cursor = idx;
+        if let Some(row) = self
+            .entries
+            .iter()
+            .position(|e| e.name == name)
+            .and_then(|idx| self.entry_index_to_visible_row(idx))
+        {
+            self.cursor = row;
         }
         Ok(())
     }
@@ -680,21 +637,29 @@ impl Tab {
             let cursor_before = self.cursor;
             self.navigate_to(&parent_path).await?;
 
-            self.cursor = cursor_before;
+            // The cursor is a row in the visible listing; carry it over, then
+            // land on the directory we came out of when it is visible.
+            self.cursor = cursor_before.min(self.visible_indices.len().saturating_sub(1));
 
-            if let Some(pos) = current_name.and_then(|name| {
-                self.entries
-                    .iter()
-                    .position(|e| e.name == name.to_string_lossy())
-            }) {
-                self.cursor = pos;
+            if let Some(row) = current_name
+                .and_then(|name| {
+                    self.entries
+                        .iter()
+                        .position(|e| e.name == name.to_string_lossy())
+                })
+                .and_then(|idx| self.entry_index_to_visible_row(idx))
+            {
+                self.cursor = row;
             }
         }
         Ok(())
     }
 
     pub fn toggle_selection(&mut self) {
-        if let Some(entry) = self.entries.get_mut(self.cursor).filter(|e| e.name != "..") {
+        let Some(index) = self.cursor_entry_index() else {
+            return;
+        };
+        if let Some(entry) = self.entries.get_mut(index).filter(|e| e.name != "..") {
             entry.selected = !entry.selected;
         }
     }
@@ -878,37 +843,23 @@ impl Tab {
         let current_selection = self.current_entry().map(|e| e.name.clone());
         self.sort_entries();
         // Try to keep cursor on the same item, but only if it is still listed.
-        if let Some(pos) =
-            current_selection.and_then(|name| self.entries.iter().position(|e| e.name == name))
-            && self.is_visible(pos)
+        if let Some(row) = current_selection
+            .and_then(|name| self.entries.iter().position(|e| e.name == name))
+            .and_then(|idx| self.entry_index_to_visible_row(idx))
         {
-            self.cursor = pos;
+            self.cursor = row;
         }
     }
 
     pub fn scroll_to_cursor(&mut self, visible_rows: usize) {
-        if self.has_visibility_restriction() {
-            if let Some(pos) = self.cursor_visible_pos() {
-                if pos < self.scroll_offset {
-                    self.scroll_offset = pos;
-                } else if pos >= self.scroll_offset + visible_rows {
-                    self.scroll_offset = pos - visible_rows + 1;
-                }
-                let max_scroll = self.visible_count().saturating_sub(visible_rows);
-                if self.scroll_offset > max_scroll {
-                    self.scroll_offset = max_scroll;
-                }
-            }
-        } else {
-            if self.cursor < self.scroll_offset {
-                self.scroll_offset = self.cursor;
-            } else if self.cursor >= self.scroll_offset + visible_rows {
-                self.scroll_offset = self.cursor - visible_rows + 1;
-            }
-            let max_scroll = self.entries.len().saturating_sub(visible_rows);
-            if self.scroll_offset > max_scroll {
-                self.scroll_offset = max_scroll;
-            }
+        if self.cursor < self.scroll_offset {
+            self.scroll_offset = self.cursor;
+        } else if self.cursor >= self.scroll_offset + visible_rows {
+            self.scroll_offset = self.cursor - visible_rows + 1;
+        }
+        let max_scroll = self.visible_count().saturating_sub(visible_rows);
+        if self.scroll_offset > max_scroll {
+            self.scroll_offset = max_scroll;
         }
     }
 
@@ -929,13 +880,12 @@ impl Tab {
         }
 
         let query = self.search.buffer.to_lowercase();
-        let filtering = self.has_visibility_restriction();
         self.search.matching_indices.clear();
         self.search.highlights.clear();
 
         // 1. Prefix matches
         for (i, entry) in self.entries.iter().enumerate() {
-            if filtering && !self.is_visible(i) {
+            if !self.is_visible(i) {
                 continue;
             }
             if entry.name.to_lowercase().starts_with(&query) {
@@ -956,7 +906,7 @@ impl Tab {
             let matcher = SkimMatcherV2::default();
 
             for (i, entry) in self.entries.iter().enumerate() {
-                if filtering && !self.is_visible(i) {
+                if !self.is_visible(i) {
                     continue;
                 }
                 if let Some((_, indices)) =
@@ -1140,7 +1090,7 @@ impl TabManager {
         }
         tab.sort_entries();
 
-        if let Some(pos) = cursor.filter(|&c| c < tab.entries.len()) {
+        if let Some(pos) = cursor.filter(|&c| c < tab.visible_indices.len()) {
             tab.cursor = pos;
         }
 

@@ -165,35 +165,42 @@ async fn test_none_pattern_clears_filter() {
 #[tokio::test]
 async fn test_cursor_adjusts_to_visible_on_filter() {
     let mut app = test_app(mixed_entries());
-    // Cursor is on "Cargo.toml" (index 3) which will be filtered out
+    // Cursor is on "Cargo.toml" (row 3 while everything is shown) which will be
+    // filtered out
     app.active_tab_mut().cursor = 3;
     app.active_tab_mut().set_file_filter(Some("*.rs")).unwrap();
 
-    // Cursor should have been moved to a visible entry
+    // Cursor should have been moved onto a visible entry
     let tab = app.active_tab();
-    assert!(tab.is_visible(tab.cursor));
+    assert!(tab.is_visible(tab.cursor_entry_index().unwrap()));
 }
 
 #[tokio::test]
 async fn test_cursor_stays_on_visible_entry() {
     let mut app = test_app(mixed_entries());
-    // Cursor is on main.rs (index 5), which matches the filter
+    // Cursor is on main.rs (entry 5, row 5 with no filter), which matches the
+    // filter
     app.active_tab_mut().cursor = 5;
     app.active_tab_mut().set_file_filter(Some("*.rs")).unwrap();
 
-    assert_eq!(app.active_tab().cursor, 5);
+    assert_eq!(
+        app.active_tab().current_entry().map(|e| e.name.as_str()),
+        Some("main.rs")
+    );
 }
 
 #[tokio::test]
 async fn test_cursor_adjusts_to_nearest_above() {
     let mut app = test_app(mixed_entries());
     // Entries: 0="..", 1=docs, 2=src, 3=Cargo.toml, 4=README.md, 5=main.rs, 6=lib.rs
-    // Cursor on index 4 (README.md) - filtered out.
-    // Nearest visible entry above is "src" (index 2), a directory.
+    // Cursor on README.md (row 4) - filtered out.
+    // Nearest visible entry above is "src" (entry 2).
     app.active_tab_mut().cursor = 4;
     app.active_tab_mut().set_file_filter(Some("*.rs")).unwrap();
 
-    assert_eq!(app.active_tab().cursor, 2);
+    let tab = app.active_tab();
+    assert_eq!(tab.current_entry().map(|e| e.name.as_str()), Some("src"));
+    assert_eq!(tab.cursor, 2); // visible row of "src": [.., docs, src, main.rs, lib.rs]
 }
 
 // ---------------------------------------------------------------------------
@@ -205,11 +212,14 @@ async fn test_up_filtered_skips_hidden() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut().set_file_filter(Some("*.rs")).unwrap();
     // visible_indices: [0, 1, 2, 5, 6]
-    // Cursor on lib.rs (index 6, visible_pos=4)
-    app.active_tab_mut().cursor = 6;
+    // Cursor on lib.rs (entry 6, visible row 4)
+    app.active_tab_mut().cursor = 4;
     handle_up(&mut app).await;
-    // Should go to main.rs (index 5, visible_pos=3)
-    assert_eq!(app.active_tab().cursor, 5);
+    // Should go to main.rs (entry 5, visible row 3)
+    assert_eq!(
+        app.active_tab().current_entry().map(|e| e.name.as_str()),
+        Some("main.rs")
+    );
 }
 
 #[tokio::test]
@@ -217,21 +227,27 @@ async fn test_down_filtered_skips_hidden() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut().set_file_filter(Some("*.rs")).unwrap();
     // visible_indices: [0, 1, 2, 5, 6]
-    // Cursor on ".." (index 0, visible_pos=0)
+    // Cursor on ".." (visible row 0)
     app.active_tab_mut().cursor = 0;
     handle_down(&mut app).await;
-    // Should go to docs (index 1)
-    assert_eq!(app.active_tab().cursor, 1);
+    // Should go to docs (entry 1, visible row 1)
+    assert_eq!(
+        app.active_tab().current_entry().map(|e| e.name.as_str()),
+        Some("docs")
+    );
 }
 
 #[tokio::test]
 async fn test_home_filtered_goes_to_first_visible() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut().set_file_filter(Some("*.rs")).unwrap();
-    app.active_tab_mut().cursor = 6;
+    app.active_tab_mut().cursor = 4;
     handle_home(&mut app).await;
-    // First visible is ".." (index 0)
-    assert_eq!(app.active_tab().cursor, 0);
+    // First visible is ".."
+    assert_eq!(
+        app.active_tab().current_entry().map(|e| e.name.as_str()),
+        Some("..")
+    );
 }
 
 #[tokio::test]
@@ -240,8 +256,11 @@ async fn test_end_filtered_goes_to_last_visible() {
     app.active_tab_mut().set_file_filter(Some("*.rs")).unwrap();
     app.active_tab_mut().cursor = 0;
     handle_end(&mut app).await;
-    // Last visible is lib.rs (index 6)
-    assert_eq!(app.active_tab().cursor, 6);
+    // Last visible is lib.rs (entry 6, visible row 4)
+    assert_eq!(
+        app.active_tab().current_entry().map(|e| e.name.as_str()),
+        Some("lib.rs")
+    );
 }
 
 #[tokio::test]
@@ -249,22 +268,28 @@ async fn test_page_up_filtered() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut().set_file_filter(Some("*.rs")).unwrap();
     // visible_indices: [0, 1, 2, 5, 6] (5 entries)
-    // Cursor on lib.rs (index 6, visible_pos=4)
-    app.active_tab_mut().cursor = 6;
+    // Cursor on lib.rs (visible row 4)
+    app.active_tab_mut().cursor = 4;
     handle_page_up(&mut app).await;
     // Page size is 20, but only 5 visible, so should go to first visible
-    assert_eq!(app.active_tab().cursor, 0);
+    assert_eq!(
+        app.active_tab().current_entry().map(|e| e.name.as_str()),
+        Some("..")
+    );
 }
 
 #[tokio::test]
 async fn test_page_down_filtered() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut().set_file_filter(Some("*.rs")).unwrap();
-    // Cursor on ".." (index 0, visible_pos=0)
+    // Cursor on ".." (visible row 0)
     app.active_tab_mut().cursor = 0;
     handle_page_down(&mut app).await;
     // Page size 20 > 5 visible, should clamp to last visible
-    assert_eq!(app.active_tab().cursor, 6);
+    assert_eq!(
+        app.active_tab().current_entry().map(|e| e.name.as_str()),
+        Some("lib.rs")
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -403,11 +428,11 @@ async fn test_search_finds_only_visible_files() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut().set_file_filter(Some("*.rs")).unwrap();
 
-    // Type "m" ‒ should match main.rs (index 5) via prefix match
+    // Type "m" ‒ should match main.rs (entry 5) via prefix match
     handle_type_char(&mut app, 'm').await;
     let tab = app.active_tab();
     assert_eq!(tab.search.matching_indices, vec![5]);
-    assert_eq!(tab.cursor, 5);
+    assert_eq!(tab.cursor_entry_index(), Some(5));
 }
 
 #[tokio::test]
@@ -427,17 +452,17 @@ async fn test_search_navigation_with_filter() {
     app.active_tab_mut().set_file_filter(Some("*.rs")).unwrap();
     // visible: [0="..", 1=one, 2=two, 5=mike.rs, 6=zoe.rs]
 
-    // Type "m" ‒ matches only mike.rs (index 5)
+    // Type "m" ‒ matches only mike.rs (entry 5)
     handle_type_char(&mut app, 'm').await;
-    assert_eq!(app.active_tab().cursor, 5);
+    assert_eq!(app.active_tab().cursor_entry_index(), Some(5));
 
     // Down search ‒ only one match, so wraps to itself
     handle_down_search(&mut app).await;
-    assert_eq!(app.active_tab().cursor, 5);
+    assert_eq!(app.active_tab().cursor_entry_index(), Some(5));
 
     // Up search ‒ same
     handle_up_search(&mut app).await;
-    assert_eq!(app.active_tab().cursor, 5);
+    assert_eq!(app.active_tab().cursor_entry_index(), Some(5));
 }
 
 // ---------------------------------------------------------------------------
@@ -519,24 +544,18 @@ async fn test_filter_toggle_on_off() {
 }
 
 #[tokio::test]
-async fn test_cursor_visible_pos() {
+async fn test_cursor_is_a_position_in_the_visible_listing() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut().set_file_filter(Some("*.rs")).unwrap();
 
     // visible_indices: [0, 1, 2, 5, 6]
-    app.active_tab_mut().cursor = 0;
-    assert_eq!(app.active_tab().cursor_visible_pos(), Some(0));
-
-    app.active_tab_mut().cursor = 1;
-    assert_eq!(app.active_tab().cursor_visible_pos(), Some(1));
-
-    app.active_tab_mut().cursor = 5;
-    assert_eq!(app.active_tab().cursor_visible_pos(), Some(3));
-
-    app.active_tab_mut().cursor = 6;
-    assert_eq!(app.active_tab().cursor_visible_pos(), Some(4));
-
-    // Cursor on a filtered-out entry
-    app.active_tab_mut().cursor = 3;
-    assert_eq!(app.active_tab().cursor_visible_pos(), None);
+    // The cursor is a row in that listing; the entry is resolved through it.
+    for (row, entry_index) in [(0usize, 0usize), (1, 1), (3, 5), (4, 6)] {
+        app.active_tab_mut().cursor = row;
+        let tab = app.active_tab();
+        assert_eq!(tab.cursor_entry_index(), Some(entry_index));
+        assert_eq!(tab.entry_index_to_visible_row(entry_index), Some(row));
+        // The row-to-entry map is the inverse of the entry-to-row map.
+        assert_eq!(tab.visible_row_to_entry_index(row), Some(entry_index));
+    }
 }

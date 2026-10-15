@@ -444,8 +444,11 @@ async fn handle_right_click(app: &mut AppState, x: u16, y: u16) {
         return;
     };
 
-    // Move cursor to the right-clicked row.
-    tab.cursor = row_idx;
+    // Move cursor to the right-clicked row. The cursor is a position in the
+    // visible listing, so map the entry back to its row.
+    if let Some(cursor_row) = tab.entry_index_to_visible_row(row_idx) {
+        tab.cursor = cursor_row;
+    }
 
     let full_path = tab.current_dir.join(&tab.entries[row_idx].name);
 
@@ -510,7 +513,9 @@ async fn handle_panel_click(
 
     let row = (y - content_start_y) as usize;
     if let Some(row_idx) = tab.visible_row_to_entry_index(row) {
-        tab.cursor = row_idx;
+        if let Some(cursor_row) = tab.entry_index_to_visible_row(row_idx) {
+            tab.cursor = cursor_row;
+        }
         if is_double_click {
             crate::handlers::navigation::handle_enter(app).await;
         } else {
@@ -698,12 +703,8 @@ fn panel_scrollbar_metrics(app: &AppState, side: PanelSide) -> (usize, usize) {
         PanelSide::Left => app.panels.left.active_tab(),
         PanelSide::Right => app.panels.right.active_tab(),
     };
-    let content_length = if tab.has_visibility_restriction() {
-        tab.visible_count()
-    } else {
-        tab.entries.len()
-    };
-    let offset = tab.cursor_visible_pos().unwrap_or(tab.cursor);
+    let content_length = tab.visible_count();
+    let offset = tab.cursor;
     (content_length, offset)
 }
 
@@ -955,25 +956,13 @@ pub async fn update_drag_scroll(app: &mut AppState, _x: u16, y: u16) {
             let start_y = area.y + 2;
             let height = area.height.saturating_sub(3);
             let visible_rows = height as usize;
-            let total = if tab.has_visibility_restriction() {
-                tab.visible_count()
-            } else {
-                tab.entries.len()
-            };
+            let total = tab.visible_count();
             if total > 0 {
                 let idx = calculate_scroll_from_y(y, start_y, height, total);
-                // `idx` indexes the visible listing, which is not the same as
-                // the entry list once a file filter or the hidden-file setting
-                // withholds entries.
-                let entry_idx = if tab.has_visibility_restriction() {
-                    tab.visible_indices.get(idx).copied()
-                } else {
-                    Some(idx)
-                };
-                if let Some(entry_idx) = entry_idx
-                    && tab.cursor != entry_idx
-                {
-                    tab.cursor = entry_idx;
+                // `idx` indexes the visible listing, which is exactly the
+                // cursor's own coordinate space.
+                if idx < total && tab.cursor != idx {
+                    tab.cursor = idx;
                     tab.scroll_to_cursor(visible_rows);
                     crate::handlers::navigation::update_viewer_content(app).await;
                 }
@@ -1020,15 +1009,14 @@ async fn handle_scroll(app: &mut AppState, up: bool) {
         PanelSide::Right => app.panels.right.active_tab_mut(),
     };
 
-    // Step through the visible listing rather than raw entry indices, so the
-    // wheel cannot land the cursor on an entry withheld by the file filter or
-    // the hidden-file setting. Three single steps clamp identically to the
-    // previous `+3`/`-3`.
+    // Step through the visible listing, so the wheel cannot land the cursor on
+    // an entry withheld by the file filter or the hidden-file setting. Three
+    // single steps clamp identically to the previous `+3`/`-3`.
     for _ in 0..3 {
         if up {
-            tab.move_cursor_up_filtered();
+            tab.move_cursor_up();
         } else {
-            tab.move_cursor_down_filtered();
+            tab.move_cursor_down();
         }
     }
     crate::handlers::navigation::update_viewer_content(app).await;

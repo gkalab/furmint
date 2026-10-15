@@ -399,10 +399,13 @@ pub async fn open_file_in_editor_with_env_handling(
         // Rebuilds the visible set too, so the cursor can be placed safely.
         panel.sort_entries();
         if let Some(name) = filename_to_select
-            && let Some(idx) = panel.entries.iter().position(|e| e.name == name)
-            && panel.is_visible(idx)
+            && let Some(row) = panel
+                .entries
+                .iter()
+                .position(|e| e.name == name)
+                .and_then(|idx| panel.entry_index_to_visible_row(idx))
         {
-            panel.cursor = idx;
+            panel.cursor = row;
         }
     }
     if let Some(e) = err {
@@ -522,6 +525,7 @@ mod tests {
         let mut app = AppState::test_default();
         app.panels.left.tabs[0].entries = vec![entry];
         app.panels.left.tabs[0].current_dir = std::path::PathBuf::from("/tmp");
+        app.panels.left.tabs[0].recompute_visible_indices();
         app.editor_cfg = EditorConfig {
             command: Some(String::new()),
             in_terminal: Some(true),
