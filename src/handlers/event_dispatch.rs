@@ -2,8 +2,6 @@
 //! bus ([`crate::tasks::UiEvent`]), routing each event to its subsystem
 //! handler.
 
-use secrecy::SecretString;
-
 /// Sole dispatcher of the app-level UI event bus
 /// ([`crate::tasks::UiEvent`]): routes each event to its subsystem handler.
 pub async fn dispatch_ui_event(event: crate::tasks::UiEvent, app: &mut crate::app::AppState) {
@@ -179,19 +177,11 @@ fn handle_conflict(
     path: std::path::PathBuf,
     conflict_type: crate::tasks::ConflictType,
 ) {
-    app.popups.conflict.task_id = id;
-    app.popups.conflict.conflict_path = path;
-    app.popups.conflict.conflict_type = conflict_type;
-    app.popups
-        .set_popup_visible(crate::app::PopupKind::Conflict, true);
+    app.popups.conflict.show(id, path, conflict_type);
 }
 
 fn handle_task_error(app: &mut crate::app::AppState, id: usize, path: String, msg: String) {
-    app.popups.error.task_id = id;
-    app.popups.error.error_path = path;
-    app.popups.error.error_message = msg;
-    app.popups
-        .set_popup_visible(crate::app::PopupKind::Error, true);
+    app.popups.error.show(id, path, msg);
 }
 
 fn handle_ssh_host_key(
@@ -199,8 +189,6 @@ fn handle_ssh_host_key(
     prompt: crate::state::host_key::HostKeyPrompt,
 ) {
     app.popups.host_key.show(prompt);
-    app.popups
-        .set_popup_visible(crate::app::PopupKind::HostKey, true);
 }
 
 fn handle_dir_size_calculated(app: &mut crate::app::AppState, path: &std::path::Path, size: u64) {
@@ -220,10 +208,7 @@ fn handle_ssh_error(
     match error {
         crate::ssh::manager::SshError::Network(_)
         | crate::ssh::manager::SshError::Connection(_) => {
-            app.popups
-                .set_popup_visible(crate::app::PopupKind::SshConnection, true);
-            app.popups.ssh_connection.error = Some(error.to_string());
-            app.popups.ssh_connection.active_field = crate::state::ssh::SshField::ConnectionString;
+            app.popups.ssh_connection.show_error(error.to_string());
         }
         crate::ssh::manager::SshError::HostKey {
             host,
@@ -247,25 +232,15 @@ fn handle_ssh_error(
                     key_auth: true,
                     connection_name: None,
                 });
-            app.popups
-                .set_popup_visible(crate::app::PopupKind::HostKey, true);
         }
         crate::ssh::manager::SshError::Auth(_) => {
             app.popups
-                .set_popup_visible(crate::app::PopupKind::SshPassword, true);
-            app.popups.ssh_password.session_id.clear();
-            app.popups.ssh_password.host = host;
-            app.popups.ssh_password.user = user;
-            app.popups.ssh_password.error = Some(error.to_string());
-            app.popups.ssh_password.password = SecretString::new(String::new().into());
-            app.popups.ssh_password.cursor_position = 0;
+                .ssh_password
+                .show(String::new(), host, user, Some(error.to_string()));
         }
         crate::ssh::manager::SshError::InvalidInput(msg)
         | crate::ssh::manager::SshError::Internal(msg) => {
-            app.popups
-                .set_popup_visible(crate::app::PopupKind::SshConnection, true);
-            app.popups.ssh_connection.error = Some(msg);
-            app.popups.ssh_connection.active_field = crate::state::ssh::SshField::ConnectionString;
+            app.popups.ssh_connection.show_error(msg);
         }
     }
 }
@@ -273,17 +248,12 @@ fn handle_ssh_error(
 fn handle_ssh_reconnect_failed(app: &mut crate::app::AppState, session_id: &str, error: String) {
     let sessions = app.ssh_manager.get_all_sessions();
     if let Some(session) = sessions.iter().find(|s| s.session_id == session_id) {
-        app.popups
-            .set_popup_visible(crate::app::PopupKind::SshPassword, true);
-        app.popups
-            .ssh_password
-            .session_id
-            .clone_from(&session.session_id);
-        app.popups.ssh_password.host.clone_from(&session.host);
-        app.popups.ssh_password.user.clone_from(&session.user);
-        app.popups.ssh_password.error = Some(error);
-        app.popups.ssh_password.password = SecretString::new(String::new().into());
-        app.popups.ssh_password.cursor_position = 0;
+        app.popups.ssh_password.show(
+            session.session_id.clone(),
+            session.host.clone(),
+            session.user.clone(),
+            Some(error),
+        );
     }
 }
 

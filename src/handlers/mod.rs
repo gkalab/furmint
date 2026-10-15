@@ -1,3 +1,24 @@
+//! Event handlers and the app-state conventions they follow.
+//!
+//! # Where behaviour lives
+//!
+//! Decide by *what is mutated*, not by who calls it:
+//!
+//! - Anything that mutates [`crate::app::AppState`]'s own fields is a method on
+//!   `AppState`, on the state type that owns the field, or on `Popups` — callers
+//!   go through it instead of writing the fields. A single transition that must
+//!   preserve an invariant is a method.
+//! - Multi-step flows — read state, await a provider, emit events — stay free
+//!   functions in this module and call those methods.
+//!
+//! The boundary test: a single transition that has to preserve an invariant is
+//! a method; a sequence of calls and awaits is a handler.
+//!
+//! For popups this means "open popup X with data" is one method on the popup's
+//! state type (e.g. [`crate::state::HostKeyState::show`]) that sets `is_visible`
+//! itself, so visibility and contents can never be set separately. The related
+//! key/mouse handler registry lives in `declare_popups!` in [`crate::app`].
+
 pub mod event_dispatch;
 pub mod main_handler;
 pub mod mouse;

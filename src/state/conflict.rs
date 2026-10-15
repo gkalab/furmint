@@ -22,6 +22,17 @@ impl ConflictState {
         }
     }
 
+    /// Opens the conflict popup for `task_id`, showing the conflicting `path`
+    /// and how to resolve it. Visibility is set here, so a caller cannot show
+    /// the popup without populating it.
+    pub fn show(&mut self, task_id: usize, path: PathBuf, conflict_type: ConflictType) {
+        self.task_id = task_id;
+        self.conflict_path = path;
+        self.conflict_type = conflict_type;
+        self.focused_button = 0;
+        self.is_visible = true;
+    }
+
     pub fn reset(&mut self) {
         self.is_visible = false;
         self.task_id = 0;
@@ -33,5 +44,22 @@ impl ConflictState {
 impl Default for ConflictState {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn show_populates_and_makes_visible() {
+        let mut state = ConflictState::new();
+        state.focused_button = 3;
+        state.show(7, PathBuf::from("/a/b"), ConflictType::FileExists);
+
+        assert!(state.is_visible);
+        assert_eq!(state.task_id, 7);
+        assert_eq!(state.conflict_path, PathBuf::from("/a/b"));
+        assert_eq!(state.focused_button, 0);
     }
 }

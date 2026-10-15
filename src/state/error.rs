@@ -18,6 +18,17 @@ impl ErrorState {
         }
     }
 
+    /// Opens the error popup for `task_id`, reporting `message` for `path`.
+    /// Visibility is set here, so a caller cannot show the popup without
+    /// populating it.
+    pub fn show(&mut self, task_id: usize, path: String, message: String) {
+        self.task_id = task_id;
+        self.error_path = path;
+        self.error_message = message;
+        self.focused_button = 0;
+        self.is_visible = true;
+    }
+
     pub fn reset(&mut self) {
         self.is_visible = false;
         self.task_id = 0;
@@ -50,6 +61,19 @@ mod tests {
         assert_eq!(state.task_id, default_state.task_id);
         assert_eq!(state.error_path, default_state.error_path);
         assert_eq!(state.error_message, default_state.error_message);
+    }
+
+    #[test]
+    fn test_show_populates_and_makes_visible() {
+        let mut state = ErrorState::new();
+        state.focused_button = 2;
+        state.show(5, "some/path".to_string(), "boom".to_string());
+
+        assert!(state.is_visible);
+        assert_eq!(state.task_id, 5);
+        assert_eq!(state.error_path, "some/path");
+        assert_eq!(state.error_message, "boom");
+        assert_eq!(state.focused_button, 0);
     }
 
     #[test]

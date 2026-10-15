@@ -40,6 +40,15 @@ impl SshConnectionState {
         }
     }
 
+    /// Opens the dialog showing `error`, focused on the connection-string
+    /// field. Visibility is set here, so a caller cannot show the popup without
+    /// populating it.
+    pub fn show_error(&mut self, error: String) {
+        self.error = Some(error);
+        self.active_field = SshField::ConnectionString;
+        self.is_visible = true;
+    }
+
     /// Deliberately keeps every field: dismissing the SSH dialog must not
     /// discard the connection string, because escaping the password prompt
     /// reopens this popup pre-filled (see `handlers::popup_ssh`). The popup is
@@ -86,6 +95,19 @@ impl SshPasswordState {
         }
     }
 
+    /// Opens the password prompt for `session_id`/`host`/`user`, clearing any
+    /// previously typed password and positioning the cursor. Visibility is set
+    /// here, so a caller cannot show the popup without populating it.
+    pub fn show(&mut self, session_id: String, host: String, user: String, error: Option<String>) {
+        self.session_id = session_id;
+        self.host = host;
+        self.user = user;
+        self.error = error;
+        self.password = SecretString::new(String::new().into());
+        self.cursor_position = 0;
+        self.is_visible = true;
+    }
+
     /// Deliberately keeps every field: `SshError::Auth` re-initializes host,
     /// user, password, error and cursor when the popup is (re)opened.
     pub fn reset(&mut self) {
@@ -96,5 +118,43 @@ impl SshPasswordState {
 impl Default for SshPasswordState {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use secrecy::ExposeSecret;
+
+    use super::*;
+
+    #[test]
+    fn password_show_populates_and_makes_visible() {
+        let mut state = SshPasswordState::new();
+        state.password = secrecy::SecretString::new("stale".to_string().into());
+        state.show(
+            "sid".to_string(),
+            "host".to_string(),
+            "user".to_string(),
+            Some("bad password".to_string()),
+        );
+
+        assert!(state.is_visible);
+        assert_eq!(state.session_id, "sid");
+        assert_eq!(state.host, "host");
+        assert_eq!(state.user, "user");
+        assert_eq!(state.error.as_deref(), Some("bad password"));
+        assert_eq!(state.password.expose_secret(), "");
+        assert_eq!(state.cursor_position, 0);
+    }
+
+    #[test]
+    fn connection_show_error_populates_and_makes_visible() {
+        let mut state = SshConnectionState::new();
+        state.active_field = SshField::History;
+        state.show_error("no route to host".to_string());
+
+        assert!(state.is_visible);
+        assert_eq!(state.error.as_deref(), Some("no route to host"));
+        assert_eq!(state.active_field, SshField::ConnectionString);
     }
 }
