@@ -12,6 +12,15 @@ fn left_click(x: u16, y: u16) -> MouseEvent {
     }
 }
 
+fn left_drag(x: u16, y: u16) -> MouseEvent {
+    MouseEvent {
+        kind: MouseEventKind::Drag(MouseButton::Left),
+        column: x,
+        row: y,
+        modifiers: Modifiers::NONE,
+    }
+}
+
 /// App with the SSH popup open and one history entry whose connection
 /// string fails validation ("user@" has an empty host), so Enter reports
 /// an error instead of spawning a real connection.
@@ -61,6 +70,90 @@ async fn double_click_on_ssh_history_row_triggers_enter() {
         app.popups.ssh_connection.error.as_deref(),
         Some("Invalid connection string format")
     );
+}
+
+#[tokio::test]
+async fn single_click_on_ssh_field_sets_cursor() {
+    let mut app = ssh_popup_app();
+    app.popups
+        .ssh_connection
+        .connection_string
+        .set_text("root@host");
+    app.popups.ssh_connection.connection_string.set_cursor(0);
+
+    // Field 0's text starts at x = 2; clicking x = 5 places the caret at char 3.
+    crate::handlers::mouse::handle_mouse_event(&mut app, left_click(5, 0)).await;
+
+    assert_eq!(
+        app.popups.ssh_connection.active_field,
+        SshField::ConnectionString
+    );
+    assert_eq!(app.popups.ssh_connection.connection_string.cursor(), 3);
+    assert_eq!(
+        app.mouse.active_drag,
+        Some(crate::app::DragTarget::SshFieldSelection)
+    );
+}
+
+#[tokio::test]
+async fn drag_after_click_selects_ssh_field_text() {
+    let mut app = ssh_popup_app();
+    app.popups
+        .ssh_connection
+        .connection_string
+        .set_text("abcdef");
+    app.popups.ssh_connection.connection_string.set_cursor(0);
+
+    // Click at column 1 (x = 3), then drag to column 5 (x = 7).
+    crate::handlers::mouse::handle_mouse_event(&mut app, left_click(3, 0)).await;
+    crate::handlers::mouse::handle_mouse_event(&mut app, left_drag(7, 0)).await;
+
+    assert_eq!(
+        app.popups
+            .ssh_connection
+            .connection_string
+            .selected_text()
+            .as_deref(),
+        Some("bcde")
+    );
+}
+
+#[tokio::test]
+async fn clicking_another_field_clears_the_previous_selection() {
+    let mut app = ssh_popup_app();
+    app.popups
+        .ssh_connection
+        .connection_string
+        .set_text("root@host");
+    app.popups.ssh_connection.connection_string.select_all();
+
+    // Click the Name field (row 1).
+    crate::handlers::mouse::handle_mouse_event(&mut app, left_click(4, 1)).await;
+
+    assert_eq!(app.popups.ssh_connection.active_field, SshField::Name);
+    assert!(
+        app.popups
+            .ssh_connection
+            .connection_string
+            .selection()
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn click_on_password_field_sets_cursor() {
+    let mut app = crate::test_utils::create_test_app();
+    app.layout.screen = Rect::new(0, 0, 80, 24);
+    app.popups
+        .set_popup_visible(crate::app::PopupKind::SshPassword, true);
+    app.popups.ssh_password.password.set_text("secret");
+    app.popups.ssh_password.password.set_cursor(0);
+
+    let (_, _, text_area) = crate::ui::ssh_ui::ssh_password_geometry(app.layout.screen);
+    crate::handlers::mouse::handle_mouse_event(&mut app, left_click(text_area.x + 3, text_area.y))
+        .await;
+
+    assert_eq!(app.popups.ssh_password.password.cursor(), 3);
 }
 
 #[test]

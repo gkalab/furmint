@@ -2,7 +2,6 @@ use crate::app::AppState;
 use crate::state::ssh::SshField;
 use crate::theme::ThemePalette;
 use ratatui::prelude::*;
-use secrecy::ExposeSecret;
 
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
 
@@ -49,7 +48,6 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &mut AppState, palette: &Th
         "Connection String (user@host[:/path])",
         &app.popups.ssh_connection.connection_string,
         active_field == SshField::ConnectionString,
-        app.popups.ssh_connection.cursor_position,
         palette,
     );
 
@@ -59,7 +57,6 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &mut AppState, palette: &Th
         "Name",
         &app.popups.ssh_connection.name,
         active_field == SshField::Name,
-        app.popups.ssh_connection.cursor_position,
         palette,
     );
 
@@ -69,7 +66,6 @@ pub fn draw_ssh_connection_popup(f: &mut Frame, app: &mut AppState, palette: &Th
         "Port",
         &app.popups.ssh_connection.port,
         active_field == SshField::Port,
-        app.popups.ssh_connection.cursor_position,
         palette,
     );
 
@@ -80,9 +76,8 @@ fn render_input_field(
     f: &mut Frame,
     chunk: Rect,
     title: &str,
-    text: &str,
+    state: &crate::ui::text_edit::TextEditState,
     is_active: bool,
-    cursor_pos: usize,
     palette: &ThemePalette,
 ) {
     let field_bg_color = Color::Rgb(palette.base.r, palette.base.g, palette.base.b);
@@ -90,26 +85,6 @@ fn render_input_field(
     let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
     let placeholder_color = Color::Rgb(palette.overlay0.r, palette.overlay0.g, palette.overlay0.b);
     let custom_border = crate::ui::ui_utils::field_border_set();
-
-    let input_width = (chunk.width as usize).saturating_sub(4);
-
-    let scroll_offset = if cursor_pos < input_width {
-        0
-    } else {
-        cursor_pos - input_width + 1
-    };
-
-    let display_text: String = if text.is_empty() {
-        title.to_string()
-    } else {
-        text.chars().skip(scroll_offset).take(input_width).collect()
-    };
-
-    let text_style = if text.is_empty() {
-        Style::default().fg(placeholder_color)
-    } else {
-        Style::default().fg(text_color)
-    };
 
     let block = Block::default()
         .borders(Borders::ALL)
@@ -131,18 +106,23 @@ fn render_input_field(
         height: inner_area.height,
     };
 
-    let paragraph = Paragraph::new(display_text.as_str()).style(text_style.bg(field_bg_color));
+    let widget = crate::ui::text_edit::TextEditWidget::new(state, title, is_active)
+        .text_color(text_color)
+        .placeholder_color(placeholder_color)
+        .selection_style(selection_style(palette, text_color))
+        .bg(field_bg_color);
+    crate::ui::text_edit::render_text_edit(f, widget, text_area);
+}
 
-    f.render_widget(paragraph, text_area);
-
-    let cursor_visual_offset = cursor_pos.saturating_sub(scroll_offset);
-
-    if is_active && cursor_visual_offset < input_width {
-        f.set_cursor_position(Position::new(
-            chunk.x + 2 + u16::try_from(cursor_visual_offset).unwrap_or(0),
-            chunk.y + 1,
-        ));
-    }
+/// Style for a selected span, matching list selection.
+fn selection_style(palette: &ThemePalette, text_color: Color) -> Style {
+    let background = Color::Rgb(palette.surface2.r, palette.surface2.g, palette.surface2.b);
+    let foreground = if palette.is_dark {
+        text_color
+    } else {
+        Color::Rgb(palette.base.r, palette.base.g, palette.base.b)
+    };
+    Style::default().fg(foreground).bg(background)
 }
 
 fn draw_history_list(
@@ -240,19 +220,38 @@ fn draw_history_list(
     }
 }
 
-pub fn draw_ssh_password_popup(f: &mut Frame, app: &AppState, palette: &ThemePalette) {
-    let area = f.area();
+/// Geometry of the password prompt: the popup rectangle, the bordered input
+/// chunk and the inner text area. Shared by rendering and mouse hit-testing.
+#[must_use]
+pub fn ssh_password_geometry(screen: Rect) -> (Rect, Rect, Rect) {
     let popup_width = 60;
     let popup_height = 5;
-    let popup_x = (area.width.saturating_sub(popup_width)) / 2;
-    let popup_y = (area.height.saturating_sub(popup_height)) / 2;
-
     let popup_area = Rect {
-        x: popup_x,
-        y: popup_y,
+        x: (screen.width.saturating_sub(popup_width)) / 2,
+        y: (screen.height.saturating_sub(popup_height)) / 2,
         width: popup_width,
         height: popup_height,
     };
+
+    let chunk = Layout::default()
+        .direction(Direction::Vertical)
+        .horizontal_margin(2)
+        .vertical_margin(1)
+        .constraints([Constraint::Length(3)])
+        .split(popup_area)[0];
+
+    let text_area = Rect {
+        x: chunk.x.saturating_add(2),
+        y: chunk.y.saturating_add(1),
+        width: chunk.width.saturating_sub(4),
+        height: 1,
+    };
+
+    (popup_area, chunk, text_area)
+}
+
+pub fn draw_ssh_password_popup(f: &mut Frame, app: &AppState, palette: &ThemePalette) {
+    let (popup_area, chunk, text_area) = ssh_password_geometry(f.area());
 
     f.render_widget(Clear, popup_area);
 
@@ -276,41 +275,7 @@ pub fn draw_ssh_password_popup(f: &mut Frame, app: &AppState, palette: &ThemePal
         popup_area,
     );
 
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .horizontal_margin(2)
-        .vertical_margin(1)
-        .constraints([Constraint::Length(3)])
-        .split(popup_area);
-
     let custom_border = crate::ui::ui_utils::field_border_set();
-
-    let input_width = (chunks[0].width as usize).saturating_sub(4);
-    let password_len = app.popups.ssh_password.password.expose_secret().len();
-    let password_mask: String = "•".repeat(password_len);
-    let cursor_pos = app.popups.ssh_password.cursor_position;
-
-    let scroll_offset = if cursor_pos < input_width {
-        0
-    } else {
-        cursor_pos - input_width + 1
-    };
-
-    let display_text: String = if app.popups.ssh_password.password.expose_secret().is_empty() {
-        title.clone()
-    } else {
-        password_mask
-            .chars()
-            .skip(scroll_offset)
-            .take(input_width)
-            .collect()
-    };
-
-    let text_style = if app.popups.ssh_password.password.expose_secret().is_empty() {
-        Style::default().fg(placeholder_color)
-    } else {
-        Style::default().fg(text_color)
-    };
 
     let block = Block::default()
         .borders(Borders::ALL)
@@ -318,25 +283,16 @@ pub fn draw_ssh_password_popup(f: &mut Frame, app: &AppState, palette: &ThemePal
         .border_set(custom_border)
         .style(Style::default().bg(field_bg_color));
 
-    f.render_widget(&block, chunks[0]);
+    f.render_widget(&block, chunk);
 
-    let inner_area = block.inner(chunks[0]);
-    let text_area = Rect {
-        x: inner_area.x + 1,
-        y: inner_area.y,
-        width: inner_area.width.saturating_sub(2),
-        height: inner_area.height,
-    };
-
-    let paragraph = Paragraph::new(display_text.as_str()).style(text_style.bg(field_bg_color));
-
-    f.render_widget(paragraph, text_area);
-
-    let cursor_visual_offset = cursor_pos.saturating_sub(scroll_offset);
-    if cursor_visual_offset < input_width {
-        f.set_cursor_position(Position::new(
-            chunks[0].x + 2 + u16::try_from(cursor_visual_offset).unwrap_or(0),
-            chunks[0].y + 1,
-        ));
-    }
+    let widget = app
+        .popups
+        .ssh_password
+        .password
+        .widget(&title, true)
+        .text_color(text_color)
+        .placeholder_color(placeholder_color)
+        .selection_style(selection_style(palette, text_color))
+        .bg(field_bg_color);
+    crate::ui::text_edit::render_text_edit(f, widget, text_area);
 }

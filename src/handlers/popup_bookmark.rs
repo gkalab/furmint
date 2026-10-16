@@ -268,13 +268,16 @@ async fn handle_bookmark_enter(app: &mut AppState) {
             // Different connection: open a new tab. Seed the SSH popup fields so
             // the password-auth fallback (and its resolution of host/port/target)
             // works when pubkey auth fails.
-            app.popups.ssh_connection.port = port.to_string();
+            app.popups.ssh_connection.port.set_text(port.to_string());
             let path_str = entry.path.to_string_lossy();
-            app.popups.ssh_connection.connection_string = if port == 22 {
-                format!("{user}@{host}:{path_str}")
-            } else {
-                format!("{user}@{host}:{port}:{path_str}")
-            };
+            app.popups
+                .ssh_connection
+                .connection_string
+                .set_text(if port == 22 {
+                    format!("{user}@{host}:{path_str}")
+                } else {
+                    format!("{user}@{host}:{port}:{path_str}")
+                });
 
             // Remember that the password prompt (if any) came from a bookmark so
             // that `Esc` dismisses it instead of reopening the SSH dialog.

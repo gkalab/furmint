@@ -1,12 +1,13 @@
+use crate::ui::text_edit::{SecretEdit, TextEditState};
+
 pub struct SshConnectionState {
     pub is_visible: bool,
-    pub connection_string: String,
-    pub name: String,
-    pub port: String,
+    pub connection_string: TextEditState,
+    pub name: TextEditState,
+    pub port: TextEditState,
     pub active_field: SshField,
     pub error: Option<String>,
     pub selected_history_idx: Option<usize>,
-    pub cursor_position: usize,
     pub search_query: String,
     pub last_key_time: Option<std::time::Instant>,
     pub confirmation: Option<crate::state::ConfirmationState>,
@@ -26,13 +27,12 @@ impl SshConnectionState {
     pub fn new() -> Self {
         Self {
             is_visible: false,
-            connection_string: String::new(),
-            name: String::new(),
-            port: "22".to_string(),
+            connection_string: TextEditState::new(),
+            name: TextEditState::new(),
+            port: TextEditState::with_text("22"),
             active_field: SshField::ConnectionString,
             error: None,
             selected_history_idx: None,
-            cursor_position: 0,
             search_query: String::new(),
             last_key_time: None,
             confirmation: None,
@@ -49,9 +49,8 @@ impl SshConnectionState {
         self.active_field = SshField::ConnectionString;
         self.connection_string.clear();
         self.name.clear();
-        self.port = "22".to_string();
+        self.port.set_text("22");
         self.selected_history_idx = selected_history_idx;
-        self.cursor_position = 0;
         self.search_query.clear();
         self.last_key_time = None;
         self.is_visible = true;
@@ -81,16 +80,13 @@ impl Default for SshConnectionState {
     }
 }
 
-use secrecy::SecretString;
-
 pub struct SshPasswordState {
     pub is_visible: bool,
-    pub password: SecretString,
+    pub password: SecretEdit,
     pub host: String,
     pub user: String,
     pub session_id: String,
     pub error: Option<String>,
-    pub cursor_position: usize,
     /// True when the password prompt was opened from a remote bookmark.
     /// In that case `Esc` dismisses the prompt instead of reopening the SSH
     /// connection dialog.
@@ -102,12 +98,11 @@ impl SshPasswordState {
     pub fn new() -> Self {
         Self {
             is_visible: false,
-            password: SecretString::new(String::new().into()),
+            password: SecretEdit::new(),
             host: String::new(),
             user: String::new(),
             session_id: String::new(),
             error: None,
-            cursor_position: 0,
             from_bookmark: false,
         }
     }
@@ -120,8 +115,7 @@ impl SshPasswordState {
         self.host = host;
         self.user = user;
         self.error = error;
-        self.password = SecretString::new(String::new().into());
-        self.cursor_position = 0;
+        self.password.clear();
         self.is_visible = true;
     }
 

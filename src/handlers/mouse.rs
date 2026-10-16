@@ -89,20 +89,57 @@ pub(crate) async fn handle_ssh_popup_mouse(
     event: MouseEvent,
     is_double_click: bool,
 ) -> bool {
-    if let MouseEventKind::Down(MouseButton::Left) = event.kind {
-        if app.popups.ssh_connection.confirmation.is_some() {
-            handle_popup_down(app, event.column, event.row);
-        } else {
-            crate::handlers::popup_ssh::handle_ssh_connection_mouse_click(
+    match event.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            if app.popups.ssh_connection.confirmation.is_some() {
+                handle_popup_down(app, event.column, event.row);
+            } else {
+                crate::handlers::popup_ssh::handle_ssh_connection_mouse_click(
+                    app,
+                    event.column,
+                    event.row,
+                    is_double_click,
+                );
+            }
+            true
+        }
+        MouseEventKind::Drag(MouseButton::Left)
+            if app.popups.ssh_connection.confirmation.is_none() =>
+        {
+            crate::handlers::popup_ssh::handle_ssh_field_drag(app, event.column, event.row);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Mouse handler for the SSH password popup: clicks set the caret, drags extend
+/// the selection.
+#[allow(clippy::unused_async)] // the popup mouse dispatch is always async
+pub(crate) async fn handle_ssh_password_popup_mouse(
+    app: &mut AppState,
+    event: MouseEvent,
+    is_double_click: bool,
+) -> bool {
+    match event.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            crate::handlers::popup_ssh::handle_ssh_password_mouse_click(
                 app,
                 event.column,
                 event.row,
                 is_double_click,
             );
+            true
         }
-        true
-    } else {
-        false
+        MouseEventKind::Drag(MouseButton::Left) => {
+            crate::handlers::popup_ssh::handle_ssh_password_field_drag(
+                app,
+                event.column,
+                event.row,
+            );
+            true
+        }
+        _ => false,
     }
 }
 
@@ -197,7 +234,11 @@ async fn handle_popup_mouse(app: &mut AppState, event: MouseEvent, is_double_cli
             handle_popup_up(app, event.column, event.row).await;
         }
         MouseEventKind::Drag(MouseButton::Left) if app.mouse.active_drag.is_some() => {
-            update_drag_scroll(app, event.column, event.row).await;
+            if app.mouse.active_drag == Some(DragTarget::SshFieldSelection) {
+                app.route_popup_mouse(event, is_double_click).await;
+            } else {
+                update_drag_scroll(app, event.column, event.row).await;
+            }
         }
         MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
             app.route_popup_mouse(event, is_double_click).await;
@@ -968,8 +1009,10 @@ pub async fn update_drag_scroll(app: &mut AppState, _x: u16, y: u16) {
                 }
             }
         }
-        crate::app::DragTarget::FileViewerSelection | crate::app::DragTarget::FileViewerPan => {
-            // intentional: file viewer selection drag / pan handled in handle_drag, not scroll
+        crate::app::DragTarget::FileViewerSelection
+        | crate::app::DragTarget::FileViewerPan
+        | crate::app::DragTarget::SshFieldSelection => {
+            // intentional: these drags are handled elsewhere, not in scroll
         }
     }
 }

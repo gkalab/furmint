@@ -264,7 +264,8 @@ declare_popups! {
     SshPassword: ssh_password: SshPasswordState =>
         |app, code, modifiers| async move {
             crate::handlers::popup_ssh::handle_ssh_password_event(app, code, modifiers)
-        },
+        };
+        mouse = crate::handlers::mouse::handle_ssh_password_popup_mouse,
     HostKey: host_key: HostKeyState =>
         |app, code, _modifiers| async move {
             crate::handlers::popup_host_key::handle_host_key_popup_event(code, app)
@@ -297,6 +298,7 @@ pub enum DragTarget {
     BookmarkScrollbar,
     FuzzySearchScrollbar,
     SshHistoryScrollbar,
+    SshFieldSelection,
 }
 
 #[derive(Debug, Default)]

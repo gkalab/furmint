@@ -106,10 +106,12 @@ fn receiver_before<'a>(line: &'a str, method: &str) -> Option<&'a str> {
 
 /// The only modules allowed to mutate a text buffer at a cursor position.
 /// `clipboard_utils::insert_text_at_cursor_unicode` is the helper that
-/// `handle_text_input` delegates to for pastes.
+/// `handle_text_input` delegates to for pastes, and `ui::text_edit` is the
+/// reusable single-line editor that replaced the SSH popup's hand-rolled math.
 const CURSOR_EDIT_OWNERS: &[&str] = &[
     "src/handlers/input_utils.rs",
     "src/handlers/clipboard_utils.rs",
+    "src/ui/text_edit.rs",
 ];
 
 /// The byte-indexed `String` mutators. `HashMap::insert` / `Vec::remove` share

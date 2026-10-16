@@ -21,6 +21,7 @@ pub mod rename_ui;
 pub mod ssh_ui;
 pub mod tabs;
 pub mod task_ui;
+pub mod text_edit;
 pub mod ui_utils;
 pub mod viewer;
 

@@ -20,6 +20,8 @@ pub struct ViewerGeometry {
 /// handling, so mouse handlers never read rects written during a draw pass.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct LayoutState {
+    /// The full terminal area this layout was computed for.
+    pub screen: Rect,
     pub left_tab_bar_area: Rect,
     pub right_tab_bar_area: Rect,
     pub left_tab_areas: Vec<Rect>,
@@ -94,6 +96,7 @@ pub fn compute_layout(
         .split(vertical[1]);
 
     let mut state = LayoutState {
+        screen: size,
         show_tabs,
         left_status_area: status_areas[0],
         right_status_area: status_areas[1],

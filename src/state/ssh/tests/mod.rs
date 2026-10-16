@@ -1,11 +1,9 @@
-use secrecy::ExposeSecret;
-
 use super::*;
 
 #[test]
 fn password_show_populates_and_makes_visible() {
     let mut state = SshPasswordState::new();
-    state.password = secrecy::SecretString::new("stale".to_string().into());
+    state.password.set_text("stale");
     state.show(
         "sid".to_string(),
         "host".to_string(),
@@ -18,8 +16,8 @@ fn password_show_populates_and_makes_visible() {
     assert_eq!(state.host, "host");
     assert_eq!(state.user, "user");
     assert_eq!(state.error.as_deref(), Some("bad password"));
-    assert_eq!(state.password.expose_secret(), "");
-    assert_eq!(state.cursor_position, 0);
+    assert!(state.password.is_empty());
+    assert_eq!(state.password.cursor(), 0);
 }
 
 #[test]

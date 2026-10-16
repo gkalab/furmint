@@ -2,7 +2,7 @@ use crate::app::AppState;
 use crate::ssh::manager::SshError;
 use crate::state::ssh::SshField;
 use crate::tasks::{EventBus, SshContext, SshEvent, TaskEvent, TaskStatus, UiEvent};
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::SecretString;
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -54,29 +54,47 @@ fn handle_ssh_confirmation(app: &mut AppState, code: KeyCode) -> bool {
     false
 }
 
+/// Clears the selection in every SSH connection text field, so leaving a field
+/// deselects it.
+fn deselect_ssh_fields(app: &mut AppState) {
+    app.popups
+        .ssh_connection
+        .connection_string
+        .clear_selection();
+    app.popups.ssh_connection.name.clear_selection();
+    app.popups.ssh_connection.port.clear_selection();
+}
+
+/// Focuses an SSH field, clearing any selection on the way out of the previous
+/// one.
+fn set_ssh_active_field(app: &mut AppState, field: SshField) {
+    deselect_ssh_fields(app);
+    app.popups.ssh_connection.active_field = field;
+}
+
 fn handle_ssh_field_navigation(app: &mut AppState, code: KeyCode) {
     match code {
         KeyCode::Tab => {
-            app.popups.ssh_connection.active_field = match app.popups.ssh_connection.active_field {
+            let next = match app.popups.ssh_connection.active_field {
                 SshField::ConnectionString => SshField::Name,
                 SshField::Name => SshField::Port,
                 SshField::Port => SshField::History,
                 SshField::History => SshField::ConnectionString,
             };
-            reset_cursor(app);
-            if app.popups.ssh_connection.active_field == SshField::History {
+            set_ssh_active_field(app, next);
+            if next == SshField::History {
                 update_fields_from_history(app);
             }
         }
         KeyCode::BackTab => {
-            app.popups.ssh_connection.active_field = match app.popups.ssh_connection.active_field {
+            let next = match app.popups.ssh_connection.active_field {
                 SshField::ConnectionString => SshField::History,
                 SshField::Name => SshField::ConnectionString,
                 SshField::Port => SshField::Name,
                 SshField::History => SshField::Port,
             };
-            reset_cursor(app);
-            if app.popups.ssh_connection.active_field == SshField::History {
+            set_ssh_active_field(app, next);
+            if next == SshField::History {
                 update_fields_from_history(app);
             }
         }
@@ -95,15 +113,14 @@ fn handle_ssh_history_navigation(app: &mut AppState, code: KeyCode) {
                     update_fields_from_history(app);
                 }
             } else {
-                app.popups.ssh_connection.active_field =
-                    match app.popups.ssh_connection.active_field {
-                        SshField::ConnectionString => SshField::History,
-                        SshField::Name => SshField::ConnectionString,
-                        SshField::Port => SshField::Name,
-                        SshField::History => SshField::Port,
-                    };
-                reset_cursor(app);
-                if app.popups.ssh_connection.active_field == SshField::History {
+                let next = match app.popups.ssh_connection.active_field {
+                    SshField::ConnectionString => SshField::History,
+                    SshField::Name => SshField::ConnectionString,
+                    SshField::Port => SshField::Name,
+                    SshField::History => SshField::Port,
+                };
+                set_ssh_active_field(app, next);
+                if next == SshField::History {
                     update_fields_from_history(app);
                 }
             }
@@ -122,15 +139,14 @@ fn handle_ssh_history_navigation(app: &mut AppState, code: KeyCode) {
                     update_fields_from_history(app);
                 }
             } else {
-                app.popups.ssh_connection.active_field =
-                    match app.popups.ssh_connection.active_field {
-                        SshField::ConnectionString => SshField::Name,
-                        SshField::Name => SshField::Port,
-                        SshField::Port => SshField::History,
-                        SshField::History => SshField::ConnectionString,
-                    };
-                reset_cursor(app);
-                if app.popups.ssh_connection.active_field == SshField::History {
+                let next = match app.popups.ssh_connection.active_field {
+                    SshField::ConnectionString => SshField::Name,
+                    SshField::Name => SshField::Port,
+                    SshField::Port => SshField::History,
+                    SshField::History => SshField::ConnectionString,
+                };
+                set_ssh_active_field(app, next);
+                if next == SshField::History {
                     update_fields_from_history(app);
                 }
             }
@@ -173,23 +189,17 @@ fn handle_ssh_history_navigation(app: &mut AppState, code: KeyCode) {
 }
 
 fn handle_ssh_text_input(app: &mut AppState, code: KeyCode, modifiers: Modifiers) {
-    let is_numeric = app.popups.ssh_connection.active_field == SshField::Port;
-    let (text, cursor) = match app.popups.ssh_connection.active_field {
-        SshField::ConnectionString => (
-            &mut app.popups.ssh_connection.connection_string,
-            &mut app.popups.ssh_connection.cursor_position,
-        ),
-        SshField::Name => (
-            &mut app.popups.ssh_connection.name,
-            &mut app.popups.ssh_connection.cursor_position,
-        ),
-        SshField::Port => (
-            &mut app.popups.ssh_connection.port,
-            &mut app.popups.ssh_connection.cursor_position,
-        ),
-        SshField::History => unreachable!(),
+    let (state, is_numeric) = match app.popups.ssh_connection.active_field {
+        SshField::ConnectionString => (&mut app.popups.ssh_connection.connection_string, false),
+        SshField::Name => (&mut app.popups.ssh_connection.name, false),
+        SshField::Port => (&mut app.popups.ssh_connection.port, true),
+        SshField::History => {
+            let _ = code;
+            let _ = modifiers;
+            return;
+        }
     };
-    crate::handlers::input_utils::handle_text_input(code, modifiers, text, cursor, is_numeric);
+    let _ = state.handle_key(code, modifiers, is_numeric);
 }
 
 fn handle_ssh_delete_history_item(app: &mut AppState) {
@@ -211,11 +221,18 @@ fn handle_ssh_enter(app: &mut AppState) {
         if let Some(idx) = app.popups.ssh_connection.selected_history_idx
             && let Some(info) = app.ssh_history.connections.get(idx)
         {
-            app.popups.ssh_connection.connection_string = info.connection_string.clone();
-            app.popups.ssh_connection.name = info.name.clone().unwrap_or_default();
-            app.popups.ssh_connection.port = info.port.to_string();
-            app.popups.ssh_connection.cursor_position =
-                app.popups.ssh_connection.connection_string.chars().count();
+            app.popups
+                .ssh_connection
+                .connection_string
+                .set_text(info.connection_string.clone());
+            app.popups
+                .ssh_connection
+                .name
+                .set_text(info.name.clone().unwrap_or_default());
+            app.popups
+                .ssh_connection
+                .port
+                .set_text(info.port.to_string());
             start_ssh_auth(app);
         }
     } else {
@@ -268,15 +285,6 @@ pub fn handle_ssh_connection_event(app: &mut AppState, code: KeyCode, modifiers:
     }
 }
 
-fn reset_cursor(app: &mut AppState) {
-    app.popups.ssh_connection.cursor_position = match app.popups.ssh_connection.active_field {
-        SshField::ConnectionString => app.popups.ssh_connection.connection_string.chars().count(),
-        SshField::Name => app.popups.ssh_connection.name.chars().count(),
-        SshField::Port => app.popups.ssh_connection.port.chars().count(),
-        SshField::History => 0,
-    };
-}
-
 pub fn handle_history_search(app: &mut AppState, c: char) {
     let now = Instant::now();
     if let Some(last) = app.popups.ssh_connection.last_key_time {
@@ -305,9 +313,18 @@ pub fn update_fields_from_history(app: &mut AppState) {
     if let Some(idx) = app.popups.ssh_connection.selected_history_idx
         && let Some(info) = app.ssh_history.connections.get(idx)
     {
-        app.popups.ssh_connection.connection_string = info.connection_string.clone();
-        app.popups.ssh_connection.name = info.name.clone().unwrap_or_default();
-        app.popups.ssh_connection.port = info.port.to_string();
+        app.popups
+            .ssh_connection
+            .connection_string
+            .set_text(info.connection_string.clone());
+        app.popups
+            .ssh_connection
+            .name
+            .set_text(info.name.clone().unwrap_or_default());
+        app.popups
+            .ssh_connection
+            .port
+            .set_text(info.port.to_string());
     }
 }
 
@@ -362,20 +379,20 @@ pub fn parse_connection_string(s: &str) -> Option<ParsedSsh> {
 
 fn start_ssh_auth(app: &mut AppState) {
     use crate::ssh::history::SshConnectionInfo;
-    let conn_str = app.popups.ssh_connection.connection_string.trim();
+    let conn_str = app.popups.ssh_connection.connection_string.text().trim();
     if conn_str.is_empty() {
         app.popups.ssh_connection.error = Some("Connection string is required".to_string());
         return;
     }
 
-    let port_str = app.popups.ssh_connection.port.trim();
+    let port_str = app.popups.ssh_connection.port.text().trim();
     let Ok(port) = port_str.parse::<u16>() else {
         app.popups.ssh_connection.error = Some("Invalid port number".to_string());
         return;
     };
 
     if let Some(parsed) = parse_connection_string(conn_str) {
-        let name = app.popups.ssh_connection.name.trim();
+        let name = app.popups.ssh_connection.name.text().trim();
         let name_opt = (!name.is_empty()).then(|| name.to_string());
 
         app.ssh_history.add(SshConnectionInfo {
@@ -661,6 +678,8 @@ pub fn handle_ssh_password_event(app: &mut AppState, code: KeyCode, modifiers: M
         KeyCode::Escape => {
             app.popups
                 .set_popup_visible(crate::app::PopupKind::SshPassword, false);
+            // Leaving the field deselects, so a later reopen starts clean.
+            app.popups.ssh_password.password.clear_selection();
             let from_bookmark = app.popups.ssh_password.from_bookmark;
             app.popups.ssh_password.from_bookmark = false;
             if !from_bookmark && !app.popups.ssh_connection.connection_string.is_empty() {
@@ -669,7 +688,7 @@ pub fn handle_ssh_password_event(app: &mut AppState, code: KeyCode, modifiers: M
             }
         }
         KeyCode::Enter => {
-            let password = std::mem::take(&mut app.popups.ssh_password.password);
+            let password = app.popups.ssh_password.password.take_secret();
             let session_id = app.popups.ssh_password.session_id.clone();
 
             app.popups
@@ -679,20 +698,20 @@ pub fn handle_ssh_password_event(app: &mut AppState, code: KeyCode, modifiers: M
             if session_id.is_empty() {
                 let host = app.popups.ssh_password.host.clone();
                 let user = app.popups.ssh_password.user.clone();
-                let Ok(port) = app.popups.ssh_connection.port.trim().parse::<u16>() else {
+                let Ok(port) = app.popups.ssh_connection.port.text().trim().parse::<u16>() else {
                     app.popups
                         .set_popup_visible(crate::app::PopupKind::SshConnection, true);
                     app.popups.ssh_connection.error = Some("Invalid port number".to_string());
                     return false;
                 };
                 let target_path =
-                    parse_connection_string(&app.popups.ssh_connection.connection_string)
+                    parse_connection_string(app.popups.ssh_connection.connection_string.text())
                         .and_then(|p| p.path);
 
                 let connection_name = if app.popups.ssh_connection.name.is_empty() {
                     None
                 } else {
-                    Some(app.popups.ssh_connection.name.clone())
+                    Some(app.popups.ssh_connection.name.text().to_string())
                 };
 
                 spawn_ssh_connect_with_password(
@@ -715,18 +734,11 @@ pub fn handle_ssh_password_event(app: &mut AppState, code: KeyCode, modifiers: M
         | KeyCode::Char('v' | _)
         | KeyCode::Backspace
         | KeyCode::Delete => {
-            let mut p = std::mem::take(&mut app.popups.ssh_password.password)
-                .expose_secret()
-                .to_string();
-            if crate::handlers::input_utils::handle_text_input(
-                code,
-                modifiers,
-                &mut p,
-                &mut app.popups.ssh_password.cursor_position,
-                false,
-            ) {
-                app.popups.ssh_password.password = p.into();
-            }
+            let _ = app
+                .popups
+                .ssh_password
+                .password
+                .handle_key(code, modifiers, false);
         }
         _ => {}
     }
@@ -768,38 +780,42 @@ pub fn handle_ssh_connection_mouse_click(
     }
 
     let pos = (x, y);
-    let fields = &app.layout.popups.ssh_connection.field_areas;
+    // Copied so `set_ssh_active_field` can take `&mut AppState` below.
+    let fields = app.layout.popups.ssh_connection.field_areas.clone();
     if fields.len() < 4 {
         return;
     }
 
     // Connection String
     if crate::handlers::mouse::is_in_rect(pos, fields[0]) {
-        app.popups.ssh_connection.active_field = SshField::ConnectionString;
-        set_ssh_cursor_from_click(app, SshField::ConnectionString, x);
+        set_ssh_active_field(app, SshField::ConnectionString);
+        set_ssh_cursor_from_click(app, SshField::ConnectionString, x, is_double_click);
         app.popups.ssh_connection.search_query.clear();
+        app.mouse.active_drag = Some(crate::app::DragTarget::SshFieldSelection);
         return;
     }
 
     // Name
     if crate::handlers::mouse::is_in_rect(pos, fields[1]) {
-        app.popups.ssh_connection.active_field = SshField::Name;
-        set_ssh_cursor_from_click(app, SshField::Name, x);
+        set_ssh_active_field(app, SshField::Name);
+        set_ssh_cursor_from_click(app, SshField::Name, x, is_double_click);
         app.popups.ssh_connection.search_query.clear();
+        app.mouse.active_drag = Some(crate::app::DragTarget::SshFieldSelection);
         return;
     }
 
     // Port
     if crate::handlers::mouse::is_in_rect(pos, fields[2]) {
-        app.popups.ssh_connection.active_field = SshField::Port;
-        set_ssh_cursor_from_click(app, SshField::Port, x);
+        set_ssh_active_field(app, SshField::Port);
+        set_ssh_cursor_from_click(app, SshField::Port, x, is_double_click);
         app.popups.ssh_connection.search_query.clear();
+        app.mouse.active_drag = Some(crate::app::DragTarget::SshFieldSelection);
         return;
     }
 
     // History list
     if crate::handlers::mouse::is_in_rect(pos, fields[3]) {
-        app.popups.ssh_connection.active_field = SshField::History;
+        set_ssh_active_field(app, SshField::History);
         app.popups.ssh_connection.search_query.clear();
 
         let visible_row = y.saturating_sub(fields[3].y + 1);
@@ -817,44 +833,102 @@ pub fn handle_ssh_connection_mouse_click(
     }
 }
 
-fn set_ssh_cursor_from_click(app: &mut AppState, field: SshField, click_x: u16) {
-    let (text_len, field_idx) = match field {
-        SshField::ConnectionString => (
-            app.popups.ssh_connection.connection_string.chars().count(),
-            0,
-        ),
-        SshField::Name => (app.popups.ssh_connection.name.chars().count(), 1),
-        SshField::Port => (app.popups.ssh_connection.port.chars().count(), 2),
-        SshField::History => return,
+/// Maps a click x-coordinate to `(field, text width, column)` for the active
+/// SSH text field, clamped to the field's text area.
+fn ssh_field_hit(app: &AppState, click_x: u16) -> Option<(SshField, usize, usize)> {
+    let field = app.popups.ssh_connection.active_field;
+    let field_idx = match field {
+        SshField::ConnectionString => 0,
+        SshField::Name => 1,
+        SshField::Port => 2,
+        SshField::History => return None,
     };
-
-    let Some(area) = app
+    let area = *app
         .layout
         .popups
         .ssh_connection
         .field_areas
-        .get(field_idx)
-        .copied()
-    else {
+        .get(field_idx)?;
+    let width = (area.width as usize).saturating_sub(4);
+    let column = usize::from(click_x.saturating_sub(area.x + 2)).min(width.saturating_sub(1));
+    Some((field, width, column))
+}
+
+fn set_ssh_cursor_from_click(
+    app: &mut AppState,
+    field: SshField,
+    click_x: u16,
+    is_double_click: bool,
+) {
+    let Some((_, width, column)) = ssh_field_hit(app, click_x) else {
         return;
     };
-
-    let current_cursor = app.popups.ssh_connection.cursor_position;
-    let input_width = (area.width as usize).saturating_sub(4);
-    let current_scroll = if current_cursor < input_width {
-        0
-    } else {
-        current_cursor - input_width + 1
+    let state = match field {
+        SshField::ConnectionString => &mut app.popups.ssh_connection.connection_string,
+        SshField::Name => &mut app.popups.ssh_connection.name,
+        SshField::Port => &mut app.popups.ssh_connection.port,
+        SshField::History => return,
     };
-
-    let new_pos = if click_x >= area.x + 2 {
-        let visual_col = (click_x - (area.x + 2)) as usize;
-        visual_col.saturating_add(current_scroll).min(text_len)
+    if is_double_click {
+        state.select_word_at(column, width);
     } else {
-        0
-    };
+        let pos = state.cursor_from_column(column, width);
+        state.set_cursor(pos);
+    }
+}
 
-    app.popups.ssh_connection.cursor_position = new_pos;
+/// Extends the active SSH field's selection while a click-drag is in progress.
+pub fn handle_ssh_field_drag(app: &mut AppState, x: u16, _y: u16) {
+    if app.popups.ssh_connection.confirmation.is_some() {
+        return;
+    }
+    let Some((field, width, column)) = ssh_field_hit(app, x) else {
+        return;
+    };
+    let state = match field {
+        SshField::ConnectionString => &mut app.popups.ssh_connection.connection_string,
+        SshField::Name => &mut app.popups.ssh_connection.name,
+        SshField::Port => &mut app.popups.ssh_connection.port,
+        SshField::History => return,
+    };
+    let pos = state.cursor_from_column(column, width);
+    state.extend_selection(pos);
+}
+
+/// Maps a click x-coordinate to `(width, column)` for the password field.
+fn ssh_password_hit(app: &AppState, click_x: u16) -> Option<(usize, usize)> {
+    let (_, _, text_area) = crate::ui::ssh_ui::ssh_password_geometry(app.layout.screen);
+    let width = text_area.width as usize;
+    if width == 0 {
+        return None;
+    }
+    let column = usize::from(click_x.saturating_sub(text_area.x)).min(width - 1);
+    Some((width, column))
+}
+
+/// Sets the password caret from a click, selecting a word on double-click.
+pub fn handle_ssh_password_mouse_click(app: &mut AppState, x: u16, _y: u16, is_double_click: bool) {
+    let Some((width, column)) = ssh_password_hit(app, x) else {
+        return;
+    };
+    let state = &mut app.popups.ssh_password.password;
+    if is_double_click {
+        state.select_word_at(column, width);
+    } else {
+        let pos = state.cursor_from_column(column, width);
+        state.set_cursor(pos);
+    }
+    app.mouse.active_drag = Some(crate::app::DragTarget::SshFieldSelection);
+}
+
+/// Extends the password selection while a click-drag is in progress.
+pub fn handle_ssh_password_field_drag(app: &mut AppState, x: u16, _y: u16) {
+    let Some((width, column)) = ssh_password_hit(app, x) else {
+        return;
+    };
+    let state = &mut app.popups.ssh_password.password;
+    let pos = state.cursor_from_column(column, width);
+    state.extend_selection(pos);
 }
 
 /// How a reconnect attempt authenticates.
