@@ -13,8 +13,7 @@ pub fn draw_create_file_popup(
         f,
         &crate::ui::ui_utils::InputPopupOptions {
             title: Some("Create File"),
-            input_value: &state.input_value,
-            cursor_position: state.cursor_position,
+            input: crate::ui::ui_utils::InputField::Edit(&state.input_value),
             error: state.error.as_deref(),
             placeholder: "File Name",
             width: 60,

@@ -8,6 +8,7 @@ use crate::handlers::popup_copy_move::{
     handle_copy_move_event, handle_init_copy, handle_init_move, handle_paste,
 };
 use crate::state::CopyMoveAction;
+use crate::ui::text_edit::TextEditState;
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
@@ -135,26 +136,25 @@ async fn test_handle_copy_move_event_char_and_edit() {
     let mut app = minimal_state_with_entries(PanelSide::Left, left_entries, vec![], 0, 0);
     handle_init_copy(&mut app);
     app.popups.copy_move.destination_input.clear();
-    app.popups.copy_move.cursor_position = 0;
     // Insert 'x'
     handle_copy_move_event(KeyCode::Char('x'), Modifiers::NONE, &mut app).await;
-    assert_eq!(app.popups.copy_move.destination_input, "x");
-    assert_eq!(app.popups.copy_move.cursor_position, 1);
+    assert_eq!(app.popups.copy_move.destination_input.text(), "x");
+    assert_eq!(app.popups.copy_move.destination_input.cursor(), 1);
     // Insert 'y' at position 1
     handle_copy_move_event(KeyCode::Char('y'), Modifiers::NONE, &mut app).await;
-    assert_eq!(app.popups.copy_move.destination_input, "xy");
-    assert_eq!(app.popups.copy_move.cursor_position, 2);
+    assert_eq!(app.popups.copy_move.destination_input.text(), "xy");
+    assert_eq!(app.popups.copy_move.destination_input.cursor(), 2);
     // Backspace
     handle_copy_move_event(KeyCode::Backspace, Modifiers::NONE, &mut app).await;
-    assert_eq!(app.popups.copy_move.destination_input, "x");
-    assert_eq!(app.popups.copy_move.cursor_position, 1);
+    assert_eq!(app.popups.copy_move.destination_input.text(), "x");
+    assert_eq!(app.popups.copy_move.destination_input.cursor(), 1);
     // Left
     handle_copy_move_event(KeyCode::Left, Modifiers::NONE, &mut app).await;
-    assert_eq!(app.popups.copy_move.cursor_position, 0);
+    assert_eq!(app.popups.copy_move.destination_input.cursor(), 0);
     // Delete (removes 'x')
     handle_copy_move_event(KeyCode::Delete, Modifiers::NONE, &mut app).await;
-    assert_eq!(app.popups.copy_move.destination_input, "");
-    assert_eq!(app.popups.copy_move.cursor_position, 0);
+    assert_eq!(app.popups.copy_move.destination_input.text(), "");
+    assert_eq!(app.popups.copy_move.destination_input.cursor(), 0);
 }
 
 #[tokio::test]
@@ -162,17 +162,17 @@ async fn test_handle_copy_move_event_navigation_keys() {
     let left_entries = vec![make_fileentry("a", true, false)];
     let mut app = minimal_state_with_entries(PanelSide::Left, left_entries, vec![], 0, 0);
     handle_init_copy(&mut app);
-    app.popups.copy_move.destination_input = "abcdef".to_string();
-    app.popups.copy_move.cursor_position = 3;
+    app.popups.copy_move.destination_input = TextEditState::with_text("abcdef");
+    app.popups.copy_move.destination_input.set_cursor(3);
     // Home
     handle_copy_move_event(KeyCode::Home, Modifiers::NONE, &mut app).await;
-    assert_eq!(app.popups.copy_move.cursor_position, 0);
+    assert_eq!(app.popups.copy_move.destination_input.cursor(), 0);
     // End
     handle_copy_move_event(KeyCode::End, Modifiers::NONE, &mut app).await;
-    assert_eq!(app.popups.copy_move.cursor_position, 6);
+    assert_eq!(app.popups.copy_move.destination_input.cursor(), 6);
     // Right at end (should stay)
     handle_copy_move_event(KeyCode::Right, Modifiers::NONE, &mut app).await;
-    assert_eq!(app.popups.copy_move.cursor_position, 6);
+    assert_eq!(app.popups.copy_move.destination_input.cursor(), 6);
 }
 
 #[tokio::test]
@@ -192,7 +192,7 @@ async fn test_handle_copy_move_event_home_dir_expansion() {
     let mut app = minimal_state_with_entries(PanelSide::Left, vec![], vec![], 0, 0);
     app.popups
         .set_popup_visible(crate::app::PopupKind::CopyMove, true);
-    app.popups.copy_move.destination_input = "~".to_string();
+    app.popups.copy_move.destination_input = TextEditState::with_text("~");
 
     handle_copy_move_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
 
@@ -217,7 +217,8 @@ async fn test_handle_copy_move_validation_same_path() {
     app.popups
         .set_popup_visible(crate::app::PopupKind::CopyMove, true);
     app.popups.copy_move.source_paths = vec![file_path.clone()];
-    app.popups.copy_move.destination_input = temp_dir.to_string_lossy().to_string();
+    app.popups.copy_move.destination_input =
+        TextEditState::with_text(temp_dir.to_string_lossy().to_string());
 
     handle_copy_move_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
 
@@ -245,7 +246,8 @@ async fn test_handle_copy_move_validation_into_itself() {
     app.popups
         .set_popup_visible(crate::app::PopupKind::CopyMove, true);
     app.popups.copy_move.source_paths = vec![src_dir.clone()];
-    app.popups.copy_move.destination_input = dest_dir.to_string_lossy().to_string();
+    app.popups.copy_move.destination_input =
+        TextEditState::with_text(dest_dir.to_string_lossy().to_string());
 
     handle_copy_move_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
 
@@ -320,7 +322,7 @@ async fn test_handle_copy_move_relative_parent_dir_resolves_against_active_tab()
     app.popups
         .set_popup_visible(crate::app::PopupKind::CopyMove, true);
     app.popups.copy_move.source_paths = vec![src_file];
-    app.popups.copy_move.destination_input = "..".to_string();
+    app.popups.copy_move.destination_input = TextEditState::with_text("..");
 
     handle_copy_move_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
 
@@ -349,7 +351,7 @@ async fn test_handle_copy_move_relative_subdir_resolves_against_active_tab() {
     app.popups
         .set_popup_visible(crate::app::PopupKind::CopyMove, true);
     app.popups.copy_move.source_paths = vec![other_dir.join("a.txt")];
-    app.popups.copy_move.destination_input = "../target".to_string();
+    app.popups.copy_move.destination_input = TextEditState::with_text("../target");
 
     handle_copy_move_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
 
@@ -412,7 +414,7 @@ async fn test_handle_copy_move_into_zip_root() {
     // The archive panel shows the archive root, so that is what the dialog prefills.
     let mut app = archive_dest_app(&src_dir, "file.txt", false, archive.clone());
     crate::handlers::popup_copy_move::init_copy_move(&mut app, CopyMoveAction::Copy);
-    assert_eq!(app.popups.copy_move.destination_input, "/");
+    assert_eq!(app.popups.copy_move.destination_input.text(), "/");
 
     handle_copy_move_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
 
@@ -438,7 +440,7 @@ async fn test_handle_copy_move_directory_into_zip_root() {
 
     let mut app = archive_dest_app(&src_dir, "tree", true, archive.clone());
     crate::handlers::popup_copy_move::init_copy_move(&mut app, CopyMoveAction::Copy);
-    assert_eq!(app.popups.copy_move.destination_input, "/");
+    assert_eq!(app.popups.copy_move.destination_input.text(), "/");
 
     handle_copy_move_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
 
@@ -497,7 +499,7 @@ async fn test_handle_copy_move_into_zip_subdir() {
     // Navigate the archive panel into a subdirectory, then copy there.
     app.panels.right.active_tab_mut().current_dir = std::path::PathBuf::from("/folder");
     crate::handlers::popup_copy_move::init_copy_move(&mut app, CopyMoveAction::Copy);
-    assert_eq!(app.popups.copy_move.destination_input, "/folder");
+    assert_eq!(app.popups.copy_move.destination_input.text(), "/folder");
 
     handle_copy_move_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
 
@@ -613,7 +615,7 @@ async fn test_handle_copy_move_between_two_archives() {
     app.panels.right = make_tab_manager(dest_tab);
 
     crate::handlers::popup_copy_move::init_copy_move(&mut app, CopyMoveAction::Copy);
-    assert_eq!(app.popups.copy_move.destination_input, "/");
+    assert_eq!(app.popups.copy_move.destination_input.text(), "/");
 
     handle_copy_move_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
 

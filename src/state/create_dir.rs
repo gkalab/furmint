@@ -1,7 +1,8 @@
+use crate::ui::text_edit::TextEditState;
+
 pub struct CreateDirectoryState {
     pub is_visible: bool,
-    pub new_name: String,
-    pub cursor_position: usize,
+    pub new_name: TextEditState,
     pub error: Option<String>,
 }
 
@@ -10,8 +11,7 @@ impl CreateDirectoryState {
     pub fn new() -> Self {
         Self {
             is_visible: false,
-            new_name: String::new(),
-            cursor_position: 0,
+            new_name: TextEditState::new(),
             error: None,
         }
     }
@@ -20,7 +20,6 @@ impl CreateDirectoryState {
     /// here, so a caller cannot show the popup without populating it.
     pub fn show(&mut self) {
         self.new_name.clear();
-        self.cursor_position = 0;
         self.error = None;
         self.is_visible = true;
     }
@@ -28,7 +27,6 @@ impl CreateDirectoryState {
     pub fn reset(&mut self) {
         self.is_visible = false;
         self.new_name.clear();
-        self.cursor_position = 0;
         self.error = None;
     }
 }

@@ -18,11 +18,14 @@ async fn test_init_rename_tab_cursor_starts_at_end_in_chars() {
 
     let popup = &app.popups.rename_tab;
     assert!(popup.is_visible);
-    assert_eq!(popup.new_name, "héllo ✓");
+    assert_eq!(popup.new_name.text(), "héllo ✓");
     // Cursor is a char index: "héllo ✓" is 7 chars but 10 bytes.
-    assert_eq!(popup.cursor_position, popup.new_name.chars().count());
+    assert_eq!(
+        popup.new_name.cursor(),
+        popup.new_name.text().chars().count()
+    );
     assert!(
-        popup.cursor_position <= popup.new_name.chars().count(),
+        popup.new_name.cursor() <= popup.new_name.text().chars().count(),
         "cursor position is out of range"
     );
 }
@@ -34,6 +37,6 @@ async fn test_init_rename_tab_cursor_for_ascii_title() {
 
     handle_init_rename_tab(&mut app);
 
-    assert_eq!(app.popups.rename_tab.new_name, "plain");
-    assert_eq!(app.popups.rename_tab.cursor_position, 5);
+    assert_eq!(app.popups.rename_tab.new_name.text(), "plain");
+    assert_eq!(app.popups.rename_tab.new_name.cursor(), 5);
 }

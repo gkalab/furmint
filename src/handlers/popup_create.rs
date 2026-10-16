@@ -24,7 +24,13 @@ pub async fn handle_create_directory_event(
                 .reset_popup(crate::app::PopupKind::CreateDirectory);
         }
         KeyCode::Enter => {
-            let new_name = app.popups.create_directory.new_name.trim().to_string();
+            let new_name = app
+                .popups
+                .create_directory
+                .new_name
+                .text()
+                .trim()
+                .to_string();
             if new_name.is_empty() {
                 return false;
             }
@@ -49,13 +55,11 @@ pub async fn handle_create_directory_event(
             }
         }
         _ => {
-            crate::handlers::input_utils::handle_text_input(
-                code,
-                modifiers,
-                &mut app.popups.create_directory.new_name,
-                &mut app.popups.create_directory.cursor_position,
-                false,
-            );
+            let _ = app
+                .popups
+                .create_directory
+                .new_name
+                .handle_key(code, modifiers, false);
         }
     }
     // Clear error on any input in the popup
@@ -77,7 +81,7 @@ pub async fn handle_create_file_event(
         }
         KeyCode::Enter => {
             app.popups.create_file.error = None;
-            let input = app.popups.create_file.input_value.trim();
+            let input = app.popups.create_file.input_value.text().trim();
             if input.is_empty() {
                 app.popups.create_file.error = Some("File name cannot be empty".to_string());
                 return false;
@@ -133,13 +137,11 @@ pub async fn handle_create_file_event(
             handle_post_create_actions(app, path_buf).await;
         }
         _ => {
-            crate::handlers::input_utils::handle_text_input(
-                code,
-                modifiers,
-                &mut app.popups.create_file.input_value,
-                &mut app.popups.create_file.cursor_position,
-                false,
-            );
+            let _ = app
+                .popups
+                .create_file
+                .input_value
+                .handle_key(code, modifiers, false);
             // Clear error on any input (consistent with create directory)
             if app.popups.create_file.error.is_some() {
                 app.popups.create_file.error = None;

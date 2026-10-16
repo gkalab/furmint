@@ -59,7 +59,7 @@ pub fn draw_rename_popup(
         };
 
         let truncated_name =
-            crate::ui::ui_utils::truncate_middle_with_ellipsis(&state.new_name, 35);
+            crate::ui::ui_utils::truncate_middle_with_ellipsis(state.new_name.text(), 35);
         let text = format!("Overwrite {truncated_name}?");
 
         let layout = Layout::vertical([
@@ -95,8 +95,7 @@ pub fn draw_rename_popup(
             f,
             &crate::ui::ui_utils::InputPopupOptions {
                 title: Some("Rename"),
-                input_value: &state.new_name,
-                cursor_position: state.cursor_position,
+                input: crate::ui::ui_utils::InputField::Edit(&state.new_name),
                 error: state.error.as_deref(),
                 placeholder: "",
                 width: 60,

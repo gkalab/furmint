@@ -5,6 +5,7 @@ use crate::app_state::tabs::{
 use crate::fs::provider::{FileMetadata, FileSystemProvider};
 use crate::fs::utils::FileEntry;
 use crate::state::{CreateFileState, HelpState};
+use crate::ui::text_edit::TextEditState;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use termina::event::{KeyCode, Modifiers};
@@ -145,14 +146,14 @@ impl FileSystemProvider for MockProvider {
 #[tokio::test]
 async fn test_create_file_state_reset() {
     let mut s = CreateFileState::new();
-    s.input_value = "test".to_string();
-    s.cursor_position = 5;
+    s.input_value = TextEditState::with_text("test");
+    s.input_value.set_cursor(2);
     s.is_visible = true;
     s.error = Some("nope".to_string());
     s.reset();
     assert!(!s.is_visible);
-    assert_eq!(s.input_value, "");
-    assert_eq!(s.cursor_position, 0);
+    assert_eq!(s.input_value.text(), "");
+    assert_eq!(s.input_value.cursor(), 0);
     assert!(s.error.is_none());
     assert_eq!(s.parent_dir, std::path::PathBuf::new());
 }

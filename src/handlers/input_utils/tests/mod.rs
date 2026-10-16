@@ -18,10 +18,12 @@ fn test_keyevent_to_string() {
 }
 
 // ---------------------------------------------------------------------------
-// Source guards for the single text-input driver.
+// Source guards for the text-input drivers.
 //
-// `input_utils::handle_text_input` is the only char-safe editor. Every editor
-// it drives keeps `cursor_position` as a **char** index, while `String::insert`
+// `input_utils::handle_text_input` remains the driver for fields that still own
+// a `cursor_position` (the file filter, the viewer search and the
+// bookmark/fuzzy input), while `ui::text_edit::TextEditState` now edits the
+// popup fields. Both keep their caret as a **char** index, while `String::insert`
 // / `String::remove` take **byte** offsets.
 //
 // These tests enforce the
@@ -141,7 +143,8 @@ fn test_only_the_text_input_driver_edits_a_string_at_a_cursor() {
     assert!(
         offenders.is_empty(),
         "text buffer edited outside the text-input driver; route key handling \
-         through input_utils::handle_text_input instead:\n{}",
+         through input_utils::handle_text_input or ui::text_edit::TextEditState \
+         instead:\n{}",
         offenders.join("\n")
     );
 }

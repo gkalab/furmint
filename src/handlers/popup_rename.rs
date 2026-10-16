@@ -51,14 +51,14 @@ pub async fn handle_rename_event(code: KeyCode, modifiers: Modifiers, app: &mut 
             app.popups.reset_popup(crate::app::PopupKind::Rename);
         }
         KeyCode::Enter => {
-            if app.popups.rename.new_name == app.popups.rename.original_name {
+            if app.popups.rename.new_name.text() == app.popups.rename.original_name {
                 app.popups.reset_popup(crate::app::PopupKind::Rename);
             } else {
                 let new_path = app
                     .popups
                     .rename
                     .parent_dir
-                    .join(&app.popups.rename.new_name);
+                    .join(app.popups.rename.new_name.text());
                 if app.active_tab().provider.exists(&new_path).await {
                     if app.popups.rename.is_dir {
                         app.popups.rename.error =
@@ -73,13 +73,11 @@ pub async fn handle_rename_event(code: KeyCode, modifiers: Modifiers, app: &mut 
             }
         }
         _ => {
-            crate::handlers::input_utils::handle_text_input(
-                code,
-                modifiers,
-                &mut app.popups.rename.new_name,
-                &mut app.popups.rename.cursor_position,
-                false,
-            );
+            let _ = app
+                .popups
+                .rename
+                .new_name
+                .handle_key(code, modifiers, false);
             if app.popups.rename.error.is_some() {
                 app.popups.rename.error = None;
             }
@@ -98,9 +96,9 @@ pub(crate) async fn perform_rename(app: &mut AppState, overwrite: bool) {
         .popups
         .rename
         .parent_dir
-        .join(&app.popups.rename.new_name);
+        .join(app.popups.rename.new_name.text());
 
-    let new_name = app.popups.rename.new_name.clone();
+    let new_name = app.popups.rename.new_name.text().to_string();
     let panel = app.active_tab_mut();
     let result = if overwrite && panel.provider.exists(&new_path).await {
         match panel.provider.delete(&new_path, false).await {

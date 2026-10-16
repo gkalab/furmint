@@ -1,9 +1,9 @@
+use crate::ui::text_edit::TextEditState;
 use std::path::PathBuf;
 
 pub struct RenameState {
     pub is_visible: bool,
-    pub new_name: String,
-    pub cursor_position: usize,
+    pub new_name: TextEditState,
     pub original_name: String,
     pub parent_dir: PathBuf,
     pub show_overwrite_confirm: bool,
@@ -17,8 +17,7 @@ impl RenameState {
     pub fn new() -> Self {
         Self {
             is_visible: false,
-            new_name: String::new(),
-            cursor_position: 0,
+            new_name: TextEditState::new(),
             original_name: String::new(),
             parent_dir: PathBuf::new(),
             show_overwrite_confirm: false,
@@ -33,16 +32,15 @@ impl RenameState {
     /// Visibility is set here, so a caller cannot show the popup without
     /// populating it.
     pub fn show(&mut self, original_name: String, parent_dir: PathBuf, is_dir: bool) {
-        // `cursor_position` is a char index (see `input_utils::handle_text_input`),
-        // so count chars, never bytes.
-        self.cursor_position = std::path::Path::new(&original_name)
+        let stem_len = std::path::Path::new(&original_name)
             .file_stem()
             .and_then(std::ffi::OsStr::to_str)
             .map_or_else(
                 || original_name.chars().count(),
                 |stem| stem.chars().count(),
             );
-        self.new_name.clone_from(&original_name);
+        self.new_name.set_text(original_name.clone());
+        self.new_name.set_cursor(stem_len);
         self.original_name = original_name;
         self.parent_dir = parent_dir;
         self.show_overwrite_confirm = false;
@@ -55,7 +53,6 @@ impl RenameState {
     pub fn reset(&mut self) {
         self.is_visible = false;
         self.new_name.clear();
-        self.cursor_position = 0;
         self.original_name.clear();
         self.parent_dir = PathBuf::new();
         self.show_overwrite_confirm = false;
@@ -70,3 +67,6 @@ impl Default for RenameState {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests;

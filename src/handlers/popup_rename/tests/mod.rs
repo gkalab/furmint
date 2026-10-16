@@ -5,6 +5,7 @@ use crate::fs::provider::{ContextKey, FileMetadata, FileSystemProvider};
 use crate::fs::utils::FileEntry;
 use crate::handlers::popup_rename::{handle_init_rename, handle_rename_event};
 use crate::tasks::UiEvent;
+use crate::ui::text_edit::TextEditState;
 use async_trait::async_trait;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -43,7 +44,9 @@ async fn test_init_rename_for_normal_file() {
     assert!(app.popups.rename.is_visible);
     assert_eq!(app.popups.rename.original_name, "myfile.txt");
     // Cursor should be placed before extension, as a char index.
-    assert!(app.popups.rename.cursor_position < app.popups.rename.new_name.chars().count());
+    assert!(
+        app.popups.rename.new_name.cursor() < app.popups.rename.new_name.text().chars().count()
+    );
 }
 
 #[tokio::test]
@@ -59,9 +62,9 @@ async fn test_rename_typing_and_backspace() {
     handle_init_rename(&mut app);
     let orig = app.popups.rename.new_name.clone();
     handle_rename_event(KeyCode::Char('a'), Modifiers::NONE, &mut app).await;
-    assert_ne!(app.popups.rename.new_name, orig);
+    assert_ne!(app.popups.rename.new_name.text(), orig.text());
     handle_rename_event(KeyCode::Backspace, Modifiers::NONE, &mut app).await;
-    assert_eq!(app.popups.rename.new_name, orig);
+    assert_eq!(app.popups.rename.new_name.text(), orig.text());
 }
 
 #[tokio::test]
@@ -87,19 +90,19 @@ async fn test_rename_navigation() {
     let mut app = test_app_with_entry("test.txt", false, &std::env::temp_dir()).await;
     handle_init_rename(&mut app);
     // Original name is test.txt, stem is test (len 4), cursor should be at 4
-    assert_eq!(app.popups.rename.cursor_position, 4);
+    assert_eq!(app.popups.rename.new_name.cursor(), 4);
 
     handle_rename_event(KeyCode::Home, Modifiers::NONE, &mut app).await;
-    assert_eq!(app.popups.rename.cursor_position, 0);
+    assert_eq!(app.popups.rename.new_name.cursor(), 0);
 
     handle_rename_event(KeyCode::End, Modifiers::NONE, &mut app).await;
-    assert_eq!(app.popups.rename.cursor_position, 8); // test.txt len
+    assert_eq!(app.popups.rename.new_name.cursor(), 8); // test.txt len
 
     handle_rename_event(KeyCode::Left, Modifiers::NONE, &mut app).await;
-    assert_eq!(app.popups.rename.cursor_position, 7);
+    assert_eq!(app.popups.rename.new_name.cursor(), 7);
 
     handle_rename_event(KeyCode::Delete, Modifiers::NONE, &mut app).await; // delete last 't'
-    assert_eq!(app.popups.rename.new_name, "test.tx");
+    assert_eq!(app.popups.rename.new_name.text(), "test.tx");
 }
 
 // A provider
@@ -225,8 +228,7 @@ async fn test_rename_confirmed_overwrite_replaces_existing() {
         .build();
 
     handle_init_rename(&mut app);
-    app.popups.rename.new_name = "file2.txt".to_string();
-    app.popups.rename.cursor_position = 9;
+    app.popups.rename.new_name = TextEditState::with_text("file2.txt");
 
     handle_rename_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
     assert!(app.popups.rename.show_overwrite_confirm);
@@ -259,8 +261,7 @@ async fn test_rename_overwrite_flow() {
     handle_init_rename(&mut app);
 
     // Rename file1 to file2
-    app.popups.rename.new_name = "file2.txt".to_string();
-    app.popups.rename.cursor_position = 9;
+    app.popups.rename.new_name = TextEditState::with_text("file2.txt");
 
     handle_rename_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
     assert!(app.popups.rename.show_overwrite_confirm);
@@ -278,8 +279,11 @@ async fn test_init_rename_cursor_is_char_index_without_extension() {
     handle_init_rename(&mut app);
 
     let popup = &app.popups.rename;
-    assert_eq!(popup.new_name, "héllo");
-    assert_eq!(popup.cursor_position, popup.new_name.chars().count());
+    assert_eq!(popup.new_name.text(), "héllo");
+    assert_eq!(
+        popup.new_name.cursor(),
+        popup.new_name.text().chars().count()
+    );
 }
 
 #[tokio::test]
@@ -289,8 +293,8 @@ async fn test_init_rename_cursor_before_multibyte_extension() {
     handle_init_rename(&mut app);
 
     let popup = &app.popups.rename;
-    assert_eq!(popup.cursor_position, 3);
-    assert!(popup.cursor_position <= popup.new_name.chars().count());
+    assert_eq!(popup.new_name.cursor(), 3);
+    assert!(popup.new_name.cursor() <= popup.new_name.text().chars().count());
 }
 
 #[tokio::test]
@@ -305,8 +309,11 @@ async fn test_rename_typing_stays_at_cursor_after_multibyte_init() {
     }
 
     let popup = &app.popups.rename;
-    assert_eq!(popup.new_name, "hélloabc");
-    assert_eq!(popup.cursor_position, popup.new_name.chars().count());
+    assert_eq!(popup.new_name.text(), "hélloabc");
+    assert_eq!(
+        popup.new_name.cursor(),
+        popup.new_name.text().chars().count()
+    );
 }
 
 #[tokio::test]
@@ -318,16 +325,16 @@ async fn test_rename_backspace_after_multibyte_init() {
     handle_rename_event(KeyCode::Backspace, Modifiers::NONE, &mut app).await;
 
     let popup = &app.popups.rename;
-    assert_eq!(popup.new_name, "hél");
-    assert_eq!(popup.cursor_position, 3);
+    assert_eq!(popup.new_name.text(), "hél");
+    assert_eq!(popup.new_name.cursor(), 3);
 }
 
 #[tokio::test]
 async fn test_rename_edit_at_stem_keeps_extension() {
     let mut app = test_app_with_entry("héllo.txt", false, &std::env::temp_dir()).await;
     handle_init_rename(&mut app);
-    assert_eq!(app.popups.rename.cursor_position, 5);
+    assert_eq!(app.popups.rename.new_name.cursor(), 5);
 
     handle_rename_event(KeyCode::Char('X'), Modifiers::NONE, &mut app).await;
-    assert_eq!(app.popups.rename.new_name, "hélloX.txt");
+    assert_eq!(app.popups.rename.new_name.text(), "hélloX.txt");
 }

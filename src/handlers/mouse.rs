@@ -143,6 +143,114 @@ pub(crate) async fn handle_ssh_password_popup_mouse(
     }
 }
 
+/// Routes a mouse event to the shared input-field hit-testing of the five
+/// [`crate::ui::text_edit::TextEditState`] popups (Create File, Create
+/// Directory, Rename, Rename Tab and Copy/Move). A left click inside the field
+/// sets the caret (or selects a word on double-click) and starts a selection
+/// drag; a left drag extends the selection.
+///
+/// Returns whether the event was consumed. Clicks outside the field fall
+/// through (via `false`) so the popup's own buttons still run — notably
+/// Rename's overwrite confirmation.
+fn route_input_popup_mouse(
+    app: &mut AppState,
+    kind: PopupKind,
+    event: MouseEvent,
+    is_double_click: bool,
+) -> bool {
+    let (popup_width, state) = match kind {
+        PopupKind::CreateFile => (60, &mut app.popups.create_file.input_value),
+        PopupKind::CreateDirectory => (60, &mut app.popups.create_directory.new_name),
+        PopupKind::Rename => {
+            // The overwrite confirmation is a modal button row; leave its
+            // clicks to the shared button hit-test.
+            if app.popups.rename.show_overwrite_confirm {
+                return false;
+            }
+            (60, &mut app.popups.rename.new_name)
+        }
+        PopupKind::RenameTab => (60, &mut app.popups.rename_tab.new_name),
+        PopupKind::CopyMove => (76, &mut app.popups.copy_move.destination_input),
+        _ => return false,
+    };
+
+    let area = crate::ui::ui_utils::input_popup_text_area(popup_width, true, app.layout.screen);
+    let column = usize::from(event.column.saturating_sub(area.x));
+    let width = area.width as usize;
+
+    match event.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            if !is_in_rect((event.column, event.row), area) {
+                return false;
+            }
+            if is_double_click {
+                state.select_word_at(column, width);
+            } else {
+                let pos = state.cursor_from_column(column, width);
+                state.set_cursor(pos);
+            }
+            app.mouse.active_drag = Some(DragTarget::InputFieldSelection);
+            true
+        }
+        MouseEventKind::Drag(MouseButton::Left) => {
+            let pos = state.cursor_from_column(column, width);
+            state.extend_selection(pos);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Mouse handler for the create-file popup's text field.
+#[allow(clippy::unused_async)] // uniform handler signature, awaited by the registry
+pub(crate) async fn handle_create_file_popup_mouse(
+    app: &mut AppState,
+    event: MouseEvent,
+    is_double_click: bool,
+) -> bool {
+    route_input_popup_mouse(app, PopupKind::CreateFile, event, is_double_click)
+}
+
+/// Mouse handler for the create-directory popup's text field.
+#[allow(clippy::unused_async)] // uniform handler signature, awaited by the registry
+pub(crate) async fn handle_create_directory_popup_mouse(
+    app: &mut AppState,
+    event: MouseEvent,
+    is_double_click: bool,
+) -> bool {
+    route_input_popup_mouse(app, PopupKind::CreateDirectory, event, is_double_click)
+}
+
+/// Mouse handler for the rename popup's text field.
+#[allow(clippy::unused_async)] // uniform handler signature, awaited by the registry
+pub(crate) async fn handle_rename_popup_mouse(
+    app: &mut AppState,
+    event: MouseEvent,
+    is_double_click: bool,
+) -> bool {
+    route_input_popup_mouse(app, PopupKind::Rename, event, is_double_click)
+}
+
+/// Mouse handler for the rename-tab popup's text field.
+#[allow(clippy::unused_async)] // uniform handler signature, awaited by the registry
+pub(crate) async fn handle_rename_tab_popup_mouse(
+    app: &mut AppState,
+    event: MouseEvent,
+    is_double_click: bool,
+) -> bool {
+    route_input_popup_mouse(app, PopupKind::RenameTab, event, is_double_click)
+}
+
+/// Mouse handler for the copy/move popup's text field.
+#[allow(clippy::unused_async)] // uniform handler signature, awaited by the registry
+pub(crate) async fn handle_copy_move_popup_mouse(
+    app: &mut AppState,
+    event: MouseEvent,
+    is_double_click: bool,
+) -> bool {
+    route_input_popup_mouse(app, PopupKind::CopyMove, event, is_double_click)
+}
+
 /// Mouse handler for the bookmark popup: clicks select a row (or a confirmation
 /// button), and the wheel moves the selection.
 pub(crate) async fn handle_bookmark_popup_mouse(
@@ -234,7 +342,10 @@ async fn handle_popup_mouse(app: &mut AppState, event: MouseEvent, is_double_cli
             handle_popup_up(app, event.column, event.row).await;
         }
         MouseEventKind::Drag(MouseButton::Left) if app.mouse.active_drag.is_some() => {
-            if app.mouse.active_drag == Some(DragTarget::SshFieldSelection) {
+            if matches!(
+                app.mouse.active_drag,
+                Some(DragTarget::SshFieldSelection | DragTarget::InputFieldSelection)
+            ) {
                 app.route_popup_mouse(event, is_double_click).await;
             } else {
                 update_drag_scroll(app, event.column, event.row).await;
@@ -1011,7 +1122,8 @@ pub async fn update_drag_scroll(app: &mut AppState, _x: u16, y: u16) {
         }
         crate::app::DragTarget::FileViewerSelection
         | crate::app::DragTarget::FileViewerPan
-        | crate::app::DragTarget::SshFieldSelection => {
+        | crate::app::DragTarget::SshFieldSelection
+        | crate::app::DragTarget::InputFieldSelection => {
             // intentional: these drags are handled elsewhere, not in scroll
         }
     }

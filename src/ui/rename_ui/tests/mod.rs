@@ -1,5 +1,6 @@
 use super::*;
 use crate::theme::catppuccin_macchiato;
+use crate::ui::text_edit::TextEditState;
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use std::path::PathBuf;
@@ -11,11 +12,12 @@ fn make_state(
     cursor: usize,
     err: Option<&str>,
 ) -> RenameState {
+    let mut new_name = TextEditState::with_text(name);
+    new_name.set_cursor(cursor);
     RenameState {
         is_visible: visible,
         show_overwrite_confirm: overwrite,
-        new_name: name.to_string(),
-        cursor_position: cursor,
+        new_name,
         original_name: String::from("original.txt"),
         parent_dir: PathBuf::from("/tmp"),
         is_dir: false,

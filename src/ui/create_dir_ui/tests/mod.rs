@@ -1,4 +1,5 @@
 use super::*;
+use crate::ui::text_edit::TextEditState;
 use ratatui::backend::TestBackend;
 
 #[test]
@@ -7,10 +8,11 @@ fn test_draw_create_dir_popup_basic() {
     let mut terminal = ratatui::Terminal::new(backend).unwrap();
     terminal
         .draw(|f| {
+            let mut new_name = TextEditState::with_text("foo");
+            new_name.set_cursor(3);
             let state = CreateDirectoryState {
                 is_visible: true,
-                new_name: "foo".to_string(),
-                cursor_position: 3,
+                new_name,
                 error: None,
             };
             let palette = crate::theme::default_theme();
@@ -25,10 +27,12 @@ fn test_draw_create_dir_popup_error() {
     let mut terminal = ratatui::Terminal::new(backend).unwrap();
     terminal
         .draw(|f| {
+            let mut new_name =
+                TextEditState::with_text("folder_with_really_long_name_to_test_scrolling");
+            new_name.set_cursor(34);
             let state = CreateDirectoryState {
                 is_visible: true,
-                new_name: "folder_with_really_long_name_to_test_scrolling".to_string(),
-                cursor_position: 34,
+                new_name,
                 error: Some("Path already exists!".to_string()),
             };
             let palette = crate::theme::default_theme();
@@ -45,8 +49,7 @@ fn test_draw_create_dir_popup_invisible() {
         .draw(|f| {
             let state = CreateDirectoryState {
                 is_visible: false,
-                new_name: String::new(),
-                cursor_position: 0,
+                new_name: TextEditState::new(),
                 error: None,
             };
             let palette = crate::theme::default_theme();

@@ -1,5 +1,4 @@
 use crate::app::AppState;
-use crate::handlers::input_utils::handle_text_input;
 use termina::event::{KeyCode, Modifiers};
 
 pub fn handle_init_rename_tab(app: &mut AppState) {
@@ -18,7 +17,7 @@ pub fn handle_rename_tab_event(code: KeyCode, modifiers: Modifiers, app: &mut Ap
             app.popups.reset_popup(crate::app::PopupKind::RenameTab);
         }
         KeyCode::Enter => {
-            let new_name = app.popups.rename_tab.new_name.trim();
+            let new_name = app.popups.rename_tab.new_name.text().trim();
             if new_name.is_empty() {
                 app.active_tab_mut().custom_title = None;
             } else {
@@ -27,13 +26,11 @@ pub fn handle_rename_tab_event(code: KeyCode, modifiers: Modifiers, app: &mut Ap
             app.popups.reset_popup(crate::app::PopupKind::RenameTab);
         }
         _ => {
-            handle_text_input(
-                code,
-                modifiers,
-                &mut app.popups.rename_tab.new_name,
-                &mut app.popups.rename_tab.cursor_position,
-                false,
-            );
+            let _ = app
+                .popups
+                .rename_tab
+                .new_name
+                .handle_key(code, modifiers, false);
         }
     }
     false

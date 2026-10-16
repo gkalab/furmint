@@ -1,15 +1,17 @@
 use super::*;
 use crate::state::CreateFileState;
 use crate::theme::catppuccin_macchiato;
+use crate::ui::text_edit::TextEditState;
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use std::path::PathBuf;
 
 fn setup_default_state() -> CreateFileState {
+    let mut input_value = TextEditState::with_text("test.txt");
+    input_value.set_cursor(4);
     CreateFileState {
         is_visible: true,
-        input_value: "test.txt".to_string(),
-        cursor_position: 4,
+        input_value,
         error: None,
         parent_dir: PathBuf::from("/tmp"),
     }
@@ -75,8 +77,8 @@ fn handles_cursor_offset_logic() {
     let mut terminal = Terminal::new(backend).unwrap();
     let mut state = setup_default_state();
     // Simulate very long input and a cursor past visible width
-    state.input_value = "a".repeat(100);
-    state.cursor_position = 95;
+    state.input_value = TextEditState::with_text("a".repeat(100));
+    state.input_value.set_cursor(95);
     let palette = catppuccin_macchiato();
     terminal
         .draw(|f| {

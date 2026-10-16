@@ -181,8 +181,10 @@ pub fn draw_viewer_search_popup(
         f,
         &crate::ui::ui_utils::InputPopupOptions {
             title: Some("Search"),
-            input_value: &state.query,
-            cursor_position: state.cursor_position,
+            input: crate::ui::ui_utils::InputField::Plain {
+                value: &state.query,
+                cursor: state.cursor_position,
+            },
             error: state.error.as_deref(),
             placeholder: "Enter regex...",
             width: 60,

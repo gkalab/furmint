@@ -226,25 +226,30 @@ declare_popups! {
             crate::handlers::popup_quit::handle_quit_popup_event(code, app)
         },
     Rename: rename: RenameState =>
-        |app, code, modifiers| crate::handlers::popup_rename::handle_rename_event(code, modifiers, app),
+        |app, code, modifiers| crate::handlers::popup_rename::handle_rename_event(code, modifiers, app);
+        mouse = crate::handlers::mouse::handle_rename_popup_mouse,
     RenameTab: rename_tab: RenameTabState =>
         |app, code, modifiers| async move {
             crate::handlers::popup_rename_tab::handle_rename_tab_event(code, modifiers, app)
-        },
+        };
+        mouse = crate::handlers::mouse::handle_rename_tab_popup_mouse,
     ViewerSearch: viewer_search: FileViewerSearchState =>
         |app, code, modifiers| async move {
             crate::handlers::file_viewer::handle_viewer_search_event(code, modifiers, app)
         },
     CreateDirectory: create_directory: CreateDirectoryState =>
-        |app, code, modifiers| crate::handlers::popup_create::handle_create_directory_event(code, modifiers, app),
+        |app, code, modifiers| crate::handlers::popup_create::handle_create_directory_event(code, modifiers, app);
+        mouse = crate::handlers::mouse::handle_create_directory_popup_mouse,
     CreateFile: create_file: CreateFileState =>
-        |app, code, modifiers| crate::handlers::popup_create::handle_create_file_event(code, modifiers, app),
+        |app, code, modifiers| crate::handlers::popup_create::handle_create_file_event(code, modifiers, app);
+        mouse = crate::handlers::mouse::handle_create_file_popup_mouse,
     Delete: delete: DeleteState =>
         |app, code, _modifiers| async move {
             crate::handlers::popup_delete::handle_delete_event(code, app)
         },
     CopyMove: copy_move: CopyMoveState =>
-        |app, code, modifiers| crate::handlers::popup_copy_move::handle_copy_move_event(code, modifiers, app),
+        |app, code, modifiers| crate::handlers::popup_copy_move::handle_copy_move_event(code, modifiers, app);
+        mouse = crate::handlers::mouse::handle_copy_move_popup_mouse,
     DriveSelect: drive_select: DriveSelectState =>
         |app, code, _modifiers| crate::handlers::popup_drive_select::handle_drive_select_event(code, app),
     Conflict: conflict: ConflictState =>
@@ -299,6 +304,7 @@ pub enum DragTarget {
     FuzzySearchScrollbar,
     SshHistoryScrollbar,
     SshFieldSelection,
+    InputFieldSelection,
 }
 
 #[derive(Debug, Default)]

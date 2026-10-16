@@ -387,7 +387,7 @@ pub async fn handle_copy_move_event(
             app.popups.reset_popup(crate::app::PopupKind::CopyMove);
         }
         KeyCode::Enter => {
-            let dest_input = app.popups.copy_move.destination_input.clone();
+            let dest_input = app.popups.copy_move.destination_input.text().to_string();
             let dest_path = if dest_input.starts_with('~') {
                 if let Some(base_dirs) = directories::BaseDirs::new() {
                     let home = base_dirs.home_dir();
@@ -432,28 +432,27 @@ pub async fn handle_copy_move_event(
                 return false;
             }
 
-            app.popups.copy_move.destination_input = dest_abs.to_string_lossy().to_string();
-            app.popups.copy_move.cursor_position =
-                app.popups.copy_move.destination_input.chars().count();
+            app.popups
+                .copy_move
+                .destination_input
+                .set_text(dest_abs.to_string_lossy().to_string());
 
             spawn_copy_move_task(
                 app,
                 app.active_tab().provider.clone(),
                 app.inactive_tab().provider.clone(),
                 app.popups.copy_move.source_paths.clone(),
-                app.popups.copy_move.destination_input.clone(),
+                app.popups.copy_move.destination_input.text().to_string(),
                 app.popups.copy_move.action,
             );
             app.popups.reset_popup(crate::app::PopupKind::CopyMove);
         }
         _ => {
-            crate::handlers::input_utils::handle_text_input(
-                code,
-                modifiers,
-                &mut app.popups.copy_move.destination_input,
-                &mut app.popups.copy_move.cursor_position,
-                false,
-            );
+            let _ = app
+                .popups
+                .copy_move
+                .destination_input
+                .handle_key(code, modifiers, false);
             // Clear error on any input
             if app.popups.copy_move.error.is_some() {
                 app.popups.copy_move.error = None;

@@ -1,3 +1,4 @@
+use crate::ui::text_edit::TextEditState;
 use std::path::PathBuf;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -10,9 +11,7 @@ pub struct CopyMoveState {
     pub is_visible: bool,
     pub action: CopyMoveAction,
     pub source_paths: Vec<PathBuf>,
-    pub destination_input: String,
-    pub cursor_position: usize,
-    pub input_selected: bool,
+    pub destination_input: TextEditState,
     pub error: Option<String>,
 }
 
@@ -23,9 +22,7 @@ impl CopyMoveState {
             is_visible: false,
             action: CopyMoveAction::Copy,
             source_paths: Vec::new(),
-            destination_input: String::new(),
-            cursor_position: 0,
-            input_selected: false,
+            destination_input: TextEditState::new(),
             error: None,
         }
     }
@@ -39,11 +36,9 @@ impl CopyMoveState {
         action: CopyMoveAction,
         destination: String,
     ) {
-        self.cursor_position = destination.chars().count();
         self.source_paths = source_paths;
         self.action = action;
-        self.destination_input = destination;
-        self.input_selected = false;
+        self.destination_input.set_text(destination);
         self.error = None;
         self.is_visible = true;
     }
@@ -52,8 +47,6 @@ impl CopyMoveState {
         self.is_visible = false;
         self.source_paths.clear();
         self.destination_input.clear();
-        self.cursor_position = 0;
-        self.input_selected = false;
         self.error = None;
     }
 }

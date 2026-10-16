@@ -3,6 +3,7 @@
 use crate::app_state::tabs::Tab;
 use crate::theme::ThemePalette;
 use crate::ui::button_widget::{ButtonVariant, ButtonWidget};
+use crate::ui::text_edit::{TextEditState, TextEditWidget, render_text_edit};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use std::env;
@@ -609,30 +610,26 @@ pub fn message_border_set() -> ratatui::symbols::border::Set<'static> {
     }
 }
 
+/// The input source of an [`InputPopupOptions`] popup.
+///
+/// `Plain` renders a borrowed value and char cursor through the legacy code
+/// path (used by the viewer's search popup, which still owns its `String`).
+/// `Edit` renders a full [`TextEditState`] through [`TextEditWidget`], giving
+/// the popup selection highlighting, horizontal scrolling, a placeholder and
+/// clipboard support.
+pub enum InputField<'a> {
+    /// A borrowed value with a char-index cursor.
+    Plain { value: &'a str, cursor: usize },
+    /// A live editor state.
+    Edit(&'a TextEditState),
+}
+
 pub struct InputPopupOptions<'a> {
     pub title: Option<&'a str>,
-    pub input_value: &'a str,
-    pub cursor_position: usize,
+    pub input: InputField<'a>,
     pub error: Option<&'a str>,
     pub placeholder: &'a str,
     pub width: u16,
-}
-
-pub struct InputLayoutContext {
-    pub chunk: Rect,
-    pub layout_rect: Rect,
-    pub has_title: bool,
-}
-
-impl InputLayoutContext {
-    #[must_use]
-    pub fn new(chunk: Rect, layout_rect: Rect, has_title: bool) -> Self {
-        Self {
-            chunk,
-            layout_rect,
-            has_title,
-        }
-    }
 }
 
 #[allow(clippy::struct_field_names)] // the `_color` suffix is the point
@@ -640,16 +637,61 @@ pub struct InputStyleContext {
     pub text_color: Color,
     pub placeholder_color: Color,
     pub field_bg_color: Color,
+    pub selection_style: Style,
 }
 
 impl InputStyleContext {
     #[must_use]
-    pub fn new(text_color: Color, placeholder_color: Color, field_bg_color: Color) -> Self {
+    pub fn new(
+        text_color: Color,
+        placeholder_color: Color,
+        field_bg_color: Color,
+        selection_style: Style,
+    ) -> Self {
         Self {
             text_color,
             placeholder_color,
             field_bg_color,
+            selection_style,
         }
+    }
+}
+
+/// Style for a selected run of text in an input field, matching the list
+/// selection look (shared with the SSH popup).
+fn selection_style(palette: &ThemePalette, text_color: Color) -> Style {
+    let background = Color::Rgb(palette.surface2.r, palette.surface2.g, palette.surface2.b);
+    let foreground = if palette.is_dark {
+        text_color
+    } else {
+        Color::Rgb(palette.base.r, palette.base.g, palette.base.b)
+    };
+    Style::default().fg(foreground).bg(background)
+}
+
+/// The clickable text row of an input popup, in screen coordinates.
+///
+/// Objectively reproduces the layout of [`draw_input_popup`] for a popup of
+/// `popup_width` (with or without a title), so rendering and mouse hit-testing
+/// can never disagree about where the field is.
+#[must_use]
+pub fn input_popup_text_area(popup_width: u16, has_title: bool, screen: Rect) -> Rect {
+    let popup_height = if has_title { 7 } else { 5 };
+    let popup_area = centered_rect_absolute(popup_width, popup_height, screen);
+
+    let chunk = Layout::default()
+        .direction(Direction::Vertical)
+        .horizontal_margin(2)
+        .vertical_margin(1)
+        .constraints([Constraint::Length(if has_title { 5 } else { 3 })])
+        .split(popup_area)[0];
+
+    let input_row = if has_title { 3 } else { 1 };
+    Rect {
+        x: chunk.x.saturating_add(2),
+        y: chunk.y.saturating_add(input_row),
+        width: chunk.width.saturating_sub(4),
+        height: 1,
     }
 }
 
@@ -745,10 +787,14 @@ pub fn draw_input_popup(
         f.render_widget(title_paragraph, layout[1]);
     }
 
-    let input_index = if has_title { 3 } else { 1 };
-    let input_layout = InputLayoutContext::new(chunks[0], layout[input_index], has_title);
-    let style = InputStyleContext::new(text_color, placeholder_color, field_bg_color);
-    draw_input_text_and_cursor(f, options, &input_layout, &style);
+    let input_area = input_popup_text_area(popup_width, has_title, f.area());
+    let style = InputStyleContext::new(
+        text_color,
+        placeholder_color,
+        field_bg_color,
+        selection_style(palette, text_color),
+    );
+    draw_input_text_and_cursor(f, &options.input, options.placeholder, input_area, &style);
 
     // Error
     let error_index = if has_title { 4 } else { 2 };
@@ -854,51 +900,60 @@ pub fn draw_confirmation_popup(
 
 fn draw_input_text_and_cursor(
     f: &mut ratatui::Frame,
-    options: &InputPopupOptions,
-    layout: &InputLayoutContext,
+    input: &InputField<'_>,
+    placeholder: &str,
+    text_area: Rect,
     style: &InputStyleContext,
 ) {
-    let input_width = (layout.chunk.width as usize).saturating_sub(4);
-    let cursor_pos = options.cursor_position;
+    match input {
+        InputField::Plain { value, cursor } => {
+            let input_width = text_area.width as usize;
+            let cursor_pos = *cursor;
 
-    let scroll_offset = if cursor_pos < input_width {
-        0
-    } else {
-        cursor_pos - input_width + 1
-    };
+            let scroll_offset = if cursor_pos < input_width {
+                0
+            } else {
+                cursor_pos - input_width + 1
+            };
 
-    let display_text = if options.input_value.is_empty() {
-        Span::styled(
-            options.placeholder,
-            Style::default().fg(style.placeholder_color),
-        )
-    } else {
-        let text: String = options
-            .input_value
-            .chars()
-            .skip(scroll_offset)
-            .take(input_width)
-            .collect();
-        Span::styled(
-            text,
-            Style::default()
-                .fg(style.text_color)
-                .bg(style.field_bg_color),
-        )
-    };
+            let display_text = if value.is_empty() {
+                Span::styled(placeholder, Style::default().fg(style.placeholder_color))
+            } else {
+                let text: String = value
+                    .chars()
+                    .skip(scroll_offset)
+                    .take(input_width)
+                    .collect();
+                Span::styled(
+                    text,
+                    Style::default()
+                        .fg(style.text_color)
+                        .bg(style.field_bg_color),
+                )
+            };
 
-    let paragraph = Paragraph::new(display_text).style(Style::default().bg(style.field_bg_color));
+            let paragraph =
+                Paragraph::new(display_text).style(Style::default().bg(style.field_bg_color));
 
-    f.render_widget(paragraph, layout.layout_rect);
+            f.render_widget(paragraph, text_area);
 
-    // Cursor
-    let cursor_visual_offset = cursor_pos.saturating_sub(scroll_offset);
-    if cursor_visual_offset < input_width {
-        let y_offset = if layout.has_title { 3 } else { 1 };
-        f.set_cursor_position(Position::new(
-            layout.chunk.x + 2 + u16::try_from(cursor_visual_offset).unwrap_or(u16::MAX),
-            layout.chunk.y + y_offset,
-        ));
+            // Cursor
+            let cursor_visual_offset = cursor_pos.saturating_sub(scroll_offset);
+            if cursor_visual_offset < input_width {
+                f.set_cursor_position(Position::new(
+                    text_area.x + u16::try_from(cursor_visual_offset).unwrap_or(u16::MAX),
+                    text_area.y,
+                ));
+            }
+        }
+        InputField::Edit(state) => {
+            let widget = TextEditWidget::new(state, placeholder, true)
+                .text_color(style.text_color)
+                .placeholder_color(style.placeholder_color)
+                .selection_style(style.selection_style)
+                .bg(style.field_bg_color);
+            render_text_edit(f, widget, text_area);
+        }
     }
 }
 

@@ -1,9 +1,9 @@
+use crate::ui::text_edit::TextEditState;
 use std::path::PathBuf;
 
 pub struct CreateFileState {
     pub is_visible: bool,
-    pub input_value: String,
-    pub cursor_position: usize,
+    pub input_value: TextEditState,
     pub error: Option<String>,
     pub parent_dir: PathBuf,
 }
@@ -13,8 +13,7 @@ impl CreateFileState {
     pub fn new() -> Self {
         Self {
             is_visible: false,
-            input_value: String::new(),
-            cursor_position: 0,
+            input_value: TextEditState::new(),
             error: None,
             parent_dir: PathBuf::new(),
         }
@@ -25,7 +24,6 @@ impl CreateFileState {
     /// populating it.
     pub fn show(&mut self, parent_dir: PathBuf) {
         self.input_value.clear();
-        self.cursor_position = 0;
         self.error = None;
         self.parent_dir = parent_dir;
         self.is_visible = true;
@@ -34,7 +32,6 @@ impl CreateFileState {
     pub fn reset(&mut self) {
         self.is_visible = false;
         self.input_value.clear();
-        self.cursor_position = 0;
         self.error = None;
         self.parent_dir = PathBuf::new();
     }
@@ -45,3 +42,6 @@ impl Default for CreateFileState {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests;

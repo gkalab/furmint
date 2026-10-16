@@ -1,5 +1,6 @@
 use crate::handlers::popup_rename_tab::{handle_init_rename_tab, handle_rename_tab_event};
 use crate::test_utils::create_test_app;
+use crate::ui::text_edit::TextEditState;
 use termina::event::{KeyCode, Modifiers};
 
 #[test]
@@ -7,10 +8,13 @@ fn test_init_rename_tab_opens_popup() {
     let mut app = create_test_app();
     handle_init_rename_tab(&mut app);
     assert!(app.popups.rename_tab.is_visible);
-    assert_eq!(app.popups.rename_tab.new_name, app.active_tab().title());
     assert_eq!(
-        app.popups.rename_tab.cursor_position,
-        app.popups.rename_tab.new_name.len()
+        app.popups.rename_tab.new_name.text(),
+        app.active_tab().title()
+    );
+    assert_eq!(
+        app.popups.rename_tab.new_name.cursor(),
+        app.popups.rename_tab.new_name.text().chars().count()
     );
 }
 
@@ -43,7 +47,7 @@ fn test_init_rename_tab_marks_popup_visible() {
 fn test_rename_tab_enter_applies_name() {
     let mut app = create_test_app();
     handle_init_rename_tab(&mut app);
-    app.popups.rename_tab.new_name = "New Title".to_string();
+    app.popups.rename_tab.new_name = TextEditState::with_text("New Title");
     handle_rename_tab_event(KeyCode::Enter, Modifiers::NONE, &mut app);
     assert!(!app.popups.rename_tab.is_visible);
     assert_eq!(app.active_tab().custom_title, Some("New Title".to_string()));
@@ -55,7 +59,7 @@ fn test_rename_tab_enter_empty_clears_title() {
     let mut app = create_test_app();
     app.active_tab_mut().custom_title = Some("Old Title".to_string());
     handle_init_rename_tab(&mut app);
-    app.popups.rename_tab.new_name = "   ".to_string();
+    app.popups.rename_tab.new_name = TextEditState::with_text("   ");
     handle_rename_tab_event(KeyCode::Enter, Modifiers::NONE, &mut app);
     assert!(!app.popups.rename_tab.is_visible);
     assert_eq!(app.active_tab().custom_title, None);

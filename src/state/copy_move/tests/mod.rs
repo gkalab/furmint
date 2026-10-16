@@ -1,4 +1,5 @@
 use super::*;
+use crate::ui::text_edit::TextEditState;
 
 #[test]
 fn test_copymoveaction_equality() {
@@ -14,36 +15,33 @@ fn test_new_and_default_state() {
     assert!(!s1.is_visible);
     assert_eq!(s1.action, CopyMoveAction::Copy);
     assert_eq!(s1.source_paths.len(), 0);
-    assert_eq!(s1.destination_input, "");
-    assert_eq!(s1.cursor_position, 0);
-    assert!(!s1.input_selected);
+    assert_eq!(s1.destination_input.text(), "");
+    assert_eq!(s1.destination_input.cursor(), 0);
     assert_eq!(s1.error, None);
     // Default state matches new
     assert_eq!(s1.is_visible, s2.is_visible);
     assert_eq!(s1.action, s2.action);
     assert_eq!(s1.source_paths, s2.source_paths);
-    assert_eq!(s1.destination_input, s2.destination_input);
-    assert_eq!(s1.cursor_position, s2.cursor_position);
-    assert_eq!(s1.input_selected, s2.input_selected);
+    assert_eq!(s1.destination_input.text(), s2.destination_input.text());
+    assert_eq!(s1.destination_input.cursor(), s2.destination_input.cursor());
     assert_eq!(s1.error, s2.error);
 }
 
 #[test]
 fn test_reset_state() {
+    let mut destination_input = TextEditState::with_text("/baz");
+    destination_input.set_cursor(2);
     let mut st = CopyMoveState {
         is_visible: true,
         action: CopyMoveAction::Move,
         source_paths: vec![PathBuf::from("/foo"), PathBuf::from("/bar")],
-        destination_input: "/baz".into(),
-        cursor_position: 42,
-        input_selected: true,
+        destination_input,
         error: Some("err".into()),
     };
     st.reset();
     assert!(!st.is_visible);
     assert_eq!(st.source_paths.len(), 0);
-    assert_eq!(st.destination_input, "");
-    assert_eq!(st.cursor_position, 0);
-    assert!(!st.input_selected);
+    assert_eq!(st.destination_input.text(), "");
+    assert_eq!(st.destination_input.cursor(), 0);
     assert_eq!(st.error, None);
 }
