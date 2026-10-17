@@ -105,6 +105,115 @@ async fn test_mouse_click_on_panel_updates_viewer() {
     assert_eq!(app.file_viewer.path, PathBuf::from("/test/file2.txt"));
 }
 
+/// An app whose viewer shows a small directory listing with icons enabled, so
+/// clicks land on rows that render an icon before their name.
+fn setup_viewer_listing_app() -> AppState {
+    let mut app = AppState::test_default();
+    app.file_viewer.is_visible = true;
+    app.file_viewer.focused = true;
+    app.global.icons = Some(true);
+    app.global.borders = Some(false);
+    app.layout.viewer.area = Rect::new(0, 0, 40, 20);
+    app.file_viewer.text.content = vec!["/tmp/dir".to_string(), "alpha.txt".to_string()];
+    app.file_viewer.text.directory_rows = Some(vec![
+        crate::state::DirectoryListingRow {
+            is_header: true,
+            entry: listing_entry("/tmp/dir", true, false),
+            hidden: false,
+            executable: false,
+            link_target: None,
+        },
+        crate::state::DirectoryListingRow {
+            is_header: false,
+            entry: listing_entry("alpha.txt", false, false),
+            hidden: false,
+            executable: false,
+            link_target: None,
+        },
+    ]);
+    app
+}
+
+/// A bare entry for a viewer listing row, with the metadata fields the draw pass
+/// does not read left unset.
+fn listing_entry(name: &str, is_dir: bool, is_symlink: bool) -> FileEntry {
+    FileEntry {
+        name: name.to_string(),
+        is_dir,
+        is_symlink,
+        size: None,
+        modified: None,
+        attributes: String::new(),
+        selected: false,
+    }
+}
+
+fn mouse_event(kind: MouseEventKind, column: u16, row: u16) -> MouseEvent {
+    MouseEvent {
+        kind,
+        column,
+        row,
+        modifiers: Modifiers::empty(),
+    }
+}
+
+/// A click on a directory-listing entry maps the rendered column (icon included)
+/// back to the matching character in the entry name.
+#[tokio::test]
+async fn test_viewer_listing_click_maps_through_icon_offset() {
+    let mut app = setup_viewer_listing_app();
+
+    // Row 1 renders as "<icon> alpha.txt"; column 3 is the name's second
+    // character, i.e. content index 1.
+    handle_mouse_event(
+        &mut app,
+        mouse_event(MouseEventKind::Down(MouseButton::Left), 3, 1),
+    )
+    .await;
+
+    assert_eq!(app.file_viewer.text.selection, Some(((1, 1), (1, 1))));
+}
+
+/// Dragging across a listing line extends the selection in content coordinates,
+/// ignoring the icon prefix.
+#[tokio::test]
+async fn test_viewer_listing_drag_selects_range_with_icons() {
+    let mut app = setup_viewer_listing_app();
+
+    handle_mouse_event(
+        &mut app,
+        mouse_event(MouseEventKind::Down(MouseButton::Left), 3, 1),
+    )
+    .await;
+    handle_mouse_event(
+        &mut app,
+        mouse_event(MouseEventKind::Drag(MouseButton::Left), 9, 1),
+    )
+    .await;
+
+    assert_eq!(app.file_viewer.text.selection, Some(((1, 1), (1, 7))));
+}
+
+/// A double click on a listing entry selects the word under the cursor, again
+/// compensating for the icon.
+#[tokio::test]
+async fn test_viewer_listing_double_click_selects_word_with_icons() {
+    let mut app = setup_viewer_listing_app();
+
+    handle_mouse_event(
+        &mut app,
+        mouse_event(MouseEventKind::Down(MouseButton::Left), 3, 1),
+    )
+    .await;
+    handle_mouse_event(
+        &mut app,
+        mouse_event(MouseEventKind::Down(MouseButton::Left), 3, 1),
+    )
+    .await;
+
+    assert_eq!(app.file_viewer.text.selection, Some(((1, 0), (1, 5))));
+}
+
 #[tokio::test]
 async fn test_mouse_scroll_updates_viewer() {
     let mut app = setup_test_app();

@@ -115,49 +115,86 @@ fn calculate_column_widths(panel: &Tab, area: Rect) -> ColumnWidths {
 
 /// Get style for a file entry based on its type.
 ///
-/// Symlinks keep their own cyan regardless of the target. Everything else that
-/// is hidden (a leading dot on a Unix filesystem, `FILE_ATTRIBUTE_HIDDEN` on a
-/// local Windows one) is de-emphasized with the muted `subtext` color, whether
-/// it is a file or a directory. `unix_attributes` is
-/// [`crate::fs::utils::has_unix_attributes`] for the browsed filesystem, so a
-/// remote tab mutes the remote host's dotfiles from any platform.
+/// `unix_attributes` is [`crate::fs::utils::has_unix_attributes`] for the
+/// browsed filesystem, so a remote tab mutes the remote host's dotfiles from
+/// any platform.
 fn style_for_entry(
     entry: &FileEntry,
     current_dir: &Path,
     palette: &ThemePalette,
     unix_attributes: bool,
 ) -> Style {
+    entry_foreground(
+        entry.is_dir,
+        entry.is_symlink,
+        entry.is_hidden(unix_attributes),
+        crate::fs::utils::is_executable(&current_dir.join(&entry.name), entry),
+        palette,
+    )
+}
+
+/// Foreground color for a listing entry whose type flags the caller has already
+/// resolved. Shared with the viewer's directory preview so both listings color
+/// entries identically.
+///
+/// Symlinks keep their own cyan regardless of the target. Everything else that
+/// is hidden (a leading dot on a Unix filesystem, `FILE_ATTRIBUTE_HIDDEN` on a
+/// local Windows one) is de-emphasized with the muted `subtext` color, whether
+/// it is a file or a directory.
+#[allow(clippy::fn_params_excessive_bools)] // the flags are independent entry-type attributes
+pub(crate) fn entry_foreground(
+    is_dir: bool,
+    is_symlink: bool,
+    hidden: bool,
+    executable: bool,
+    palette: &ThemePalette,
+) -> Style {
     let rgb = |c: Rgb| Color::Rgb(c.r, c.g, c.b);
-    if entry.is_symlink {
+    if is_symlink {
         return Style::default().fg(rgb(palette.cyan));
     }
-    if crate::fs::utils::is_hidden(&entry.name, &entry.attributes, unix_attributes) {
+    if hidden {
         return Style::default().fg(rgb(palette.subtext));
     }
-    if entry.is_dir {
+    if is_dir {
         return Style::default().fg(rgb(palette.blue));
     }
-    if crate::fs::utils::is_executable(&current_dir.join(&entry.name), entry) {
+    if executable {
         return Style::default().fg(rgb(palette.green));
     }
     Style::default().fg(rgb(palette.text))
 }
 
 /// Style of the icon drawn in front of an entry name.
-///
-/// Only hidden directories deviate from their name color: their icon keeps the
-/// standard directory blue so the row still reads as a directory, while the
-/// muted name carries the "hidden" signal. Every other entry matches its name.
 fn style_for_icon(
     entry: &FileEntry,
     palette: &ThemePalette,
     name_style: Style,
     unix_attributes: bool,
 ) -> Style {
-    if entry.is_dir
-        && !entry.is_symlink
-        && crate::fs::utils::is_hidden(&entry.name, &entry.attributes, unix_attributes)
-    {
+    entry_icon_foreground(
+        entry.is_dir,
+        entry.is_symlink,
+        entry.is_hidden(unix_attributes),
+        name_style,
+        palette,
+    )
+}
+
+/// Style of the icon drawn in front of an entry name, given type flags the
+/// caller has already resolved.
+///
+/// Only hidden directories deviate from their name color: their icon keeps the
+/// standard directory blue so the row still reads as a directory, while the
+/// muted name carries the "hidden" signal. Every other entry matches its name.
+pub(crate) fn entry_icon_foreground(
+    is_dir: bool,
+    is_symlink: bool,
+    hidden: bool,
+    name_style: Style,
+    palette: &ThemePalette,
+) -> Style {
+    if is_dir && !is_symlink && hidden {
         return Style::default().fg(Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b));
     }
     name_style

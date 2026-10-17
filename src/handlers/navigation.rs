@@ -217,8 +217,15 @@ pub async fn update_viewer_content(app: &mut AppState) {
     let provider = panel.provider.clone();
     let size = entry.size;
     let max_file_size = 10 * 1024 * 1024;
+    let show_hidden = app.show_hidden;
+    // The parent-directory entry is a navigation shortcut, not a directory to
+    // preview: show its label rather than the parent's full listing.
+    if entry.name == ".." {
+        app.file_viewer.show_parent_directory(&full_path);
+        return;
+    }
     app.file_viewer
-        .load_content(&full_path, &provider, size, max_file_size)
+        .load_content(&full_path, &provider, size, max_file_size, show_hidden)
         .await;
 }
 

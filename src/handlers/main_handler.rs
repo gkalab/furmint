@@ -152,7 +152,7 @@ async fn handle_global_interceptors(
         .as_ref()
         .is_some_and(|keys| keys.iter().any(|s| s == shortcut))
     {
-        crate::handlers::toggle_hidden::handle_toggle_hidden(app);
+        crate::handlers::toggle_hidden::handle_toggle_hidden(app).await;
         return Some(false);
     }
 

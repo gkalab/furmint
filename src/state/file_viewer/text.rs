@@ -32,6 +32,10 @@ pub struct TextViewerState {
     pub large_file_reader: Option<crate::large_text::file_reader::FileReader>,
     pub large_file_indexer: Option<crate::large_text::line_indexer::LineIndexer>,
     pub archive_rows: Option<Vec<crate::fs::archive::preview::ArchiveTreeRow>>,
+    /// Rows of the directory preview, aligned index-for-index with `content`
+    /// for every line that is a listing entry. Cloned from this state only by
+    /// the draw pass; `None` for non-directory content.
+    pub directory_rows: Option<Vec<super::DirectoryListingRow>>,
     pub current_search_match: Option<(usize, usize, usize)>, // (line_idx, start_char, end_char)
     /// Unwrapped lines for content that is shown word-wrapped (binary info).
     /// While set, `content` is derived from it by [`Self::rewrap`].
@@ -210,6 +214,7 @@ impl TextViewerState {
         self.search_regex = None;
         self.current_search_match = None;
         self.archive_rows = None;
+        self.directory_rows = None;
         // Anything the worker still holds belongs to the file being closed, and
         // anything it has already sent would otherwise colour the next one.
         self.highlighted.clear();

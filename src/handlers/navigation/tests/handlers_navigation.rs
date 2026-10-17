@@ -978,3 +978,31 @@ async fn test_update_viewer_content_reads_text_file() {
     update_viewer_content(&mut app).await;
     assert_eq!(app.file_viewer.text.content[0], "Hello, F3!");
 }
+
+/// Selecting `..` is a navigation shortcut, so the viewer names the entry
+/// instead of previewing (and listing) the parent directory.
+#[tokio::test]
+async fn test_update_viewer_content_shows_parent_directory_label() {
+    let mut app = test_app(vec![FileEntry {
+        name: "..".to_string(),
+        is_dir: true,
+        is_symlink: false,
+        size: None,
+        modified: None,
+        attributes: String::new(),
+        selected: false,
+    }]);
+    app.panels.left.active_tab_mut().current_dir = std::path::PathBuf::from("/tmp/sub");
+    app.file_viewer.is_visible = true;
+    update_viewer_content(&mut app).await;
+
+    assert_eq!(
+        app.file_viewer.text.content,
+        vec!["Parent directory".to_string()],
+        "`..` must render as a label, not a listing"
+    );
+    assert!(
+        app.file_viewer.text.directory_rows.is_none(),
+        "the parent directory's entries must not be listed"
+    );
+}

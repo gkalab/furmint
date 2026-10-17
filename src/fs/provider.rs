@@ -429,6 +429,17 @@ pub trait FileSystemProvider: Send + Sync {
     /// Returns true if this is the local filesystem.
     fn is_local(&self) -> bool;
 
+    /// Whether this filesystem's entries carry Unix-style attributes (a leading
+    /// dot hides a name, `drwxr-xr-x` permissions) rather than the Windows flag
+    /// format.
+    ///
+    /// This is [`crate::fs::utils::has_unix_attributes`] applied to
+    /// [`Self::is_local`]; the single place the hidden-name and permission rules
+    /// are keyed off the filesystem.
+    fn unix_attributes(&self) -> bool {
+        crate::fs::utils::has_unix_attributes(self.is_local())
+    }
+
     /// Returns true if this is an archive filesystem (zip, tar, etc.)
     fn is_archive(&self) -> bool {
         false
@@ -444,6 +455,16 @@ pub trait FileSystemProvider: Send + Sync {
 
     /// Check if path is a directory.
     async fn is_dir(&self, path: &Path) -> bool;
+
+    /// Read the target a symbolic link points at, without following it.
+    ///
+    /// Returns `None` when `path` is not a symbolic link, when the link cannot
+    /// be read, or when the backend does not support links (the default).
+    /// Backends that do override this so callers can annotate a link with its
+    /// destination (`-> target`).
+    async fn read_link(&self, _path: &Path) -> Option<PathBuf> {
+        None
+    }
 
     /// Check existence and directory-ness in a single stat-like call.
     ///

@@ -131,6 +131,16 @@ pub struct FileEntry {
 }
 
 impl FileEntry {
+    /// Whether the entry is hidden on the filesystem it was listed from.
+    ///
+    /// `unix_attributes` is [`has_unix_attributes`] for that filesystem (see
+    /// [`crate::fs::provider::FileSystemProvider::unix_attributes`]): a Unix
+    /// filesystem hides dotfiles, a local Windows one uses the attribute flag.
+    #[must_use]
+    pub fn is_hidden(&self, unix_attributes: bool) -> bool {
+        is_hidden(&self.name, &self.attributes, unix_attributes)
+    }
+
     /// Creates a `FileEntry` from a directory entry.
     ///
     /// # Errors

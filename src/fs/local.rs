@@ -277,6 +277,14 @@ impl FileSystemProvider for LocalFs {
             .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
     }
 
+    async fn read_link(&self, path: &Path) -> Option<PathBuf> {
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || std::fs::read_link(&path).ok())
+            .await
+            .ok()
+            .flatten()
+    }
+
     async fn create_dir(&self, path: &Path) -> Result<()> {
         let path = path.to_path_buf();
         tokio::task::spawn_blocking(move || fs_ops::create_directory(&path))

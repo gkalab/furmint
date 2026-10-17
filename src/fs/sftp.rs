@@ -706,6 +706,11 @@ impl FileSystemProvider for SftpFs {
         build_dir_listing(&self.sftp, path).await
     }
 
+    async fn read_link(&self, path: &Path) -> Option<PathBuf> {
+        let p = normalize_sftp_path(path);
+        self.sftp.read_link(p).await.ok().map(PathBuf::from)
+    }
+
     async fn create_dir(&self, path: &Path) -> Result<()> {
         let sftp = &*self.sftp;
         let p = normalize_sftp_path(path);

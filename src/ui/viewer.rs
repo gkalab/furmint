@@ -1,4 +1,4 @@
-use crate::state::{FileViewerSearchState, FileViewerState};
+use crate::state::{DirectoryListingRow, FileViewerSearchState, FileViewerState};
 use crate::theme::ThemePalette;
 use crate::ui::ui_utils::TabScrollbarContext;
 use ratatui::prelude::*;
@@ -236,8 +236,6 @@ fn render_archive_line(
         ctx.palette.overlay0.g,
         ctx.palette.overlay0.b,
     );
-    let dir_color = Color::Rgb(ctx.palette.blue.r, ctx.palette.blue.g, ctx.palette.blue.b);
-    let text_color = Color::Rgb(ctx.palette.text.r, ctx.palette.text.g, ctx.palette.text.b);
     let subtext_color = Color::Rgb(
         ctx.palette.subtext.r,
         ctx.palette.subtext.g,
@@ -278,26 +276,11 @@ fn render_archive_line(
         .into_iter()
         .collect();
 
-    let render_segment = |text: &str, seg_start: usize, style: Style| -> Vec<Span<'static>> {
-        let mut spans: Vec<Span<'static>> = Vec::new();
-        for (pos, ch) in (seg_start..).zip(text.chars()) {
-            let in_range = search_ranges.iter().any(|(s, e)| pos >= *s && pos < *e);
-            let char_style = if in_range {
-                style.fg(search_fg).bg(highlight_bg)
-            } else {
-                style
-            };
-            if let Some(last) = spans.last_mut()
-                && last.style == char_style
-            {
-                let mut new_content = last.content.to_string();
-                new_content.push(ch);
-                last.content = new_content.into();
-            } else {
-                spans.push(Span::styled(ch.to_string(), char_style));
-            }
-        }
-        spans
+    let highlights = LineHighlights {
+        selection: None,
+        search_ranges: &search_ranges,
+        search_fg,
+        search_bg: highlight_bg,
     };
 
     let mut spans = Vec::new();
@@ -305,29 +288,25 @@ fn render_archive_line(
     let prefix_style = Style::default().fg(overlay_color);
     let hidden =
         crate::fs::utils::has_hidden_name(&row.name, crate::fs::utils::has_unix_attributes(false));
-    let name_fg = if hidden {
-        subtext_color
-    } else if row.is_dir {
-        dir_color
-    } else {
-        text_color
-    };
-    let entry_style = Style::default().fg(name_fg);
+    let entry_style =
+        crate::ui::panel::entry_foreground(row.is_dir, false, hidden, false, ctx.palette);
     // Hidden directories keep the standard directory blue on their icon, so the
     // row still reads as a directory while the muted name signals "hidden".
-    let icon_style = if row.is_dir && hidden {
-        Style::default().fg(dir_color)
-    } else {
-        entry_style
-    };
+    let icon_style = crate::ui::panel::entry_icon_foreground(
+        row.is_dir,
+        false,
+        hidden,
+        entry_style,
+        ctx.palette,
+    );
 
-    spans.extend(render_segment(&row.prefix, seg_start, prefix_style));
+    spans.extend(highlights.render(&row.prefix, seg_start, prefix_style));
     seg_start += prefix_chars;
     if !icon.is_empty() {
-        spans.extend(render_segment(&format!("{icon} "), seg_start, icon_style));
+        spans.extend(highlights.render(&format!("{icon} "), seg_start, icon_style));
         seg_start += icon_chars + 1;
     }
-    spans.extend(render_segment(&row.name, seg_start, entry_style));
+    spans.extend(highlights.render(&row.name, seg_start, entry_style));
 
     let left_width = unicode_width::UnicodeWidthStr::width(row.prefix.as_str())
         + unicode_width::UnicodeWidthStr::width(icon)
@@ -343,26 +322,188 @@ fn render_archive_line(
     Line::from(spans)
 }
 
+/// Renders one line of the viewer's directory preview.
+///
+/// Entries are colored with the same rules as a tab listing (see
+/// [`crate::ui::panel::entry_foreground`]); the header line shows the selected
+/// directory's full path and, when it is a symlink, its target.
+fn render_directory_line(ctx: &ViewerLineContext, row: &DirectoryListingRow) -> Line<'static> {
+    let name = &row.entry.name;
+    let is_dir = row.entry.is_dir;
+    let is_symlink = row.entry.is_symlink;
+    // The header is the directory's own path, not an entry, so it keeps the
+    // normal text color instead of the directory blue a listing entry would use.
+    let name_style = if row.is_header {
+        Style::default().fg(Color::Rgb(
+            ctx.palette.text.r,
+            ctx.palette.text.g,
+            ctx.palette.text.b,
+        ))
+    } else {
+        crate::ui::panel::entry_foreground(
+            is_dir,
+            is_symlink,
+            row.hidden,
+            row.executable,
+            ctx.palette,
+        )
+    };
+    let icon_style = crate::ui::panel::entry_icon_foreground(
+        is_dir,
+        is_symlink,
+        row.hidden,
+        name_style,
+        ctx.palette,
+    );
+    let target_style = Style::default().fg(Color::Rgb(
+        ctx.palette.cyan.r,
+        ctx.palette.cyan.g,
+        ctx.palette.cyan.b,
+    ));
+
+    // Only listing entries get an icon; the header is the directory's path.
+    let icon = if ctx.icons_enabled && !row.is_header {
+        crate::icons::get_icon(name, is_dir, is_symlink, row.executable)
+    } else {
+        ""
+    };
+    let icon_chars = icon.chars().count();
+    // The rendered prefix is the authoritative offset the mouse hit-testing also
+    // uses, so both stay in sync.
+    let icon_offset = ctx
+        .viewer
+        .rendered_row_prefix(ctx.line_idx, ctx.icons_enabled);
+
+    let search_ranges: Vec<(usize, usize)> = ctx
+        .viewer
+        .text
+        .current_search_match
+        .filter(|(line, _, _)| *line == ctx.line_idx)
+        .map(|(_, s, e)| (s.saturating_add(icon_offset), e.saturating_add(icon_offset)))
+        .into_iter()
+        .collect();
+
+    // Selection ranges are stored in `content` coordinates; shift them past the
+    // icon to match the rendered line.
+    let selection_range: Option<(usize, usize)> = ctx
+        .normalized_selection
+        .and_then(|((r1, c1), (r2, c2))| selection_for_line(ctx.line_idx, r1, c1, r2, c2))
+        .map(|(s, e)| (s.saturating_add(icon_offset), e.saturating_add(icon_offset)));
+
+    let selection_bg = Color::Rgb(
+        ctx.palette.surface0.r,
+        ctx.palette.surface0.g,
+        ctx.palette.surface0.b,
+    );
+    let highlights = LineHighlights {
+        selection: selection_range.map(|range| (range, selection_bg)),
+        search_ranges: &search_ranges,
+        search_fg: Color::Rgb(ctx.palette.base.r, ctx.palette.base.g, ctx.palette.base.b),
+        search_bg: Color::Rgb(
+            ctx.palette.yellow.r,
+            ctx.palette.yellow.g,
+            ctx.palette.yellow.b,
+        ),
+    };
+
+    let mut spans = Vec::new();
+    let mut seg_start = 0;
+    if !icon.is_empty() {
+        spans.extend(highlights.render(&format!("{icon} "), seg_start, icon_style));
+        seg_start += icon_chars + 1;
+    }
+    spans.extend(highlights.render(name, seg_start, name_style));
+    seg_start += name.chars().count();
+    if let Some(target) = &row.link_target {
+        spans.extend(highlights.render(&format!(" -> {target}"), seg_start, target_style));
+    }
+
+    Line::from(spans)
+}
+
+/// The selected character range (in `content` coordinates) on `line_idx` for a
+/// normalized selection, or `None` when the selection does not touch the line.
+fn selection_for_line(
+    line_idx: usize,
+    r1: usize,
+    c1: usize,
+    r2: usize,
+    c2: usize,
+) -> Option<(usize, usize)> {
+    if line_idx < r1 || line_idx > r2 {
+        None
+    } else if line_idx > r1 && line_idx < r2 {
+        Some((0, usize::MAX))
+    } else if r1 == r2 {
+        Some((c1, c2))
+    } else if line_idx == r1 {
+        Some((c1, usize::MAX))
+    } else {
+        Some((0, c2))
+    }
+}
+
+/// Selection and search ranges (in rendered columns) plus their colors, layered
+/// onto the styled runs of a line that is assembled segment by segment.
+///
+/// Shared by the archive tree and the directory preview, which both color a line
+/// run by run and need the viewer's search highlight (and, for the directory
+/// preview, the text selection) painted on top.
+struct LineHighlights<'a> {
+    selection: Option<((usize, usize), Color)>,
+    search_ranges: &'a [(usize, usize)],
+    search_fg: Color,
+    search_bg: Color,
+}
+
+impl LineHighlights<'_> {
+    fn render(&self, text: &str, seg_start: usize, style: Style) -> Vec<Span<'static>> {
+        let mut spans: Vec<Span<'static>> = Vec::new();
+        for (pos, ch) in (seg_start..).zip(text.chars()) {
+            let mut char_style = style;
+            if let Some(((s, e), bg)) = self.selection
+                && pos >= s
+                && pos < e
+            {
+                char_style = char_style.bg(bg);
+            }
+            if self
+                .search_ranges
+                .iter()
+                .any(|(s, e)| pos >= *s && pos < *e)
+            {
+                char_style = char_style.fg(self.search_fg).bg(self.search_bg);
+            }
+            if let Some(last) = spans.last_mut()
+                && last.style == char_style
+            {
+                let mut new_content = last.content.to_string();
+                new_content.push(ch);
+                last.content = new_content.into();
+            } else {
+                spans.push(Span::styled(ch.to_string(), char_style));
+            }
+        }
+        spans
+    }
+}
+
 fn render_viewer_line(ctx: &ViewerLineContext) -> Option<Line<'static>> {
+    if let Some(rows) = &ctx.viewer.text.directory_rows
+        && let Some(row) = rows.get(ctx.line_idx)
+    {
+        return Some(render_directory_line(ctx, row));
+    }
+
     if let Some(rows) = &ctx.viewer.text.archive_rows
         && let Some(row) = rows.get(ctx.line_idx)
     {
         return Some(render_archive_line(ctx, row));
     }
 
-    let selection_range = ctx.normalized_selection.and_then(|((r1, c1), (r2, c2))| {
-        if ctx.line_idx < r1 || ctx.line_idx > r2 {
-            None
-        } else if ctx.line_idx > r1 && ctx.line_idx < r2 {
-            Some((0, usize::MAX))
-        } else if r1 == r2 {
-            Some((c1, c2))
-        } else if ctx.line_idx == r1 {
-            Some((c1, usize::MAX))
-        } else {
-            Some((0, c2))
-        }
-    });
+    let selection_range = ctx
+        .normalized_selection
+        .and_then(|((r1, c1), (r2, c2))| selection_for_line(ctx.line_idx, r1, c1, r2, c2));
 
     let line_content = if ctx.is_large_file {
         ctx.viewer

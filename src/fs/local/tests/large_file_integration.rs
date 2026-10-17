@@ -32,7 +32,7 @@ async fn test_large_file_no_duplication() {
     state.text.set_content_load_channel(tx);
 
     state
-        .load_content(&test_file, &provider, Some(file_size), limit)
+        .load_content(&test_file, &provider, Some(file_size), limit, true)
         .await;
 
     // Indexing runs in a background task; collect its result

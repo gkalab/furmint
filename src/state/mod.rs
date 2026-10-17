@@ -30,8 +30,8 @@ pub use empty_trash::EmptyTrashState;
 pub use error::ErrorState;
 pub use file_filter::{FileFilterState, compile_glob, effective_glob};
 pub use file_viewer::{
-    ContentLoadResult, FileViewerSearchState, FileViewerState, HighlightBatch, HighlightWorker,
-    ImageLoadResult, parse_hex_color,
+    ContentLoadResult, DirectoryListingRow, FileViewerSearchState, FileViewerState, HighlightBatch,
+    HighlightWorker, ImageLoadResult, parse_hex_color,
 };
 pub use help::HelpState;
 pub use host_key::HostKeyState;

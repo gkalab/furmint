@@ -429,13 +429,7 @@ impl Tab {
     /// one, so it always survives.
     #[must_use]
     pub fn entry_is_listed(&self, entry: &FileEntry) -> bool {
-        self.show_hidden
-            || entry.name == ".."
-            || !crate::fs::utils::is_hidden(
-                &entry.name,
-                &entry.attributes,
-                crate::fs::utils::has_unix_attributes(self.provider.is_local()),
-            )
+        self.show_hidden || entry.name == ".." || !entry.is_hidden(self.provider.unix_attributes())
     }
 
     /// The number of files that exist under the current hidden-file setting,

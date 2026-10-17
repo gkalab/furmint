@@ -518,7 +518,13 @@ async fn handle_left_click(app: &mut AppState, x: u16, y: u16, is_double_click: 
         let inner_y = y.saturating_sub(app.layout.viewer.area.y + border_offset);
         let inner_x = x.saturating_sub(app.layout.viewer.area.x + border_offset);
         let row = (inner_y as usize) + app.file_viewer.text.scroll_offset;
-        let display_col = (inner_x as usize) + app.file_viewer.text.horizontal_scroll_offset;
+        // Directory-listing rows draw an icon before the text held in `content`,
+        // so shift the rendered column back into content coordinates.
+        let display_col = app.file_viewer.content_col_at(
+            row,
+            inner_x as usize,
+            app.global.icons.unwrap_or(false),
+        );
 
         if is_double_click {
             app.file_viewer.select_word_at(row, display_col);
@@ -726,7 +732,11 @@ async fn handle_drag(app: &mut AppState, x: u16, y: u16) {
     let inner_y = y.saturating_sub(area.y + border_offset);
     let inner_x = x.saturating_sub(area.x + border_offset);
     let row = (inner_y as usize) + app.file_viewer.text.scroll_offset;
-    let display_col = (inner_x as usize) + app.file_viewer.text.horizontal_scroll_offset;
+    // Directory-listing rows draw an icon before the text held in `content`, so
+    // shift the rendered column back into content coordinates.
+    let display_col =
+        app.file_viewer
+            .content_col_at(row, inner_x as usize, app.global.icons.unwrap_or(false));
     let char_idx = app.file_viewer.display_col_to_char_idx(row, display_col);
 
     if let Some((start, _)) = app.file_viewer.text.selection {

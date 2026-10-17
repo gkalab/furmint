@@ -603,6 +603,15 @@ impl FileSystemProvider for ArchiveFs {
             .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?)
     }
 
+    async fn read_link(&self, path: &Path) -> Option<PathBuf> {
+        let normalized = Self::resolve_internal_path(path);
+        self.symlinks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&normalized)
+            .cloned()
+    }
+
     async fn create_dir(&self, path: &Path) -> Result<()> {
         let fs = self.clone();
         let path = path.to_path_buf();

@@ -242,3 +242,73 @@ fn wrapped_binary_info_is_reflowed_to_the_viewport() {
     }
     assert_eq!(viewer.text.content.join(" "), INFO);
 }
+
+/// The directory-preview header is the selected directory's own path, so it
+/// uses the normal text color; only listing entries take the directory blue.
+#[test]
+fn test_directory_header_uses_text_color() {
+    let mut viewer = FileViewerState::new(true, "catppuccin macchiato");
+    viewer.text.directory_rows = Some(vec![
+        DirectoryListingRow {
+            is_header: true,
+            entry: listing_entry("/tmp/dir", true, false),
+            hidden: false,
+            executable: false,
+            link_target: None,
+        },
+        DirectoryListingRow {
+            is_header: false,
+            entry: listing_entry("subdir", true, false),
+            hidden: false,
+            executable: false,
+            link_target: None,
+        },
+    ]);
+
+    let palette = test_palette();
+    let text_color = Some(Color::Rgb(palette.text.r, palette.text.g, palette.text.b));
+    let dir_color = Some(Color::Rgb(palette.blue.r, palette.blue.g, palette.blue.b));
+
+    let header = directory_line(&viewer, 0);
+    assert!(
+        header.spans.iter().all(|s| s.style.fg == text_color),
+        "the header must use the text color, got {:?}",
+        header.spans.iter().map(|s| s.style.fg).collect::<Vec<_>>()
+    );
+
+    let entry = directory_line(&viewer, 1);
+    assert!(
+        entry.spans.iter().any(|s| s.style.fg == dir_color),
+        "a directory entry must stay blue"
+    );
+}
+
+/// A bare entry for a directory-listing row, with the metadata fields the draw
+/// pass does not read left unset.
+fn listing_entry(name: &str, is_dir: bool, is_symlink: bool) -> crate::fs::utils::FileEntry {
+    crate::fs::utils::FileEntry {
+        name: name.to_string(),
+        is_dir,
+        is_symlink,
+        size: None,
+        modified: None,
+        attributes: String::new(),
+        selected: false,
+    }
+}
+
+/// Renders one directory-listing line without icons, for colour assertions.
+fn directory_line(viewer: &FileViewerState, line_idx: usize) -> Line<'static> {
+    let ctx = ViewerLineContext {
+        line_idx,
+        viewer,
+        is_large_file: false,
+        segments: None,
+        default_fg: None,
+        normalized_selection: None,
+        max_width: 100,
+        palette: &test_palette(),
+        icons_enabled: false,
+    };
+    render_viewer_line(&ctx).expect("line should render")
+}

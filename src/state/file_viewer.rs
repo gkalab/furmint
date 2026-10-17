@@ -7,12 +7,44 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use crate::fs::utils::FileEntry;
 use crate::layout::ViewerGeometry;
 use crate::ui::text_edit::TextEditState;
 
 pub use highlight::{HighlightBatch, HighlightWorker, parse_hex_color};
 pub use image::{ImageLoadResult, ImageViewerState};
 pub use text::{ContentLoadResult, TextViewerState};
+
+/// The single line the viewer shows when the selected entry is the
+/// parent-directory entry (`..`). The parent's contents are deliberately not
+/// previewed.
+const PARENT_DIRECTORY_LABEL: &str = "Parent directory";
+
+/// One line of the directory preview shown when a directory is selected in the
+/// viewer.
+///
+/// The viewer keeps a plain rendering of every line in
+/// [`TextViewerState::content`] for scrolling and search, and uses these rows to
+/// draw the line with the same foreground colors a tab uses for the same
+/// entries. The entry itself is reused from [`FileEntry`]; only the flags the
+/// draw pass needs are added on top.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DirectoryListingRow {
+    /// True for the selected directory's own line (the listing's header), which
+    /// carries the full path and optionally a link target.
+    pub is_header: bool,
+    /// The entry. For the header this is the selected directory itself, with
+    /// `name` holding the display path.
+    pub entry: FileEntry,
+    /// Whether the entry is hidden on its filesystem. Precomputed because the
+    /// draw pass has no provider to classify with.
+    pub hidden: bool,
+    /// Whether the entry is executable. Precomputed because the check needs the
+    /// directory path.
+    pub executable: bool,
+    /// The link target, shown for a header that is a symbolic link.
+    pub link_target: Option<String>,
+}
 
 /// Top-level state for the file viewer panel.
 ///
@@ -171,12 +203,13 @@ impl FileViewerState {
         provider: &std::sync::Arc<dyn crate::fs::provider::FileSystemProvider>,
         size: Option<u64>,
         limit_bytes: u64,
+        show_hidden: bool,
     ) {
         self.cancel_background_load();
         self.reset();
         self.path.clone_from(&path.to_path_buf());
         if provider.is_dir(path).await {
-            self.text.content = vec!["Directory".to_string()];
+            self.load_directory(path, provider, show_hidden).await;
             return;
         }
 
@@ -284,6 +317,84 @@ impl FileViewerState {
         }
     }
 
+    /// Shows the placeholder the viewer uses when the selected entry is the
+    /// parent-directory entry (`..`).
+    ///
+    /// Unlike a real directory, `..` is not previewed: the viewer only names
+    /// the entry, so selecting it does not read as a listing of the directory
+    /// above.
+    pub fn show_parent_directory(&mut self, path: &std::path::Path) {
+        self.cancel_background_load();
+        self.reset();
+        self.path.clone_from(&path.to_path_buf());
+        self.text.content = vec![PARENT_DIRECTORY_LABEL.to_string()];
+    }
+
+    /// Fills the viewer with a directory preview: the directory's full name
+    /// (annotated with its link target when it is reached through a symbolic
+    /// link) followed by its children as a vertical listing.
+    ///
+    /// The plain `content` lines keep scrolling, search and selection working
+    /// as for any other viewer content, while [`DirectoryListingRow`]s carry
+    /// the type flags the draw pass uses to color the lines like a tab listing.
+    async fn load_directory(
+        &mut self,
+        path: &std::path::Path,
+        provider: &std::sync::Arc<dyn crate::fs::provider::FileSystemProvider>,
+        show_hidden: bool,
+    ) {
+        let unix_attributes = provider.unix_attributes();
+        let link_target = provider
+            .read_link(path)
+            .await
+            .map(|target| target.to_string_lossy().to_string());
+
+        let name = provider.display_path(path);
+        let header = match &link_target {
+            Some(target) => format!("{name} -> {target}"),
+            None => name.clone(),
+        };
+        let mut rows = vec![DirectoryListingRow {
+            is_header: true,
+            entry: FileEntry {
+                name,
+                is_dir: true,
+                is_symlink: link_target.is_some(),
+                size: None,
+                modified: None,
+                attributes: String::new(),
+                selected: false,
+            },
+            hidden: false,
+            executable: false,
+            link_target,
+        }];
+        let mut content = vec![header];
+
+        match provider.list_dir(path).await {
+            Ok(entries) => {
+                for entry in entries.iter().filter(|e| e.name != "..") {
+                    let hidden = entry.is_hidden(unix_attributes);
+                    if hidden && !show_hidden {
+                        continue;
+                    }
+                    rows.push(DirectoryListingRow {
+                        is_header: false,
+                        entry: entry.clone(),
+                        hidden,
+                        executable: crate::fs::utils::is_executable(&path.join(&entry.name), entry),
+                        link_target: None,
+                    });
+                    content.push(entry.name.clone());
+                }
+            }
+            Err(e) => content.push(format!("Error reading directory: {e}")),
+        }
+
+        self.text.directory_rows = Some(rows);
+        self.text.content = content;
+    }
+
     pub fn handle_load_result(&mut self, res: ImageLoadResult) {
         if let Some(p) = res.picker {
             self.image.picker = Some(p);
@@ -356,9 +467,54 @@ impl FileViewerState {
         self.text.display_col_to_char_idx(row, display_col)
     }
 
+    /// The number of display columns a directory-listing row draws before the
+    /// text stored in `content` (its icon plus a trailing space).
+    ///
+    /// Zero for the header row, for non-listing content, and when icons are
+    /// disabled. Mouse coordinates are in rendered columns while selections are
+    /// stored in `content` character coordinates, so callers subtract this
+    /// before mapping a click to a character.
+    #[must_use]
+    pub fn rendered_row_prefix(&self, row_idx: usize, icons_enabled: bool) -> usize {
+        if !icons_enabled {
+            return 0;
+        }
+        match self
+            .text
+            .directory_rows
+            .as_ref()
+            .and_then(|rows| rows.get(row_idx))
+        {
+            Some(row) if !row.is_header => {
+                crate::icons::get_icon(
+                    &row.entry.name,
+                    row.entry.is_dir,
+                    row.entry.is_symlink,
+                    row.executable,
+                )
+                .chars()
+                .count()
+                    + 1
+            }
+            _ => 0,
+        }
+    }
+
     /// Selects the word or syntax chunk at the given display coordinates.
     pub fn select_word_at(&mut self, row: usize, display_col: usize) {
         self.text.select_word_at(row, display_col);
+    }
+
+    /// Maps a rendered column inside the viewer (a click's `inner_x`) to the
+    /// `content` display column it points at.
+    ///
+    /// This applies the horizontal scroll offset and removes any directory-listing
+    /// icon prefix, so callers that hit-test the mouse share one mapping with the
+    /// draw pass. `icons_enabled` is the global icon setting.
+    #[must_use]
+    pub fn content_col_at(&self, row: usize, inner_x: usize, icons_enabled: bool) -> usize {
+        (inner_x + self.text.horizontal_scroll_offset)
+            .saturating_sub(self.rendered_row_prefix(row, icons_enabled))
     }
 
     pub fn search(&mut self, query: &str, geometry: &ViewerGeometry) -> bool {
