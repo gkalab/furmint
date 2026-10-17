@@ -489,6 +489,21 @@ async fn test_directory_listing_content() {
     assert_eq!(state.text.content[2], "alpha.txt");
 }
 
+/// On Windows a leading dot is not a hidden marker; use the DOS flag instead.
+#[cfg(windows)]
+fn mark_hidden(path: &std::path::Path) {
+    use std::os::windows::ffi::OsStrExt;
+    let mut wide: Vec<u16> = path.as_os_str().encode_wide().collect();
+    wide.push(0);
+    const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+    let rc =
+        unsafe { winapi::um::fileapi::SetFileAttributesW(wide.as_ptr(), FILE_ATTRIBUTE_HIDDEN) };
+    assert_eq!(rc, 1, "SetFileAttributesW({:?}) failed", path);
+}
+
+#[cfg(not(windows))]
+fn mark_hidden(_path: &std::path::Path) {}
+
 /// When hidden files are hidden, the directory preview omits them, matching the
 /// tab listing; when shown, they appear like any other entry.
 #[tokio::test]
@@ -497,6 +512,8 @@ async fn test_directory_listing_respects_hidden_flag() {
     std::fs::write(temp.path().join("alpha.txt"), "hi").unwrap();
     std::fs::write(temp.path().join(".hidden.txt"), "shh").unwrap();
     std::fs::create_dir(temp.path().join(".hidden_dir")).unwrap();
+    mark_hidden(&temp.path().join(".hidden.txt"));
+    mark_hidden(&temp.path().join(".hidden_dir"));
 
     let provider: std::sync::Arc<dyn crate::fs::provider::FileSystemProvider> =
         std::sync::Arc::new(crate::fs::local::LocalFs::new());

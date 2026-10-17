@@ -485,6 +485,21 @@ async fn test_toggle_applies_to_a_remote_tab_through_the_app_entry_point() {
     );
 }
 
+/// On Windows a leading dot is not a hidden marker; use the DOS flag instead.
+#[cfg(windows)]
+fn mark_hidden(path: &std::path::Path) {
+    use std::os::windows::ffi::OsStrExt;
+    let mut wide: Vec<u16> = path.as_os_str().encode_wide().collect();
+    wide.push(0);
+    const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+    let rc =
+        unsafe { winapi::um::fileapi::SetFileAttributesW(wide.as_ptr(), FILE_ATTRIBUTE_HIDDEN) };
+    assert_eq!(rc, 1, "SetFileAttributesW({:?}) failed", path);
+}
+
+#[cfg(not(windows))]
+fn mark_hidden(_path: &std::path::Path) {}
+
 #[tokio::test]
 async fn test_toggle_refreshes_a_viewer_directory_listing() {
     // The viewer follows the cursor, so its listing is a directory preview. When
@@ -495,6 +510,7 @@ async fn test_toggle_refreshes_a_viewer_directory_listing() {
     std::fs::create_dir(&sub).unwrap();
     std::fs::write(sub.join("visible.txt"), "hi").unwrap();
     std::fs::write(sub.join(".hidden.txt"), "shh").unwrap();
+    mark_hidden(&sub.join(".hidden.txt"));
 
     let mut tab = crate::test_utils::create_test_tab();
     tab.current_dir = temp.path().to_path_buf();
