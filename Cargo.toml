@@ -6,9 +6,9 @@ publish = false
 
 [dependencies]
 anyhow = "1.0"
-arboard = "3.6"
+arboard = "3.7"
 async-trait = "0.1"
-base64 = "0.22"
+base64 = "0.23"
 bzip2 = "0.6"
 chrono = "0.4"
 cpio = "0.4"
@@ -46,7 +46,7 @@ notify = "8.2"
 notify-debouncer-full = "0.7"
 rand = "0.10"
 ratatui = { version = "0.30.2", features = ["termina"] }
-ratatui-image = { version = "11.0", default-features = false, features = ["tokio", "image-defaults"] }
+ratatui-image = { version = "11.1", default-features = false, features = ["tokio", "image-defaults"] }
 regex = "1.13"
 ring = "0.17"
 russh = { version = "0.64", default-features = false, features = ["ring", "rsa", "flate2"] }
@@ -54,7 +54,7 @@ russh-sftp = "3.0"
 secrecy = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sevenz-rust2 = { version = "0.22", features = ["deflate", "zstd"] }
+sevenz-rust2 = { version = "0.24", features = ["deflate", "zstd"] }
 shell-words = "1.1"
 tar = "0.4"
 tempfile = "3.27"
@@ -66,7 +66,7 @@ unicode-width = "0.2"
 walkdir = "2.5"
 xz2 = "0.1"
 zeroize = "1.9"
-zip = "8.6"
+zip = "9.0"
 zstd = "0.14"
 
 [target.'cfg(unix)'.dependencies]

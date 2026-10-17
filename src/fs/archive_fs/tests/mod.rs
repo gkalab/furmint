@@ -1914,7 +1914,7 @@ async fn test_copied_entries_use_forward_slashes() {
     let file = File::open(&dest_path).unwrap();
     let mut archive = zip::ZipArchive::new(file).unwrap();
     let mut names: Vec<String> = (0..archive.len())
-        .map(|i| archive.by_index(i).unwrap().name().to_string())
+        .map(|i| archive.by_index(i).unwrap().name().unwrap().to_string())
         .collect();
     names.sort();
     assert_eq!(names, vec!["x/", "x/b/", "x/b/c.txt"]);

@@ -87,8 +87,10 @@ impl ZipHandler {
         };
         let mut keys = HashSet::with_capacity(archive.len());
         for i in 0..archive.len() {
-            if let Ok(entry) = archive.by_index(i) {
-                keys.insert(Self::entry_key(entry.name()));
+            if let Ok(entry) = archive.by_index(i)
+                && let Ok(name) = entry.name()
+            {
+                keys.insert(Self::entry_key(&name));
             }
         }
         keys
@@ -176,9 +178,10 @@ impl ZipHandler {
 
         for i in 0..archive.len() {
             let file = archive.by_index(i)?;
-            let path = common::normalize_path(file.name());
+            let name = file.name()?;
+            let path = common::normalize_path(&name);
 
-            let is_dir = file.is_dir() || file.name().ends_with('/');
+            let is_dir = file.is_dir() || name.ends_with('/');
             let size = file.size();
             let modified = file
                 .last_modified()
@@ -246,7 +249,7 @@ impl ZipHandler {
             && let Ok(mut zip_file) = archive.by_name(src_str)
             && !zip_file.is_dir()
         {
-            let name = zip_file.name().to_string();
+            let name = zip_file.name()?.to_string();
             let is_dir = false;
             let size = zip_file.size();
             let mode = Self::get_unix_mode(&zip_file).or(Some(0o100_644));
@@ -290,7 +293,7 @@ impl ZipHandler {
             }
             let mut zip_file = archive.by_index(i).context("Failed to get zip index")?;
 
-            let name = zip_file.name().to_string();
+            let name = zip_file.name()?.to_string();
             let is_dir = zip_file.is_dir() || name.ends_with('/');
             let size = zip_file.size();
             let mode = Self::get_unix_mode(&zip_file).or(if is_dir {
@@ -428,7 +431,7 @@ impl ZipHandler {
         // destination missing if the process died in between.
         self.rewrite_with(
             |writer, zip_file| {
-                if !replaced.contains(&Self::entry_key(zip_file.name())) {
+                if !replaced.contains(&Self::entry_key(&zip_file.name()?)) {
                     writer.raw_copy_file(zip_file)?;
                 }
                 Ok(())
@@ -502,7 +505,7 @@ impl ArchiveFormat for ZipHandler {
         let path_prefix = format!("{path_key}/");
 
         self.rewrite_all_entries(|writer, zip_file| {
-            let name_key = Self::entry_key(zip_file.name());
+            let name_key = Self::entry_key(&zip_file.name()?);
 
             if name_key != path_key && !name_key.starts_with(&path_prefix) {
                 writer.raw_copy_file(zip_file)?;
@@ -538,7 +541,7 @@ impl ArchiveFormat for ZipHandler {
         let path_key = Self::entry_key(path);
 
         self.rewrite_all_entries(|writer, zip_file| {
-            if Self::entry_key(zip_file.name()) == path_key {
+            if Self::entry_key(&zip_file.name()?) == path_key {
                 // Touch the timestamp without re-encoding: the stored bytes are
                 // copied verbatim, so the entry keeps the compression method it
                 // was archived with instead of being run through the deflate
@@ -562,8 +565,8 @@ impl ArchiveFormat for ZipHandler {
         let to_key = Self::entry_key(to);
 
         self.rewrite_all_entries(|writer, zip_file| {
-            let name_raw = zip_file.name();
-            let name_key = Self::entry_key(name_raw);
+            let name_raw = zip_file.name()?;
+            let name_key = Self::entry_key(&name_raw);
 
             let new_name = if name_key == from_key {
                 Some(to_key.clone())
