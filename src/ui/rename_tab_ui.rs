@@ -11,7 +11,7 @@ pub fn draw_rename_tab_popup(f: &mut Frame, state: &RenameTabState, palette: &Th
         f,
         &crate::ui::ui_utils::InputPopupOptions {
             title: Some("Rename Tab"),
-            input: crate::ui::ui_utils::InputField::Edit(&state.new_name),
+            input: &state.new_name,
             error: None,
             placeholder: "Enter new tab title...",
             width: 60,

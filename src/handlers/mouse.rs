@@ -143,11 +143,11 @@ pub(crate) async fn handle_ssh_password_popup_mouse(
     }
 }
 
-/// Routes a mouse event to the shared input-field hit-testing of the five
+/// Routes a mouse event to the shared input-field hit-testing of the six
 /// [`crate::ui::text_edit::TextEditState`] popups (Create File, Create
-/// Directory, Rename, Rename Tab and Copy/Move). A left click inside the field
-/// sets the caret (or selects a word on double-click) and starts a selection
-/// drag; a left drag extends the selection.
+/// Directory, Rename, Rename Tab, Copy/Move and Viewer Search). A left click
+/// inside the field sets the caret (or selects a word on double-click) and
+/// starts a selection drag; a left drag extends the selection.
 ///
 /// Returns whether the event was consumed. Clicks outside the field fall
 /// through (via `false`) so the popup's own buttons still run — notably
@@ -171,6 +171,7 @@ fn route_input_popup_mouse(
         }
         PopupKind::RenameTab => (60, &mut app.popups.rename_tab.new_name),
         PopupKind::CopyMove => (76, &mut app.popups.copy_move.destination_input),
+        PopupKind::ViewerSearch => (60, &mut app.popups.viewer_search.query),
         _ => return false,
     };
 
@@ -249,6 +250,16 @@ pub(crate) async fn handle_copy_move_popup_mouse(
     is_double_click: bool,
 ) -> bool {
     route_input_popup_mouse(app, PopupKind::CopyMove, event, is_double_click)
+}
+
+/// Mouse handler for the viewer search popup's text field.
+#[allow(clippy::unused_async)] // uniform handler signature, awaited by the registry
+pub(crate) async fn handle_viewer_search_popup_mouse(
+    app: &mut AppState,
+    event: MouseEvent,
+    is_double_click: bool,
+) -> bool {
+    route_input_popup_mouse(app, PopupKind::ViewerSearch, event, is_double_click)
 }
 
 /// Mouse handler for the bookmark popup: clicks select a row (or a confirmation

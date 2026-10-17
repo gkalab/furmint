@@ -610,23 +610,11 @@ pub fn message_border_set() -> ratatui::symbols::border::Set<'static> {
     }
 }
 
-/// The input source of an [`InputPopupOptions`] popup.
-///
-/// `Plain` renders a borrowed value and char cursor through the legacy code
-/// path (used by the viewer's search popup, which still owns its `String`).
-/// `Edit` renders a full [`TextEditState`] through [`TextEditWidget`], giving
-/// the popup selection highlighting, horizontal scrolling, a placeholder and
-/// clipboard support.
-pub enum InputField<'a> {
-    /// A borrowed value with a char-index cursor.
-    Plain { value: &'a str, cursor: usize },
-    /// A live editor state.
-    Edit(&'a TextEditState),
-}
-
+/// Options for an input popup: a title, the live editor state, an optional error
+/// line below the field, placeholder text and the popup width.
 pub struct InputPopupOptions<'a> {
     pub title: Option<&'a str>,
-    pub input: InputField<'a>,
+    pub input: &'a TextEditState,
     pub error: Option<&'a str>,
     pub placeholder: &'a str,
     pub width: u16,
@@ -794,7 +782,7 @@ pub fn draw_input_popup(
         field_bg_color,
         selection_style(palette, text_color),
     );
-    draw_input_text_and_cursor(f, &options.input, options.placeholder, input_area, &style);
+    draw_input_text_and_cursor(f, options.input, options.placeholder, input_area, &style);
 
     // Error
     let error_index = if has_title { 4 } else { 2 };
@@ -900,61 +888,17 @@ pub fn draw_confirmation_popup(
 
 fn draw_input_text_and_cursor(
     f: &mut ratatui::Frame,
-    input: &InputField<'_>,
+    input: &TextEditState,
     placeholder: &str,
     text_area: Rect,
     style: &InputStyleContext,
 ) {
-    match input {
-        InputField::Plain { value, cursor } => {
-            let input_width = text_area.width as usize;
-            let cursor_pos = *cursor;
-
-            let scroll_offset = if cursor_pos < input_width {
-                0
-            } else {
-                cursor_pos - input_width + 1
-            };
-
-            let display_text = if value.is_empty() {
-                Span::styled(placeholder, Style::default().fg(style.placeholder_color))
-            } else {
-                let text: String = value
-                    .chars()
-                    .skip(scroll_offset)
-                    .take(input_width)
-                    .collect();
-                Span::styled(
-                    text,
-                    Style::default()
-                        .fg(style.text_color)
-                        .bg(style.field_bg_color),
-                )
-            };
-
-            let paragraph =
-                Paragraph::new(display_text).style(Style::default().bg(style.field_bg_color));
-
-            f.render_widget(paragraph, text_area);
-
-            // Cursor
-            let cursor_visual_offset = cursor_pos.saturating_sub(scroll_offset);
-            if cursor_visual_offset < input_width {
-                f.set_cursor_position(Position::new(
-                    text_area.x + u16::try_from(cursor_visual_offset).unwrap_or(u16::MAX),
-                    text_area.y,
-                ));
-            }
-        }
-        InputField::Edit(state) => {
-            let widget = TextEditWidget::new(state, placeholder, true)
-                .text_color(style.text_color)
-                .placeholder_color(style.placeholder_color)
-                .selection_style(style.selection_style)
-                .bg(style.field_bg_color);
-            render_text_edit(f, widget, text_area);
-        }
-    }
+    let widget = TextEditWidget::new(input, placeholder, true)
+        .text_color(style.text_color)
+        .placeholder_color(style.placeholder_color)
+        .selection_style(style.selection_style)
+        .bg(style.field_bg_color);
+    render_text_edit(f, widget, text_area);
 }
 
 #[cfg(test)]

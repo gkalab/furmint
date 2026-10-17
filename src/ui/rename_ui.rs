@@ -95,7 +95,7 @@ pub fn draw_rename_popup(
             f,
             &crate::ui::ui_utils::InputPopupOptions {
                 title: Some("Rename"),
-                input: crate::ui::ui_utils::InputField::Edit(&state.new_name),
+                input: &state.new_name,
                 error: state.error.as_deref(),
                 placeholder: "",
                 width: 60,

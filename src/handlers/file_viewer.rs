@@ -186,7 +186,7 @@ pub fn handle_viewer_search_event(code: KeyCode, modifiers: Modifiers, app: &mut
                 .set_popup_visible(crate::app::PopupKind::ViewerSearch, false);
         }
         KeyCode::Enter => {
-            let query = app.popups.viewer_search.query.clone();
+            let query = app.popups.viewer_search.query.text().to_string();
             if !app.file_viewer.search(&query, &app.layout.viewer) {
                 app.viewer_tab_mut().status_msg = Some((
                     format!("Search string not found: {query}"),
@@ -197,13 +197,11 @@ pub fn handle_viewer_search_event(code: KeyCode, modifiers: Modifiers, app: &mut
                 .set_popup_visible(crate::app::PopupKind::ViewerSearch, false);
         }
         _ => {
-            crate::handlers::input_utils::handle_text_input(
-                code,
-                modifiers,
-                &mut app.popups.viewer_search.query,
-                &mut app.popups.viewer_search.cursor_position,
-                false,
-            );
+            let _ = app
+                .popups
+                .viewer_search
+                .query
+                .handle_key(code, modifiers, false);
         }
     }
     false

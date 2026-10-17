@@ -3,7 +3,8 @@ use crate::app_state::tabs::PanelSide;
 use crate::fs::utils::FileEntry;
 use crate::handlers::mouse::{
     calculate_scroll_from_y, handle_create_directory_popup_mouse, handle_create_file_popup_mouse,
-    handle_mouse_event, handle_rename_popup_mouse, scrollbar_thumb_rows,
+    handle_mouse_event, handle_rename_popup_mouse, handle_viewer_search_popup_mouse,
+    scrollbar_thumb_rows,
 };
 use crate::state::EmptyTrashState;
 use crate::ui::text_edit::TextEditState;
@@ -962,6 +963,34 @@ async fn test_input_popup_double_click_helper_selects_word() {
             .selected_text()
             .as_deref(),
         Some("two")
+    );
+}
+
+#[tokio::test]
+async fn test_viewer_search_popup_click_drag_and_double_click() {
+    let mut app = AppState::test_default();
+    app.layout.screen = Rect::new(0, 0, 80, 24);
+    app.popups.viewer_search.is_visible = true;
+    app.popups.viewer_search.query = TextEditState::with_text("hello world");
+
+    let area = input_popup_text_area(60, true, app.layout.screen);
+    let row = area.y;
+
+    // A single click routes through the popup registry, sets the caret and
+    // starts a selection drag.
+    handle_mouse_event(&mut app, left_down(area.x + 5, row)).await;
+    assert_eq!(app.popups.viewer_search.query.cursor(), 5);
+    assert_eq!(app.mouse.active_drag, Some(DragTarget::InputFieldSelection));
+
+    // Dragging extends the selection from the anchor (5) to the pointer (9).
+    handle_mouse_event(&mut app, left_drag(area.x + 9, row)).await;
+    assert_eq!(app.popups.viewer_search.query.selection(), Some(5..9));
+
+    // Double-clicking selects the whole word under the pointer.
+    assert!(handle_viewer_search_popup_mouse(&mut app, left_down(area.x + 8, row), true).await);
+    assert_eq!(
+        app.popups.viewer_search.query.selected_text().as_deref(),
+        Some("world")
     );
 }
 

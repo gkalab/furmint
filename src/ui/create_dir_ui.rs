@@ -16,7 +16,7 @@ pub fn draw_create_dir_popup(
         f,
         &crate::ui::ui_utils::InputPopupOptions {
             title: Some("Create Directory"),
-            input: crate::ui::ui_utils::InputField::Edit(&state.new_name),
+            input: &state.new_name,
             error: state.error.as_deref(),
             placeholder,
             width: 60,

@@ -236,7 +236,8 @@ declare_popups! {
     ViewerSearch: viewer_search: FileViewerSearchState =>
         |app, code, modifiers| async move {
             crate::handlers::file_viewer::handle_viewer_search_event(code, modifiers, app)
-        },
+        };
+        mouse = crate::handlers::mouse::handle_viewer_search_popup_mouse,
     CreateDirectory: create_directory: CreateDirectoryState =>
         |app, code, modifiers| crate::handlers::popup_create::handle_create_directory_event(code, modifiers, app);
         mouse = crate::handlers::mouse::handle_create_directory_popup_mouse,

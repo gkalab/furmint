@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::layout::ViewerGeometry;
+use crate::ui::text_edit::TextEditState;
 
 pub use highlight::{HighlightBatch, HighlightWorker, parse_hex_color};
 pub use image::{ImageLoadResult, ImageViewerState};
@@ -33,8 +34,7 @@ pub struct FileViewerState {
 #[derive(Default)]
 pub struct FileViewerSearchState {
     pub is_visible: bool,
-    pub query: String,
-    pub cursor_position: usize,
+    pub query: TextEditState,
     pub error: Option<String>,
 }
 
@@ -48,15 +48,13 @@ impl FileViewerSearchState {
     /// its end. Visibility is set here, so a caller cannot show the prompt
     /// without populating it.
     pub fn show(&mut self, query: String) {
-        self.cursor_position = query.chars().count();
-        self.query = query;
+        self.query.set_text(query);
         self.error = None;
         self.is_visible = true;
     }
 
     pub fn reset(&mut self) {
-        self.query = String::new();
-        self.cursor_position = 0;
+        self.query.clear();
         self.error = None;
     }
 }

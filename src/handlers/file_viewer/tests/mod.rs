@@ -125,8 +125,8 @@ fn test_viewer_search_backspace_after_multibyte_no_panic() {
     // String::remove, which takes a byte index: byte 1 is inside the é
     // (bytes 0..2), so this panicked with "byte index is not a char boundary".
     handle_viewer_search_event(KeyCode::Backspace, Modifiers::NONE, &mut app);
-    assert_eq!(app.popups.viewer_search.query, "é");
-    assert_eq!(app.popups.viewer_search.cursor_position, 1);
+    assert_eq!(app.popups.viewer_search.query.text(), "é");
+    assert_eq!(app.popups.viewer_search.query.cursor(), 1);
 }
 
 #[test]
@@ -137,13 +137,13 @@ fn test_viewer_search_end_uses_char_count() {
 
     // "hé" is 3 bytes / 2 chars; the old code set the cursor to 3
     handle_viewer_search_event(KeyCode::End, Modifiers::NONE, &mut app);
-    assert_eq!(app.popups.viewer_search.cursor_position, 2);
+    assert_eq!(app.popups.viewer_search.query.cursor(), 2);
 
     // Typing at a char-boundary cursor stays consistent
     handle_viewer_search_event(KeyCode::Home, Modifiers::NONE, &mut app);
     handle_viewer_search_event(KeyCode::Char('a'), Modifiers::NONE, &mut app);
-    assert_eq!(app.popups.viewer_search.query, "ahé");
-    assert_eq!(app.popups.viewer_search.cursor_position, 1);
+    assert_eq!(app.popups.viewer_search.query.text(), "ahé");
+    assert_eq!(app.popups.viewer_search.query.cursor(), 1);
 }
 
 #[test]
@@ -155,6 +155,6 @@ fn test_viewer_search_delete_at_multibyte_cursor() {
     // Delete with the cursor after the é (old code: remove(1), mid-é)
     handle_viewer_search_event(KeyCode::Left, Modifiers::NONE, &mut app);
     handle_viewer_search_event(KeyCode::Delete, Modifiers::NONE, &mut app);
-    assert_eq!(app.popups.viewer_search.query, "é");
-    assert_eq!(app.popups.viewer_search.cursor_position, 1);
+    assert_eq!(app.popups.viewer_search.query.text(), "é");
+    assert_eq!(app.popups.viewer_search.query.cursor(), 1);
 }
