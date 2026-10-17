@@ -67,6 +67,10 @@ pub fn draw_file_viewer(
         return;
     }
 
+    // Wrapped content (e.g. `file` output for a binary) is re-flowed to the
+    // current width here, where the width is known.
+    viewer.text.rewrap(inner_area.width as usize);
+
     if viewer.text.content.is_empty() && viewer.text.large_file_indexer.is_none() {
         if viewer.is_loading {
             let loading_style = Style::default().fg(Color::Rgb(

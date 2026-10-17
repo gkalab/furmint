@@ -55,14 +55,14 @@ fn handle_viewer_navigation(code: KeyCode, app: &mut AppState) {
             app.file_viewer.text.scroll_offset = (app.file_viewer.text.scroll_offset + 1)
                 .min(app.file_viewer.max_scroll_offset(&app.layout.viewer));
         }
-        KeyCode::Left => {
+        KeyCode::Left if !app.file_viewer.text.is_wrapped() => {
             app.file_viewer.text.horizontal_scroll_offset = app
                 .file_viewer
                 .text
                 .horizontal_scroll_offset
                 .saturating_sub(10);
         }
-        KeyCode::Right => {
+        KeyCode::Right if !app.file_viewer.text.is_wrapped() => {
             app.file_viewer.text.horizontal_scroll_offset += 10;
         }
         KeyCode::PageUp => {

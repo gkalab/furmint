@@ -1,5 +1,6 @@
 pub mod archive;
 pub mod archive_fs;
+pub mod binary_info;
 pub mod local;
 pub mod ops;
 pub mod provider;

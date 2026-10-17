@@ -86,3 +86,45 @@ fn syntax_selection_follows_the_cached_runs() {
     state.select_word_at(0, 2);
     assert_eq!(state.selection, Some(((0, 2), (0, 3))));
 }
+
+#[test]
+fn wrapping_breaks_at_spaces() {
+    let lines = vec!["the quick brown fox".to_string()];
+    assert_eq!(wrap_lines(&lines, 10), vec!["the quick", "brown fox"]);
+}
+
+#[test]
+fn wrapping_hard_breaks_long_words() {
+    let lines = vec!["abcdefghij".to_string()];
+    assert_eq!(wrap_lines(&lines, 4), vec!["abcd", "efgh", "ij"]);
+}
+
+#[test]
+fn wrapping_preserves_blank_lines() {
+    let lines = vec!["a".to_string(), String::new(), "b".to_string()];
+    assert_eq!(wrap_lines(&lines, 10), vec!["a", "", "b"]);
+}
+
+/// Wrapped content starts out as the unwrapped source and is re-flowed once
+/// the draw pass reports the width, then again on resize.
+#[test]
+fn wrapped_content_refows_on_width_change() {
+    let mut state = TextViewerState::default();
+    state.set_wrapped_content(vec!["the quick brown fox".to_string()]);
+
+    assert!(state.is_wrapped());
+    assert_eq!(
+        state.content,
+        vec!["the quick brown fox"],
+        "seeded unwrapped"
+    );
+
+    state.rewrap(10);
+    assert_eq!(state.content, vec!["the quick", "brown fox"]);
+
+    state.rewrap(20);
+    assert_eq!(state.content, vec!["the quick brown fox"]);
+
+    state.reset();
+    assert!(!state.is_wrapped());
+}

@@ -202,3 +202,43 @@ fn test_runs_with_equal_style_merge() {
     assert_eq!(spans[0].content, "aaabbb");
     assert_eq!(spans[2].style.fg, Some(Color::Rgb(7, 7, 7)));
 }
+
+/// Binary info (`file` output) is re-flowed to the panel width by the draw
+/// pass, so it never needs horizontal scrolling.
+#[test]
+fn wrapped_binary_info_is_reflowed_to_the_viewport() {
+    const INFO: &str = "ELF 64-bit LSB pie executable, x86-64, dynamically linked";
+
+    let mut viewer = FileViewerState::new(true, "catppuccin macchiato");
+    viewer.text.set_wrapped_content(vec![INFO.to_string()]);
+
+    let area = Rect::new(0, 0, 24, 10);
+    let geometry = crate::layout::ViewerGeometry {
+        area,
+        render_area: area.inner(ratatui::layout::Margin {
+            horizontal: 1,
+            vertical: 1,
+        }),
+    };
+    let palette = test_palette();
+    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(24, 10)).unwrap();
+    terminal
+        .draw(|f| {
+            draw_file_viewer(f, &mut viewer, area, &geometry, &palette, true, false);
+        })
+        .unwrap();
+
+    let inner_width = geometry.render_area.width as usize;
+    assert!(
+        viewer.text.content.len() > 1,
+        "the long description should have wrapped, got {:?}",
+        viewer.text.content
+    );
+    for line in &viewer.text.content {
+        assert!(
+            line.width() <= inner_width,
+            "wrapped line wider than the viewport: {line:?}"
+        );
+    }
+    assert_eq!(viewer.text.content.join(" "), INFO);
+}

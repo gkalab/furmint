@@ -923,7 +923,7 @@ async fn test_update_viewer_content_loads_large_file() {
 }
 
 #[tokio::test]
-async fn test_update_viewer_content_shows_error_for_binary() {
+async fn test_update_viewer_content_describes_binary() {
     use std::io::Write;
     let temp_dir = tempfile::tempdir().unwrap();
     let file_path = temp_dir.path().join("bin.dat");
@@ -943,12 +943,19 @@ async fn test_update_viewer_content_shows_error_for_binary() {
     app.panels.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
     app.file_viewer.is_visible = true;
     update_viewer_content(&mut app).await;
-    let msg = &app.file_viewer.text.content[0];
 
-    assert!(
-        msg.to_lowercase().contains("binary"),
-        "unexpected error: {msg}"
-    );
+    let content = &app.file_viewer.text.content;
+    assert!(!content.is_empty(), "a binary must show something");
+    let joined = content.join(" ");
+    if joined == "Binary file detected" {
+        // `file` is not installed: the viewer keeps its own message.
+    } else {
+        // The description comes from `file`, which reports this as "data".
+        assert!(
+            joined.to_lowercase().contains("data"),
+            "unexpected `file` description: {joined}"
+        );
+    }
 }
 
 #[tokio::test]

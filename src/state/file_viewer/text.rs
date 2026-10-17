@@ -33,6 +33,11 @@ pub struct TextViewerState {
     pub large_file_indexer: Option<crate::large_text::line_indexer::LineIndexer>,
     pub archive_rows: Option<Vec<crate::fs::archive::preview::ArchiveTreeRow>>,
     pub current_search_match: Option<(usize, usize, usize)>, // (line_idx, start_char, end_char)
+    /// Unwrapped lines for content that is shown word-wrapped (binary info).
+    /// While set, `content` is derived from it by [`Self::rewrap`].
+    wrap_source: Option<Vec<String>>,
+    /// Width `content` was last wrapped to, so a re-wrap only runs on resize.
+    wrap_width: usize,
     search_query: String,
     search_regex: Option<regex::Regex>,
     content_load_tx: Option<UnboundedSender<ContentLoadResult>>,
@@ -155,6 +160,42 @@ impl TextViewerState {
         self.content_load_tx = Some(tx);
     }
 
+    /// Whether the current content is word-wrapped rather than scrolled
+    /// sideways.
+    #[must_use]
+    pub fn is_wrapped(&self) -> bool {
+        self.wrap_source.is_some()
+    }
+
+    /// Shows `lines` word-wrapped to the viewer width instead of relying on
+    /// horizontal scrolling, e.g. the `file` description of a binary.
+    ///
+    /// The lines are kept as the wrap source and re-wrapped on resize.
+    pub fn set_wrapped_content(&mut self, lines: Vec<String>) {
+        // Seed the content with the unwrapped lines so the viewer has
+        // something to measure before the first draw re-wraps to the real
+        // width.
+        self.content.clone_from(&lines);
+        self.wrap_source = Some(lines);
+        self.wrap_width = 0;
+    }
+
+    /// Re-wraps the content to `width` columns, if it is wrapped content and
+    /// the width changed. Called by the draw pass, which knows the width.
+    pub fn rewrap(&mut self, width: usize) {
+        let Some(source) = self.wrap_source.as_ref() else {
+            return;
+        };
+        if self.wrap_width == width {
+            return;
+        }
+        self.wrap_width = width;
+        self.content = wrap_lines(source, width);
+        // The wrapped line indices differ from the previous ones, so any runs
+        // the highlight worker cached no longer line up.
+        self.highlighted.clear();
+    }
+
     pub fn reset(&mut self) {
         self.content = Vec::new();
         self.scroll_offset = 0;
@@ -163,6 +204,8 @@ impl TextViewerState {
         self.selection = None;
         self.large_file_reader = None;
         self.large_file_indexer = None;
+        self.wrap_source = None;
+        self.wrap_width = 0;
         self.search_query = String::new();
         self.search_regex = None;
         self.current_search_match = None;
@@ -893,6 +936,70 @@ impl TextViewerState {
             let _ = tx.send(load_result);
         });
     }
+}
+
+/// Greedily wraps `lines` to `width` display columns.
+///
+/// Breaks at whitespace where possible and hard-breaks words that are wider
+/// than the whole line.
+fn wrap_lines(lines: &[String], width: usize) -> Vec<String> {
+    let width = width.max(1);
+    let mut wrapped = Vec::new();
+    for line in lines {
+        wrapped.extend(wrap_line(line, width));
+    }
+    wrapped
+}
+
+/// Wraps a single line, always returning at least one line so blank input
+/// stays a blank display line.
+fn wrap_line(line: &str, width: usize) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut current_width = 0usize;
+
+    for word in line.split_whitespace() {
+        let word_width = unicode_width::UnicodeWidthStr::width(word);
+        if word_width > width {
+            // A word that cannot fit on a line of its own: flush the line in
+            // progress and break the word itself.
+            if !current.is_empty() {
+                out.push(std::mem::take(&mut current));
+                current_width = 0;
+            }
+            for ch in word.chars() {
+                let ch_width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(1);
+                if current_width + ch_width > width {
+                    out.push(std::mem::take(&mut current));
+                    current_width = 0;
+                }
+                current.push(ch);
+                current_width += ch_width;
+            }
+            continue;
+        }
+
+        let separator = usize::from(!current.is_empty());
+        if current_width + separator + word_width <= width {
+            if separator == 1 {
+                current.push(' ');
+            }
+            current.push_str(word);
+            current_width += separator + word_width;
+        } else {
+            out.push(std::mem::take(&mut current));
+            current.push_str(word);
+            current_width = word_width;
+        }
+    }
+
+    if !current.is_empty() {
+        out.push(current);
+    }
+    if out.is_empty() {
+        out.push(String::new());
+    }
+    out
 }
 
 #[cfg(test)]

@@ -231,6 +231,20 @@ impl FileViewerState {
         };
 
         if crate::large_text::file_reader::is_binary(&chunk) {
+            if provider.is_local() {
+                let path = self.path.clone();
+                // `file` is an external process; run it off the event loop.
+                let description =
+                    tokio::task::spawn_blocking(move || crate::fs::binary_info::describe(&path))
+                        .await
+                        .ok()
+                        .flatten();
+                if let Some(description) = description {
+                    let lines = description.lines().map(String::from).collect();
+                    self.text.set_wrapped_content(lines);
+                    return;
+                }
+            }
             self.text.content = vec!["Binary file detected".to_string()];
             return;
         }
