@@ -94,7 +94,7 @@ pub fn get_icon(name: &str, is_dir: bool, is_symlink: bool, is_executable: bool)
             "png" | "jpg" | "jpeg" | "gif" | "bmp" | "ico" | "svg" | "webp" => return "",
 
             // Archives
-            "zip" | "tar" | "gz" | "bz2" | "xz" | "7z" | "rar" => return "",
+            "zip" | "tar" | "gz" | "tgz" | "bz2" | "xz" | "7z" | "rar" => return "",
 
             // Audio/Video
             "mp3" | "wav" | "flac" | "ogg" | "m4a" => return "",
