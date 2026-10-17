@@ -2,6 +2,8 @@
 //! bus ([`crate::tasks::UiEvent`]), routing each event to its subsystem
 //! handler.
 
+use crate::handlers::navigation::update_viewer_content;
+
 /// Sole dispatcher of the app-level UI event bus
 /// ([`crate::tasks::UiEvent`]): routes each event to its subsystem handler.
 pub async fn dispatch_ui_event(event: crate::tasks::UiEvent, app: &mut crate::app::AppState) {
@@ -336,6 +338,8 @@ async fn handle_archive_loaded(
     }
     // The new tab was listed with the default (hidden shown); reconcile it.
     app.apply_show_hidden();
+    // The archive tab is now active; refresh the viewer for its selected entry.
+    update_viewer_content(app).await;
 }
 
 /// Reports a failed archive open on the panel status line of the side that requested it.

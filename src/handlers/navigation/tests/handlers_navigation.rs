@@ -3,9 +3,9 @@ use crate::app_state::tabs::{PanelSide, TabManager};
 use crate::fs::utils::FileEntry;
 use crate::handlers::navigation::{
     handle_directory_up, handle_down, handle_down_search, handle_end, handle_enter_directory,
-    handle_home, handle_open_item, handle_page_down, handle_page_up, handle_sort, handle_tab,
-    handle_toggle_selection, handle_type_char, handle_up, handle_up_search, reset_expired_search,
-    reset_search, update_viewer_content,
+    handle_home, handle_open_archive, handle_open_item, handle_page_down, handle_page_up,
+    handle_sort, handle_tab, handle_toggle_selection, handle_type_char, handle_up,
+    handle_up_search, reset_expired_search, reset_search, update_viewer_content,
 };
 
 fn test_app(entries: Vec<FileEntry>) -> AppState {
@@ -1004,5 +1004,62 @@ async fn test_update_viewer_content_shows_parent_directory_label() {
     assert!(
         app.file_viewer.text.directory_rows.is_none(),
         "the parent directory's entries must not be listed"
+    );
+}
+
+/// Opening an archive activates a new tab; a visible viewer must refresh to the
+/// archive's selected entry instead of keeping the file selected before.
+#[tokio::test]
+async fn test_open_archive_updates_viewer_content() {
+    use std::io::Write;
+    let temp_dir = tempfile::tempdir().unwrap();
+    let local_file = temp_dir.path().join("hello.txt");
+    std::fs::write(&local_file, "Hello, F3!").unwrap();
+
+    let archive_path = temp_dir.path().join("inner.zip");
+    {
+        let file = std::fs::File::create(&archive_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default();
+        zip.start_file("inner.txt", options).unwrap();
+        zip.write_all(b"archive content").unwrap();
+        zip.finish().unwrap();
+    }
+
+    let metadata = std::fs::metadata(&archive_path).unwrap();
+    let provider =
+        std::sync::Arc::new(crate::fs::archive_fs::ArchiveFs::new(&archive_path).unwrap());
+
+    let mut app = test_app(vec![FileEntry {
+        name: "hello.txt".to_string(),
+        is_dir: false,
+        is_symlink: false,
+        size: Some(11),
+        modified: None,
+        attributes: String::new(),
+        selected: false,
+    }]);
+    app.panels.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
+    app.file_viewer.is_visible = true;
+
+    // Seed the archive cache so `handle_open_archive` takes the sync path.
+    app.cache.archive_cache.insert(
+        archive_path.clone(),
+        crate::app::ArchiveCacheEntry {
+            mtime: metadata.modified().unwrap(),
+            size: metadata.len(),
+            provider,
+            closed_at: None,
+        },
+    );
+
+    handle_open_archive(&mut app, &archive_path, "inner.zip".to_string()).await;
+
+    let active = app.active_tab();
+    assert_eq!(active.custom_title.as_deref(), Some("inner.zip"));
+    assert_eq!(
+        app.file_viewer.text.content,
+        ["archive content".to_string()],
+        "the viewer must show the archive's selected file, not the previous tab's"
     );
 }

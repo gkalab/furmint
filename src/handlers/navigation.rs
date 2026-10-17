@@ -314,6 +314,8 @@ pub async fn handle_open_archive(app: &mut AppState, path: &PathBuf, filename: S
             }
             // The new tab was listed with the default (hidden shown); reconcile it.
             app.apply_show_hidden();
+            // The archive tab is now active; refresh the viewer for its selected entry.
+            update_viewer_content(app).await;
             return;
         }
         // Cache invalid
