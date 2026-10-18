@@ -763,6 +763,24 @@ impl FileSystemProvider for SftpFs {
         Ok(())
     }
 
+    async fn create_file_exclusive(&self, path: &Path) -> Result<bool> {
+        let sftp = &*self.sftp;
+        let p = normalize_sftp_path(path);
+        // SFTP v3 reports an existing EXCLUDE target as a generic Failure, so
+        // pre-check to turn that into a clean "name taken"; the open's EXCLUDE
+        // flag still guards the create itself.
+        if sftp.try_exists(p.clone()).await.unwrap_or(false) {
+            return Ok(false);
+        }
+        sftp.open_with_flags(
+            p,
+            OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::EXCLUDE | OpenFlags::TRUNCATE,
+        )
+        .await
+        .map(|_| true)
+        .map_err(|e| anyhow!("Failed to create file exclusively: {e}"))
+    }
+
     async fn delete(&self, path: &Path, recursive: bool) -> Result<()> {
         let sftp = &*self.sftp;
         let p = normalize_sftp_path(path);

@@ -83,6 +83,21 @@ fn create_file_sync(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Create `path` as a new empty file, returning `Ok(false)` when it already
+/// exists. `create_new` makes the check and the create one syscall, so a name
+/// already in use is stepped over rather than truncated.
+fn create_file_exclusive_sync(path: &Path) -> Result<bool> {
+    match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+    {
+        Ok(_) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+        Err(e) => Err(e.into()),
+    }
+}
+
 fn delete_sync(path: &Path, recursive: bool) -> Result<()> {
     if path.is_dir() {
         if recursive {
@@ -327,6 +342,13 @@ impl FileSystemProvider for LocalFs {
     async fn create_file(&self, path: &Path) -> Result<()> {
         let path = path.to_path_buf();
         tokio::task::spawn_blocking(move || create_file_sync(&path))
+            .await
+            .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
+    }
+
+    async fn create_file_exclusive(&self, path: &Path) -> Result<bool> {
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || create_file_exclusive_sync(&path))
             .await
             .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
     }

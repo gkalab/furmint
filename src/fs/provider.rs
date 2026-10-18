@@ -115,19 +115,31 @@ impl TaskProgressContext {
 /// read/write; larger files are streamed in chunks.
 const WHOLE_FILE_COPY_LIMIT: u64 = 32 * 1024 * 1024;
 
-/// Build the temporary file path for an in-progress copy of `dst`:
-/// `<dst>.<random>.tmp` in the same directory, so committing is a plain
-/// rename. The per-process-random suffix keeps the name from clashing with a
-/// real file. Returns `None` when `dst` has no parent directory, in which
-/// case callers must copy to `dst` directly.
-fn temp_copy_path(dst: &Path) -> Option<PathBuf> {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
+/// How many scratch names a copy steps over before giving up when every
+/// candidate is already taken. The first candidate is normally free; the
+/// retries only matter when stale parts from crashed writers litter the
+/// directory.
+const TEMP_COPY_NAME_ATTEMPTS: u64 = 128;
+
+/// Process-wide sequence for scratch-file names.
+///
+/// Two copies running at once must never pick the same name, and a
+/// per-destination hash cannot promise that: it is a pure function of `dst`.
+/// A pid plus a monotonic counter can, and does, for every writer on a host.
+static TEMP_COPY_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Build the scratch path for an in-progress copy of `dst`, in the same
+/// directory so committing is a plain rename.
+///
+/// The name embeds the destination, the process id and a per-process sequence
+/// number, so two writers copying to the same destination cannot share one
+/// partial file (and write it at independent offsets). Returns `None` when
+/// `dst` has no parent directory or a non-UTF-8 name, in which case callers
+/// must copy to `dst` directly.
+fn temp_copy_path(dst: &Path, seq: u64) -> Option<PathBuf> {
     let parent = dst.parent()?;
     let name = dst.file_name()?.to_str()?;
-    let mut hasher = DefaultHasher::new();
-    dst.hash(&mut hasher);
-    Some(parent.join(format!("{name}.{0:x}.tmp", hasher.finish())))
+    Some(parent.join(format!(".{name}.{}-{seq}.part", std::process::id())))
 }
 
 /// Unified async filesystem operations.
@@ -162,6 +174,59 @@ pub trait FileSystemProvider: Send + Sync {
     ///
     /// Returns an error if the file cannot be created.
     async fn create_file(&self, path: &Path) -> Result<()>;
+
+    /// Create `path` as a new empty file, returning `Ok(false)` when a file
+    /// already exists there.
+    ///
+    /// Backends that can create a file exclusively should override this so a
+    /// name already in use is stepped over rather than truncated; the default
+    /// check-then-create is racy and is only a fallback for backends that
+    /// cannot express exclusivity.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be created for a reason other than
+    /// the name already being taken.
+    async fn create_file_exclusive(&self, path: &Path) -> Result<bool> {
+        if self.exists(path).await {
+            return Ok(false);
+        }
+        self.create_file(path).await?;
+        Ok(true)
+    }
+
+    /// Reserve a unique scratch file next to `dst` for an in-progress copy and
+    /// return its path.
+    ///
+    /// The name embeds `dst`, the process id and a process-wide sequence
+    /// number, so concurrent writers to one destination never share a partial
+    /// file. A name that is somehow already present — a stale part from a
+    /// crashed writer, or a peer on a shared mount — is stepped over rather
+    /// than truncated, up to a bounded number of attempts. Returns `Ok(None)`
+    /// when `dst` has no usable parent, in which case the caller copies to
+    /// `dst` directly.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no scratch name could be reserved.
+    async fn reserve_temp_copy(&self, dst: &Path) -> Result<Option<PathBuf>> {
+        if temp_copy_path(dst, 0).is_none() {
+            return Ok(None);
+        }
+        for _ in 0..TEMP_COPY_NAME_ATTEMPTS {
+            let seq = TEMP_COPY_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let Some(candidate) = temp_copy_path(dst, seq) else {
+                return Ok(None);
+            };
+            if self.create_file_exclusive(&candidate).await? {
+                return Ok(Some(candidate));
+            }
+        }
+        Err(anyhow::anyhow!(
+            "Could not reserve a temporary file next to {}",
+            dst.display()
+        ))
+    }
 
     /// Delete a file or directory.
     /// For directories, this should be recursive.
@@ -332,7 +397,9 @@ pub trait FileSystemProvider: Send + Sync {
     ///
     /// The copy is written to a temporary file in the destination directory
     /// and renamed into place on success, so a cancelled or failed copy never
-    /// leaves a partial file at `dst`. The temporary file is synced to stable
+    /// leaves a partial file at `dst`. The scratch name is unique per writer
+    /// (see [`Self::reserve_temp_copy`]) so two copies to the same destination
+    /// do not share one partial file. The temporary file is synced to stable
     /// storage before the rename (see [`Self::sync_file`]) and the destination
     /// directory after it, so a reported success is durable rather than merely
     /// in the page cache.
@@ -363,8 +430,11 @@ pub trait FileSystemProvider: Send + Sync {
             .processed_bytes
             .load(std::sync::atomic::Ordering::Relaxed);
 
-        let tmp_buf = temp_copy_path(&dst_buf);
-        let target = tmp_buf.clone().unwrap_or_else(|| dst_buf.clone());
+        // Reserve a unique scratch name up front so two writers to the same
+        // destination cannot share one partial file. `None` when `dst` has no
+        // usable parent, in which case the copy goes straight to `dst`.
+        let reserved_tmp = self.reserve_temp_copy(&dst_buf).await?;
+        let target = reserved_tmp.clone().unwrap_or_else(|| dst_buf.clone());
 
         let completed = self
             .copy_to_target(&src_buf, &target, total_size, progress, perms, base)
@@ -377,14 +447,14 @@ pub trait FileSystemProvider: Send + Sync {
                 // is otherwise lost with the closed write handle and a truncated
                 // file would be renamed into place and reported as done.
                 if let Err(e) = self.sync_file(&target).await {
-                    if tmp_buf.is_some() {
+                    if reserved_tmp.is_some() {
                         let _ = self.delete(&target, false).await;
                     }
                     return Err(e);
                 }
-                if let Some(tmp) = tmp_buf {
-                    if let Err(e) = self.rename(&tmp, &dst_buf).await {
-                        let _ = self.delete(&tmp, false).await;
+                if let Some(tmp) = &reserved_tmp {
+                    if let Err(e) = self.rename(tmp, &dst_buf).await {
+                        let _ = self.delete(tmp, false).await;
                         return Err(e);
                     }
                     // Best effort: the file is durable, make its new name too.
@@ -394,9 +464,15 @@ pub trait FileSystemProvider: Send + Sync {
                     }
                 }
             }
-            Ok(false) => {} // Cancelled: nothing committed.
+            Ok(false) => {
+                // Cancelled before committing: drop the scratch file reserved
+                // for a destination that will not be written.
+                if let Some(tmp) = &reserved_tmp {
+                    let _ = self.delete(tmp, false).await;
+                }
+            }
             Err(e) => {
-                if tmp_buf.is_some() {
+                if reserved_tmp.is_some() {
                     let _ = self.delete(&target, false).await;
                 }
                 return Err(e);

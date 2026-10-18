@@ -7,8 +7,8 @@ fn fs() -> LocalFs {
     LocalFs::new()
 }
 
-/// Names of files in `dir` other than `dst_name` itself that share its
-/// name as a prefix (i.e. stray temp files from a copy).
+/// Names of scratch files left in `dir` for a copy to `dst_name` (i.e. stray
+/// `.<dst>.<pid>-<seq>.part` files from an incomplete copy).
 fn leftover_temps(dir: &Path, dst_name: &str) -> Vec<String> {
     std::fs::read_dir(dir)
         .unwrap()
@@ -16,7 +16,7 @@ fn leftover_temps(dir: &Path, dst_name: &str) -> Vec<String> {
         .filter_map(|e| {
             e.file_name()
                 .to_str()
-                .filter(|n| n.starts_with(dst_name) && *n != dst_name)
+                .filter(|n| n.ends_with(".part") && n.contains(dst_name))
                 .map(str::to_owned)
         })
         .collect()
@@ -39,6 +39,11 @@ struct FlakyCopyFs {
     syncs: Arc<AtomicUsize>,
     /// Number of `sync_parent_dir` calls made.
     parent_syncs: Arc<AtomicUsize>,
+    /// Refuse this many exclusive creates (as if the name were taken) before
+    /// accepting one.
+    refuse_creates: usize,
+    /// Number of `create_file_exclusive` calls made.
+    creates: Arc<AtomicUsize>,
 }
 
 #[async_trait]
@@ -69,6 +74,15 @@ impl FileSystemProvider for FlakyCopyFs {
     }
     async fn create_file(&self, path: &Path) -> Result<()> {
         self.inner.create_file(path).await
+    }
+    async fn create_file_exclusive(&self, path: &Path) -> Result<bool> {
+        let n = self
+            .creates
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if n < self.refuse_creates {
+            return Ok(false);
+        }
+        self.inner.create_file_exclusive(path).await
     }
     async fn delete(&self, path: &Path, recursive: bool) -> Result<()> {
         self.inner.delete(path, recursive).await
@@ -149,6 +163,8 @@ fn flaky_copy_fs(cancel_after: usize, fail_after: usize) -> FlakyCopyFs {
         fail_sync: false,
         syncs: Arc::new(AtomicUsize::new(0)),
         parent_syncs: Arc::new(AtomicUsize::new(0)),
+        refuse_creates: 0,
+        creates: Arc::new(AtomicUsize::new(0)),
     }
 }
 
@@ -314,6 +330,10 @@ async fn test_copy_with_progress_cancel() {
         .await
         .unwrap();
     assert!(!dst.exists());
+    assert!(
+        leftover_temps(dir.path(), "cancel_copy.bin").is_empty(),
+        "a cancelled copy must remove the scratch file it reserved"
+    );
 }
 
 #[tokio::test]
@@ -425,5 +445,116 @@ async fn test_copy_with_progress_sync_failure_does_not_commit() {
     assert!(
         leftover_temps(dir.path(), "data_copy.bin").is_empty(),
         "a failed sync must remove its temp file"
+    );
+}
+
+/// The scratch name embeds the destination, the pid and the sequence number,
+/// so it is stable for one sequence and distinct across sequences. A pure
+/// function of `dst` (the old scheme) let two writers share one partial file.
+#[test]
+fn test_temp_copy_path_is_unique_per_sequence() {
+    let dst = Path::new("/some/dir/report.bin");
+
+    let a = temp_copy_path(dst, 1).unwrap();
+    let b = temp_copy_path(dst, 2).unwrap();
+    let a_again = temp_copy_path(dst, 1).unwrap();
+
+    assert_ne!(a, b, "different sequences must yield different names");
+    assert_eq!(a, a_again, "the same sequence must be reproducible");
+    assert!(a.starts_with("/some/dir"));
+    let name = a.file_name().unwrap().to_str().unwrap();
+    assert!(
+        name.contains("report.bin"),
+        "name must name the destination"
+    );
+    assert!(name.ends_with(".part"), "name must mark a partial file");
+    assert!(
+        name.contains(&std::process::id().to_string()),
+        "name must carry the writer's pid"
+    );
+
+    assert!(
+        temp_copy_path(Path::new("/"), 0).is_none(),
+        "a destination with no parent has no scratch directory"
+    );
+}
+
+/// Two writers reserving scratch space for the same destination get distinct,
+/// already-created files, so neither can corrupt the other's partial copy.
+#[tokio::test]
+async fn test_reserve_temp_copy_is_unique_per_writer() {
+    let dir = tempfile::tempdir().unwrap();
+    let dst = dir.path().join("shared.bin");
+
+    let a = fs().reserve_temp_copy(&dst).await.unwrap().unwrap();
+    let b = fs().reserve_temp_copy(&dst).await.unwrap().unwrap();
+
+    assert_ne!(a, b, "two writers must not share one scratch file");
+    assert_ne!(a, dst, "the scratch file is not the destination");
+    assert!(
+        a.exists() && b.exists(),
+        "a reserved scratch file is created"
+    );
+    assert_eq!(
+        leftover_temps(dir.path(), "shared.bin").len(),
+        2,
+        "both reserved scratch files are discoverable as partials of dst"
+    );
+}
+
+/// Reserving is exclusive: an existing name is reported as taken (and left
+/// untouched) rather than being truncated out from under its writer.
+#[tokio::test]
+async fn test_create_file_exclusive_refuses_existing_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let occupied = dir.path().join(".shared.bin.1-0.part");
+    std::fs::write(&occupied, b"existing").unwrap();
+
+    assert!(
+        !fs().create_file_exclusive(&occupied).await.unwrap(),
+        "an existing name must not be re-created"
+    );
+    assert_eq!(
+        std::fs::read(&occupied).unwrap(),
+        b"existing",
+        "an existing scratch file must not be truncated"
+    );
+
+    let fresh = dir.path().join(".shared.bin.1-1.part");
+    assert!(
+        fs().create_file_exclusive(&fresh).await.unwrap(),
+        "a free name must be created"
+    );
+    assert_eq!(std::fs::read(&fresh).unwrap(), b"");
+}
+
+/// A copy whose first scratch candidate is refused must step over it and still
+/// commit the destination; the step-over is observable as more than one
+/// exclusive-create attempt.
+#[tokio::test]
+async fn test_copy_steps_over_a_taken_scratch_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("data.bin");
+    let dst = dir.path().join("data_copy.bin");
+    std::fs::write(&src, b"payload").unwrap();
+
+    let mut flaky = flaky_copy_fs(usize::MAX, usize::MAX);
+    flaky.refuse_creates = 1;
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let bus = crate::tasks::EventBus::new(tx);
+    let cancel = Arc::new(AtomicBool::new(false));
+    flaky
+        .copy_with_progress(&src, &dst, &copy_progress(&bus, &cancel, 0))
+        .await
+        .unwrap();
+
+    assert_eq!(std::fs::read(&dst).unwrap(), b"payload");
+    assert!(
+        flaky.creates.load(std::sync::atomic::Ordering::Relaxed) >= 2,
+        "the copy must step over a taken scratch name, not reuse it"
+    );
+    assert!(
+        leftover_temps(dir.path(), "data_copy.bin").is_empty(),
+        "a stepped-over name must leave nothing behind"
     );
 }
