@@ -308,12 +308,27 @@ pub enum DragTarget {
     InputFieldSelection,
 }
 
+/// Auto-scroll state for a viewer text-selection drag that has been pulled past
+/// the visible text area.
+///
+/// `dx`/`dy` are the per-axis scroll directions (-1 up/left, +1 down/right, 0
+/// none) and `x`/`y` are the last raw pointer position, so a timer tick can keep
+/// extending the selection at a stable column/row while the button is held.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ViewerAutoscroll {
+    pub dx: i8,
+    pub dy: i8,
+    pub x: u16,
+    pub y: u16,
+}
+
 #[derive(Debug, Default)]
 pub struct MouseState {
     pub last_click: Option<(Instant, u16, u16)>,
     pub mouse_button_down_index: Option<usize>,
     pub active_drag: Option<DragTarget>,
     pub last_drag_pos: Option<(u16, u16)>,
+    pub viewer_autoscroll: Option<ViewerAutoscroll>,
 }
 
 pub struct OsServices {

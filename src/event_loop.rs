@@ -101,6 +101,11 @@ where
 
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
 
+    // Drives the viewer's selection auto-scroll while a drag is held past the
+    // edge. Idle ticks are cheap: they only do work when a drag is armed.
+    let mut autoscroll_interval = tokio::time::interval(std::time::Duration::from_millis(50));
+    autoscroll_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
     let mut should_exit = false;
     let mut mouse_capture_active = app.global.mouse.unwrap_or(true);
 
@@ -162,6 +167,12 @@ where
                                     let _ = w.poll();
                                 }
                                 draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
+                            }
+                            // Keep scrolling a held viewer selection drag.
+                            _ = autoscroll_interval.tick() => {
+                                if crate::handlers::mouse::tick_viewer_autoscroll(app) {
+                                    draw_ui(terminal, app, palette, &keyboard, &mut mouse_capture_active)?;
+                                }
                             }
                             // Handle image resize requests immediately and off-thread
                             Some(request) = async {
