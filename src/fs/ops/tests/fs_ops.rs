@@ -68,6 +68,12 @@ struct MockFileSystem {
     fail_next_create_dir: Arc<Mutex<usize>>,
     fail_next_read_dir: Arc<Mutex<bool>>,
     download_result: Arc<Mutex<Option<anyhow::Result<()>>>>,
+    /// How many times `rename` was called, so a test can prove the move
+    /// optimization consults the kernel instead of a context key.
+    rename_attempts: Arc<Mutex<usize>>,
+    /// When set, `rename` refuses with `EXDEV`, modelling a move across two
+    /// filesystems that share a context key.
+    rename_crosses_devices: Arc<Mutex<bool>>,
 }
 
 #[async_trait]
@@ -135,6 +141,10 @@ impl FileSystemProvider for MockFileSystem {
         Ok(())
     }
     async fn rename(&self, src: &Path, dst: &Path) -> anyhow::Result<()> {
+        *self.rename_attempts.lock().await += 1;
+        if *self.rename_crosses_devices.lock().await {
+            return Err(anyhow::Error::from(std::io::Error::from_raw_os_error(18)));
+        }
         let mut files = self.files.lock().await;
         let mut to_move = Vec::new();
         for k in files.keys() {
@@ -1468,4 +1478,74 @@ async fn test_handle_directory_download_fallback() {
         fs.exists(&dest_root.join("file1.txt")).await,
         "Child file was not copied"
     );
+}
+
+/// A whole-source move must ask `rename` whether the two paths share a
+/// filesystem, rather than trusting a context key: the kernel is the authority,
+/// and bind mounts, overlay layers and subvolumes make any key or device-id
+/// guess unreliable.
+///
+/// The two providers deliberately share a context key, so the optimization
+/// attempts the rename; the mock refuses it with `EXDEV`. The move must then
+/// degrade to copy-then-delete rather than failing or leaving the source
+/// behind.
+#[tokio::test]
+async fn cross_device_move_falls_back_to_copy() {
+    let fs = MockFileSystem::default();
+    let src_root = PathBuf::from("/src");
+    let dest_root = PathBuf::from("/dest");
+
+    {
+        let mut files = fs.files.lock().await;
+        files.insert(src_root.clone(), FakeEntry { is_dir: true });
+        files.insert(src_root.join("file1.txt"), FakeEntry { is_dir: false });
+    }
+    *fs.rename_crosses_devices.lock().await = true;
+
+    let (raw_tx, _rx) = mpsc::unbounded_channel();
+    let tx = crate::tasks::EventBus::new(raw_tx);
+    let (_dtx, drx_real) = mpsc::channel(1);
+    let processed = Arc::new(AtomicUsize::new(0));
+    let decision_rx = Arc::new(Mutex::new(drx_real));
+    let cancel = Arc::new(AtomicBool::new(false));
+    let processed_bytes = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let subtree_counts = crate::fs::ops::SubtreeCounts::new();
+
+    let ctx = RecursiveOpContext {
+        transfer: crate::fs::ops::Transfer {
+            src_fs: &fs,
+            dest_fs: &fs,
+            action: CopyMoveAction::Move,
+            cancel: &cancel,
+            tx: &tx,
+            id: 1,
+            total: 2,
+            total_bytes: 0,
+            processed: &processed,
+            processed_bytes: &processed_bytes,
+            decision_rx: &decision_rx,
+            subtree_counts: &subtree_counts,
+        },
+        src: &src_root,
+        dest: &dest_root,
+    };
+
+    recursive_op(ctx, &mut DecisionState::new()).await.unwrap();
+
+    assert_eq!(
+        *fs.rename_attempts.lock().await,
+        1,
+        "the move must consult the kernel before falling back to a copy"
+    );
+    let copies = fs.copies.lock().await;
+    assert!(
+        copies.contains(&(src_root.join("file1.txt"), dest_root.join("file1.txt"))),
+        "a refused rename must fall back to copying the tree: {copies:?}"
+    );
+    drop(copies);
+    assert!(
+        !fs.exists(&src_root).await,
+        "the fallback copy must still complete the move and remove the source"
+    );
+    assert!(fs.exists(&dest_root.join("file1.txt")).await);
 }
