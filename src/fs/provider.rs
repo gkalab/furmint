@@ -206,6 +206,39 @@ pub trait FileSystemProvider: Send + Sync {
     /// Returns an error if the write fails.
     async fn write_file_at(&self, path: &Path, offset: u64, data: &[u8]) -> Result<()>;
 
+    /// Flush a just-written file's bytes to stable storage.
+    ///
+    /// This is the commit point of a copy: [`FileSystemProvider::copy_with_progress`]
+    /// calls it on the temporary file after the last write and *before* the
+    /// rename that publishes it. Neither `flush` nor dropping the write handle
+    /// is enough — `flush` on a `File` is documented to do nothing, and the drop
+    /// discards `close(2)`, which is exactly where a network/quota filesystem
+    /// reports `ENOSPC`, `EDQUOT` and `EIO`. Without an explicit sync a
+    /// truncated file can be renamed over the destination and reported as done.
+    ///
+    /// Backends with no such notion (or no way to express it) return `Ok(())`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the data cannot be flushed to stable storage.
+    async fn sync_file(&self, _path: &Path) -> Result<()> {
+        Ok(())
+    }
+
+    /// Best-effort sync of the directory that contains `path`.
+    ///
+    /// Called after a successful rename so the new directory *entry* is durable,
+    /// not just the file it points at. Backends that cannot sync a directory
+    /// (or have no directories) return `Ok(())`, and callers treat failure as
+    /// non-fatal.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the containing directory cannot be synced.
+    async fn sync_parent_dir(&self, _path: &Path) -> Result<()> {
+        Ok(())
+    }
+
     /// Write data to a file with specific permissions (Unix mode).
     ///
     /// # Errors
@@ -299,7 +332,10 @@ pub trait FileSystemProvider: Send + Sync {
     ///
     /// The copy is written to a temporary file in the destination directory
     /// and renamed into place on success, so a cancelled or failed copy never
-    /// leaves a partial file at `dst`.
+    /// leaves a partial file at `dst`. The temporary file is synced to stable
+    /// storage before the rename (see [`Self::sync_file`]) and the destination
+    /// directory after it, so a reported success is durable rather than merely
+    /// in the page cache.
     ///
     /// # Errors
     ///
@@ -336,11 +372,23 @@ pub trait FileSystemProvider: Send + Sync {
 
         match completed {
             Ok(true) => {
+                // Commit point: get the bytes onto stable storage before the
+                // rename publishes them. A writeback failure (ENOSPC/EDQUOT/EIO)
+                // is otherwise lost with the closed write handle and a truncated
+                // file would be renamed into place and reported as done.
+                if let Err(e) = self.sync_file(&target).await {
+                    if tmp_buf.is_some() {
+                        let _ = self.delete(&target, false).await;
+                    }
+                    return Err(e);
+                }
                 if let Some(tmp) = tmp_buf {
                     if let Err(e) = self.rename(&tmp, &dst_buf).await {
                         let _ = self.delete(&tmp, false).await;
                         return Err(e);
                     }
+                    // Best effort: the file is durable, make its new name too.
+                    let _ = self.sync_parent_dir(&dst_buf).await;
                     if let Some(mt) = mtime {
                         self.set_modified_time(&dst_buf, mt).await;
                     }

@@ -33,6 +33,12 @@ struct FlakyCopyFs {
     cancel_after: usize,
     /// Fail once this many writes have succeeded (`usize::MAX` = disabled).
     fail_after: usize,
+    /// Fail [`FileSystemProvider::sync_file`] (the copy's commit point).
+    fail_sync: bool,
+    /// Number of `sync_file` calls made.
+    syncs: Arc<AtomicUsize>,
+    /// Number of `sync_parent_dir` calls made.
+    parent_syncs: Arc<AtomicUsize>,
 }
 
 #[async_trait]
@@ -78,6 +84,19 @@ impl FileSystemProvider for FlakyCopyFs {
     }
     async fn write_file(&self, path: &Path, data: &[u8]) -> Result<()> {
         self.inner.write_file(path, data).await
+    }
+    async fn sync_file(&self, path: &Path) -> Result<()> {
+        self.syncs
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if self.fail_sync {
+            return Err(anyhow::anyhow!("injected sync failure"));
+        }
+        self.inner.sync_file(path).await
+    }
+    async fn sync_parent_dir(&self, path: &Path) -> Result<()> {
+        self.parent_syncs
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.inner.sync_parent_dir(path).await
     }
     async fn exists(&self, path: &Path) -> bool {
         self.inner.exists(path).await
@@ -127,6 +146,9 @@ fn flaky_copy_fs(cancel_after: usize, fail_after: usize) -> FlakyCopyFs {
         writes: Arc::new(AtomicUsize::new(0)),
         cancel_after,
         fail_after,
+        fail_sync: false,
+        syncs: Arc::new(AtomicUsize::new(0)),
+        parent_syncs: Arc::new(AtomicUsize::new(0)),
     }
 }
 
@@ -340,5 +362,68 @@ async fn test_copy_with_progress_write_failure_leaves_no_partial() {
     assert!(
         leftover_temps(dir.path(), "big_copy.bin").is_empty(),
         "failed copy must remove its temp file"
+    );
+}
+
+/// A successful copy must sync the temporary file (the commit point) exactly
+/// once before renaming it, then best-effort sync the destination directory.
+#[tokio::test]
+async fn test_copy_with_progress_syncs_before_rename_and_dir_after() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("data.bin");
+    let dst = dir.path().join("data_copy.bin");
+    std::fs::write(&src, b"durable").unwrap();
+
+    let flaky = flaky_copy_fs(usize::MAX, usize::MAX);
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let bus = crate::tasks::EventBus::new(tx);
+    let cancel = Arc::new(AtomicBool::new(false));
+    flaky
+        .copy_with_progress(&src, &dst, &copy_progress(&bus, &cancel, 0))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        flaky.syncs.load(std::sync::atomic::Ordering::Relaxed),
+        1,
+        "the temp file must be synced once before the rename"
+    );
+    assert_eq!(
+        flaky
+            .parent_syncs
+            .load(std::sync::atomic::Ordering::Relaxed),
+        1,
+        "the destination directory must be synced after the rename"
+    );
+    assert_eq!(std::fs::read(&dst).unwrap(), b"durable");
+    assert!(leftover_temps(dir.path(), "data_copy.bin").is_empty());
+}
+
+/// The sync is the commit point: when it fails the rename must not happen, so
+/// no truncated file is published and the temp file is cleaned up.
+#[tokio::test]
+async fn test_copy_with_progress_sync_failure_does_not_commit() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("data.bin");
+    let dst = dir.path().join("data_copy.bin");
+    std::fs::write(&src, b"data").unwrap();
+
+    let mut flaky = flaky_copy_fs(usize::MAX, usize::MAX);
+    flaky.fail_sync = true;
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let bus = crate::tasks::EventBus::new(tx);
+    let cancel = Arc::new(AtomicBool::new(false));
+    let res = flaky
+        .copy_with_progress(&src, &dst, &copy_progress(&bus, &cancel, 0))
+        .await;
+
+    assert!(res.is_err(), "a failed sync must surface as a copy error");
+    assert!(
+        !dst.exists(),
+        "a failed sync must not rename the temp file into place"
+    );
+    assert!(
+        leftover_temps(dir.path(), "data_copy.bin").is_empty(),
+        "a failed sync must remove its temp file"
     );
 }

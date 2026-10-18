@@ -159,6 +159,29 @@ fn write_file_at_sync(path: &Path, offset: u64, data: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// Flush `path` to stable storage.
+///
+/// On Unix `fsync` works on a read-only descriptor; Windows'
+/// `FlushFileBuffers` requires write access, so ask for it there.
+fn sync_file_sync(path: &Path) -> Result<()> {
+    #[cfg(windows)]
+    let file = fs::OpenOptions::new().write(true).open(path)?;
+    #[cfg(not(windows))]
+    let file = fs::File::open(path)?;
+    file.sync_all()?;
+    Ok(())
+}
+
+/// Best-effort `fsync` of the directory containing `path`, so a rename's new
+/// directory entry is durable. A path with no parent is a no-op.
+fn sync_parent_dir_sync(path: &Path) -> Result<()> {
+    let Some(parent) = path.parent() else {
+        return Ok(());
+    };
+    fs::File::open(parent)?.sync_all()?;
+    Ok(())
+}
+
 fn get_file_info_sync(path: &Path) -> Option<FileMetadata> {
     let meta = fs::metadata(path).ok()?;
     #[cfg(unix)]
@@ -349,6 +372,20 @@ impl FileSystemProvider for LocalFs {
         let path = path.to_path_buf();
         let data = data.to_vec();
         tokio::task::spawn_blocking(move || write_file_at_sync(&path, offset, &data))
+            .await
+            .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
+    }
+
+    async fn sync_file(&self, path: &Path) -> Result<()> {
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || sync_file_sync(&path))
+            .await
+            .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
+    }
+
+    async fn sync_parent_dir(&self, path: &Path) -> Result<()> {
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || sync_parent_dir_sync(&path))
             .await
             .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
     }
