@@ -164,6 +164,54 @@ impl Decision {
     }
 }
 
+/// Why a move may not have carried its whole source, accumulated as one source
+/// tree is walked.
+///
+/// A move is allowed to remove its source only once every entry under it has
+/// reached the destination. As soon as one entry is skipped or failed, or the
+/// operation is stopped, the whole source is left untouched: a source whose
+/// copied entries were deleted cannot be reconstructed from the destination,
+/// so it is the one outcome nobody can recover from. The counts let the caller
+/// say how short the move fell instead of reporting a clean transfer.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub struct MoveOutcome {
+    /// Entries whose copy failed and were not retried.
+    pub failed: usize,
+    /// Entries whose destination conflict was answered with skip.
+    pub skipped: usize,
+    /// The operation stopped early: a cancel decision, or the task's cancel
+    /// flag was already raised.
+    pub stopped: bool,
+}
+
+impl MoveOutcome {
+    /// True when every entry was carried and nothing stopped the operation.
+    #[must_use]
+    pub fn is_clean(&self) -> bool {
+        self.failed == 0 && self.skipped == 0 && !self.stopped
+    }
+
+    /// A one-line description of what kept the source in place, or `None` when
+    /// the move was clean.
+    #[must_use]
+    pub fn shortfall(&self) -> Option<String> {
+        if self.is_clean() {
+            return None;
+        }
+        let mut parts = Vec::new();
+        if self.skipped > 0 {
+            parts.push(format!("{} skipped", self.skipped));
+        }
+        if self.failed > 0 {
+            parts.push(format!("{} failed", self.failed));
+        }
+        if self.stopped {
+            parts.push("stopped".to_string());
+        }
+        Some(parts.join(", "))
+    }
+}
+
 /// The state every spawned copy/move transfer shares: the filesystem pair, the
 /// task's progress counters, and the channel the UI answers prompts on.
 ///
@@ -278,9 +326,6 @@ enum WorkItem {
         src: std::path::PathBuf,
         dest: std::path::PathBuf,
     },
-    PostProcessDir {
-        src: std::path::PathBuf,
-    },
 }
 
 /// Bytes of `path`'s subtree that the task counted but will not transfer,
@@ -313,6 +358,16 @@ fn credit_untransferred_bytes(transfer: &Transfer<'_>, bytes: u64) {
     ));
 }
 
+/// Moves a whole source with a single `rename(2)` when the destination is
+/// free and the two paths share a filesystem.
+///
+/// Only the *whole* source may take this shortcut. A rename is the move — it
+/// carries the whole subtree at once — so it can only run when the outcome is
+/// already known: a conflict would otherwise be discovered after the source was
+/// gone. Renaming an individual child during a merge has no such guarantee: a
+/// later sibling could be skipped and leave the source missing the children
+/// that happened to move. Those children are copied instead and removed with
+/// the rest of the source once the walk proves the tree copied.
 async fn try_rename_move_optimization(
     ctx: &RecursiveOpContext<'_>,
     src: &std::path::Path,
@@ -320,7 +375,8 @@ async fn try_rename_move_optimization(
 ) -> Result<bool> {
     let t = &ctx.transfer;
     let same_fs = t.src_fs.context_key() == t.dest_fs.context_key();
-    if t.action == crate::state::CopyMoveAction::Move && same_fs {
+    let is_whole_source = src == ctx.src;
+    if t.action == crate::state::CopyMoveAction::Move && same_fs && is_whole_source {
         let dest_exists = t.dest_fs.stat_path(dest).await.is_some();
         if !dest_exists && t.src_fs.rename(src, dest).await.is_ok() {
             // Successfully moved! The rename carried the entire subtree in one
@@ -351,27 +407,29 @@ async fn try_rename_move_optimization(
 async fn handle_file(
     ctx: &RecursiveOpContext<'_>,
     decision_state: &mut DecisionState,
+    outcome: &mut MoveOutcome,
     src: &std::path::Path,
     dest: &std::path::Path,
 ) -> Result<bool> {
     let t = &ctx.transfer;
-    let mut perform = true;
     let dest_exists = t.dest_fs.stat_path(dest).await.is_some();
 
-    if dest_exists {
-        match resolve_conflict(ctx, decision_state, dest).await? {
-            ConflictResult::Perform => perform = true,
+    let skipped = if dest_exists {
+        match resolve_conflict(ctx, decision_state, outcome, dest).await? {
+            ConflictResult::Perform => false,
             ConflictResult::Skip => {
                 // Skipped: no bytes move, but the walk counted this file, so
                 // credit it or the task's byte line can never complete.
                 credit_untransferred_bytes(t, untransferred_bytes(t, src).await);
-                perform = false;
+                true
             }
             ConflictResult::Cancel => return Ok(false),
         }
-    }
+    } else {
+        false
+    };
 
-    if perform {
+    if !skipped {
         // Update current file
         t.tx.send(crate::tasks::UiEvent::Task(
             crate::tasks::TaskEvent::UpdateCurrentFile {
@@ -384,21 +442,18 @@ async fn handle_file(
             },
         ));
 
-        if !perform_file_copy(ctx, decision_state, src, dest).await? {
-            perform = false;
+        if !perform_file_copy(ctx, decision_state, src, dest).await?
+            // A cancel is already recorded as `stopped` by the decision; any
+            // other way a copy stops is a failure the move must remember.
+            && !t.cancel.load(std::sync::atomic::Ordering::Relaxed)
+        {
+            outcome.failed += 1;
         }
     }
 
-    if t.action == crate::state::CopyMoveAction::Move && perform {
-        // The file was already copied to the destination. If we fail to remove the
-        // source, a Move would silently degrade into a Copy, so surface the error.
-        if let Err(e) = t.src_fs.delete(src, false).await {
-            return Err(anyhow!(
-                "Failed to delete source {} after move: {e}",
-                src.display()
-            ));
-        }
-    }
+    // A move does not delete its source here: the whole source stays in place
+    // until the walk has proven the tree copied (see `recursive_op`), so a
+    // later failure cannot leave a source whose copied entries are gone.
 
     // Update progress
     let p = t
@@ -420,6 +475,7 @@ pub fn recursive_op<'a>(
             src: ctx.src.to_path_buf(),
             dest: ctx.dest.to_path_buf(),
         }];
+        let mut outcome = MoveOutcome::default();
 
         // Send initial progress update
         t.tx.send(crate::tasks::UiEvent::Task(
@@ -446,14 +502,11 @@ pub fn recursive_op<'a>(
 
         while let Some(item) = stack.pop() {
             if t.cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                return Ok(()); // Cancelled
+                outcome.stopped = true;
+                break;
             }
 
             match item {
-                WorkItem::PostProcessDir { src } => {
-                    // Remove empty directory after move
-                    let _ = t.src_fs.delete(&src, false).await;
-                }
                 WorkItem::Process { src, dest } => {
                     // Move optimization: Try rename first if it's a move operation and same FS
                     if try_rename_move_optimization(&ctx, &src, &dest).await? {
@@ -461,15 +514,60 @@ pub fn recursive_op<'a>(
                     }
 
                     if t.src_fs.is_dir(&src).await {
-                        handle_directory(&ctx, decision_state, &src, &dest, &mut stack).await?;
-                    } else if !handle_file(&ctx, decision_state, &src, &dest).await? {
-                        return Ok(()); // Cancelled
+                        handle_directory(
+                            &ctx,
+                            decision_state,
+                            &mut outcome,
+                            &src,
+                            &dest,
+                            &mut stack,
+                        )
+                        .await?;
+                    } else if !handle_file(&ctx, decision_state, &mut outcome, &src, &dest).await? {
+                        outcome.stopped = true;
+                        break; // Cancelled
                     }
                 }
             }
         }
-        Ok(())
+
+        finish_move(&t, ctx.src, outcome).await
     })
+}
+
+/// Settles a move once its walk is done.
+///
+/// The source is removed only when every entry reached the destination and
+/// nothing stopped the operation. Any shortfall leaves the whole source in
+/// place and is returned as an error so the caller surfaces an incomplete move
+/// instead of reporting a clean one; a stop (cancel) is not an error here,
+/// because the caller reports the task as cancelled.
+async fn finish_move(t: &Transfer<'_>, src: &std::path::Path, outcome: MoveOutcome) -> Result<()> {
+    if t.action != crate::state::CopyMoveAction::Move {
+        return Ok(());
+    }
+
+    if !outcome.is_clean() {
+        if t.cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            return Ok(());
+        }
+        return Err(anyhow!(
+            "Move incomplete ({}); source kept at {}",
+            outcome.shortfall().unwrap_or_default(),
+            src.display()
+        ));
+    }
+
+    // The rename optimization may already have carried the source away; there
+    // is nothing left to remove then. Otherwise remove the whole source tree in
+    // one go — the walk above proved every entry copied.
+    if !t.src_fs.exists(src).await {
+        return Ok(());
+    }
+    t.src_fs
+        .delete(src, true)
+        .await
+        .map_err(|e| anyhow!("Failed to remove source {} after move: {e}", src.display()))
 }
 
 enum ConflictResult {
@@ -481,6 +579,7 @@ enum ConflictResult {
 async fn handle_directory(
     ctx: &RecursiveOpContext<'_>,
     decision_state: &mut DecisionState,
+    outcome: &mut MoveOutcome,
     src: &std::path::Path,
     dest: &std::path::Path,
     stack: &mut Vec<WorkItem>,
@@ -495,17 +594,31 @@ async fn handle_directory(
     // For archive destinations, hand off the whole directory at once so the
     // entire tree is added in a single batched rewrite (archives cannot append).
     if t.dest_fs.is_archive() {
-        return handle_archive_directory(ctx, decision_state, src, dest, dest_exists, &progress)
-            .await;
+        return handle_archive_directory(
+            ctx,
+            decision_state,
+            outcome,
+            src,
+            dest,
+            dest_exists,
+            &progress,
+        )
+        .await;
     }
 
     // For providers that handle extraction themselves (e.g. archives), ask before
     // we hand off control — but only when the destination already exists as a directory
     // (replacing a whole tree). A non-directory blocking the path is handled below.
     if dest_is_dir {
-        if let Some(result) =
-            handle_copy_to_local_with_existing_dir(ctx, decision_state, src, dest, &progress)
-                .await?
+        if let Some(result) = handle_copy_to_local_with_existing_dir(
+            ctx,
+            decision_state,
+            outcome,
+            src,
+            dest,
+            &progress,
+        )
+        .await?
         {
             return result;
         }
@@ -515,20 +628,21 @@ async fn handle_directory(
 
     // Normal recursive path (no download optimisation).
     let src_mtime = t.src_fs.get_modified_time(src).await;
-    if !ensure_dest_directory(ctx, decision_state, dest, dest_exists, dest_is_dir).await? {
+    if !ensure_dest_directory(ctx, decision_state, outcome, dest, dest_exists, dest_is_dir).await? {
         return Ok(());
     }
     if let Some(mtime) = src_mtime {
         let _ = t.dest_fs.set_modified_time(dest, mtime).await;
     }
 
-    update_progress_and_postprocess(ctx, decision_state, src, stack);
+    update_dir_progress(ctx, decision_state);
     add_children_to_stack(ctx, src, dest, stack).await
 }
 
 async fn handle_archive_directory(
     ctx: &RecursiveOpContext<'_>,
     decision_state: &mut DecisionState,
+    outcome: &mut MoveOutcome,
     src: &std::path::Path,
     dest: &std::path::Path,
     dest_exists: bool,
@@ -554,7 +668,7 @@ async fn handle_archive_directory(
     };
 
     if dest_exists {
-        match resolve_conflict(ctx, decision_state, dest).await? {
+        match resolve_conflict(ctx, decision_state, outcome, dest).await? {
             ConflictResult::Perform => {}
             ConflictResult::Skip => {
                 // The whole subtree is skipped, so its bytes are credited here.
@@ -594,6 +708,7 @@ async fn handle_archive_directory(
 async fn handle_copy_to_local_with_existing_dir(
     ctx: &RecursiveOpContext<'_>,
     decision_state: &mut DecisionState,
+    outcome: &mut MoveOutcome,
     src: &std::path::Path,
     dest: &std::path::Path,
     progress: &TaskProgressContext,
@@ -605,7 +720,7 @@ async fn handle_copy_to_local_with_existing_dir(
         return Ok(None);
     }
 
-    match resolve_conflict(ctx, decision_state, dest).await? {
+    match resolve_conflict(ctx, decision_state, outcome, dest).await? {
         ConflictResult::Perform => {}
         ConflictResult::Skip => {
             // The whole subtree is skipped, so its bytes are credited here.
@@ -671,6 +786,7 @@ async fn handle_copy_to_local_direct(
 async fn ensure_dest_directory(
     ctx: &RecursiveOpContext<'_>,
     decision_state: &mut DecisionState,
+    outcome: &mut MoveOutcome,
     dest: &std::path::Path,
     dest_exists: bool,
     dest_is_dir: bool,
@@ -688,7 +804,7 @@ async fn ensure_dest_directory(
 
     if !dest_is_dir {
         // A file exists where we want a directory — that's a genuine conflict.
-        match resolve_conflict(ctx, decision_state, dest).await? {
+        match resolve_conflict(ctx, decision_state, outcome, dest).await? {
             ConflictResult::Perform => {
                 // Remove the blocking file and create the directory.
                 let _ = t.dest_fs.delete(dest, false).await;
@@ -739,30 +855,22 @@ async fn add_children_to_stack(
     Ok(())
 }
 
-fn update_progress_and_postprocess(
-    ctx: &RecursiveOpContext<'_>,
-    decision_state: &mut DecisionState,
-    src: &std::path::Path,
-    stack: &mut Vec<WorkItem>,
-) {
+/// Increments the item counter for a directory the walk is about to descend
+/// into. The directory's own removal, if this is a move, is handled once at the
+/// end of the walk, not here.
+fn update_dir_progress(ctx: &RecursiveOpContext<'_>, decision_state: &mut DecisionState) {
     let t = &ctx.transfer;
-    // Increment progress for the directory itself
     let p = t
         .processed
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         + 1;
     update_progress_if_needed(t, decision_state, p);
-
-    if t.action == crate::state::CopyMoveAction::Move {
-        stack.push(WorkItem::PostProcessDir {
-            src: src.to_path_buf(),
-        });
-    }
 }
 
 async fn resolve_conflict(
     ctx: &RecursiveOpContext<'_>,
     decision_state: &mut DecisionState,
+    outcome: &mut MoveOutcome,
     dest: &std::path::Path,
 ) -> Result<ConflictResult> {
     match ctx
@@ -773,8 +881,14 @@ async fn resolve_conflict(
         Decision::Overwrite | Decision::OverwriteAll => Ok(ConflictResult::Perform),
         // Retry is not offered by the conflict prompt, but a non-answer falls
         // back to skipping rather than guessing.
-        Decision::Skip | Decision::SkipAll | Decision::Retry => Ok(ConflictResult::Skip),
-        Decision::Cancel => Ok(ConflictResult::Cancel),
+        Decision::Skip | Decision::SkipAll | Decision::Retry => {
+            outcome.skipped += 1;
+            Ok(ConflictResult::Skip)
+        }
+        Decision::Cancel => {
+            outcome.stopped = true;
+            Ok(ConflictResult::Cancel)
+        }
     }
 }
 

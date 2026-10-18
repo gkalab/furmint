@@ -548,6 +548,33 @@ async fn compute_task_totals(
     }
 }
 
+/// Reports how the whole transfer ended: cancelled, clean, or failed.
+///
+/// A failure names its reason — an incomplete move, say — instead of a bare
+/// count, so a partial transfer is not mistaken for a clean one.
+fn report_transfer_status(
+    tx: &crate::tasks::EventBus,
+    id: usize,
+    cancelled: bool,
+    failures: &[String],
+    total_paths: usize,
+) {
+    use crate::tasks::{TaskEvent, TaskStatus, UiEvent};
+    let status = if cancelled {
+        TaskStatus::Cancelled
+    } else if failures.is_empty() {
+        TaskStatus::Completed
+    } else if failures.len() < total_paths {
+        TaskStatus::Failed(format!("Completed with errors: {} failed", failures.len()))
+    } else {
+        TaskStatus::Failed(format!("Failed: {}", failures[0]))
+    };
+    tx.send(UiEvent::Task(TaskEvent::UpdateStatus {
+        task_id: id,
+        status,
+    }));
+}
+
 pub fn spawn_copy_move_task(
     app: &mut AppState,
     src_provider: Arc<dyn FileSystemProvider>,
@@ -653,30 +680,13 @@ pub fn spawn_copy_move_task(
                 }
             }
 
-            if cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                tx.send(crate::tasks::UiEvent::Task(
-                    crate::tasks::TaskEvent::UpdateStatus {
-                        task_id: id,
-                        status: crate::tasks::TaskStatus::Cancelled,
-                    },
-                ));
-            } else if failures.is_empty() {
-                tx.send(crate::tasks::UiEvent::Task(
-                    crate::tasks::TaskEvent::UpdateStatus {
-                        task_id: id,
-                        status: crate::tasks::TaskStatus::Completed,
-                    },
-                ));
-            } else {
-                // ... error handling
-                let msg = format!("Failed with {} errors", failures.len());
-                tx.send(crate::tasks::UiEvent::Task(
-                    crate::tasks::TaskEvent::UpdateStatus {
-                        task_id: id,
-                        status: crate::tasks::TaskStatus::Failed(msg),
-                    },
-                ));
-            }
+            report_transfer_status(
+                &tx,
+                id,
+                cancel.load(std::sync::atomic::Ordering::Relaxed),
+                &failures,
+                paths.len(),
+            );
         });
 
     // Store decision tx

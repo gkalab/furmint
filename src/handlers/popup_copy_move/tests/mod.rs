@@ -683,3 +683,49 @@ async fn test_handle_clipboard_action_sets_message() {
     let (msg, _) = app.active_tab().status_msg.as_ref().unwrap();
     assert_eq!(msg, "1 item copied");
 }
+
+/// The task status must name the reason a transfer ended: an incomplete move's
+/// message is surfaced instead of collapsing into a bare count, and a partial
+/// failure is distinguished from a total one.
+#[tokio::test]
+async fn test_report_transfer_status_surfaces_the_reason() {
+    use crate::tasks::{EventBus, TaskEvent, TaskStatus, UiEvent};
+    use tokio::sync::mpsc::UnboundedReceiver;
+
+    async fn next_status(rx: &mut UnboundedReceiver<UiEvent>) -> TaskStatus {
+        match rx.recv().await {
+            Some(UiEvent::Task(TaskEvent::UpdateStatus { status, .. })) => status,
+            other => panic!("expected a status update, got {other:?}"),
+        }
+    }
+
+    let (raw_tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let tx = EventBus::new(raw_tx);
+
+    super::report_transfer_status(&tx, 1, false, &[], 1);
+    assert_eq!(next_status(&mut rx).await, TaskStatus::Completed);
+
+    super::report_transfer_status(&tx, 2, true, &[], 1);
+    assert_eq!(next_status(&mut rx).await, TaskStatus::Cancelled);
+
+    super::report_transfer_status(
+        &tx,
+        3,
+        false,
+        &["Move incomplete (1 skipped); source kept at /src".to_string()],
+        1,
+    );
+    let TaskStatus::Failed(msg) = next_status(&mut rx).await else {
+        panic!("a failed transfer must report Failed");
+    };
+    assert!(
+        msg.contains("Move incomplete"),
+        "the reason, not a bare count, must reach the task: {msg}"
+    );
+
+    super::report_transfer_status(&tx, 4, false, &["boom".to_string()], 2);
+    let TaskStatus::Failed(msg) = next_status(&mut rx).await else {
+        panic!("a partial transfer must report Failed");
+    };
+    assert_eq!(msg, "Completed with errors: 1 failed");
+}
