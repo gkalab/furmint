@@ -147,6 +147,7 @@ impl Tab {
         };
         tab.sort_entries();
         tab.recompute_visible_indices();
+        tab.cursor_to_first_entry();
         Ok(tab)
     }
 
@@ -267,6 +268,9 @@ impl Tab {
 
     /// Navigates to the specified path.
     ///
+    /// The cursor is placed on the first file or directory entry; it only
+    /// lands on the `..` row when the listing holds nothing besides it.
+    ///
     /// # Errors
     ///
     /// Returns an error if the directory cannot be listed.
@@ -280,14 +284,25 @@ impl Tab {
             PathBuf::from(crate::fs::utils::normalize_sftp_path(path))
         };
         self.entries = entries;
-        self.cursor = 0;
         self.scroll_offset = 0;
         self.search.reset();
         self.dir_sizes.clear(); // Clear cached sizes when navigating
 
         self.sort_entries();
         self.recompute_visible_indices();
+        self.cursor_to_first_entry();
         Ok(())
+    }
+
+    /// Move the cursor to the first real entry, i.e. the first visible row
+    /// that is not the `..` parent-navigation row. When the listing contains
+    /// nothing besides `..` (or is empty), leave the cursor on row 0.
+    fn cursor_to_first_entry(&mut self) {
+        self.cursor = self
+            .visible_indices
+            .iter()
+            .position(|&i| self.entries[i].name != "..")
+            .unwrap_or(0);
     }
 
     /// Reload entries while preserving selection state and cursor position

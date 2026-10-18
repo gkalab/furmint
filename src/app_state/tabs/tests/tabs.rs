@@ -107,6 +107,47 @@ async fn test_reload_and_focus() {
 }
 
 #[tokio::test]
+async fn test_cursor_lands_on_first_entry_when_entering_directory() {
+    let test_dir = std::env::temp_dir().join("fm_test_cursor_first_entry");
+    if test_dir.exists() {
+        std::fs::remove_dir_all(&test_dir).ok();
+    }
+    std::fs::create_dir_all(&test_dir).unwrap();
+    std::fs::File::create(test_dir.join("a.txt")).unwrap();
+    std::fs::File::create(test_dir.join("b.txt")).unwrap();
+
+    // Opening a directory: cursor must land on the first entry, not "..".
+    let mut tab = Tab::new(&test_dir).await.unwrap();
+    assert_eq!(tab.entries[0].name, "..");
+    assert_eq!(tab.cursor, 1);
+    assert_eq!(tab.current_entry().unwrap().name, "a.txt");
+
+    // Navigating to a directory again: same landing behaviour.
+    tab.navigate_to(&test_dir).await.unwrap();
+    assert_eq!(tab.cursor, 1);
+    assert_eq!(tab.current_entry().unwrap().name, "a.txt");
+
+    std::fs::remove_dir_all(&test_dir).ok();
+}
+
+#[tokio::test]
+async fn test_cursor_lands_on_parent_only_for_empty_dir() {
+    let test_dir = std::env::temp_dir().join("fm_test_cursor_empty_dir");
+    if test_dir.exists() {
+        std::fs::remove_dir_all(&test_dir).ok();
+    }
+    std::fs::create_dir_all(&test_dir).unwrap();
+
+    // Nothing but "..": the cursor has nowhere else to go.
+    let tab = Tab::new(&test_dir).await.unwrap();
+    assert_eq!(tab.entries.len(), 1);
+    assert_eq!(tab.entries[0].name, "..");
+    assert_eq!(tab.cursor, 0);
+
+    std::fs::remove_dir_all(&test_dir).ok();
+}
+
+#[tokio::test]
 async fn test_persistent_tab_custom_title() {
     let mut tab = Tab::new(Path::new(".")).await.unwrap();
     tab.custom_title = Some("Custom Tab Name".to_string());
