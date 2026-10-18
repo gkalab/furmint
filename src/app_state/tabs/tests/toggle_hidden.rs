@@ -101,7 +101,10 @@ fn test_show_hidden_defaults_to_true() {
     // The documented default, and what a first run or a legacy state file gets.
     let app = app_with(listing());
     assert!(app.show_hidden);
-    assert!(!app.active_tab().has_visibility_restriction());
+    assert_eq!(
+        names(app.active_tab()),
+        vec!["..", ".config", "docs", ".env", "README.md"]
+    );
 }
 
 #[test]
@@ -319,18 +322,24 @@ fn test_filter_cannot_surface_a_hidden_entry() {
 }
 
 #[test]
-fn test_has_visibility_restriction_tracks_both_settings() {
+fn test_visibility_tracks_both_settings() {
     let mut tab = tab_with(listing());
-    assert!(!tab.has_visibility_restriction());
+    assert_eq!(
+        names(&tab),
+        vec!["..", ".config", "docs", ".env", "README.md"]
+    );
 
     tab.set_show_hidden(false);
-    assert!(tab.has_visibility_restriction());
+    assert_eq!(names(&tab), vec!["..", "docs", "README.md"]);
 
     tab.set_show_hidden(true);
-    assert!(!tab.has_visibility_restriction());
+    assert_eq!(
+        names(&tab),
+        vec!["..", ".config", "docs", ".env", "README.md"]
+    );
 
     tab.set_file_filter(Some("README")).unwrap();
-    assert!(tab.has_visibility_restriction());
+    assert_eq!(names(&tab), vec!["..", ".config", "docs", "README.md"]);
 }
 
 #[test]

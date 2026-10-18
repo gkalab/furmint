@@ -529,17 +529,6 @@ impl Tab {
         }
     }
 
-    /// Whether entries are withheld from the listing.
-    ///
-    /// True when hidden entries are excluded or a file filter is applied. The
-    /// visible view is always materialised, so this is no longer needed to pick
-    /// an indexing scheme; it survives only where the restricted listing behaves
-    /// genuinely differently (see [`Self::select_all`]).
-    #[must_use]
-    pub fn has_visibility_restriction(&self) -> bool {
-        self.filter.is_active() || !self.show_hidden
-    }
-
     /// Reconcile the visible set with a new hidden-file setting.
     ///
     /// Idempotent: the visible set is always recomputed from `entries`, so this
@@ -577,8 +566,8 @@ impl Tab {
         self.visible_indices.len()
     }
 
-    /// Select all visible files that pass the filter.
-    /// Directories (including "..") are never selected.
+    /// Select all visible entries (files and directories) that pass the filter.
+    /// ".." is never selected.
     pub fn select_all_visible(&mut self) {
         // `visible_indices` is ascending, so a merge walk over the entries keeps
         // this O(entries) instead of a membership test per entry.
@@ -587,7 +576,7 @@ impl Tab {
             while visible.peek().is_some_and(|&v| v < i) {
                 visible.next();
             }
-            if entry.is_dir || visible.peek() != Some(&i) {
+            if visible.peek() != Some(&i) || entry.name == ".." {
                 continue;
             }
             entry.selected = true;
@@ -680,16 +669,13 @@ impl Tab {
         self.entries.iter().filter(|e| e.selected).collect()
     }
 
+    /// Select all currently visible files and directories.
+    ///
+    /// ".." is never selected. The result is independent of whether hidden
+    /// files are shown, since the visible set already reflects the current
+    /// hidden-file setting and file filter.
     pub fn select_all(&mut self) {
-        if self.has_visibility_restriction() {
-            self.select_all_visible();
-        } else {
-            for entry in &mut self.entries {
-                if entry.name != ".." {
-                    entry.selected = true;
-                }
-            }
-        }
+        self.select_all_visible();
     }
 
     /// Sorts `entries` in place and rebuilds the visible set.

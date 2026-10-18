@@ -63,7 +63,7 @@ async fn test_set_file_filter_matches_files() {
     app.active_tab_mut().set_file_filter(Some("*.rs")).unwrap();
 
     let tab = app.active_tab();
-    assert!(tab.has_visibility_restriction());
+    assert!(tab.filter.is_active());
     // Directories are never filtered out
     assert!(tab.is_visible(0)); // ".."
     assert!(tab.is_visible(1)); // docs
@@ -124,7 +124,7 @@ async fn test_clear_file_filter_restores_all() {
 
     app.active_tab_mut().clear_file_filter();
     let tab = app.active_tab();
-    assert!(!tab.has_visibility_restriction());
+    assert!(!tab.filter.is_active());
     // All entries should be visible again
     assert_eq!(tab.visible_count(), 7);
 }
@@ -135,17 +135,17 @@ async fn test_invalid_glob_sets_error() {
     let result = app.active_tab_mut().set_file_filter(Some("[invalid"));
     assert!(result.is_err());
     // Filter should not be set
-    assert!(!app.active_tab().has_visibility_restriction());
+    assert!(!app.active_tab().filter.is_active());
 }
 
 #[tokio::test]
 async fn test_empty_pattern_clears_filter() {
     let mut app = test_app(mixed_entries());
     app.active_tab_mut().set_file_filter(Some("*.rs")).unwrap();
-    assert!(app.active_tab().has_visibility_restriction());
+    assert!(app.active_tab().filter.is_active());
 
     app.active_tab_mut().set_file_filter(Some("")).unwrap();
-    assert!(!app.active_tab().has_visibility_restriction());
+    assert!(!app.active_tab().filter.is_active());
     assert_eq!(app.active_tab().visible_count(), 7);
 }
 
@@ -155,7 +155,7 @@ async fn test_none_pattern_clears_filter() {
     app.active_tab_mut().set_file_filter(Some("*.rs")).unwrap();
 
     app.active_tab_mut().set_file_filter(None).unwrap();
-    assert!(!app.active_tab().has_visibility_restriction());
+    assert!(!app.active_tab().filter.is_active());
 }
 
 // ---------------------------------------------------------------------------
@@ -303,16 +303,17 @@ async fn test_select_all_with_filter_selects_only_visible() {
     app.active_tab_mut().select_all();
 
     let tab = app.active_tab();
-    // Directories are never selected by select-all while filtering
+    // ".." is never selected
     assert!(!tab.entries[0].selected); // ".."
-    assert!(!tab.entries[1].selected); // docs
-    assert!(!tab.entries[2].selected); // src
+    // Directories are always visible and get selected
+    assert!(tab.entries[1].selected); // docs
+    assert!(tab.entries[2].selected); // src
+    // Non-matching files are NOT visible, so NOT selected
+    assert!(!tab.entries[3].selected); // Cargo.toml
+    assert!(!tab.entries[4].selected); // README.md
     // Matching files are selected
     assert!(tab.entries[5].selected); // main.rs
     assert!(tab.entries[6].selected); // lib.rs
-    // Non-matching files are NOT selected
-    assert!(!tab.entries[3].selected); // Cargo.toml
-    assert!(!tab.entries[4].selected); // README.md
 }
 
 #[tokio::test]
