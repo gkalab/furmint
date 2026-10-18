@@ -9,6 +9,7 @@ fn make_state(visible: bool, perm: bool, files: Vec<&str>) -> DeleteState {
         is_visible: visible,
         selected_paths: files.into_iter().map(PathBuf::from).collect(),
         is_permanent: perm,
+        no_trash: false,
         selected_no: true,
         error: None,
     }

@@ -41,7 +41,9 @@ pub fn handle_init_delete(app: &mut AppState, permanent: bool) {
 
     let is_remote = !tab.provider.context_key().is_local();
 
-    app.popups.delete.show(selected, permanent || is_remote);
+    // A remote host or archive has no trash: the delete is permanent, so say so
+    // explicitly in the prompt instead of silently promoting the safe key.
+    app.popups.delete.show(selected, permanent, is_remote);
 }
 
 pub fn handle_confirm_delete(app: &mut AppState) {
@@ -73,7 +75,10 @@ pub fn handle_confirm_delete(app: &mut AppState) {
                 }
 
                 let result = if is_permanent {
-                    provider.delete(path, true).await.map_err(|e| e.to_string())
+                    provider
+                        .delete_cancellable(path, true, &cancel)
+                        .await
+                        .map_err(|e| e.to_string())
                 } else {
                     let path_buf = path.clone();
                     tokio::task::spawn_blocking(move || {

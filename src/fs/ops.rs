@@ -12,16 +12,10 @@ pub async fn count_items_and_size(
     let mut count = 0;
     let mut total_size = 0;
     for path in paths {
-        count += 1; // Count the item itself
-        if fs.is_dir(path).await {
-            if let Ok(children) = fs.read_dir(path).await {
-                let (c, s) = Box::pin(count_items_and_size(fs, &children)).await;
-                count += c;
-                total_size += s;
-            }
-        } else if let Ok(size) = fs.get_size(path).await {
-            total_size += size;
-        }
+        let mut visited = std::collections::HashSet::new();
+        let (c, s) = Box::pin(count_item(fs, path, &mut visited)).await;
+        count += c;
+        total_size += s;
     }
     (count, total_size)
 }
@@ -29,6 +23,42 @@ pub async fn count_items_and_size(
 // Helper to count items recursively
 pub async fn count_items(fs: &dyn FileSystemProvider, paths: &[std::path::PathBuf]) -> usize {
     count_items_and_size(fs, paths).await.0
+}
+
+/// Count one path's subtree, descending into each directory identity once.
+///
+/// A repeat — a symlink loop, or a bind mount of an ancestor — contributes
+/// nothing and is not descended into, so the walk terminates and the counts
+/// cannot be inflated by the same tree reappearing.
+async fn count_item(
+    fs: &dyn FileSystemProvider,
+    path: &std::path::Path,
+    visited: &mut std::collections::HashSet<crate::fs::provider::FileId>,
+) -> (usize, u64) {
+    let mut count = 0;
+    let mut total_size = 0u64;
+    if fs.is_dir(path).await {
+        if let Some(id) = fs.file_id(path).await
+            && !visited.insert(id)
+        {
+            // Already walked this directory: do not count or descend again.
+            return (0, 0);
+        }
+        count += 1;
+        if let Ok(children) = fs.read_dir(path).await {
+            for child in children {
+                let (c, s) = Box::pin(count_item(fs, &child, visited)).await;
+                count += c;
+                total_size += s;
+            }
+        }
+    } else {
+        count += 1;
+        if let Ok(size) = fs.get_size(path).await {
+            total_size += size;
+        }
+    }
+    (count, total_size)
 }
 
 /// Per-path stats from a single walk of the tree:
@@ -44,7 +74,8 @@ pub async fn count_subtrees(
 ) -> SubtreeCounts {
     let mut map = SubtreeCounts::new();
     for path in paths {
-        Box::pin(count_subtree(fs, path, &mut map)).await;
+        let mut visited = std::collections::HashSet::new();
+        Box::pin(count_subtree(fs, path, &mut map, &mut visited)).await;
     }
     map
 }
@@ -53,13 +84,21 @@ async fn count_subtree(
     fs: &dyn FileSystemProvider,
     path: &std::path::Path,
     map: &mut SubtreeCounts,
+    visited: &mut std::collections::HashSet<crate::fs::provider::FileId>,
 ) -> (usize, u64) {
     let mut count = 1; // Count the item itself
     let mut total_size = 0u64;
     if fs.is_dir(path).await {
+        if let Some(id) = fs.file_id(path).await
+            && !visited.insert(id)
+        {
+            // Already walked this directory (a symlink loop or a bind mount of
+            // an ancestor): do not count or descend into it again.
+            return (0, 0);
+        }
         if let Ok(children) = fs.read_dir(path).await {
             for child in children {
-                let (c, s) = Box::pin(count_subtree(fs, &child, map)).await;
+                let (c, s) = Box::pin(count_subtree(fs, &child, map, visited)).await;
                 count += c;
                 total_size += s;
             }
@@ -477,6 +516,16 @@ pub fn recursive_op<'a>(
         }];
         let mut outcome = MoveOutcome::default();
 
+        // Directory identities already visited, so a symlink loop or a bind
+        // mount of an ancestor cannot make the walk recurse forever or copy the
+        // same tree repeatedly. Seeded with the destination: a symlink that
+        // points back into the copy must not be followed into it.
+        let mut visited: std::collections::HashSet<crate::fs::provider::FileId> =
+            std::collections::HashSet::new();
+        if let Some(id) = t.dest_fs.file_id(ctx.dest).await {
+            visited.insert(id);
+        }
+
         // Send initial progress update
         t.tx.send(crate::tasks::UiEvent::Task(
             crate::tasks::TaskEvent::UpdateProgress {
@@ -514,6 +563,12 @@ pub fn recursive_op<'a>(
                     }
 
                     if t.src_fs.is_dir(&src).await {
+                        if let Some(id) = t.src_fs.file_id(&src).await
+                            && !visited.insert(id)
+                        {
+                            // Already walked this directory: do not descend.
+                            continue;
+                        }
                         handle_directory(
                             &ctx,
                             decision_state,
@@ -523,6 +578,14 @@ pub fn recursive_op<'a>(
                             &mut stack,
                         )
                         .await?;
+                        // Record the destination we just created (or merged
+                        // into), so a symlink that loops back through the copy
+                        // — e.g. a link into the destination directory — is
+                        // recognised when the walk reaches it and is not
+                        // followed.
+                        if let Some(id) = t.dest_fs.file_id(&dest).await {
+                            visited.insert(id);
+                        }
                     } else if !handle_file(&ctx, decision_state, &mut outcome, &src, &dest).await? {
                         outcome.stopped = true;
                         break; // Cancelled
@@ -565,7 +628,7 @@ async fn finish_move(t: &Transfer<'_>, src: &std::path::Path, outcome: MoveOutco
         return Ok(());
     }
     t.src_fs
-        .delete(src, true)
+        .delete_cancellable(src, true, t.cancel)
         .await
         .map_err(|e| anyhow!("Failed to remove source {} after move: {e}", src.display()))
 }

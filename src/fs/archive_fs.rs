@@ -700,6 +700,13 @@ impl FileSystemProvider for ArchiveFs {
         true
     }
 
+    fn is_writable(&self) -> bool {
+        // A format that cannot be rewritten (tar, gzip, rpm) has no way to
+        // accept a new entry; report that up front so a copy into it is refused
+        // before it writes anything.
+        self.handler.is_writable()
+    }
+
     fn archive_path(&self) -> Option<PathBuf> {
         Some(self.archive_path.clone())
     }

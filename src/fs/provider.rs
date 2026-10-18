@@ -59,6 +59,20 @@ pub struct FileMetadata {
     pub permissions: Option<u32>,
 }
 
+/// A stable identity for a filesystem object, used to detect directory cycles
+/// during a recursive walk or copy.
+///
+/// On Unix this is the classic `(st_dev, st_ino)` pair, which names a
+/// directory regardless of the path — or symlink — used to reach it. Backends
+/// that cannot supply one return `None` from [`FileSystemProvider::file_id`];
+/// cycle detection then degrades to "no protection" rather than failing an
+/// otherwise valid transfer.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct FileId {
+    pub device: u64,
+    pub inode: u64,
+}
+
 /// Context for long-running copy/extract operations: task identity,
 /// progress channel and cancellation flag.
 #[derive(Clone)]
@@ -235,6 +249,59 @@ pub trait FileSystemProvider: Send + Sync {
     ///
     /// Returns an error if the deletion fails.
     async fn delete(&self, path: &Path, recursive: bool) -> Result<()>;
+
+    /// Delete `path`, stopping between entries when `cancel` is raised.
+    ///
+    /// The default ignores cancellation and delegates to [`Self::delete`], which
+    /// is all a remote or archive backend can offer. A backend that can check
+    /// the flag mid-tree (the local filesystem) overrides this so a cancelled
+    /// delete leaves a tree that is merely *smaller*, never a directory whose
+    /// children were removed out from under it.
+    ///
+    /// A cancelled delete returns `Ok(())`: the caller reads an error as a
+    /// failure and raises a prompt, whereas cancellation simply ends the
+    /// operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the deletion fails.
+    async fn delete_cancellable(
+        &self,
+        path: &Path,
+        recursive: bool,
+        cancel: &Arc<AtomicBool>,
+    ) -> Result<()> {
+        let _ = cancel;
+        self.delete(path, recursive).await
+    }
+
+    /// Whether this filesystem accepts new entries at all.
+    ///
+    /// Read-only backends (an archive format that cannot be rewritten, a device
+    /// mounted read-only) report `false` so an operation can be refused before
+    /// it starts instead of failing on its first write.
+    fn is_writable(&self) -> bool {
+        true
+    }
+
+    /// Fail fast when `dir` cannot accept a new entry.
+    ///
+    /// Called before a transfer writes its first byte, so a read-only
+    /// destination is refused up front rather than discovered mid-copy and
+    /// offered as a retry prompt. The default consults [`Self::is_writable`];
+    /// backends with a real directory (the local filesystem) override this
+    /// with an actual create-and-remove probe.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `dir` cannot be written to.
+    async fn check_writable(&self, _dir: &Path) -> Result<()> {
+        if self.is_writable() {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("destination is read-only"))
+        }
+    }
 
     /// Rename/move a file or directory within the same filesystem.
     ///
@@ -601,6 +668,16 @@ pub trait FileSystemProvider: Send + Sync {
         } else {
             None
         }
+    }
+
+    /// Identity of `path` for cycle detection, or `None` when the backend
+    /// cannot supply one (remote hosts, archives).
+    ///
+    /// A recursive walk or copy descends into each directory identity at most
+    /// once, so a symlink loop or a bind mount of an ancestor cannot recurse
+    /// forever or inflate the item and byte counts.
+    async fn file_id(&self, _path: &Path) -> Option<FileId> {
+        None
     }
 
     /// Get the canonical/absolute path.

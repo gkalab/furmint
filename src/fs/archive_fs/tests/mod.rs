@@ -2000,3 +2000,31 @@ async fn test_copy_local_symlinked_directory_into_zip() {
         b"deep"
     );
 }
+
+/// A read-only archive format refuses a transfer before it starts; a rewritable
+/// one accepts it. `tar.gz` cannot be rewritten, while `zip` can.
+#[tokio::test]
+async fn test_archive_writability_matches_the_format() {
+    let temp_dir = tempfile::tempdir().unwrap();
+
+    let tar_path = temp_dir.path().join("readonly.tar.gz");
+    {
+        let file = File::create(&tar_path).unwrap();
+        let enc = GzEncoder::new(file, Compression::default());
+        let mut tar = tar::Builder::new(enc);
+        tar.append_path_with_name(temp_dir.path(), "dummy").unwrap();
+        tar.finish().unwrap();
+    }
+    let tar_fs = ArchiveFs::new(&tar_path).unwrap();
+    assert!(!tar_fs.is_writable(), "tar.gz cannot be rewritten");
+    assert!(
+        tar_fs.check_writable(Path::new("/")).await.is_err(),
+        "a read-only archive must refuse a write up front"
+    );
+
+    let zip_path = temp_dir.path().join("writable.zip");
+    LocalFs::new().create_file(&zip_path).await.unwrap();
+    let zip_fs = ArchiveFs::new(&zip_path).unwrap();
+    assert!(zip_fs.is_writable(), "zip can be rewritten");
+    assert!(zip_fs.check_writable(Path::new("/")).await.is_ok());
+}

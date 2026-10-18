@@ -15,18 +15,25 @@ pub fn draw_delete_popup(
     let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
 
     let count = state.selected_paths.len();
+    // A filesystem with no trash makes the delete permanent; say so instead of
+    // asking to "Trash" and then deleting forever.
+    let note = if state.no_trash {
+        " (no trash available)"
+    } else {
+        ""
+    };
     let message = if count == 1 {
         let name = state.selected_paths[0]
             .file_name()
             .unwrap_or_default()
             .to_string_lossy();
         if state.is_permanent {
-            format!("Permanently delete '{name}'?")
+            format!("Permanently delete '{name}'?{note}")
         } else {
             format!("Trash '{name}'?")
         }
     } else if state.is_permanent {
-        format!("Permanently delete {count} items?")
+        format!("Permanently delete {count} items?{note}")
     } else {
         format!("Trash {count} items?")
     };

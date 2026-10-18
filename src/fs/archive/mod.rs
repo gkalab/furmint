@@ -183,6 +183,13 @@ pub trait ArchiveFormat: Send + Sync {
     ///
     /// Returns an error if the archive cannot be read.
     fn scan(&self) -> Result<ScanResult>;
+    /// Whether the format can be rewritten (can add or delete entries).
+    ///
+    /// Read-only formats report `false` so a transfer into the archive is
+    /// refused before it starts rather than failing on its first write.
+    fn is_writable(&self) -> bool {
+        false
+    }
     /// Reads a file from the archive.
     ///
     /// # Errors

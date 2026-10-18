@@ -56,6 +56,43 @@ async fn test_handle_init_delete_permanent_sets_flag() {
     assert!(app.popups.delete.is_permanent);
 }
 
+/// A remote host has no trash: the prompt must say the delete is permanent
+/// rather than silently promoting the safe key to the destructive one.
+#[tokio::test]
+async fn test_handle_init_delete_remote_has_no_trash() {
+    let (task_tx, _task_rx) = mpsc::unbounded_channel::<UiEvent>();
+
+    let tab = crate::test_utils::create_remote_test_tab(vec![FileEntry {
+        name: "remote.txt".to_string(),
+        is_dir: false,
+        is_symlink: false,
+        size: Some(1),
+        modified: None,
+        attributes: String::new(),
+        selected: false,
+    }]);
+    let left = crate::app_state::tabs::TabManager {
+        tabs: vec![tab],
+        active_tab_index: 0,
+    };
+    let mut app = crate::test_utils::TestAppBuilder::new()
+        .left(left)
+        .task_tx(task_tx)
+        .build();
+
+    handle_init_delete(&mut app, false);
+
+    assert!(app.popups.delete.is_visible);
+    assert!(
+        app.popups.delete.no_trash,
+        "a remote filesystem has no trash"
+    );
+    assert!(
+        app.popups.delete.is_permanent,
+        "the only option is a permanent delete, and it is named as such"
+    );
+}
+
 #[tokio::test]
 async fn test_handle_delete_event_esc_resets() {
     let mut app = basic_app_with_entry("will_reset.txt").await;

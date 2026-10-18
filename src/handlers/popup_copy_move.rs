@@ -575,6 +575,35 @@ fn report_transfer_status(
     }));
 }
 
+/// The directory that must accept a transfer's first write: the destination
+/// itself when it is treated as a directory, else its parent.
+fn writable_probe_dir(dest_path: &Path, treat_as_dir: bool) -> PathBuf {
+    if treat_as_dir {
+        return dest_path.to_path_buf();
+    }
+    dest_path
+        .parent()
+        .map_or_else(|| dest_path.to_path_buf(), Path::to_path_buf)
+}
+
+/// Refuse a destination that can never accept the transfer, before the first
+/// byte moves.
+///
+/// A read-only mount or a mode-555 directory is caught here rather than
+/// discovered mid-copy and offered as a retry prompt that can never succeed.
+/// Returns the failure message to report.
+async fn preflight_destination(
+    dest_fs: &dyn FileSystemProvider,
+    dest_path: &Path,
+    treat_as_dir: bool,
+) -> Result<(), String> {
+    let probe_dir = writable_probe_dir(dest_path, treat_as_dir);
+    dest_fs
+        .check_writable(&probe_dir)
+        .await
+        .map_err(|e| format!("Destination is not writable: {e}"))
+}
+
 pub fn spawn_copy_move_task(
     app: &mut AppState,
     src_provider: Arc<dyn FileSystemProvider>,
@@ -640,6 +669,18 @@ pub fn spawn_copy_move_task(
             if !ensure_dest_directory(dest_provider.as_ref(), &dest_path, treat_as_dir, &tx, id)
                 .await
             {
+                return;
+            }
+
+            if let Err(message) =
+                preflight_destination(dest_provider.as_ref(), &dest_path, treat_as_dir).await
+            {
+                tx.send(crate::tasks::UiEvent::Task(
+                    crate::tasks::TaskEvent::UpdateStatus {
+                        task_id: id,
+                        status: crate::tasks::TaskStatus::Failed(message),
+                    },
+                ));
                 return;
             }
 

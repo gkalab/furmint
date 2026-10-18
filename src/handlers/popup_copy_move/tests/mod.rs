@@ -684,6 +684,63 @@ async fn test_handle_clipboard_action_sets_message() {
     assert_eq!(msg, "1 item copied");
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn test_copy_refuses_a_read_only_destination_before_writing() {
+    use crate::tasks::{TaskEvent, TaskStatus, UiEvent};
+    use std::os::unix::fs::PermissionsExt;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let src_dir = tmp.path().join("src");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    let src_file = src_dir.join("file.txt");
+    std::fs::write(&src_file, b"hello").unwrap();
+
+    let dest_dir = tmp.path().join("ro");
+    std::fs::create_dir(&dest_dir).unwrap();
+    std::fs::set_permissions(&dest_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+
+    let (task_tx, mut task_rx) = tokio::sync::mpsc::unbounded_channel::<UiEvent>();
+    let mut app = crate::test_utils::TestAppBuilder::new()
+        .task_tx(task_tx)
+        .build();
+
+    crate::handlers::popup_copy_move::spawn_copy_move_task(
+        &mut app,
+        Arc::new(LocalFs::new()),
+        Arc::new(LocalFs::new()),
+        vec![src_file],
+        dest_dir.to_string_lossy().to_string(),
+        CopyMoveAction::Copy,
+    );
+
+    let status = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            match task_rx.recv().await {
+                Some(UiEvent::Task(TaskEvent::UpdateStatus { status, .. })) => break status,
+                None => panic!("the task channel closed before a status arrived"),
+                Some(_) => {}
+            }
+        }
+    })
+    .await
+    .expect("the pre-flight must settle the task without hanging");
+
+    let TaskStatus::Failed(msg) = status else {
+        panic!("a read-only destination must fail the task, got {status:?}");
+    };
+    assert!(
+        msg.contains("not writable"),
+        "the reason must name it: {msg}"
+    );
+    assert!(
+        !dest_dir.join("file.txt").exists(),
+        "nothing may be written to a read-only destination"
+    );
+
+    std::fs::set_permissions(&dest_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
 /// The task status must name the reason a transfer ended: an incomplete move's
 /// message is surfaced instead of collapsing into a bare count, and a partial
 /// failure is distinguished from a total one.

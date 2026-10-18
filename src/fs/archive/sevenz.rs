@@ -474,6 +474,10 @@ impl ArchiveFormat for SevenZHandler {
         self.do_scan()
     }
 
+    fn is_writable(&self) -> bool {
+        true
+    }
+
     /// Reads a file from the archive.
     ///
     /// # Errors

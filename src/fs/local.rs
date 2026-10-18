@@ -2,12 +2,14 @@
 //!
 //! This wraps the existing `fs_ops` functions to provide the trait interface.
 
-use crate::fs::provider::{FileMetadata, FileSystemProvider};
+use crate::fs::provider::{FileId, FileMetadata, FileSystemProvider};
 use crate::fs::utils as fs_ops;
 use anyhow::Result;
 use fs_ops::FileEntry;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
 
@@ -98,16 +100,178 @@ fn create_file_exclusive_sync(path: &Path) -> Result<bool> {
     }
 }
 
-fn delete_sync(path: &Path, recursive: bool) -> Result<()> {
-    if path.is_dir() {
-        if recursive {
-            fs::remove_dir_all(path)?;
-        } else {
-            fs::remove_dir(path)?;
-        }
-    } else {
-        fs::remove_file(path)?;
+/// Process-wide sequence for write-probe names, so two probes never collide.
+static WRITE_PROBE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Per-entry failures and the stop signal accumulated by a recursive delete.
+///
+/// Failures are collected rather than aborting the batch: one entry that cannot
+/// be unlinked must not hide the rest, and the caller gets every reason at once
+/// instead of only the first.
+#[derive(Default)]
+struct DeleteReport {
+    errors: Vec<String>,
+    cancelled: bool,
+}
+
+impl DeleteReport {
+    fn record(&mut self, path: &Path, error: impl std::fmt::Display) {
+        self.errors.push(format!("{}: {error}", path.display()));
     }
+}
+
+fn delete_sync(path: &Path, recursive: bool) -> Result<()> {
+    let never = AtomicBool::new(false);
+    delete_sync_cancellable(path, recursive, &never)
+}
+
+/// Delete `path`, checking `cancel` between every entry.
+///
+/// A recursive delete unlinks children before their parent, so a stop — a
+/// cancel, or a child that could not be removed — leaves a tree that is merely
+/// *smaller*, never a directory whose children were deleted out from under it.
+/// A directory with a stuck child is left in place without also being reported
+/// as "not empty": the child's error already names the cause. A cancelled
+/// delete reports success; the caller already knows it cancelled.
+fn delete_sync_cancellable(path: &Path, recursive: bool, cancel: &AtomicBool) -> Result<()> {
+    let mut report = DeleteReport::default();
+    if recursive {
+        delete_tree(path, cancel, &mut report);
+    } else {
+        delete_entry(path, cancel, &mut report);
+    }
+    if report.cancelled || report.errors.is_empty() {
+        return Ok(());
+    }
+    Err(anyhow::anyhow!("{}", report.errors.join("; ")))
+}
+
+/// Remove a single file, directory or symlink. A non-recursive delete of a
+/// non-empty directory still fails, as it should.
+fn delete_entry(path: &Path, cancel: &AtomicBool, report: &mut DeleteReport) {
+    if cancel.load(Ordering::Relaxed) {
+        report.cancelled = true;
+        return;
+    }
+    let is_dir = fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_dir());
+    let result = if is_dir {
+        fs::remove_dir(path)
+    } else {
+        // `remove_file` also removes a symlink itself rather than its target.
+        fs::remove_file(path)
+    };
+    if let Err(e) = result {
+        report.record(path, e);
+    }
+}
+
+/// Post-order unlink: every child before its directory.
+fn delete_tree(path: &Path, cancel: &AtomicBool, report: &mut DeleteReport) {
+    if cancel.load(Ordering::Relaxed) {
+        report.cancelled = true;
+        return;
+    }
+    // `symlink_metadata` does not follow a link, so a symlink is unlinked
+    // rather than walked into (which would delete whatever it points at).
+    let is_dir = match fs::symlink_metadata(path) {
+        Ok(meta) => meta.file_type().is_dir(),
+        Err(e) => {
+            report.record(path, e);
+            return;
+        }
+    };
+    if !is_dir {
+        if let Err(e) = fs::remove_file(path) {
+            report.record(path, e);
+        }
+        return;
+    }
+
+    let entries = match fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(e) => {
+            report.record(path, e);
+            return;
+        }
+    };
+
+    let mut child_failed = false;
+    for entry in entries {
+        if cancel.load(Ordering::Relaxed) {
+            report.cancelled = true;
+            return;
+        }
+        match entry {
+            Ok(entry) => {
+                let before = report.errors.len();
+                delete_tree(&entry.path(), cancel, report);
+                if report.cancelled {
+                    return;
+                }
+                if report.errors.len() > before {
+                    child_failed = true;
+                }
+            }
+            Err(e) => {
+                report.record(path, format!("could not read a directory entry: {e}"));
+                child_failed = true;
+            }
+        }
+    }
+
+    if child_failed {
+        // The child's error already names the cause; leaving the directory in
+        // place is expected, so it is not reported again as "not empty".
+        return;
+    }
+    if let Err(e) = fs::remove_dir(path) {
+        report.record(path, e);
+    }
+}
+
+/// Identity of a local path, following symlinks so a loop is seen as a repeat
+/// of the directory it points back at.
+#[cfg(unix)]
+fn file_id_sync(path: &Path) -> Option<FileId> {
+    use std::os::unix::fs::MetadataExt;
+    let meta = fs::metadata(path).ok()?;
+    Some(FileId {
+        device: meta.dev(),
+        inode: meta.ino(),
+    })
+}
+
+#[cfg(not(unix))]
+fn file_id_sync(path: &Path) -> Option<FileId> {
+    // No portable inode identity; cycle detection is unavailable here.
+    let _ = path;
+    None
+}
+
+/// Probe `dir` by creating and removing a uniquely named file — the operation a
+/// read-only mount or a mode-555 directory refuses.
+///
+/// A real create is the only honest test: permissions can be inspected, but
+/// ACLs, read-only mounts and full filesystems only speak through the syscall.
+fn check_writable_sync(dir: &Path) -> Result<()> {
+    if !dir.is_dir() {
+        return Err(anyhow::anyhow!(
+            "destination directory does not exist: {}",
+            dir.display()
+        ));
+    }
+    let probe = dir.join(format!(
+        ".furmint-write-probe-{}-{}",
+        std::process::id(),
+        WRITE_PROBE_SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe)
+        .map_err(|e| anyhow::anyhow!("{} is not writable: {e}", dir.display()))?;
+    drop(file);
+    let _ = fs::remove_file(&probe);
     Ok(())
 }
 
@@ -358,6 +522,34 @@ impl FileSystemProvider for LocalFs {
         tokio::task::spawn_blocking(move || delete_sync(&path, recursive))
             .await
             .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
+    }
+
+    async fn delete_cancellable(
+        &self,
+        path: &Path,
+        recursive: bool,
+        cancel: &Arc<AtomicBool>,
+    ) -> Result<()> {
+        let path = path.to_path_buf();
+        let cancel = Arc::clone(cancel);
+        tokio::task::spawn_blocking(move || delete_sync_cancellable(&path, recursive, &cancel))
+            .await
+            .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
+    }
+
+    async fn check_writable(&self, dir: &Path) -> Result<()> {
+        let dir = dir.to_path_buf();
+        tokio::task::spawn_blocking(move || check_writable_sync(&dir))
+            .await
+            .map_err(|e| anyhow::anyhow!("Task join error: {e}"))?
+    }
+
+    async fn file_id(&self, path: &Path) -> Option<FileId> {
+        let path = path.to_path_buf();
+        tokio::task::spawn_blocking(move || file_id_sync(&path))
+            .await
+            .ok()
+            .flatten()
     }
 
     async fn rename(&self, from: &Path, to: &Path) -> Result<()> {
