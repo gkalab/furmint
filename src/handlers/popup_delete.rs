@@ -19,6 +19,10 @@ pub fn handle_delete_event(code: KeyCode, app: &mut AppState) -> bool {
 }
 
 pub fn handle_init_delete(app: &mut AppState, permanent: bool) {
+    if !crate::handlers::popup_utils::active_fs_accepts_writes(app) {
+        return;
+    }
+
     let tab = app.active_tab();
     let mut selected: Vec<_> = tab
         .get_selected_entries()
@@ -39,7 +43,7 @@ pub fn handle_init_delete(app: &mut AppState, permanent: bool) {
         return;
     }
 
-    let is_remote = !tab.provider.context_key().is_local();
+    let is_remote = !tab.provider.capabilities().is_local();
 
     // A remote host or archive has no trash: the delete is permanent, so say so
     // explicitly in the prompt instead of silently promoting the safe key.

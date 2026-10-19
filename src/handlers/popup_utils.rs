@@ -1,6 +1,22 @@
 //! Common utilities for popup handlers
 
+use crate::app::AppState;
 use termina::event::KeyCode;
+
+/// Whether the active filesystem accepts the write an operation is about to
+/// offer, declining and reporting it on `app` when it does not.
+///
+/// Consults [`FileSystemProvider::capabilities`] and returns
+/// `true` when the operation may proceed.
+///
+/// [`FileSystemProvider::capabilities`]: crate::fs::provider::FileSystemProvider::capabilities
+pub fn active_fs_accepts_writes(app: &mut AppState) -> bool {
+    if app.active_tab().provider.capabilities().writable {
+        return true;
+    }
+    app.active_tab_mut().error = Some("This filesystem is read-only".to_string());
+    false
+}
 
 /// Result of a popup choice
 pub enum ChoiceResult {

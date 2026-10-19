@@ -5,11 +5,17 @@ use crate::app::AppState;
 use termina::event::{KeyCode, Modifiers};
 
 pub fn handle_init_create_file(app: &mut AppState) {
+    if !crate::handlers::popup_utils::active_fs_accepts_writes(app) {
+        return;
+    }
     let parent_dir = app.active_tab().current_dir.clone();
     app.popups.create_file.show(parent_dir);
 }
 
 pub fn handle_init_create_directory(app: &mut AppState) {
+    if !crate::handlers::popup_utils::active_fs_accepts_writes(app) {
+        return;
+    }
     app.popups.create_directory.show();
 }
 

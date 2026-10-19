@@ -5,6 +5,10 @@ use crate::app::AppState;
 use termina::event::{KeyCode, Modifiers};
 
 pub fn handle_init_rename(app: &mut AppState) {
+    if !crate::handlers::popup_utils::active_fs_accepts_writes(app) {
+        return;
+    }
+
     let (current_dir, entry) = {
         let panel = app.active_tab();
         (panel.current_dir.clone(), panel.current_entry().cloned())

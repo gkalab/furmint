@@ -2,7 +2,7 @@
 //!
 //! This wraps the existing `fs_ops` functions to provide the trait interface.
 
-use crate::fs::provider::{FileId, FileMetadata, FileSystemProvider};
+use crate::fs::provider::{BackendKind, Capabilities, FileId, FileMetadata, FileSystemProvider};
 use crate::fs::utils as fs_ops;
 use anyhow::Result;
 use fs_ops::FileEntry;
@@ -677,6 +677,10 @@ impl FileSystemProvider for LocalFs {
 
     fn is_local(&self) -> bool {
         true
+    }
+
+    fn capabilities(&self) -> Capabilities {
+        Capabilities::for_kind(BackendKind::Local)
     }
 
     fn context_key(&self) -> crate::fs::provider::ContextKey {

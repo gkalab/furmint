@@ -7,7 +7,7 @@
 //! Windows via the OpenSSH named pipe (`\\.\pipe\openssh-ssh-agent`) with a
 //! `PuTTY` Pageant fallback.
 
-use crate::fs::provider::{FileMetadata, FileSystemProvider};
+use crate::fs::provider::{BackendKind, Capabilities, FileMetadata, FileSystemProvider};
 use crate::fs::utils::FileEntry;
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
@@ -26,8 +26,8 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 use super::utils::{
-    build_du_command, calculate_optimal_chunk_size, find_default_ssh_keys, format_sftp_permissions,
-    is_dot_or_dotdot, normalize_sftp_path,
+    build_du_command, find_default_ssh_keys, format_sftp_permissions, is_dot_or_dotdot,
+    normalize_sftp_path,
 };
 use crate::ssh::known_hosts::HostKeyChecker;
 
@@ -873,6 +873,10 @@ impl FileSystemProvider for SftpFs {
         false
     }
 
+    fn capabilities(&self) -> Capabilities {
+        Capabilities::for_kind(BackendKind::Remote)
+    }
+
     async fn exists(&self, path: &Path) -> bool {
         let sftp = &*self.sftp;
         sftp.try_exists(normalize_sftp_path(path))
@@ -1091,7 +1095,7 @@ impl FileSystemProvider for SftpFs {
             Err(e) => return Some(Err(anyhow!("Failed to open source: {e}"))),
         };
 
-        let chunk_size = calculate_optimal_chunk_size(total_size);
+        let chunk_size = self.capabilities().latency.chunk_size(total_size);
         let mut buf = vec![0u8; chunk_size];
         let mut offset = 0u64;
         // Task-wide bytes before this file, so the chunk offsets below report
@@ -1154,7 +1158,7 @@ impl FileSystemProvider for SftpFs {
             Err(e) => return Some(Err(e)),
         };
         let src_perms = src_fs.get_permissions(&src_path).await;
-        let chunk_size = calculate_optimal_chunk_size(total_size);
+        let chunk_size = self.capabilities().latency.chunk_size(total_size);
 
         if total_size == 0 {
             return Some(

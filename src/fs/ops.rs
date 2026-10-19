@@ -656,7 +656,7 @@ async fn handle_directory(
 
     // For archive destinations, hand off the whole directory at once so the
     // entire tree is added in a single batched rewrite (archives cannot append).
-    if t.dest_fs.is_archive() {
+    if t.dest_fs.capabilities().is_archive() {
         return handle_archive_directory(
             ctx,
             decision_state,

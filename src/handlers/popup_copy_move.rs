@@ -115,6 +115,11 @@ pub async fn handle_paste(app: &mut AppState) {
         let dest_provider = app.active_tab().provider.clone();
         let dest_path = app.active_tab().current_dir.clone();
 
+        if !dest_provider.capabilities().writable {
+            app.active_tab_mut().error = Some("Destination is read-only".to_string());
+            return;
+        }
+
         if let Err(err) = validate_copy_move(
             &data.paths,
             &data.source_provider,

@@ -1,6 +1,8 @@
 use crate::fs::archive::NewEntry;
 use crate::fs::archive::{ArchiveFormat, get_archive_handler};
-use crate::fs::provider::{FileMetadata, FileSystemProvider, TaskProgressContext};
+use crate::fs::provider::{
+    BackendKind, Capabilities, FileMetadata, FileSystemProvider, TaskProgressContext,
+};
 use crate::fs::utils::FileEntry;
 use anyhow::Result;
 use async_trait::async_trait;
@@ -700,11 +702,12 @@ impl FileSystemProvider for ArchiveFs {
         true
     }
 
-    fn is_writable(&self) -> bool {
+    fn capabilities(&self) -> Capabilities {
         // A format that cannot be rewritten (tar, gzip, rpm) has no way to
         // accept a new entry; report that up front so a copy into it is refused
-        // before it writes anything.
-        self.handler.is_writable()
+        // before it writes anything. `is_writable` and any UI gate read this
+        // single field.
+        Capabilities::for_kind(BackendKind::Archive).with_writable(self.handler.is_writable())
     }
 
     fn archive_path(&self) -> Option<PathBuf> {
@@ -826,7 +829,7 @@ impl FileSystemProvider for ArchiveFs {
         dest: &Path,
         _progress: &TaskProgressContext,
     ) -> Option<anyhow::Result<()>> {
-        if !src_fs.is_local() {
+        if !src_fs.capabilities().is_local() {
             return None;
         }
 
@@ -834,7 +837,7 @@ impl FileSystemProvider for ArchiveFs {
         let dest = dest.to_path_buf();
         let handler = self.handler.clone();
         let this = self.clone();
-        let src_fs_is_local = src_fs.is_local();
+        let src_fs_is_local = src_fs.capabilities().is_local();
 
         Some(
             tokio::task::spawn_blocking(move || {
@@ -902,7 +905,7 @@ impl FileSystemProvider for ArchiveFs {
     }
 
     async fn supports_copy_to_local(&self, _src: &Path, dest_fs: &dyn FileSystemProvider) -> bool {
-        dest_fs.is_local()
+        dest_fs.capabilities().is_local()
     }
 
     /// Copies from any provider (another archive, a remote host) by decoding
@@ -927,7 +930,7 @@ impl FileSystemProvider for ArchiveFs {
         dest: &Path,
         progress: &TaskProgressContext,
     ) -> Option<anyhow::Result<()>> {
-        if !dest_fs.is_local() {
+        if !dest_fs.capabilities().is_local() {
             return None;
         }
 

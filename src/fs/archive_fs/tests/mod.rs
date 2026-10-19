@@ -2016,7 +2016,14 @@ async fn test_archive_writability_matches_the_format() {
         tar.finish().unwrap();
     }
     let tar_fs = ArchiveFs::new(&tar_path).unwrap();
-    assert!(!tar_fs.is_writable(), "tar.gz cannot be rewritten");
+    assert!(
+        !tar_fs.capabilities().writable,
+        "tar.gz cannot be rewritten"
+    );
+    assert!(
+        !tar_fs.is_writable(),
+        "is_writable derives from capabilities"
+    );
     assert!(
         tar_fs.check_writable(Path::new("/")).await.is_err(),
         "a read-only archive must refuse a write up front"
@@ -2025,6 +2032,10 @@ async fn test_archive_writability_matches_the_format() {
     let zip_path = temp_dir.path().join("writable.zip");
     LocalFs::new().create_file(&zip_path).await.unwrap();
     let zip_fs = ArchiveFs::new(&zip_path).unwrap();
-    assert!(zip_fs.is_writable(), "zip can be rewritten");
+    assert!(zip_fs.capabilities().writable, "zip can be rewritten");
+    assert!(
+        zip_fs.is_writable(),
+        "is_writable derives from capabilities"
+    );
     assert!(zip_fs.check_writable(Path::new("/")).await.is_ok());
 }

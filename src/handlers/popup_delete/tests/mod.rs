@@ -93,6 +93,58 @@ async fn test_handle_init_delete_remote_has_no_trash() {
     );
 }
 
+/// A filesystem that cannot accept writes (here a tar.gz archive) has nothing
+/// to delete: the operation is declined before a prompt is shown, so the user
+/// never answers a question that can only fail.
+#[tokio::test]
+async fn test_handle_init_delete_declines_a_read_only_filesystem() {
+    let temp = tempfile::tempdir().unwrap();
+    let content = temp.path().join("content.txt");
+    std::fs::write(&content, b"x").unwrap();
+    let archive_path = temp.path().join("readonly.tar.gz");
+    {
+        let file = std::fs::File::create(&archive_path).unwrap();
+        let enc = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+        let mut tar = tar::Builder::new(enc);
+        tar.append_path_with_name(&content, "content.txt").unwrap();
+        tar.finish().unwrap();
+        tar.into_inner().unwrap().finish().unwrap();
+    }
+    let fs = crate::fs::archive_fs::ArchiveFs::new(&archive_path).unwrap();
+
+    let (task_tx, _task_rx) = mpsc::unbounded_channel::<UiEvent>();
+    let mut tab = crate::test_utils::create_remote_test_tab(vec![FileEntry {
+        name: "content.txt".to_string(),
+        is_dir: false,
+        is_symlink: false,
+        size: Some(1),
+        modified: None,
+        attributes: String::new(),
+        selected: false,
+    }]);
+    tab.provider = std::sync::Arc::new(fs);
+    let left = crate::app_state::tabs::TabManager {
+        tabs: vec![tab],
+        active_tab_index: 0,
+    };
+    let mut app = crate::test_utils::TestAppBuilder::new()
+        .left(left)
+        .task_tx(task_tx)
+        .build();
+
+    handle_init_delete(&mut app, false);
+
+    assert!(!app.popups.delete.is_visible, "no prompt may be offered");
+    assert!(
+        app.active_tab()
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("read-only")),
+        "the refusal must be reported, got {:?}",
+        app.active_tab().error
+    );
+}
+
 #[tokio::test]
 async fn test_handle_delete_event_esc_resets() {
     let mut app = basic_app_with_entry("will_reset.txt").await;

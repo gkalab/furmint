@@ -73,6 +73,119 @@ pub struct FileId {
     pub inode: u64,
 }
 
+/// The family a backend belongs to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BackendKind {
+    /// The local filesystem.
+    Local,
+    /// An archive (zip, tar, 7z, ...) addressed as a directory tree.
+    Archive,
+    /// A remote host reached over the network (SFTP, rsync).
+    Remote,
+}
+
+/// How a backend is reached, which sets transfer tuning.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Latency {
+    /// A local disk or a page-cached local mount.
+    Local,
+    /// A remote host reached over the network.
+    Network,
+}
+
+impl Latency {
+    /// Files at or below this size are copied with a single whole-file
+    /// read/write; larger files are streamed in [`Self::chunk_size`] chunks.
+    #[must_use]
+    pub fn whole_file_limit(self) -> u64 {
+        const MIB: u64 = 1024 * 1024;
+        match self {
+            Latency::Local => 32 * MIB,
+            Latency::Network => 4 * MIB,
+        }
+    }
+
+    /// Chunk size for streaming a file larger than [`Self::whole_file_limit`].
+    #[must_use]
+    pub fn chunk_size(self, file_size: u64) -> usize {
+        match self {
+            Latency::Local => 16 * 1024 * 1024,
+            Latency::Network => crate::fs::utils::calculate_optimal_chunk_size(file_size),
+        }
+    }
+}
+
+/// What a filesystem backend can do, in one value.
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Capabilities {
+    /// The backend family (local, archive, remote).
+    pub kind: BackendKind,
+    /// Whether the backend can store new or modified entries at all.
+    /// A read-only archive format or a read-only mount reports `false`.
+    pub writable: bool,
+    /// Whether a file may be read from an offset (`read_file_at`).
+    pub seekable: bool,
+    /// Whether a file may be written at an offset (`write_file_at`).
+    pub random_access: bool,
+    /// Whether the backend has real directories (as opposed to a flat namespace).
+    pub has_directories: bool,
+    /// Whether `rename` is a single atomic step rather than a container rewrite.
+    pub atomic_rename: bool,
+    /// Whether symbolic links are represented and can be read.
+    pub links: bool,
+    /// The transfer-latency class, which sets chunk sizes.
+    pub latency: Latency,
+}
+
+impl Capabilities {
+    /// The default profile for a backend family that accepts writes.
+    #[must_use]
+    pub fn for_kind(kind: BackendKind) -> Self {
+        let (seekable, random_access, has_directories, atomic_rename, links, latency) = match kind {
+            BackendKind::Local => (true, true, true, true, true, Latency::Local),
+            // An archive is decoded from a local file: reads are local and
+            // random-access, but a rename rewrites the container rather than
+            // moving a directory entry.
+            BackendKind::Archive => (true, true, true, false, true, Latency::Local),
+            // SFTP supports every operation, at one network round trip each.
+            BackendKind::Remote => (true, true, true, true, true, Latency::Network),
+        };
+        Self {
+            kind,
+            writable: true,
+            seekable,
+            random_access,
+            has_directories,
+            atomic_rename,
+            links,
+            latency,
+        }
+    }
+
+    /// Return this profile with writability set to `writable`.
+    ///
+    /// The rest of the profile stays the family default; a read-only archive
+    /// format is exactly that — an archive whose container cannot be rewritten.
+    #[must_use]
+    pub fn with_writable(mut self, writable: bool) -> Self {
+        self.writable = writable;
+        self
+    }
+
+    /// Whether this backend is the local filesystem.
+    #[must_use]
+    pub fn is_local(self) -> bool {
+        self.kind == BackendKind::Local
+    }
+
+    /// Whether this backend is an archive.
+    #[must_use]
+    pub fn is_archive(self) -> bool {
+        self.kind == BackendKind::Archive
+    }
+}
+
 /// Context for long-running copy/extract operations: task identity,
 /// progress channel and cancellation flag.
 #[derive(Clone)]
@@ -124,10 +237,6 @@ impl TaskProgressContext {
         ));
     }
 }
-
-/// Files at or below this size are copied with a single whole-file
-/// read/write; larger files are streamed in chunks.
-const WHOLE_FILE_COPY_LIMIT: u64 = 32 * 1024 * 1024;
 
 /// How many scratch names a copy steps over before giving up when every
 /// candidate is already taken. The first candidate is normally free; the
@@ -275,13 +384,33 @@ pub trait FileSystemProvider: Send + Sync {
         self.delete(path, recursive).await
     }
 
+    /// The backend's behavioural profile, in one value.
+    ///
+    /// Call sites ask this rather than testing `is_local`/`is_archive` ad hoc,
+    /// the copy loop tunes itself from [`Capabilities::latency`],
+    /// and the UI consults it before *offering* an operation so a
+    /// question is never asked and then refused. The default derives from the
+    /// identity predicates, so a backend that reports only those still
+    /// answers; backends with a richer profile override it.
+    fn capabilities(&self) -> Capabilities {
+        let kind = if self.is_local() {
+            BackendKind::Local
+        } else if self.is_archive() {
+            BackendKind::Archive
+        } else {
+            BackendKind::Remote
+        };
+        Capabilities::for_kind(kind)
+    }
+
     /// Whether this filesystem accepts new entries at all.
     ///
     /// Read-only backends (an archive format that cannot be rewritten, a device
     /// mounted read-only) report `false` so an operation can be refused before
-    /// it starts instead of failing on its first write.
+    /// it starts instead of failing on its first write. This is
+    /// [`Capabilities::writable`], the single place a backend declares it.
     fn is_writable(&self) -> bool {
-        true
+        self.capabilities().writable
     }
 
     /// Fail fast when `dir` cannot accept a new entry.
@@ -455,8 +584,9 @@ pub trait FileSystemProvider: Send + Sync {
     }
 
     /// Copy a file within the same filesystem, reporting byte progress.
-    /// Whole-file copies are used up to `WHOLE_FILE_COPY_LIMIT`; larger
-    /// files are streamed in optimal-size chunks.
+    /// Whole-file copies are used up to the backend's
+    /// [`Latency::whole_file_limit`]; larger files are streamed in chunks
+    /// sized by [`Latency::chunk_size`].
     ///
     /// The byte reports are task-wide: they are measured against
     /// [`TaskProgressContext::total_bytes`] and continue from whatever the
@@ -566,7 +696,8 @@ pub trait FileSystemProvider: Send + Sync {
         perms: Option<u32>,
         base: u64,
     ) -> Result<bool> {
-        if total_size <= WHOLE_FILE_COPY_LIMIT {
+        let latency = self.capabilities().latency;
+        if total_size <= latency.whole_file_limit() {
             let data = self.read_file(src).await?;
             if progress.cancel.load(std::sync::atomic::Ordering::Relaxed) {
                 return Ok(false);
@@ -579,7 +710,7 @@ pub trait FileSystemProvider: Send + Sync {
                 .fetch_add(processed, std::sync::atomic::Ordering::Relaxed);
             progress.report_file_bytes(base, processed, total_size);
         } else {
-            let chunk_size = crate::fs::utils::calculate_optimal_chunk_size(total_size);
+            let chunk_size = latency.chunk_size(total_size);
             let mut offset = 0u64;
             loop {
                 if progress.cancel.load(std::sync::atomic::Ordering::Relaxed) {
