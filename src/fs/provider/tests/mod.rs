@@ -16,7 +16,12 @@ fn leftover_temps(dir: &Path, dst_name: &str) -> Vec<String> {
         .filter_map(|e| {
             e.file_name()
                 .to_str()
-                .filter(|n| n.ends_with(".part") && n.contains(dst_name))
+                .filter(|n| {
+                    std::path::Path::new(n)
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("part"))
+                        && n.contains(dst_name)
+                })
                 .map(str::to_owned)
         })
         .collect()
@@ -428,7 +433,10 @@ async fn test_copy_with_progress_syncs_before_rename_and_dir_after() {
         "the destination directory must be synced after the rename"
     );
     assert_eq!(std::fs::read(&dst).unwrap(), b"durable");
-    assert!(leftover_temps(dir.path(), "data_copy.bin").is_empty());
+    assert!(
+        leftover_temps(dir.path(), "data_copy.bin").is_empty(),
+        "a completed copy must not leave a scratch file behind"
+    );
 }
 
 /// The sync is the commit point: when it fails the rename must not happen, so
@@ -479,7 +487,12 @@ fn test_temp_copy_path_is_unique_per_sequence() {
         name.contains("report.bin"),
         "name must name the destination"
     );
-    assert!(name.ends_with(".part"), "name must mark a partial file");
+    assert!(
+        std::path::Path::new(name)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("part")),
+        "name must mark a partial file"
+    );
     assert!(
         name.contains(&std::process::id().to_string()),
         "name must carry the writer's pid"
