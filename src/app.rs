@@ -740,7 +740,7 @@ impl AppState {
         let name = "Emptying trash".to_string();
         self.tasks
             .task_manager
-            .spawn_task(&name, |_cancel, tx, id| async move {
+            .spawn_queued_task(&name, |_cancel, tx, id| async move {
                 let result = crate::fs::utils::empty_trash().await;
                 match result {
                     Ok(_num) => {

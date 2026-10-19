@@ -9,8 +9,12 @@
 //! Workers publish through [`EventBus`] rather than the raw channel. The bus
 //! coalesces the idempotent progress fields keep-latest, so a producer that
 //! outruns the UI cannot grow the queue without bound.
+//!
+//! Destructive filesystem work is serialized: [`TaskManager::spawn_queued_task`]
+//! admits copy, move, delete and extract one at a time in FIFO order, while
+//! read-only work keeps using [`TaskManager::spawn_task`] and runs immediately.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use tokio::sync::mpsc;
@@ -18,10 +22,21 @@ use tokio::task::JoinHandle;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum TaskStatus {
+    /// Waiting behind another destructive operation in the admission queue.
+    Queued,
     Running,
     Completed,
     Failed(String),
     Cancelled,
+}
+
+/// Starts a queued task's worker and returns its join handle.
+type StartTask = Box<dyn FnOnce() -> JoinHandle<()> + Send>;
+
+/// A destructive task that has not been admitted yet.
+struct QueuedTask {
+    id: usize,
+    start: StartTask,
 }
 
 pub struct Task {
@@ -346,6 +361,11 @@ pub struct TaskManager {
     selected_index: usize,
     /// Decision senders for copy/move tasks, keyed by task ID.
     pub task_decision_txs: HashMap<usize, mpsc::Sender<TaskDecision>>,
+    /// Destructive tasks (copy, move, delete, extract) waiting in FIFO order.
+    /// Read-only work never enters this queue.
+    queued: VecDeque<QueuedTask>,
+    /// The one destructive task currently admitted, if any.
+    exclusive_running: Option<usize>,
 }
 
 impl TaskManager {
@@ -357,6 +377,8 @@ impl TaskManager {
             event_tx: EventBus::new(event_tx),
             selected_index: 0,
             task_decision_txs: HashMap::new(),
+            queued: VecDeque::new(),
+            exclusive_running: None,
         }
     }
 
@@ -385,6 +407,10 @@ impl TaskManager {
 
     /// Spawns a new task and returns its ID. The worker reports back over the
     /// event bus.
+    ///
+    /// This runs immediately and is meant for read-only work (size walks,
+    /// listings, connections). Destructive work must use
+    /// [`Self::spawn_queued_task`] so it cannot race another destructive task.
     pub fn spawn_task<F, Fut>(&mut self, name: &str, f: F) -> usize
     where
         F: FnOnce(Arc<AtomicBool>, EventBus, usize) -> Fut + Send + 'static,
@@ -417,46 +443,138 @@ impl TaskManager {
         id
     }
 
-    /// Cancels a task by ID: sets the cooperative flag and aborts the worker
-    /// so a stuck task is always terminated.
-    pub fn cancel_task(&mut self, id: usize) {
-        if let Some(task) = self.tasks.get_mut(&id)
-            && matches!(task.status, TaskStatus::Running)
-        {
-            Self::abort_task(task);
+    /// Spawns a destructive task (copy, move, delete, extract) behind the
+    /// exclusive-operation queue and returns its ID.
+    ///
+    /// Only one destructive task runs at a time. A second copy, a paste while
+    /// a move is in progress, or a delete behind either is admitted in FIFO
+    /// order once the running task finishes, instead of racing it for the same
+    /// destination. Read-only work keeps using [`Self::spawn_task`] and is
+    /// never delayed.
+    pub fn spawn_queued_task<F, Fut>(&mut self, name: &str, f: F) -> usize
+    where
+        F: FnOnce(Arc<AtomicBool>, EventBus, usize) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let id = self.next_id;
+        self.next_id += 1;
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let worker_flag = Arc::clone(&cancel_flag);
+        let tx = self.event_tx.clone();
+        let start: StartTask = Box::new(move || {
+            tokio::spawn(async move {
+                f(worker_flag, tx, id).await;
+            })
+        });
+
+        self.tasks.insert(
+            id,
+            Task {
+                name: name.to_string(),
+                status: TaskStatus::Queued,
+                progress: None,
+                byte_progress: None,
+                rsync: false,
+                current_file: None,
+                cancel_flag,
+                handle: None,
+                completed_at: None,
+                error_reported: false,
+            },
+        );
+        self.queued.push_back(QueuedTask { id, start });
+        self.admit_next_queued();
+        id
+    }
+
+    /// Admits the oldest queued destructive task when the slot is free.
+    ///
+    /// Tasks cancelled while waiting are skipped: their status is already
+    /// `Cancelled` and their worker must never start.
+    fn admit_next_queued(&mut self) {
+        if self.exclusive_running.is_some() {
+            return;
+        }
+        while let Some(queued) = self.queued.pop_front() {
+            if !matches!(
+                self.tasks.get(&queued.id).map(|task| &task.status),
+                Some(TaskStatus::Queued)
+            ) {
+                continue;
+            }
+            let handle = (queued.start)();
+            if let Some(task) = self.tasks.get_mut(&queued.id) {
+                task.status = TaskStatus::Running;
+                task.handle = Some(handle);
+            }
+            self.exclusive_running = Some(queued.id);
+            return;
         }
     }
 
-    /// Cancels all running tasks.
+    /// Releases the exclusive slot if `id` owned it and admits the next task.
+    fn finish_exclusive(&mut self, id: usize) {
+        if self.exclusive_running == Some(id) {
+            self.exclusive_running = None;
+            self.admit_next_queued();
+        }
+    }
+
+    /// Cancels a task by ID: sets the cooperative flag and aborts the worker
+    /// so a stuck task is always terminated. A queued task is removed from the
+    /// queue before its worker ever starts.
+    pub fn cancel_task(&mut self, id: usize) {
+        match self.tasks.get(&id).map(|task| task.status.clone()) {
+            Some(TaskStatus::Running) => self.abort_task(id),
+            Some(TaskStatus::Queued) => {
+                self.queued.retain(|queued| queued.id != id);
+                self.task_decision_txs.remove(&id);
+                if let Some(task) = self.tasks.get_mut(&id) {
+                    task.status = TaskStatus::Cancelled;
+                    task.completed_at = Some(std::time::Instant::now());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Cancels all running and queued tasks.
     pub fn cancel_all_tasks(&mut self) {
-        let running: Vec<usize> = self
+        // Drop waiting work first: aborting the admitted task releases the
+        // slot, and nothing should be admitted on the way out.
+        self.queued.clear();
+        let active: Vec<usize> = self
             .tasks
             .iter()
-            .filter(|(_, task)| matches!(task.status, TaskStatus::Running))
+            .filter(|(_, task)| matches!(task.status, TaskStatus::Running | TaskStatus::Queued))
             .map(|(id, _)| *id)
             .collect();
-        for id in running {
-            if let Some(task) = self.tasks.get_mut(&id) {
-                Self::abort_task(task);
-            }
+        for id in active {
+            self.abort_task(id);
         }
     }
 
-    fn abort_task(task: &mut Task) {
+    fn abort_task(&mut self, id: usize) {
+        let Some(task) = self.tasks.get_mut(&id) else {
+            return;
+        };
         task.cancel_flag.store(true, Ordering::Relaxed);
         if let Some(handle) = task.handle.take() {
             handle.abort();
-            task.status = TaskStatus::Cancelled;
-            task.completed_at = Some(std::time::Instant::now());
         }
+        task.status = TaskStatus::Cancelled;
+        task.completed_at = Some(std::time::Instant::now());
+        self.finish_exclusive(id);
+        self.task_decision_txs.remove(&id);
     }
 
     /// Removes all finished tasks, keeping the selection on the same task
-    /// (or the nearest surviving one).
+    /// (or the nearest surviving one). Queued tasks survive because they have
+    /// not finished yet.
     pub fn remove_finished_tasks(&mut self) {
         let selected_id = self.ordered_ids().get(self.selected_index).copied();
         self.tasks
-            .retain(|_, task| matches!(task.status, TaskStatus::Running));
+            .retain(|_, task| matches!(task.status, TaskStatus::Running | TaskStatus::Queued));
         let len = self.tasks.len();
         self.selected_index = if len == 0 {
             0
@@ -506,15 +624,18 @@ impl TaskManager {
             .collect()
     }
 
-    /// Checks if there are running tasks.
+    /// Checks if there are running or queued tasks.
     #[must_use]
     pub fn has_running_tasks(&self) -> bool {
         self.tasks
             .values()
-            .any(|t| matches!(t.status, TaskStatus::Running))
+            .any(|t| matches!(t.status, TaskStatus::Running | TaskStatus::Queued))
     }
 
     /// Updates a task's status.
+    ///
+    /// A terminal status on the admitted destructive task releases the slot
+    /// and starts the next queued one immediately.
     pub fn update_task_status(&mut self, id: usize, status: &TaskStatus) {
         if let Some(task) = self.tasks.get_mut(&id) {
             task.status = status.clone();
@@ -523,10 +644,16 @@ impl TaskManager {
                     task.completed_at = Some(std::time::Instant::now());
                     self.task_decision_txs.remove(&id);
                 }
-                TaskStatus::Running => {
+                TaskStatus::Queued | TaskStatus::Running => {
                     task.completed_at = None;
                 }
             }
+        }
+        if matches!(
+            status,
+            TaskStatus::Completed | TaskStatus::Failed(_) | TaskStatus::Cancelled
+        ) {
+            self.finish_exclusive(id);
         }
     }
 

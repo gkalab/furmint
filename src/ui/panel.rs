@@ -848,6 +848,10 @@ fn draw_left_panel_status(
         .iter()
         .filter(|t| matches!(t.status, crate::tasks::TaskStatus::Running))
         .count();
+    let queued_count = tasks
+        .iter()
+        .filter(|t| matches!(t.status, crate::tasks::TaskStatus::Queued))
+        .count();
 
     let yellow = Color::Rgb(
         ctx.palette.yellow.r,
@@ -855,12 +859,27 @@ fn draw_left_panel_status(
         ctx.palette.yellow.b,
     );
 
-    if running_count > 0 {
-        let text = if running_count == 1 {
-            "1 task running".to_string()
+    let activity_text = if running_count > 0 {
+        Some(if queued_count == 0 {
+            if running_count == 1 {
+                "1 task running".to_string()
+            } else {
+                format!("{running_count} tasks running")
+            }
         } else {
-            format!("{running_count} tasks running")
-        };
+            format!("{running_count} running, {queued_count} queued")
+        })
+    } else if queued_count > 0 {
+        Some(if queued_count == 1 {
+            "1 task queued".to_string()
+        } else {
+            format!("{queued_count} tasks queued")
+        })
+    } else {
+        None
+    };
+
+    if let Some(text) = activity_text {
         let text_width = u16::try_from(text.len()).unwrap_or(u16::MAX);
 
         let chunks = Layout::default()
@@ -904,7 +923,9 @@ fn draw_left_panel_status(
                 crate::tasks::TaskStatus::Cancelled => {
                     ("Task cancelled".to_string(), ctx.palette.yellow)
                 }
-                crate::tasks::TaskStatus::Running => unreachable!(),
+                crate::tasks::TaskStatus::Running | crate::tasks::TaskStatus::Queued => {
+                    unreachable!()
+                }
             };
             let text_width = u16::try_from(text.len()).unwrap_or(u16::MAX);
 

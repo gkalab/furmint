@@ -160,6 +160,7 @@ fn format_task_item<'a>(
     style_ctx: &'a TaskStyleContext<'a>,
 ) -> ListItem<'a> {
     let status_str = match &data.status {
+        TaskStatus::Queued => "Queued",
         TaskStatus::Running => "Running",
         TaskStatus::Completed => "Completed",
         TaskStatus::Failed(_) => "Failed",

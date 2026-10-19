@@ -635,105 +635,105 @@ pub fn spawn_copy_move_task(
     // Create channel for decisions
     let (decision_tx, decision_rx) = tokio::sync::mpsc::channel(1);
 
-    let id = app
-        .tasks
-        .task_manager
-        .spawn_task(&task_name, move |cancel, tx, id| async move {
-            let dest_path = std::path::PathBuf::from(&dest_str);
+    let id =
+        app.tasks
+            .task_manager
+            .spawn_queued_task(&task_name, move |cancel, tx, id| async move {
+                let dest_path = std::path::PathBuf::from(&dest_str);
 
-            // Check if rsync can be used for this transfer
-            let use_rsync = crate::fs::rsync::should_use_rsync(
-                src_provider.as_ref(),
-                dest_provider.as_ref(),
-                action,
-            );
+                // Check if rsync can be used for this transfer
+                let use_rsync = crate::fs::rsync::should_use_rsync(
+                    src_provider.as_ref(),
+                    dest_provider.as_ref(),
+                    action,
+                );
 
-            // Precompute totals and per-path subtree counts in a single walk.
-            let (total_items, total_bytes, subtree_counts) =
-                compute_task_totals(&src_provider, &paths, use_rsync).await;
-            let processed_items = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-            let processed_bytes = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+                // Precompute totals and per-path subtree counts in a single walk.
+                let (total_items, total_bytes, subtree_counts) =
+                    compute_task_totals(&src_provider, &paths, use_rsync).await;
+                let processed_items = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                let processed_bytes = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
 
-            // State for "Apply to all" decisions
-            // We use a struct to hold this state across recursions
-            let mut decision_state = crate::fs::ops::DecisionState {
-                overwrite_all: false,
-                skip_all: false,
+                // State for "Apply to all" decisions
+                // We use a struct to hold this state across recursions
+                let mut decision_state = crate::fs::ops::DecisionState {
+                    overwrite_all: false,
+                    skip_all: false,
 
-                last_update: std::time::Instant::now(),
-            };
+                    last_update: std::time::Instant::now(),
+                };
 
-            // We need `decision_rx` to be mutual, so we wrap it
-            let decision_rx = std::sync::Arc::new(tokio::sync::Mutex::new(decision_rx));
+                // We need `decision_rx` to be mutual, so we wrap it
+                let decision_rx = std::sync::Arc::new(tokio::sync::Mutex::new(decision_rx));
 
-            // Ensure dest dir exists if multiple items or if treated as dir
-            let dest_is_dir = dest_provider.is_dir(&dest_path).await;
-            let dest_ends_with_slash = dest_str.ends_with(std::path::MAIN_SEPARATOR);
-            let treat_as_dir = paths.len() > 1 || dest_is_dir || dest_ends_with_slash;
+                // Ensure dest dir exists if multiple items or if treated as dir
+                let dest_is_dir = dest_provider.is_dir(&dest_path).await;
+                let dest_ends_with_slash = dest_str.ends_with(std::path::MAIN_SEPARATOR);
+                let treat_as_dir = paths.len() > 1 || dest_is_dir || dest_ends_with_slash;
 
-            if !ensure_dest_directory(dest_provider.as_ref(), &dest_path, treat_as_dir, &tx, id)
-                .await
-            {
-                return;
-            }
-
-            if let Err(message) =
-                preflight_destination(dest_provider.as_ref(), &dest_path, treat_as_dir).await
-            {
-                tx.send(crate::tasks::UiEvent::Task(
-                    crate::tasks::TaskEvent::UpdateStatus {
-                        task_id: id,
-                        status: crate::tasks::TaskStatus::Failed(message),
-                    },
-                ));
-                return;
-            }
-
-            let mut failures = Vec::new();
-
-            // One transfer owns the fs pair, the task-wide counters and the
-            // decision channel; every path of this task shares it.
-            let transfer = crate::fs::ops::Transfer {
-                src_fs: src_provider.as_ref(),
-                dest_fs: dest_provider.as_ref(),
-                action,
-                cancel: &cancel,
-                tx: &tx,
-                id,
-                total: total_items,
-                total_bytes,
-                processed: &processed_items,
-                processed_bytes: &processed_bytes,
-                decision_rx: &decision_rx,
-                subtree_counts: &subtree_counts,
-            };
-
-            let ctx = CopyMoveTask {
-                transfer,
-                dest_path: &dest_path,
-                dest_str: &dest_str,
-                treat_as_dir,
-                dest_is_dir,
-                use_rsync,
-            };
-
-            for src in &paths {
-                if cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                    break;
+                if !ensure_dest_directory(dest_provider.as_ref(), &dest_path, treat_as_dir, &tx, id)
+                    .await
+                {
+                    return;
                 }
-                if let Err(e) = process_single_path(src, &ctx, &mut decision_state).await {
-                    failures.push(e);
-                }
-            }
 
-            report_transfer_status(
-                &tx,
-                id,
-                cancel.load(std::sync::atomic::Ordering::Relaxed),
-                &failures,
-                paths.len(),
-            );
-        });
+                if let Err(message) =
+                    preflight_destination(dest_provider.as_ref(), &dest_path, treat_as_dir).await
+                {
+                    tx.send(crate::tasks::UiEvent::Task(
+                        crate::tasks::TaskEvent::UpdateStatus {
+                            task_id: id,
+                            status: crate::tasks::TaskStatus::Failed(message),
+                        },
+                    ));
+                    return;
+                }
+
+                let mut failures = Vec::new();
+
+                // One transfer owns the fs pair, the task-wide counters and the
+                // decision channel; every path of this task shares it.
+                let transfer = crate::fs::ops::Transfer {
+                    src_fs: src_provider.as_ref(),
+                    dest_fs: dest_provider.as_ref(),
+                    action,
+                    cancel: &cancel,
+                    tx: &tx,
+                    id,
+                    total: total_items,
+                    total_bytes,
+                    processed: &processed_items,
+                    processed_bytes: &processed_bytes,
+                    decision_rx: &decision_rx,
+                    subtree_counts: &subtree_counts,
+                };
+
+                let ctx = CopyMoveTask {
+                    transfer,
+                    dest_path: &dest_path,
+                    dest_str: &dest_str,
+                    treat_as_dir,
+                    dest_is_dir,
+                    use_rsync,
+                };
+
+                for src in &paths {
+                    if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                        break;
+                    }
+                    if let Err(e) = process_single_path(src, &ctx, &mut decision_state).await {
+                        failures.push(e);
+                    }
+                }
+
+                report_transfer_status(
+                    &tx,
+                    id,
+                    cancel.load(std::sync::atomic::Ordering::Relaxed),
+                    &failures,
+                    paths.len(),
+                );
+            });
 
     // Store decision tx
     app.tasks
