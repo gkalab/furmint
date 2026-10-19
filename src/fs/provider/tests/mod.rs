@@ -232,7 +232,6 @@ fn copy_progress(
         tx: bus.clone(),
         cancel: cancel.clone(),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         total_bytes: task_total,
     }
 }

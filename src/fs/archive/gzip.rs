@@ -200,10 +200,6 @@ impl ArchiveFormat for GzipHandler {
             return Err(e.into());
         }
 
-        progress
-            .processed_items
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
         Ok(())
     }
 }

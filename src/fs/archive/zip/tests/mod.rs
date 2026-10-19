@@ -114,13 +114,13 @@ async fn test_zip_copy_dir_preserves_timestamp() {
         tx: crate::tasks::EventBus::new(tokio::sync::mpsc::unbounded_channel().0),
         cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         processed_bytes: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
-        processed_items: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         total_bytes: 0,
     };
 
     let decision_rx = std::sync::Arc::new(tokio::sync::Mutex::new(tokio::sync::mpsc::channel(1).1));
 
     let subtree_counts = crate::fs::ops::SubtreeCounts::new();
+    let processed = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let ctx = crate::fs::ops::RecursiveOpContext {
         transfer: crate::fs::ops::Transfer {
             src_fs: &src_fs,
@@ -131,7 +131,7 @@ async fn test_zip_copy_dir_preserves_timestamp() {
             id: progress.id,
             total: 1,
             total_bytes: 0,
-            processed: &progress.processed_items,
+            processed: &processed,
             processed_bytes: &progress.processed_bytes,
             decision_rx: &decision_rx,
             subtree_counts: &subtree_counts,
@@ -257,7 +257,6 @@ async fn test_zip_add_files_batch() {
         tx: crate::tasks::EventBus::new(tokio::sync::mpsc::unbounded_channel().0),
         cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         processed_bytes: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
-        processed_items: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         total_bytes: 0,
     };
 
@@ -321,7 +320,6 @@ async fn test_zip_batch_add_uses_forward_slashes() {
         tx: crate::tasks::EventBus::new(tokio::sync::mpsc::unbounded_channel().0),
         cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         processed_bytes: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
-        processed_items: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         total_bytes: 0,
     };
     archive_fs

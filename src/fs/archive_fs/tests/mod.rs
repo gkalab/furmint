@@ -396,7 +396,6 @@ async fn test_zip_extract_attributes() {
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         total_bytes: 0,
     };
     let local_fs = LocalFs::new();
@@ -604,7 +603,6 @@ async fn test_archive_fs_read_and_download_zip() {
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         total_bytes: 0,
     };
     let local_fs = LocalFs::new();
@@ -670,7 +668,6 @@ async fn test_archive_fs_read_and_download_tar_gz() {
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         total_bytes: 0,
     };
     let local_fs = LocalFs::new();
@@ -834,7 +831,6 @@ async fn test_tar_gz_symlink_extracts_as_link() {
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         total_bytes: 0,
     };
     let local_fs = LocalFs::new();
@@ -887,7 +883,6 @@ async fn test_archive_fs_read_and_download_plain_gz() {
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         total_bytes: 0,
     };
     let local_fs = LocalFs::new();
@@ -955,14 +950,13 @@ async fn test_archive_download_empty_dir_and_nesting() {
     let dest_dir = temp_dir.path().join("extracted_nesting");
     std::fs::create_dir_all(&dest_dir).unwrap();
 
-    let (raw_tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<crate::tasks::UiEvent>();
+    let (raw_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<crate::tasks::UiEvent>();
     let tx = crate::tasks::EventBus::new(raw_tx);
     let progress = crate::fs::provider::TaskProgressContext {
         id: 123,
         tx: tx.clone(),
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         total_bytes: 0,
     };
     let local_fs = LocalFs::new();
@@ -979,32 +973,6 @@ async fn test_archive_download_empty_dir_and_nesting() {
         std::fs::read_to_string(dest_dir.join("a/b/c.txt")).unwrap(),
         "nested content"
     );
-
-    // Verify the progress pulse the UI applies. Progress events are coalesced
-    // keep-latest on the bus, so the snapshot notification carries the newest
-    // value — resolve it the way `dispatch_ui_event` does.
-    let mut item_count = 0;
-    while let Ok(event) = rx.try_recv() {
-        let event = match event {
-            crate::tasks::UiEvent::TaskSnapshot { task_id, field } => tx
-                .take_coalesced(task_id, field)
-                .unwrap_or_else(|| panic!("snapshot for task {task_id} had no pending value")),
-            crate::tasks::UiEvent::Task(e) => e,
-            _ => continue,
-        };
-        if let crate::tasks::TaskEvent::UpdateProgress {
-            task_id: tid,
-            processed: p,
-            ..
-        } = event
-        {
-            assert_eq!(tid, 123);
-            item_count = p;
-        }
-    }
-    // Items: empty_dir (1), a (1), a/b (1), a/b/c.txt (1) = 4
-    assert_eq!(item_count, 4);
-    assert_eq!(progress.processed_items.load(Ordering::SeqCst), 4);
 }
 
 #[tokio::test]
@@ -1038,7 +1006,6 @@ async fn test_archive_download_cancellation() {
         tx,
         cancel: cancel_flag.clone(),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         total_bytes: 0,
     };
     let local_fs = LocalFs::new();
@@ -1091,7 +1058,6 @@ async fn test_zip_timestamp_preservation() {
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         total_bytes: 0,
     };
 
@@ -1185,7 +1151,6 @@ async fn test_tar_timestamp_preservation() {
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         total_bytes: 0,
     };
 
@@ -1267,7 +1232,6 @@ async fn test_archive_fs_download_tar_gz() {
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         total_bytes: 0,
     };
     let local_fs = LocalFs::new();
@@ -1325,7 +1289,6 @@ async fn test_archive_fs_read_and_download_xz() {
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         total_bytes: 0,
     };
     let local_fs = LocalFs::new();
@@ -1461,7 +1424,6 @@ async fn test_archive_fs_read_and_download_rpm() {
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         total_bytes: 0,
     };
     let local_fs = LocalFs::new();
@@ -1533,7 +1495,6 @@ async fn test_zip_delete_and_add() {
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         total_bytes: 0,
     };
 
@@ -1645,7 +1606,6 @@ async fn test_zip_copy_directory_batch() {
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         total_bytes: 0,
     };
 
@@ -1747,13 +1707,16 @@ async fn test_recursive_op_copies_directory_tree_to_7z() {
 }
 
 /// Runs one `recursive_op` copy from `src_fs` to `dest_fs`.
+///
+/// Returns the task's final item count so callers can check that progress
+/// landed exactly on the total and not past it.
 async fn recursive_copy(
     src_fs: &dyn FileSystemProvider,
     dest_fs: &dyn FileSystemProvider,
     src: &Path,
     dest: &Path,
     total: usize,
-) -> Result<(), String> {
+) -> Result<usize, String> {
     let (raw_tx, mut rx) = mpsc::unbounded_channel();
     let tx = crate::tasks::EventBus::new(raw_tx);
     let cancel = Arc::new(AtomicBool::new(false));
@@ -1790,7 +1753,8 @@ async fn recursive_copy(
             return Err(message);
         }
     }
-    res.map_err(|e| e.to_string())
+    res.map_err(|e| e.to_string())?;
+    Ok(processed.load(Ordering::Relaxed))
 }
 
 /// Creates an archive at `path` containing `files` (and any parent directories).
@@ -1805,6 +1769,82 @@ fn make_archive(path: &Path, files: &[(&str, &[u8])]) {
         zip.write_all(data).unwrap();
     }
     zip.finish().unwrap();
+}
+
+/// Creates a gzip-compressed tar archive at `path` containing `files`.
+fn make_tar_gz(path: &Path, files: &[(&str, &[u8])]) {
+    let parent = path.parent().unwrap();
+    std::fs::create_dir_all(parent).unwrap();
+    let file = File::create(path).unwrap();
+    let encoder = GzEncoder::new(file, Compression::default());
+    let mut builder = tar::Builder::new(encoder);
+    for (name, data) in files {
+        let mut header = tar::Header::new_gnu();
+        header.set_size(data.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        builder.append_data(&mut header, name, *data).unwrap();
+    }
+    builder.into_inner().unwrap().finish().unwrap();
+}
+
+/// Copying one file out of a tar.gz must count it exactly once. The tar
+/// handler reports the entry it extracts, so the walker must not also add the
+/// top-level file, which used to render the task line at 200%.
+#[tokio::test]
+async fn test_copy_single_file_from_tar_gz_counts_item_once() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("src.tar.gz");
+    make_tar_gz(&src_path, &[("a.txt", b"hello")]);
+
+    let dest_dir = temp_dir.path().join("out");
+    let dest = dest_dir.join("a.txt");
+    std::fs::create_dir_all(&dest_dir).unwrap();
+
+    let src_fs = ArchiveFs::new(&src_path).unwrap();
+    let dest_fs = LocalFs::new();
+
+    let processed = recursive_copy(&src_fs, &dest_fs, Path::new("a.txt"), &dest, 1)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        processed, 1,
+        "the file was counted twice, so the task line overshoots 100%"
+    );
+    assert_eq!(std::fs::read(&dest).unwrap(), b"hello");
+}
+
+/// A whole directory extracted from an archive must be credited as one
+/// subtree by the walker. The extractor reports no items, so this checks the
+/// delegation credit lands on the task total instead of stalling below it.
+#[tokio::test]
+async fn test_copy_directory_from_archive_counts_subtree_once() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let src_path = temp_dir.path().join("src.zip");
+    make_archive(
+        &src_path,
+        &[("tree/top.txt", b"top"), ("tree/sub/deep.txt", b"deep")],
+    );
+
+    let dest_dir = temp_dir.path().join("out");
+    let dest = dest_dir.join("tree");
+    std::fs::create_dir_all(&dest_dir).unwrap();
+
+    let src_fs = ArchiveFs::new(&src_path).unwrap();
+    let dest_fs = LocalFs::new();
+
+    // tree + top.txt + sub + deep.txt
+    let processed = recursive_copy(&src_fs, &dest_fs, Path::new("tree"), &dest, 4)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        processed, 4,
+        "the extracted subtree must be credited exactly once"
+    );
+    assert_eq!(std::fs::read(dest.join("top.txt")).unwrap(), b"top");
+    assert_eq!(std::fs::read(dest.join("sub/deep.txt")).unwrap(), b"deep");
 }
 
 #[tokio::test]
@@ -1969,7 +2009,6 @@ async fn test_copy_local_symlinked_directory_into_zip() {
         tx: bus,
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-        processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         total_bytes: 0,
     };
 

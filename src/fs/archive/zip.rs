@@ -323,15 +323,6 @@ impl ZipHandler {
 
         common::restore_dir_metadata(pending_dirs);
 
-        let p = progress.processed_items.load(Ordering::Relaxed);
-        progress.tx.send(crate::tasks::UiEvent::Task(
-            crate::tasks::TaskEvent::UpdateProgress {
-                task_id: progress.id,
-                processed: p,
-                total: 0,
-            },
-        ));
-
         Ok(())
     }
 

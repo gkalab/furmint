@@ -188,6 +188,11 @@ impl Capabilities {
 
 /// Context for long-running copy/extract operations: task identity,
 /// progress channel and cancellation flag.
+///
+/// A provider reports only bytes and the entry it is currently handling. Item
+/// counts are owned solely by the walker that drives the transfer
+/// (`crate::fs::ops`), which credits a whole delegated subtree from the count
+/// its pre-operation walk produced; a provider must never count items.
 #[derive(Clone)]
 pub struct TaskProgressContext {
     pub id: usize,
@@ -197,7 +202,6 @@ pub struct TaskProgressContext {
     /// every file of the task, so a transfer that only knows its own file can
     /// still report in task-wide coordinates.
     pub processed_bytes: Arc<std::sync::atomic::AtomicU64>,
-    pub processed_items: Arc<std::sync::atomic::AtomicUsize>,
     /// Bytes the task as a whole is expected to transfer, or `0` when that is
     /// not known (e.g. an rsync transfer, which reports its own totals).
     /// `0` makes [`Self::report_file_bytes`] keep the per-file pair.
@@ -577,7 +581,6 @@ pub trait FileSystemProvider: Send + Sync {
             tx,
             cancel,
             processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
-            processed_items: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             total_bytes: 0,
         };
         self.copy_with_progress(src, dst, &progress).await

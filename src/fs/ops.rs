@@ -291,7 +291,6 @@ impl Transfer<'_> {
             tx: self.tx.clone(),
             cancel: self.cancel.clone(),
             processed_bytes: self.processed_bytes.clone(),
-            processed_items: self.processed.clone(),
             total_bytes: self.total_bytes,
         }
     }
@@ -494,7 +493,10 @@ async fn handle_file(
     // until the walk has proven the tree copied (see `recursive_op`), so a
     // later failure cannot leave a source whose copied entries are gone.
 
-    // Update progress
+    // Update progress. The walker is the single owner of the item count:
+    // providers report bytes and the current file only, so one file is always
+    // one item, whether the bytes moved through a plain copy or an archive
+    // extractor.
     let p = t
         .processed
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
@@ -702,6 +704,35 @@ async fn handle_directory(
     add_children_to_stack(ctx, src, dest, stack).await
 }
 
+/// Items in `src`'s subtree: the pre-operation walk's count when available,
+/// else a fresh walk of the source.
+async fn subtree_item_count(t: &Transfer<'_>, src: &std::path::Path) -> usize {
+    match t.subtree_counts.get(src) {
+        Some(&(count, _)) => count,
+        None => count_items(t.src_fs, &[src.to_path_buf()]).await,
+    }
+}
+
+/// Credits `count` items for a subtree the walk delegated to a provider.
+///
+/// The walker is the task's single item-count owner. A provider that transfers
+/// a whole subtree on its own (an archive extractor) reports no items, so the
+/// walker adds the subtree's pre-counted size here once the delegation is done
+/// instead of descending into it node by node.
+fn credit_items(t: &Transfer<'_>, count: usize) {
+    let p = t
+        .processed
+        .fetch_add(count, std::sync::atomic::Ordering::Relaxed)
+        + count;
+    t.tx.send(crate::tasks::UiEvent::Task(
+        crate::tasks::TaskEvent::UpdateProgress {
+            task_id: t.id,
+            processed: p,
+            total: t.total,
+        },
+    ));
+}
+
 async fn handle_archive_directory(
     ctx: &RecursiveOpContext<'_>,
     decision_state: &mut DecisionState,
@@ -712,31 +743,16 @@ async fn handle_archive_directory(
     progress: &TaskProgressContext,
 ) -> Result<()> {
     let t = &ctx.transfer;
-    let tree_count = match t.subtree_counts.get(src) {
-        Some(&(count, _)) => count,
-        None => count_items(t.src_fs, &[src.to_path_buf()]).await,
-    };
-    let mark_processed = |t: &Transfer<'_>| {
-        let p = t
-            .processed
-            .fetch_add(tree_count, std::sync::atomic::Ordering::Relaxed)
-            + tree_count;
-        t.tx.send(crate::tasks::UiEvent::Task(
-            crate::tasks::TaskEvent::UpdateProgress {
-                task_id: t.id,
-                processed: p,
-                total: t.total,
-            },
-        ));
-    };
+    let tree_count = subtree_item_count(t, src).await;
 
     if dest_exists {
         match resolve_conflict(ctx, decision_state, outcome, dest).await? {
             ConflictResult::Perform => {}
             ConflictResult::Skip => {
-                // The whole subtree is skipped, so its bytes are credited here.
+                // The whole subtree is skipped, so its bytes and items are
+                // credited here.
                 credit_untransferred_bytes(t, untransferred_bytes(t, src).await);
-                mark_processed(t);
+                credit_items(t, tree_count);
                 return Ok(());
             }
             ConflictResult::Cancel => return Ok(()),
@@ -762,7 +778,7 @@ async fn handle_archive_directory(
         {
             let _ = t.dest_fs.set_modified_time(dest, mtime).await;
         }
-        mark_processed(t);
+        credit_items(t, tree_count);
         return res;
     }
     Ok(())
@@ -786,13 +802,10 @@ async fn handle_copy_to_local_with_existing_dir(
     match resolve_conflict(ctx, decision_state, outcome, dest).await? {
         ConflictResult::Perform => {}
         ConflictResult::Skip => {
-            // The whole subtree is skipped, so its bytes are credited here.
+            // The whole subtree is skipped, so its bytes and items are
+            // credited here.
             credit_untransferred_bytes(t, untransferred_bytes(t, src).await);
-            let p = t
-                .processed
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-                + 1;
-            update_progress_if_needed(t, decision_state, p);
+            credit_items(t, subtree_item_count(t, src).await);
             return Ok(Some(Ok(())));
         }
         ConflictResult::Cancel => return Ok(Some(Ok(()))),
@@ -805,14 +818,9 @@ async fn handle_copy_to_local_with_existing_dir(
             if let Some(mtime) = t.src_fs.get_modified_time(src).await {
                 let _ = t.dest_fs.set_modified_time(dest, mtime).await;
             }
-            let p = t.processed.load(std::sync::atomic::Ordering::Relaxed);
-            t.tx.send(crate::tasks::UiEvent::Task(
-                crate::tasks::TaskEvent::UpdateProgress {
-                    task_id: t.id,
-                    processed: p,
-                    total: t.total,
-                },
-            ));
+            // `copy_to_local` extracted the whole subtree; credit it as one
+            // unit since the provider reports no items.
+            credit_items(t, subtree_item_count(t, src).await);
         }
         return Ok(Some(res));
     }
@@ -832,14 +840,9 @@ async fn handle_copy_to_local_direct(
             if let Some(mtime) = t.src_fs.get_modified_time(src).await {
                 let _ = t.dest_fs.set_modified_time(dest, mtime).await;
             }
-            let p = t.processed.load(std::sync::atomic::Ordering::Relaxed);
-            t.tx.send(crate::tasks::UiEvent::Task(
-                crate::tasks::TaskEvent::UpdateProgress {
-                    task_id: t.id,
-                    processed: p,
-                    total: t.total,
-                },
-            ));
+            // `copy_to_local` extracted the whole subtree; credit it as one
+            // unit since the provider reports no items.
+            credit_items(t, subtree_item_count(t, src).await);
         }
         return Ok(Some(res));
     }

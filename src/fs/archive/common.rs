@@ -724,26 +724,12 @@ pub fn handle_extraction_entry<R: std::io::Read>(
         extract_file_entry(reader, &target, dest, name, entry_meta, opts.progress)?;
     }
 
-    let p = opts
-        .progress
-        .processed_items
-        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        + 1;
     let now = std::time::Instant::now();
-    if p.is_multiple_of(10)
-        || now.duration_since(*last_update) > std::time::Duration::from_millis(100)
-    {
+    if now.duration_since(*last_update) > std::time::Duration::from_millis(100) {
         opts.progress.tx.send(crate::tasks::UiEvent::Task(
             crate::tasks::TaskEvent::UpdateCurrentFile {
                 task_id: opts.progress.id,
                 filename: rel_name_str,
-            },
-        ));
-        opts.progress.tx.send(crate::tasks::UiEvent::Task(
-            crate::tasks::TaskEvent::UpdateProgress {
-                task_id: opts.progress.id,
-                processed: p,
-                total: 0,
             },
         ));
         *last_update = now;

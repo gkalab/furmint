@@ -134,7 +134,10 @@ async fn skip_does_not_overwrite_destination() {
         content, "existing",
         "skip must not overwrite the destination"
     );
-    assert_eq!(processed, 1, "only the skipped item is accounted for");
+    assert_eq!(
+        processed, 2,
+        "the skipped subtree's items are credited so the task still reaches its total"
+    );
     assert_eq!(bytes, 0, "no transfer may happen before the decision");
 }
 

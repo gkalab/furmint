@@ -3,7 +3,7 @@ use crate::fs::provider::TaskProgressContext;
 use crate::tasks::UiEvent;
 use std::io::Cursor;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
+use std::sync::atomic::{AtomicBool, AtomicU64};
 
 fn test_progress() -> TaskProgressContext {
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<UiEvent>();
@@ -13,7 +13,6 @@ fn test_progress() -> TaskProgressContext {
         tx,
         cancel: Arc::new(AtomicBool::new(false)),
         processed_bytes: Arc::new(AtomicU64::new(0)),
-        processed_items: Arc::new(AtomicUsize::new(0)),
         total_bytes: 0,
     }
 }

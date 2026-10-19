@@ -279,15 +279,6 @@ impl ArchiveFormat for TarHandler {
 
         common::restore_dir_metadata(pending_dirs);
 
-        let p = progress.processed_items.load(Ordering::Relaxed);
-        progress.tx.send(crate::tasks::UiEvent::Task(
-            crate::tasks::TaskEvent::UpdateProgress {
-                task_id: progress.id,
-                processed: p,
-                total: 0,
-            },
-        ));
-
         Ok(())
     }
 }
@@ -346,20 +337,12 @@ impl TarHandler {
                 return Ok(());
             }
             if let Ok(file_path) = line {
-                let p = progress.processed_items.fetch_add(1, Ordering::Relaxed) + 1;
                 let now = std::time::Instant::now();
                 if now.duration_since(last_update) > std::time::Duration::from_millis(100) {
                     progress.tx.send(crate::tasks::UiEvent::Task(
                         crate::tasks::TaskEvent::UpdateCurrentFile {
                             task_id: progress.id,
                             filename: file_path,
-                        },
-                    ));
-                    progress.tx.send(crate::tasks::UiEvent::Task(
-                        crate::tasks::TaskEvent::UpdateProgress {
-                            task_id: progress.id,
-                            processed: p,
-                            total: 0,
                         },
                     ));
                     last_update = now;
@@ -383,15 +366,6 @@ impl TarHandler {
                 }
             }
         }
-
-        let p = progress.processed_items.load(Ordering::Relaxed);
-        progress.tx.send(crate::tasks::UiEvent::Task(
-            crate::tasks::TaskEvent::UpdateProgress {
-                task_id: progress.id,
-                processed: p,
-                total: 0,
-            },
-        ));
 
         Ok(())
     }
