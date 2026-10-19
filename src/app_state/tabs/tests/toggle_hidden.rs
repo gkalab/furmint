@@ -498,12 +498,12 @@ async fn test_toggle_applies_to_a_remote_tab_through_the_app_entry_point() {
 #[cfg(windows)]
 fn mark_hidden(path: &std::path::Path) {
     use std::os::windows::ffi::OsStrExt;
+    const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
     let mut wide: Vec<u16> = path.as_os_str().encode_wide().collect();
     wide.push(0);
-    const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
     let rc =
         unsafe { winapi::um::fileapi::SetFileAttributesW(wide.as_ptr(), FILE_ATTRIBUTE_HIDDEN) };
-    assert_eq!(rc, 1, "SetFileAttributesW({:?}) failed", path);
+    assert_eq!(rc, 1, "SetFileAttributesW({path:?}) failed");
 }
 
 #[cfg(not(windows))]

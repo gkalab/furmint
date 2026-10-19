@@ -81,7 +81,6 @@ async fn run(h: &Harness, action: CopyMoveAction) -> anyhow::Result<()> {
 
 /// A `dir` containing a file, a subdirectory with a file, and a symlink that
 /// points back at `dir` itself.
-#[cfg(unix)]
 fn loop_tree(dir: &std::path::Path) {
     std::fs::create_dir_all(dir.join("sub")).unwrap();
     std::fs::write(dir.join("a.txt"), b"a").unwrap();
@@ -91,7 +90,6 @@ fn loop_tree(dir: &std::path::Path) {
 
 /// The count walk terminates on a self-referential symlink and counts each real
 /// entry exactly once: the loop contributes nothing.
-#[cfg(unix)]
 #[tokio::test]
 async fn count_items_terminates_on_a_symlink_loop() {
     let tmp = tempfile::tempdir().unwrap();
@@ -106,7 +104,6 @@ async fn count_items_terminates_on_a_symlink_loop() {
 /// The recursive copy terminates, skips the looped directory, and accounts for
 /// exactly the items the count walk found — so the progress line still reaches
 /// its total.
-#[cfg(unix)]
 #[tokio::test]
 async fn copy_terminates_on_a_symlink_loop_and_keeps_progress_consistent() {
     let tmp = tempfile::tempdir().unwrap();
@@ -134,7 +131,6 @@ async fn copy_terminates_on_a_symlink_loop_and_keeps_progress_consistent() {
 
 /// A symlink pointing directly at the copy's destination is not followed, so
 /// the copy cannot fold the destination into itself.
-#[cfg(unix)]
 #[tokio::test]
 async fn copy_does_not_follow_a_symlink_into_the_destination() {
     let tmp = tempfile::tempdir().unwrap();
