@@ -4,11 +4,16 @@
 //! the wire against an in-process SFTP server (`russh_sftp::server`) that is
 //! backed by an actual local directory. No SSH transport is needed.
 
-use super::super::*;
-use russh_sftp::protocol::{Attrs, File, Handle, Name, Status, StatusCode};
+use super::super::transfer::build_dir_listing;
+use crate::fs::utils::FileEntry;
+use russh_sftp::client::SftpSession;
+use russh_sftp::protocol::{Attrs, File, FileAttributes, Handle, Name, Status, StatusCode};
 use russh_sftp::server::{Handler, StatusReply};
+use std::collections::HashMap;
 use std::future::Future;
 use std::os::unix::fs::{MetadataExt, symlink};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// Minimal server error: just carries an SFTP status code.
 #[derive(Debug, Clone, Copy)]
