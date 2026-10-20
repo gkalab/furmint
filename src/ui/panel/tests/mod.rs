@@ -1,5 +1,10 @@
-use super::*;
-use crate::theme::Rgb;
+use super::entry::{attributes_char_style, style_for_entry, style_for_icon};
+use super::layout::{attributes_col_width, name_col_width_for};
+use super::status::get_task_progress_spans;
+use crate::fs::utils::FileEntry;
+use crate::theme::{Rgb, ThemePalette};
+use ratatui::prelude::{Color, Style};
+use std::path::Path;
 
 #[test]
 fn test_task_progress_truncation() {
@@ -106,7 +111,7 @@ fn name_column_width(total: usize, attributes: u16) -> usize {
 }
 
 fn calculate_name_col_for(total: usize, attributes: u16) -> usize {
-    super::name_col_width_for(total, attributes)
+    name_col_width_for(total, attributes)
 }
 
 fn fg_of(style: Style) -> Option<Color> {
