@@ -1,10 +1,10 @@
 use crate::app::{AppState, DragTarget};
 use crate::app_state::tabs::PanelSide;
 use crate::fs::utils::FileEntry;
+use crate::handlers::mouse::scrollbar::{calculate_scroll_from_y, scrollbar_thumb_rows};
 use crate::handlers::mouse::{
-    calculate_scroll_from_y, handle_create_directory_popup_mouse, handle_create_file_popup_mouse,
-    handle_mouse_event, handle_rename_popup_mouse, handle_viewer_search_popup_mouse,
-    scrollbar_thumb_rows, tick_viewer_autoscroll,
+    handle_create_directory_popup_mouse, handle_create_file_popup_mouse, handle_mouse_event,
+    handle_rename_popup_mouse, handle_viewer_search_popup_mouse, tick_viewer_autoscroll,
 };
 use crate::state::EmptyTrashState;
 use crate::ui::text_edit::TextEditState;
