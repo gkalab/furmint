@@ -251,13 +251,56 @@ fn test_build_windows_terminal_command_wt() {
 }
 
 #[cfg(target_os = "windows")]
+fn decode_powershell_command(encoded: &str) -> String {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .unwrap();
+    let units: Vec<u16> = bytes
+        .chunks_exact(2)
+        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .collect();
+    String::from_utf16(&units).unwrap()
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn test_build_powershell_script() {
+    let args = vec![
+        "ssh".to_string(),
+        "-t".to_string(),
+        "user@host".to_string(),
+        "cd '/home/g' && exec \"${SHELL:-/bin/sh}\"".to_string(),
+    ];
+    assert_eq!(
+        build_powershell_script(&args),
+        "& 'ssh' '-t' 'user@host' 'cd ''/home/g'' && exec \"${SHELL:-/bin/sh}\"'"
+    );
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn test_build_windows_terminal_command_powershell_ssh_keeps_remote_command_intact() {
+    let args = build_ssh_args("user", "example.com", 22, std::path::Path::new("/home/g"));
+    let (program, params) =
+        build_windows_terminal_command(Some("powershell.exe".to_string()), &args, false);
+    assert_eq!(program, "powershell.exe");
+    let encoded = params.strip_prefix("-EncodedCommand ").unwrap();
+    assert_eq!(
+        decode_powershell_command(encoded),
+        build_powershell_script(&args)
+    );
+}
+
+#[cfg(target_os = "windows")]
 #[test]
 fn test_build_windows_terminal_command_powershell_wrapped() {
     let args = vec!["ssh".to_string(), "-t".to_string()];
     let (program, params) =
         build_windows_terminal_command(Some("powershell".to_string()), &args, true);
     assert_eq!(program, "powershell");
-    assert_eq!(params, "-NoExit -Command ssh -t");
+    let encoded = params.strip_prefix("-NoExit -EncodedCommand ").unwrap();
+    assert_eq!(decode_powershell_command(encoded), "& 'ssh' '-t'");
 }
 
 #[cfg(target_os = "windows")]

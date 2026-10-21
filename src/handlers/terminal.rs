@@ -306,6 +306,38 @@ fn join_windows_args(args: &[String]) -> String {
         .join(" ")
 }
 
+/// Quotes `arg` as a PowerShell single-quoted literal, so PowerShell passes it
+/// to the invoked program verbatim.
+#[cfg(target_os = "windows")]
+fn quote_powershell_arg(arg: &str) -> String {
+    format!("'{}'", arg.replace('\'', "''"))
+}
+
+/// Builds a PowerShell script that invokes `args` as one command, keeping every
+/// argument intact (spaces, quotes and `&` characters included).
+#[cfg(target_os = "windows")]
+fn build_powershell_script(args: &[String]) -> String {
+    let mut script = String::from("&");
+    for arg in args {
+        script.push(' ');
+        script.push_str(&quote_powershell_arg(arg));
+    }
+    script
+}
+
+/// Encodes a PowerShell script for `-EncodedCommand` (base64 of UTF-16LE).
+///
+/// `-EncodedCommand` is used instead of `-Command` because the latter re-parses
+/// the remaining command-line arguments and drops their quoting. An SSH remote
+/// command such as `cd '/tmp' && exec "$SHELL"` would then reach PowerShell
+/// unquoted and fail on the `&&`, closing the new window immediately.
+#[cfg(target_os = "windows")]
+fn encode_powershell_command(script: &str) -> String {
+    use base64::Engine;
+    let utf16: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    base64::engine::general_purpose::STANDARD.encode(utf16)
+}
+
 /// Builds the program to execute and its parameter string for a new terminal
 /// window.
 #[cfg(target_os = "windows")]
@@ -359,7 +391,9 @@ fn build_windows_terminal_command(
         if wrap_shell {
             params.push("-NoExit".to_string());
         }
-        params.push("-Command".to_string());
+        params.push("-EncodedCommand".to_string());
+        params.push(encode_powershell_command(&build_powershell_script(args)));
+        return (term, join_windows_args(&params));
     }
     params.extend(args.iter().cloned());
     (term, join_windows_args(&params))
