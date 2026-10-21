@@ -1,6 +1,6 @@
 Furmint (fm), a terminal file manager with dual-panel interface, tabs, and SSH/SFTP support.
 
-![Furmint](resources/demo.png)
+[![Furmint](resources/demo.png?raw=true)](https://build.demoshell.com/launch?snapshot=gkalab%2Fdemo%3Afurmint&utm_source=share "Live demo in your browser")
 
 ## AI Disclosure
 This project started out as a vibe coding experiment and AI is heavily used for development.
