@@ -3,11 +3,7 @@
 use crate::app::AppState;
 use crate::handlers::suspended_ui::SuspendedUi;
 use directories::UserDirs;
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
 use std::process::Command;
-#[cfg(target_os = "windows")]
-use std::process::Stdio;
 
 use std::io::Write;
 
@@ -269,6 +265,179 @@ fn spawn_terminal_macos(
     Ok(())
 }
 
+/// Quotes `arg` so that it survives `CommandLineToArgvW` parsing, producing
+/// the same quoting `std::process::Command` applies to each argument.
+#[cfg(target_os = "windows")]
+fn quote_windows_arg(arg: &str) -> String {
+    if !arg.is_empty() && !arg.contains([' ', '\t', '"']) {
+        return arg.to_string();
+    }
+    let mut quoted = String::with_capacity(arg.len() + 2);
+    quoted.push('"');
+    let mut backslashes = 0usize;
+    for c in arg.chars() {
+        match c {
+            '\\' => backslashes += 1,
+            '"' => {
+                // Backslashes before a quote must be escaped, plus the quote.
+                quoted.push_str(&"\\".repeat(backslashes * 2 + 1));
+                quoted.push('"');
+                backslashes = 0;
+            }
+            _ => {
+                quoted.push_str(&"\\".repeat(backslashes));
+                backslashes = 0;
+                quoted.push(c);
+            }
+        }
+    }
+    // Backslashes before the closing quote must be escaped as well.
+    quoted.push_str(&"\\".repeat(backslashes * 2));
+    quoted.push('"');
+    quoted
+}
+
+/// Joins `args` into a single Windows command line.
+#[cfg(target_os = "windows")]
+fn join_windows_args(args: &[String]) -> String {
+    args.iter()
+        .map(|a| quote_windows_arg(a))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Builds the program to execute and its parameter string for a new terminal
+/// window.
+#[cfg(target_os = "windows")]
+fn build_windows_terminal_command(
+    configured_terminal: Option<String>,
+    args: &[String],
+    wrap_shell: bool,
+) -> (String, String) {
+    if args.is_empty() {
+        // Just open a terminal: the configured one, or a plain shell.
+        return (
+            configured_terminal.unwrap_or_else(|| "cmd".to_string()),
+            String::new(),
+        );
+    }
+
+    // GUI applications do not need a terminal, so launch them as they are.
+    let is_gui = args[0].to_lowercase().ends_with(".exe")
+        && crate::fs::utils::is_gui_executable(std::path::Path::new(&args[0]));
+    if is_gui {
+        return (args[0].clone(), join_windows_args(&args[1..]));
+    }
+
+    let Some(term) = configured_terminal else {
+        if wrap_shell {
+            let mut params = vec!["/K".to_string()];
+            params.extend(args.iter().cloned());
+            return ("cmd".to_string(), join_windows_args(&params));
+        }
+        // Launch the command directly; Windows gives console programs their
+        // own console window.
+        return (args[0].clone(), join_windows_args(&args[1..]));
+    };
+
+    let bin = term.to_lowercase();
+    let mut params: Vec<String> = Vec::new();
+    if bin.contains("wt") || bin.contains("windows terminal") {
+        params.push("-d".to_string());
+        params.push(".".to_string());
+        if wrap_shell {
+            params.push("cmd".to_string());
+            params.push("/K".to_string());
+        }
+    } else if bin.contains("alacritty") {
+        params.push("--command".to_string());
+        if wrap_shell {
+            params.push("cmd".to_string());
+            params.push("/K".to_string());
+        }
+    } else if bin.contains("powershell") || bin.contains("pwsh") {
+        if wrap_shell {
+            params.push("-NoExit".to_string());
+        }
+        params.push("-Command".to_string());
+    }
+    params.extend(args.iter().cloned());
+    (term, join_windows_args(&params))
+}
+
+/// Builds the command line that starts `program` in a new window.
+#[cfg(target_os = "windows")]
+fn build_windows_launch_line(program: &str, params: &str) -> String {
+    let mut line = String::from("cmd.exe /C start \"\" ");
+    line.push_str(&quote_windows_arg(program));
+    if !params.is_empty() {
+        line.push(' ');
+        line.push_str(params);
+    }
+    line
+}
+
+/// Starts `program` with `params` in a new window.
+///
+/// The program is started through `cmd /C start ""`, which creates a new
+/// console window for console programs and opens GUI programs normally (in
+/// the foreground). The intermediate `cmd` is created with `CREATE_NO_WINDOW`
+/// and without inherited handles, for two reasons:
+///
+/// - GUI programs such as Alacritty attach themselves to their parent's
+///   console (`AttachConsole(ATTACH_PARENT_PROCESS)`) when it has one. The
+///   intermediate `cmd` has its own, invisible console, so the program cannot
+///   attach to fm's console. Otherwise that console, and with it fm's terminal
+///   window, would stay alive until the spawned terminal exits.
+/// - fm's stdio are the console/ConPTY handles inherited from the terminal
+///   that started fm, so passing them on would keep that terminal alive too.
+#[cfg(target_os = "windows")]
+fn launch_windowed(program: &str, params: &str, dir: &std::path::Path) -> anyhow::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{
+        CREATE_NO_WINDOW, CreateProcessW, PROCESS_INFORMATION, STARTUPINFOW,
+    };
+    use windows::core::{PCWSTR, PWSTR};
+
+    fn wide(value: &std::ffi::OsStr) -> Vec<u16> {
+        value.encode_wide().chain(std::iter::once(0)).collect()
+    }
+
+    let command_line = build_windows_launch_line(program, params);
+
+    // CreateProcessW may modify the command line in place, so keep it mutable.
+    let mut command_line = wide(std::ffi::OsStr::new(&command_line));
+    let dir = wide(dir.as_os_str());
+    let startup = STARTUPINFOW {
+        cb: u32::try_from(std::mem::size_of::<STARTUPINFOW>())
+            .expect("STARTUPINFOW size fits in u32"),
+        ..Default::default()
+    };
+    let mut process_info = PROCESS_INFORMATION::default();
+
+    // SAFETY: the command line is a mutable, null-terminated UTF-16 buffer and
+    // the directory a null-terminated UTF-16 buffer, both outliving the call.
+    unsafe {
+        CreateProcessW(
+            None,
+            Some(PWSTR(command_line.as_mut_ptr())),
+            None,
+            None,
+            false, // do not pass fm's handles on to the child
+            CREATE_NO_WINDOW,
+            None,
+            PCWSTR(dir.as_ptr()),
+            &raw const startup,
+            &raw mut process_info,
+        )?;
+        let _ = CloseHandle(process_info.hProcess);
+        let _ = CloseHandle(process_info.hThread);
+    }
+
+    Ok(())
+}
+
 #[cfg(target_os = "windows")]
 fn spawn_terminal_windows(
     dir: &std::path::Path,
@@ -277,75 +446,9 @@ fn spawn_terminal_windows(
     wrap_shell: bool,
     _sshpass: Option<&secrecy::SecretString>,
 ) -> anyhow::Result<()> {
-    let mut cmd = if !args.is_empty() {
-        // Detect if the target is a GUI application to avoid background terminals
-        let is_gui = if args[0].to_lowercase().ends_with(".exe") {
-            crate::fs::utils::is_gui_executable(std::path::Path::new(&args[0]))
-        } else {
-            false
-        };
-
-        if is_gui {
-            // GUI apps should always use 'start' to launch without a parent terminal window staying open.
-            let mut cmd = Command::new("cmd");
-            cmd.arg("/C").arg("start").arg("");
-            for arg in args {
-                cmd.arg(arg);
-            }
-            cmd
-        } else if let Some(term) = configured_terminal {
-            let mut cmd = Command::new(&term);
-            let bin = term.to_lowercase();
-            if bin.contains("wt") || bin.contains("windows terminal") {
-                cmd.arg("-d").arg(".");
-                if wrap_shell {
-                    cmd.arg("cmd").arg("/K");
-                }
-            } else if bin.contains("alacritty") {
-                cmd.arg("--command");
-                if wrap_shell {
-                    cmd.arg("cmd").arg("/K");
-                }
-            } else if bin.contains("powershell") || bin.contains("pwsh") {
-                if wrap_shell {
-                    cmd.arg("-NoExit");
-                }
-                cmd.arg("-Command");
-            }
-            for arg in args {
-                cmd.arg(arg);
-            }
-            cmd
-        } else {
-            let mut cmd = Command::new("cmd");
-            // Use 'start' with an empty title to launch in a new window
-            cmd.arg("/C").arg("start").arg("");
-            if wrap_shell {
-                cmd.arg("cmd").arg("/K");
-            }
-            for arg in args {
-                cmd.arg(arg);
-            }
-            cmd
-        }
-    } else if let Some(term) = configured_terminal {
-        let mut cmd = Command::new("cmd");
-        cmd.arg("/C").arg("start").arg("").arg(term);
-        cmd
-    } else {
-        let mut cmd = Command::new("cmd");
-        cmd.arg("/C").arg("start").arg("").arg("cmd");
-        cmd
-    };
-
-    cmd.current_dir(dir)
-        .creation_flags(0x0800_0000) // CREATE_NO_WINDOW (0x08000000) for the intermediate 'cmd /C' to avoid a flash
-        .stdin(Stdio::null()) // Stdio::null() to avoid inheriting the parent console's handles
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
-
-    Ok(())
+    let (program, params) = build_windows_terminal_command(configured_terminal, args, wrap_shell);
+    launch_windowed(&program, &params, dir)
+        .map_err(|e| anyhow::anyhow!("Failed to spawn terminal {program}: {e}"))
 }
 
 /// Spawns a terminal in the given directory.

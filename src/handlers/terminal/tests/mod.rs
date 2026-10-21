@@ -188,3 +188,104 @@ fn test_build_ssh_terminal_plan_missing_host_info() {
     });
     assert!(build_ssh_terminal_plan(&app).is_none());
 }
+
+#[cfg(target_os = "windows")]
+#[test]
+fn test_quote_windows_arg() {
+    assert_eq!(quote_windows_arg("cmd"), "cmd");
+    assert_eq!(quote_windows_arg(""), "\"\"");
+    assert_eq!(
+        quote_windows_arg(r"C:\Program Files\fm.exe"),
+        r#""C:\Program Files\fm.exe""#
+    );
+    // Trailing backslashes are doubled before the closing quote.
+    assert_eq!(quote_windows_arg("a b\\"), r#""a b\\""#);
+    // Quotes are escaped, together with the backslashes preceding them.
+    assert_eq!(quote_windows_arg(r#"say "hi""#), "\"say \\\"hi\\\"\"");
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn test_build_windows_terminal_command_default_shell() {
+    let (program, params) = build_windows_terminal_command(None, &[], false);
+    assert_eq!(program, "cmd");
+    assert_eq!(params, "");
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn test_build_windows_terminal_command_configured_terminal() {
+    let (program, params) = build_windows_terminal_command(Some("wt".to_string()), &[], false);
+    assert_eq!(program, "wt");
+    assert_eq!(params, "");
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn test_build_windows_terminal_command_ssh_direct() {
+    let args = build_ssh_args("user", "example.com", 22, std::path::Path::new("/home/g"));
+    let (program, params) = build_windows_terminal_command(None, &args, false);
+    assert_eq!(program, "ssh");
+    assert_eq!(
+        params,
+        "-t user@example.com \"cd '/home/g' && exec \\\"${SHELL:-/bin/sh}\\\"\""
+    );
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn test_build_windows_terminal_command_wraps_in_shell() {
+    let args = vec!["ssh".to_string(), "-t".to_string()];
+    let (program, params) = build_windows_terminal_command(None, &args, true);
+    assert_eq!(program, "cmd");
+    assert_eq!(params, "/K ssh -t");
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn test_build_windows_terminal_command_wt() {
+    let args = vec!["ssh".to_string(), "-t".to_string()];
+    let (program, params) = build_windows_terminal_command(Some("wt".to_string()), &args, false);
+    assert_eq!(program, "wt");
+    assert_eq!(params, "-d . ssh -t");
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn test_build_windows_terminal_command_powershell_wrapped() {
+    let args = vec!["ssh".to_string(), "-t".to_string()];
+    let (program, params) =
+        build_windows_terminal_command(Some("powershell".to_string()), &args, true);
+    assert_eq!(program, "powershell");
+    assert_eq!(params, "-NoExit -Command ssh -t");
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn test_build_windows_launch_line() {
+    assert_eq!(
+        build_windows_launch_line("cmd", ""),
+        "cmd.exe /C start \"\" cmd"
+    );
+    // The program path must be quoted, even when it contains spaces.
+    assert_eq!(
+        build_windows_launch_line(r"C:\Program Files\Alacritty\alacritty.exe", ""),
+        "cmd.exe /C start \"\" \"C:\\Program Files\\Alacritty\\alacritty.exe\""
+    );
+    assert_eq!(
+        build_windows_launch_line("ssh", "-t user@host"),
+        "cmd.exe /C start \"\" ssh -t user@host"
+    );
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn test_build_windows_terminal_command_gui_app_is_launched_directly() {
+    let args = vec![
+        r"C:\Windows\System32\notepad.exe".to_string(),
+        r"C:\temp\a b.txt".to_string(),
+    ];
+    let (program, params) = build_windows_terminal_command(None, &args, false);
+    assert_eq!(program, r"C:\Windows\System32\notepad.exe");
+    assert_eq!(params, r#""C:\temp\a b.txt""#);
+}
