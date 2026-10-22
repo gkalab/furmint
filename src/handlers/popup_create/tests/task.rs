@@ -1,0 +1,174 @@
+use super::*;
+use crate::handlers::popup_create::{handle_create_file_event, handle_init_create_file};
+use crate::ui::text_edit::TextEditState;
+use termina::event::{KeyCode, Modifiers};
+
+#[tokio::test]
+#[allow(clippy::too_many_lines)]
+async fn test_handle_create_file_remote_uses_remote_edit_workflow() {
+    struct MockRemoteCreateFs;
+
+    #[async_trait::async_trait]
+    impl crate::fs::provider::FileSystemProvider for MockRemoteCreateFs {
+        fn is_local(&self) -> bool {
+            false
+        }
+        fn display_prefix(&self) -> &'static str {
+            "mock://"
+        }
+        async fn list_dir(
+            &self,
+            _path: &std::path::Path,
+        ) -> anyhow::Result<Vec<crate::fs::utils::FileEntry>> {
+            Ok(vec![])
+        }
+        async fn read_file(&self, _path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
+            Ok(b"".to_vec())
+        }
+        async fn read_file_at(
+            &self,
+            _path: &std::path::Path,
+            _offset: u64,
+            _len: usize,
+        ) -> anyhow::Result<Vec<u8>> {
+            Ok(b"".to_vec())
+        }
+        async fn write_file(&self, _path: &std::path::Path, _data: &[u8]) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn write_file_at(
+            &self,
+            _path: &std::path::Path,
+            _offset: u64,
+            _data: &[u8],
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn create_dir(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn create_dir_all(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn create_file(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn delete(&self, _path: &std::path::Path, _recursive: bool) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn rename(
+            &self,
+            _from: &std::path::Path,
+            _to: &std::path::Path,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn exists(&self, _path: &std::path::Path) -> bool {
+            false
+        }
+        async fn is_dir(&self, _path: &std::path::Path) -> bool {
+            false
+        }
+        async fn canonicalize(&self, path: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
+            Ok(path.to_path_buf())
+        }
+        async fn get_modified_time(
+            &self,
+            _path: &std::path::Path,
+        ) -> Option<std::time::SystemTime> {
+            None
+        }
+        async fn set_modified_time(
+            &self,
+            _path: &std::path::Path,
+            _mtime: std::time::SystemTime,
+        ) -> bool {
+            true
+        }
+        async fn get_file_info(
+            &self,
+            _path: &std::path::Path,
+        ) -> Option<crate::fs::provider::FileMetadata> {
+            None
+        }
+        async fn get_permissions(&self, _path: &std::path::Path) -> Option<u32> {
+            None
+        }
+        async fn set_permissions(&self, _path: &std::path::Path, _mode: u32) -> bool {
+            true
+        }
+        fn context_key(&self) -> crate::fs::provider::ContextKey {
+            crate::fs::provider::ContextKey::Ssh {
+                user: "test".to_string(),
+                host: "remote".to_string(),
+                port: 22,
+            }
+        }
+        fn display_path(&self, path: &std::path::Path) -> String {
+            path.to_string_lossy().to_string()
+        }
+        async fn calc_dir_size(&self, _path: &std::path::Path) -> anyhow::Result<u64> {
+            Ok(0)
+        }
+    }
+
+    let mut app = basic_app_state().await;
+    let (_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<crate::tasks::UiEvent>();
+
+    // Replace the active tab's provider with a mock remote provider
+    app.active_tab_mut().provider = std::sync::Arc::new(MockRemoteCreateFs);
+
+    // Use non-terminal mode so edit_file_remote sets up the remote_edit popup.
+    // Use a platform-appropriate no-op command: "true" on Unix, cmd on Windows.
+    app.editor_cfg.in_terminal = Some(false);
+    #[cfg(not(target_os = "windows"))]
+    let editor_cmd = "true";
+    #[cfg(target_os = "windows")]
+    let editor_cmd = "cmd /d /c exit 0";
+    app.editor_cfg.command = Some(editor_cmd.to_string());
+
+    handle_init_create_file(&mut app);
+    app.popups.create_file.input_value = TextEditState::with_text("remote_new_file.txt");
+
+    handle_create_file_event(KeyCode::Enter, Modifiers::NONE, &mut app).await;
+
+    // The create file popup should be closed
+    assert!(!app.popups.create_file.is_visible);
+
+    // The remote edit popup should be visible (the fix: remote provider
+    // triggers edit_file_remote instead of open_file_in_editor_with_env_handling)
+    assert!(app.popups.remote_edit.is_visible);
+    assert_eq!(app.popups.remote_edit.filename, "remote_new_file.txt");
+    let expected_remote_path = std::env::temp_dir().join("remote_new_file.txt");
+    assert_eq!(app.popups.remote_edit.remote_path, expected_remote_path);
+
+    // A temp file should exist on the local filesystem (not the remote path)
+    let temp_path = app
+        .popups
+        .remote_edit
+        .temp_guard
+        .as_ref()
+        .map(|g| g.path().to_path_buf())
+        .expect("remote edit popup should own a temp file");
+    assert!(
+        temp_path.exists(),
+        "Temp file should exist on local filesystem"
+    );
+    assert!(
+        temp_path.starts_with(std::env::temp_dir()),
+        "Temp file should be in system temp directory"
+    );
+
+    // Clean up: simulate user pressing Esc
+    crate::handlers::editor::handle_remote_edit_event(termina::event::KeyCode::Escape, &mut app)
+        .await;
+
+    assert!(!app.popups.remote_edit.is_visible);
+    // While the detached editor is still running, the temp file is removed by
+    // a background thread once it exits; wait for that to complete.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while temp_path.exists() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(!temp_path.exists(), "Temp file should be cleaned up");
+}

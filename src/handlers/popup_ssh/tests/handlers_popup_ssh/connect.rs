@@ -1,0 +1,261 @@
+use super::*;
+use crate::handlers::popup_ssh::{handle_reconnect_ssh, handle_ssh_password_event};
+use termina::event::{KeyCode, Modifiers};
+
+#[tokio::test]
+async fn test_handle_reconnect_ssh_no_op_for_local() {
+    let mut app = basic_app_state().await;
+    handle_reconnect_ssh(&mut app);
+    assert!(!app.popups.ssh_password.is_visible);
+}
+
+/// Minimal stand-in for a remote (non-local) filesystem provider, used to test
+/// the reconnect handler without opening a real SSH connection.
+struct MockSftpProvider {
+    user: String,
+    host: String,
+}
+
+impl MockSftpProvider {
+    fn new(user: &str, host: &str) -> Self {
+        Self {
+            user: user.to_string(),
+            host: host.to_string(),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::fs::provider::FileSystemProvider for MockSftpProvider {
+    async fn list_dir(
+        &self,
+        _path: &std::path::Path,
+    ) -> anyhow::Result<Vec<crate::fs::utils::FileEntry>> {
+        unreachable!("not used by tests")
+    }
+
+    async fn create_dir(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+        unreachable!("not used by tests")
+    }
+
+    async fn create_dir_all(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+        unreachable!("not used by tests")
+    }
+
+    async fn create_file(&self, _path: &std::path::Path) -> anyhow::Result<()> {
+        unreachable!("not used by tests")
+    }
+
+    async fn delete(&self, _path: &std::path::Path, _recursive: bool) -> anyhow::Result<()> {
+        unreachable!("not used by tests")
+    }
+
+    async fn rename(&self, _from: &std::path::Path, _to: &std::path::Path) -> anyhow::Result<()> {
+        unreachable!("not used by tests")
+    }
+
+    async fn read_file(&self, _path: &std::path::Path) -> anyhow::Result<Vec<u8>> {
+        unreachable!("not used by tests")
+    }
+
+    async fn read_file_at(
+        &self,
+        _path: &std::path::Path,
+        _offset: u64,
+        _len: usize,
+    ) -> anyhow::Result<Vec<u8>> {
+        unreachable!("not used by tests")
+    }
+
+    async fn write_file(&self, _path: &std::path::Path, _data: &[u8]) -> anyhow::Result<()> {
+        unreachable!("not used by tests")
+    }
+
+    async fn write_file_at(
+        &self,
+        _path: &std::path::Path,
+        _offset: u64,
+        _data: &[u8],
+    ) -> anyhow::Result<()> {
+        unreachable!("not used by tests")
+    }
+
+    fn display_prefix(&self) -> &str {
+        &self.host
+    }
+
+    fn is_local(&self) -> bool {
+        false
+    }
+
+    async fn exists(&self, _path: &std::path::Path) -> bool {
+        unreachable!("not used by tests")
+    }
+
+    async fn is_dir(&self, _path: &std::path::Path) -> bool {
+        unreachable!("not used by tests")
+    }
+
+    async fn canonicalize(&self, _path: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
+        unreachable!("not used by tests")
+    }
+
+    async fn get_file_info(
+        &self,
+        _path: &std::path::Path,
+    ) -> Option<crate::fs::provider::FileMetadata> {
+        unreachable!("not used by tests")
+    }
+
+    async fn get_permissions(&self, _path: &std::path::Path) -> Option<u32> {
+        unreachable!("not used by tests")
+    }
+
+    async fn set_permissions(&self, _path: &std::path::Path, _mode: u32) -> bool {
+        unreachable!("not used by tests")
+    }
+
+    async fn get_modified_time(&self, _path: &std::path::Path) -> Option<std::time::SystemTime> {
+        unreachable!("not used by tests")
+    }
+
+    async fn set_modified_time(
+        &self,
+        _path: &std::path::Path,
+        _mtime: std::time::SystemTime,
+    ) -> bool {
+        unreachable!("not used by tests")
+    }
+
+    fn context_key(&self) -> crate::fs::provider::ContextKey {
+        crate::fs::provider::ContextKey::Ssh {
+            user: self.user.clone(),
+            host: self.host.clone(),
+            port: 22,
+        }
+    }
+
+    fn display_path(&self, path: &std::path::Path) -> String {
+        path.to_string_lossy().to_string()
+    }
+
+    async fn calc_dir_size(&self, _path: &std::path::Path) -> anyhow::Result<u64> {
+        unreachable!("not used by tests")
+    }
+}
+
+#[tokio::test]
+async fn test_handle_reconnect_ssh_sets_up_password_prompt() {
+    let mut app = basic_app_state().await;
+
+    // Create a mock remote provider BEFORE registering the session because
+    // handle_reconnect_ssh uses active_tab() at the start.
+    let mock_provider = MockSftpProvider::new("testuser", "example.com");
+
+    // Replace the provider for left tab FIRST
+    app.panels.left.active_tab_mut().provider = std::sync::Arc::new(mock_provider);
+
+    // Register a mock SSH session AFTER setting up provider
+    app.ssh_manager.register_session(
+        "test_session".to_string(),
+        "example.com".to_string(),
+        22,
+        "testuser".to_string(),
+        Some("/remote/path".to_string()),
+        crate::ssh::manager::AuthMethod::Password,
+    );
+
+    app.panels.left.active_tab_mut().ssh_session_id = Some("test_session".to_string());
+
+    handle_reconnect_ssh(&mut app);
+
+    assert!(app.popups.ssh_password.is_visible);
+    assert_eq!(app.popups.ssh_password.session_id, "test_session");
+    assert_eq!(app.popups.ssh_password.host, "example.com");
+    assert_eq!(app.popups.ssh_password.user, "testuser");
+    assert!(app.popups.ssh_password.password.is_empty());
+}
+
+#[tokio::test]
+async fn password_popup_swallows_copy_and_cut() {
+    use secrecy::ExposeSecret;
+
+    let mut app = basic_app_state().await;
+    app.popups.ssh_password.password.set_text("hunter2");
+
+    // Select all, then copy and cut. Neither may reach the system clipboard,
+    // and cut in particular must not delete the secret.
+    let _ = handle_ssh_password_event(&mut app, KeyCode::Char('a'), Modifiers::CONTROL);
+    let _ = handle_ssh_password_event(&mut app, KeyCode::Char('c'), Modifiers::CONTROL);
+    let _ = handle_ssh_password_event(&mut app, KeyCode::Char('x'), Modifiers::CONTROL);
+
+    assert_eq!(
+        app.popups
+            .ssh_password
+            .password
+            .take_secret()
+            .expose_secret(),
+        "hunter2"
+    );
+}
+
+#[tokio::test]
+async fn test_handle_reconnect_ssh_reuses_cached_password() {
+    let mut app = basic_app_state().await;
+
+    // `.invalid` never resolves, so the attempt fails fast in the background
+    // instead of reaching a real host.
+    let host = "unreachable.invalid";
+    app.panels.left.active_tab_mut().provider =
+        std::sync::Arc::new(MockSftpProvider::new("testuser", host));
+    app.panels.left.active_tab_mut().ssh_session_id = Some("cached_session".to_string());
+
+    app.ssh_manager.register_session(
+        "cached_session".to_string(),
+        host.to_string(),
+        22,
+        "testuser".to_string(),
+        None,
+        crate::ssh::manager::AuthMethod::Password,
+    );
+    app.ssh_manager
+        .cache_password("cached_session", secrecy::SecretString::from("s3cret"));
+
+    handle_reconnect_ssh(&mut app);
+
+    // The cached password is retried instead of prompting for one, and is
+    // taken out of the cache for the duration of the attempt.
+    assert!(!app.popups.ssh_password.is_visible);
+    assert!(
+        app.ssh_manager
+            .get_cached_password("cached_session")
+            .is_none()
+    );
+    assert_eq!(app.tasks.task_manager.get_tasks().len(), 1);
+}
+
+#[tokio::test]
+async fn test_handle_reconnect_ssh_prompt_for_pubkey_session_without_cache() {
+    let mut app = basic_app_state().await;
+
+    let host = "unreachable.invalid";
+    app.panels.left.active_tab_mut().provider =
+        std::sync::Arc::new(MockSftpProvider::new("testuser", host));
+    app.panels.left.active_tab_mut().ssh_session_id = Some("key_session".to_string());
+
+    app.ssh_manager.register_session(
+        "key_session".to_string(),
+        host.to_string(),
+        22,
+        "testuser".to_string(),
+        None,
+        crate::ssh::manager::AuthMethod::Pubkey,
+    );
+
+    handle_reconnect_ssh(&mut app);
+
+    // Key sessions are retried with keys rather than a password, so no prompt
+    // appears; the attempt itself runs in the background.
+    assert!(!app.popups.ssh_password.is_visible);
+    assert_eq!(app.tasks.task_manager.get_tasks().len(), 1);
+}
