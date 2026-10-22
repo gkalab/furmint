@@ -108,6 +108,13 @@ fn format_drive_detail(total: &str, free: &str, used_pct: u64) -> (String, Strin
     )
 }
 
+/// Formats byte counts into the `(detail, detail_short)` pair for a drive.
+fn drive_detail_strings(total: u64, free: u64, used_pct: u64) -> (String, String) {
+    let total = crate::fs::utils::format_size(Some(total), false, false);
+    let free = crate::fs::utils::format_size(Some(free), false, false);
+    format_drive_detail(total.trim(), free.trim(), used_pct)
+}
+
 /// Lists the real mounts from `/proc/mounts`, skipping virtual filesystems.
 #[cfg(target_os = "linux")]
 fn linux_available_drives() -> Vec<Drive> {
@@ -148,11 +155,7 @@ fn linux_available_drives() -> Vec<Drive> {
     mounts
         .into_iter()
         .map(|(mount, (total, free, used_pct))| {
-            let total = crate::fs::utils::format_size(Some(total), false, false);
-            let free = crate::fs::utils::format_size(Some(free), false, false);
-            let total = total.trim();
-            let free = free.trim();
-            let (detail, detail_short) = format_drive_detail(total, free, used_pct);
+            let (detail, detail_short) = drive_detail_strings(total, free, used_pct);
             Drive {
                 path: mount,
                 detail,
@@ -193,11 +196,7 @@ pub fn get_available_drives() -> Vec<Drive> {
                 let drive_letter = (b'A' + i as u8) as char;
                 let path = format!("{drive_letter}:\\");
                 let (detail, detail_short) = drive_capacity(&path)
-                    .map(|(total, free, used_pct)| {
-                        let total = crate::fs::utils::format_size(Some(total), false, false);
-                        let free = crate::fs::utils::format_size(Some(free), false, false);
-                        format_drive_detail(total.trim(), free.trim(), used_pct)
-                    })
+                    .map(|(total, free, used_pct)| drive_detail_strings(total, free, used_pct))
                     .unwrap_or_default();
                 drives.push(Drive {
                     path,
