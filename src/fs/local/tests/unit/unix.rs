@@ -1,3 +1,4 @@
+#[cfg(unix)]
 use super::*;
 
 /// A child that cannot be removed is reported once, by name; its parent is not
