@@ -11,7 +11,7 @@ use crate::app_state::tabs::{
 };
 use crate::fs::provider::{FileMetadata, FileSystemProvider};
 use crate::fs::utils::FileEntry;
-use crate::state::{CreateFileState, HelpState};
+use crate::state::{CreateFileState, Drive, HelpState};
 use crate::ui::text_edit::TextEditState;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -31,7 +31,7 @@ impl MockProvider {
         Self { local: false, host }
     }
 
-    #[cfg(windows)]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     fn local() -> Self {
         Self {
             local: true,

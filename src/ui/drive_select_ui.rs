@@ -1,20 +1,170 @@
 use crate::app::AppState;
 use crate::app_state::tabs::PanelSide;
+use crate::state::Drive;
 use crate::theme::ThemePalette;
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Clear, List, ListItem},
+    text::Text,
+    widgets::{Block, Borders, Cell, Clear, Row, Table},
 };
+#[cfg(target_os = "linux")]
+use std::ffi::CString;
 
 #[cfg(windows)]
 unsafe extern "system" {
     fn GetLogicalDrives() -> u32;
 }
 
+/// Filesystem types that are kernel-provided or virtual rather than backed by
+/// a real volume. Mounts with these types are never offered as drives.
+#[cfg(target_os = "linux")]
+const VIRTUAL_FS_TYPES: &[&str] = &[
+    "autofs",
+    "bpf",
+    "binfmt_misc",
+    "cgroup",
+    "cgroup2",
+    "configfs",
+    "debugfs",
+    "devfs",
+    "devpts",
+    "devtmpfs",
+    "efivarfs",
+    "fusectl",
+    "fuse.portal",
+    "hugetlbfs",
+    "mqueue",
+    "nsfs",
+    "pstore",
+    "proc",
+    "procfs",
+    "ramfs",
+    "rpc_pipefs",
+    "securityfs",
+    "selinuxfs",
+    "sunrpc",
+    "sysfs",
+    "tmpfs",
+    "tracefs",
+];
+
+/// Undoes the octal escaping `/proc/mounts` applies to special characters
+/// in mount points (`\040` space, `\011` tab, `\012` newline, `\134` backslash).
+#[cfg(target_os = "linux")]
+fn unescape_mount_component(s: &str) -> Option<String> {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' && i + 3 < bytes.len() {
+            match &bytes[i + 1..i + 4] {
+                b"040" => out.push(b' '),
+                b"011" => out.push(b'\t'),
+                b"012" => out.push(b'\n'),
+                b"134" => out.push(b'\\'),
+                _ => out.push(bytes[i]),
+            }
+            i += 4;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+/// Returns `(total_bytes, free_bytes, used_pct)` for the mount at `path`.
+#[cfg(target_os = "linux")]
+fn mount_capacity(path: &std::path::Path) -> Option<(u64, u64, u64)> {
+    let s = path.to_str()?;
+    let Ok(c_path) = CString::new(s) else {
+        return None;
+    };
+    let mut sv: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statvfs(c_path.as_ptr(), std::ptr::from_mut(&mut sv)) } != 0 {
+        return None;
+    }
+    let frsize = u128::from(sv.f_frsize);
+    let total = frsize * u128::from(sv.f_blocks);
+    let free = frsize * u128::from(sv.f_bavail);
+    let used_pct = (sv.f_blocks.saturating_sub(sv.f_bfree) * 100)
+        .checked_div(sv.f_blocks)
+        .unwrap_or(0);
+    Some((
+        total.try_into().unwrap_or(u64::MAX),
+        free.try_into().unwrap_or(u64::MAX),
+        used_pct,
+    ))
+}
+
+/// Formats mount capacity into the full ("930.4G, 146.2G free, 84% used")
+/// and compact ("930.4G/146.2G/84%") detail strings.
+#[cfg(target_os = "linux")]
+fn format_drive_detail(total: &str, free: &str, used_pct: u64) -> (String, String) {
+    (
+        format!("{total}, {free} free, {used_pct}% used"),
+        format!("{total}/{free}/{used_pct}%"),
+    )
+}
+
+/// Lists the real mounts from `/proc/mounts`, skipping virtual filesystems.
+#[cfg(target_os = "linux")]
+fn linux_available_drives() -> Vec<Drive> {
+    let Ok(content) = std::fs::read_to_string("/proc/mounts") else {
+        return Vec::new();
+    };
+
+    let mut mounts: Vec<(String, (u64, u64, u64))> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for line in content.lines() {
+        let mut fields = line.split_whitespace();
+        let _source = fields.next();
+        let Some(mount) = fields.next().and_then(unescape_mount_component) else {
+            continue;
+        };
+        let Some(fstype) = fields.next() else {
+            continue;
+        };
+        if VIRTUAL_FS_TYPES.contains(&fstype) {
+            continue;
+        }
+        let mount_path = std::path::Path::new(&mount);
+        if ["/sys", "/proc", "/dev", "/run"]
+            .iter()
+            .any(|prefix| mount_path.starts_with(prefix))
+        {
+            continue;
+        }
+        if !seen.insert(mount.clone()) {
+            continue;
+        }
+        let Some(capacity) = mount_capacity(std::path::Path::new(&mount)) else {
+            continue;
+        };
+        mounts.push((mount, capacity));
+    }
+
+    mounts
+        .into_iter()
+        .map(|(mount, (total, free, used_pct))| {
+            let total = crate::fs::utils::format_size(Some(total), false, false);
+            let free = crate::fs::utils::format_size(Some(free), false, false);
+            let total = total.trim();
+            let free = free.trim();
+            let (detail, detail_short) = format_drive_detail(total, free, used_pct);
+            Drive {
+                path: mount,
+                detail,
+                detail_short,
+            }
+        })
+        .collect()
+}
+
 #[must_use]
-pub fn get_available_drives() -> Vec<String> {
+pub fn get_available_drives() -> Vec<Drive> {
     #[cfg(windows)]
     {
         let mut drives = Vec::new();
@@ -23,16 +173,71 @@ pub fn get_available_drives() -> Vec<String> {
             if (mask >> i) & 1 == 1 {
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let drive_letter = (b'A' + i as u8) as char;
-                drives.push(format!("{drive_letter}:\\"));
+                let path = format!("{drive_letter}:\\");
+                drives.push(Drive {
+                    path,
+                    detail: String::new(),
+                    detail_short: String::new(),
+                });
             }
         }
         drives
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
     {
-        // Fallback or empty for non-windows
+        linux_available_drives()
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
         Vec::new()
     }
+}
+
+/// Builds a table row per drive, right-aligning the detail. When the full
+/// detail would not fit in `detail_width` columns and a compact form exists,
+/// the compact form is used instead.
+fn build_drive_rows<'a>(
+    app: &'a AppState,
+    detail_width: u16,
+    palette: &'a ThemePalette,
+) -> Vec<Row<'a>> {
+    let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
+    let selection_background =
+        Color::Rgb(palette.surface2.r, palette.surface2.g, palette.surface2.b);
+    let selection_foreground = if palette.is_dark {
+        text_color
+    } else {
+        Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b)
+    };
+
+    app.popups
+        .drive_select
+        .drives
+        .iter()
+        .enumerate()
+        .map(|(i, d)| {
+            let style = if i == app.popups.drive_select.selected_index {
+                Style::default()
+                    .fg(selection_foreground)
+                    .bg(selection_background)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(text_color)
+            };
+            let fits_full =
+                u16::try_from(d.detail.chars().count()).is_ok_and(|n| n <= detail_width);
+            let detail = if fits_full || d.detail_short.is_empty() {
+                d.detail.as_str()
+            } else {
+                d.detail_short.as_str()
+            };
+            Row::new([
+                Cell::new(d.path.clone()),
+                Cell::new(Text::from(detail).alignment(Alignment::Right)),
+            ])
+            .style(style)
+        })
+        .collect()
 }
 
 pub fn draw_drive_select_popup(f: &mut Frame, app: &mut AppState, palette: &ThemePalette) {
@@ -86,36 +291,20 @@ pub fn draw_drive_select_popup(f: &mut Frame, app: &mut AppState, palette: &Them
     let bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
     let list_bg_color = Color::Rgb(palette.mantle.r, palette.mantle.g, palette.mantle.b);
     let border_color = Color::Rgb(palette.border.r, palette.border.g, palette.border.b);
-    let text_color = Color::Rgb(palette.text.r, palette.text.g, palette.text.b);
 
-    let drive_selection_background =
-        Color::Rgb(palette.surface2.r, palette.surface2.g, palette.surface2.b);
-    let drive_selection_foreground = if palette.is_dark {
-        text_color
-    } else {
-        list_bg_color
-    };
+    let inner_area = Layout::default()
+        .direction(Direction::Vertical)
+        .horizontal_margin(1)
+        .vertical_margin(0)
+        .constraints([Constraint::Min(1)])
+        .split(popup_rect)[0];
 
-    let items: Vec<ListItem> = app
-        .popups
-        .drive_select
-        .drives
-        .iter()
-        .enumerate()
-        .map(|(i, d)| {
-            let is_selected = i == app.popups.drive_select.selected_index;
-            if is_selected {
-                ListItem::new(d.clone()).style(
-                    Style::default()
-                        .fg(drive_selection_foreground)
-                        .bg(drive_selection_background)
-                        .add_modifier(Modifier::BOLD),
-                )
-            } else {
-                ListItem::new(d.clone()).style(Style::default().fg(text_color))
-            }
-        })
-        .collect();
+    // Width of the detail column (70% of the table area, inside its border),
+    // used to decide between the full and the compact detail form.
+    let detail_width =
+        u16::try_from(u32::from(inner_area.width.saturating_sub(2)) * 70 / 100).unwrap_or(u16::MAX);
+
+    let rows = build_drive_rows(app, detail_width, palette);
 
     // Draw outer block
     f.render_widget(
@@ -127,15 +316,12 @@ pub fn draw_drive_select_popup(f: &mut Frame, app: &mut AppState, palette: &Them
         popup_rect,
     );
 
-    let inner_area = Layout::default()
-        .direction(Direction::Vertical)
-        .horizontal_margin(1)
-        .vertical_margin(0)
-        .constraints([Constraint::Min(1)])
-        .split(popup_rect)[0];
-
-    // Draw list inside
-    let list = List::new(items).block(
+    // Draw table inside: path on the left, detail right-aligned.
+    let table = Table::new(
+        rows,
+        [Constraint::Percentage(30), Constraint::Percentage(70)],
+    )
+    .block(
         Block::default()
             .borders(Borders::ALL)
             .border_set(ratatui::symbols::border::EMPTY)
@@ -143,5 +329,45 @@ pub fn draw_drive_select_popup(f: &mut Frame, app: &mut AppState, palette: &Them
             .style(Style::default().bg(list_bg_color)),
     );
 
-    f.render_widget(list, inner_area);
+    f.render_widget(table, inner_area);
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_unescape_mount_component() {
+        assert_eq!(unescape_mount_component("home").unwrap(), "home");
+        // \040 = space, \134 = backslash, \011 = tab
+        assert_eq!(unescape_mount_component("my\\040dir").unwrap(), "my dir");
+        assert_eq!(unescape_mount_component("a\\134b").unwrap(), "a\\b");
+        assert_eq!(unescape_mount_component("a\\011b").unwrap(), "a\tb");
+    }
+
+    #[test]
+    fn test_drive_detail_formats() {
+        let (full, short) = format_drive_detail("930.4G", "146.2G", 84);
+        assert_eq!(full, "930.4G, 146.2G free, 84% used");
+        assert_eq!(short, "930.4G/146.2G/84%");
+    }
+
+    #[test]
+    fn test_root_is_offered_and_virtual_mounts_are_skipped() {
+        let drives = get_available_drives();
+        assert!(
+            drives.iter().any(|d| d.path == "/"),
+            "root mount should always be offered, got {drives:?}"
+        );
+        for d in &drives {
+            // Kernel/system pseudo-mounts must never appear.
+            assert!(
+                !["/sys", "/proc", "/dev", "/run"]
+                    .iter()
+                    .any(|prefix| std::path::Path::new(&d.path).starts_with(prefix)),
+                "unexpected system mount: {}",
+                d.path
+            );
+        }
+    }
 }

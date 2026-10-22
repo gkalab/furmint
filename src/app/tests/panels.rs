@@ -91,7 +91,18 @@ async fn test_drive_navigation_matches_opposite_pane() {
 
         app.popups
             .set_popup_visible(crate::app::PopupKind::DriveSelect, true);
-        app.popups.drive_select.drives = vec!["C:\\".to_string(), "D:\\".to_string()];
+        app.popups.drive_select.drives = vec![
+            Drive {
+                path: "C:\\".to_string(),
+                detail: "C:\\".to_string(),
+                detail_short: String::new(),
+            },
+            Drive {
+                path: "D:\\".to_string(),
+                detail: "D:\\".to_string(),
+                detail_short: String::new(),
+            },
+        ];
         app.popups.drive_select.side = PanelSide::Left;
         app.popups.drive_select.selected_index = 1; // "D:\"
 
@@ -154,7 +165,18 @@ async fn test_drive_navigation_matches_opposite_pane() {
 
         app.popups
             .set_popup_visible(crate::app::PopupKind::DriveSelect, true);
-        app.popups.drive_select.drives = vec!["C:\\".to_string(), "D:\\".to_string()];
+        app.popups.drive_select.drives = vec![
+            Drive {
+                path: "C:\\".to_string(),
+                detail: "C:\\".to_string(),
+                detail_short: String::new(),
+            },
+            Drive {
+                path: "D:\\".to_string(),
+                detail: "D:\\".to_string(),
+                detail_short: String::new(),
+            },
+        ];
         app.popups.drive_select.side = PanelSide::Left;
         app.popups.drive_select.selected_index = 1; // "D:\"
 
@@ -217,7 +239,18 @@ async fn test_drive_navigation_matches_opposite_pane() {
 
         app.popups
             .set_popup_visible(crate::app::PopupKind::DriveSelect, true);
-        app.popups.drive_select.drives = vec!["C:\\".to_string(), "D:\\".to_string()];
+        app.popups.drive_select.drives = vec![
+            Drive {
+                path: "C:\\".to_string(),
+                detail: "C:\\".to_string(),
+                detail_short: String::new(),
+            },
+            Drive {
+                path: "D:\\".to_string(),
+                detail: "D:\\".to_string(),
+                detail_short: String::new(),
+            },
+        ];
         app.popups.drive_select.side = PanelSide::Left;
         app.popups.drive_select.selected_index = 0; // "C:\"
 
@@ -230,6 +263,107 @@ async fn test_drive_navigation_matches_opposite_pane() {
         assert_eq!(
             app.panels.left.active_tab().current_dir,
             PathBuf::from("C:\\RightDir")
+        );
+    }
+}
+
+#[tokio::test]
+#[cfg(target_os = "linux")]
+async fn test_drive_navigation_matches_opposite_pane() {
+    let provider = Arc::new(MockProvider::local());
+
+    let local_tab = |dir: &str| Tab {
+        provider: provider.clone(),
+        current_dir: PathBuf::from(dir),
+        entries: vec![],
+        cursor: 0,
+        search: IncrementalSearch::default(),
+        sort: SortSettings::default(),
+        scroll_offset: 0,
+        error: None,
+        custom_title: None,
+        ssh_session_id: None,
+        status_msg: None,
+        dir_sizes: std::collections::HashMap::new(),
+        is_reloading: false,
+        visible_indices: Vec::new(),
+        filter: crate::state::FileFilterState::new(),
+        show_hidden: true,
+    };
+
+    // Test Case 1: Selecting /mnt on Left (active) while Right is on /mnt/data.
+    // The opposite pane lives inside the selected mount, so Left should
+    // navigate to /mnt/data instead of the mount root.
+    {
+        let mut app = AppState::test_default();
+        app.panels.left.tabs = vec![local_tab("/home/user/proj")];
+        app.panels.right.tabs = vec![local_tab("/mnt/data")];
+        app.panels.active = PanelSide::Left;
+
+        app.popups
+            .set_popup_visible(crate::app::PopupKind::DriveSelect, true);
+        app.popups.drive_select.drives = vec![
+            Drive {
+                path: "/".to_string(),
+                detail: "/".to_string(),
+                detail_short: String::new(),
+            },
+            Drive {
+                path: "/mnt".to_string(),
+                detail: "/mnt".to_string(),
+                detail_short: String::new(),
+            },
+        ];
+        app.popups.drive_select.side = PanelSide::Left;
+        app.popups.drive_select.selected_index = 1; // "/mnt"
+
+        crate::handlers::popup_drive_select::handle_drive_select_event(
+            termina::event::KeyCode::Enter,
+            &mut app,
+        )
+        .await;
+
+        assert_eq!(
+            app.panels.left.active_tab().current_dir,
+            PathBuf::from("/mnt/data")
+        );
+    }
+
+    // Test Case 2: Selecting /mnt on Left (active) while Right is on /etc.
+    // The opposite pane is outside the selected mount, so Left navigates
+    // to the mount root.
+    {
+        let mut app = AppState::test_default();
+        app.panels.left.tabs = vec![local_tab("/home/user/proj")];
+        app.panels.right.tabs = vec![local_tab("/etc")];
+        app.panels.active = PanelSide::Left;
+
+        app.popups
+            .set_popup_visible(crate::app::PopupKind::DriveSelect, true);
+        app.popups.drive_select.drives = vec![
+            Drive {
+                path: "/".to_string(),
+                detail: "/".to_string(),
+                detail_short: String::new(),
+            },
+            Drive {
+                path: "/mnt".to_string(),
+                detail: "/mnt".to_string(),
+                detail_short: String::new(),
+            },
+        ];
+        app.popups.drive_select.side = PanelSide::Left;
+        app.popups.drive_select.selected_index = 1; // "/mnt"
+
+        crate::handlers::popup_drive_select::handle_drive_select_event(
+            termina::event::KeyCode::Enter,
+            &mut app,
+        )
+        .await;
+
+        assert_eq!(
+            app.panels.left.active_tab().current_dir,
+            PathBuf::from("/mnt")
         );
     }
 }

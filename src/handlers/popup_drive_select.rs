@@ -1,7 +1,4 @@
 //! Drive-select popup event handler.
-//!
-//! Windows-only popup; on other platforms the drive list is empty and the popup
-//! never opens, but the handler still compiles and is registered uniformly.
 
 use crate::app::AppState;
 use crate::app_state::tabs::PanelSide;
@@ -24,16 +21,18 @@ pub async fn handle_drive_select_event(code: KeyCode, app: &mut AppState) -> boo
             }
         }
         KeyCode::Char(c) => {
+            // Typing a drive letter jumps straight to it (drive-letter paths
+            // are Windows-only; Linux mount paths never match "X:\").
             let target = format!("{}:\\", c.to_ascii_uppercase());
             if let Some(drive) = app
                 .popups
                 .drive_select
                 .drives
                 .iter()
-                .find(|d| d.to_ascii_uppercase() == target)
+                .find(|d| d.path.to_ascii_uppercase() == target)
                 .cloned()
             {
-                perform_drive_navigation(app, drive.as_str()).await;
+                perform_drive_navigation(app, drive.path).await;
             }
         }
         KeyCode::Enter => {
@@ -44,7 +43,7 @@ pub async fn handle_drive_select_event(code: KeyCode, app: &mut AppState) -> boo
                 .get(app.popups.drive_select.selected_index)
                 .cloned()
             {
-                perform_drive_navigation(app, &drive).await;
+                perform_drive_navigation(app, drive.path).await;
             }
         }
         _ => {}
@@ -52,43 +51,63 @@ pub async fn handle_drive_select_event(code: KeyCode, app: &mut AppState) -> boo
     false
 }
 
-async fn perform_drive_navigation(app: &mut AppState, drive: &str) {
+async fn perform_drive_navigation(app: &mut AppState, path: String) {
     let side = app.popups.drive_select.side;
-    let mut path = std::path::PathBuf::from(drive);
+    let mut path = std::path::PathBuf::from(path);
 
-    let get_drive = |p: &std::path::Path| -> Option<char> {
-        p.components().find_map(|c| {
-            if let std::path::Component::Prefix(prefix) = c {
-                match prefix.kind() {
-                    std::path::Prefix::Disk(d) | std::path::Prefix::VerbatimDisk(d) => {
-                        Some((d as char).to_ascii_uppercase())
+    #[cfg(windows)]
+    {
+        let get_drive = |p: &std::path::Path| -> Option<char> {
+            p.components().find_map(|c| {
+                if let std::path::Component::Prefix(prefix) = c {
+                    match prefix.kind() {
+                        std::path::Prefix::Disk(d) | std::path::Prefix::VerbatimDisk(d) => {
+                            Some((d as char).to_ascii_uppercase())
+                        }
+                        _ => None,
                     }
-                    _ => None,
+                } else {
+                    None
                 }
-            } else {
-                None
-            }
-        })
-    };
-
-    if let Some(sel_drive) = get_drive(&path) {
-        let (opp_drive, opp_dir) = {
-            let opposite_tab = match side {
-                PanelSide::Left => app.panels.right.active_tab(),
-                PanelSide::Right => app.panels.left.active_tab(),
-            };
-
-            let opp_drive = if opposite_tab.provider.is_local() {
-                get_drive(&opposite_tab.current_dir)
-            } else {
-                None
-            };
-
-            (opp_drive, opposite_tab.current_dir.clone())
+            })
         };
 
-        if opp_drive == Some(sel_drive) {
-            path = opp_dir;
+        if let Some(sel_drive) = get_drive(&path) {
+            let (opp_drive, opp_dir) = {
+                let opposite_tab = match side {
+                    PanelSide::Left => app.panels.right.active_tab(),
+                    PanelSide::Right => app.panels.left.active_tab(),
+                };
+
+                let opp_drive = if opposite_tab.provider.is_local() {
+                    get_drive(&opposite_tab.current_dir)
+                } else {
+                    None
+                };
+
+                (opp_drive, opposite_tab.current_dir.clone())
+            };
+
+            if opp_drive == Some(sel_drive) {
+                path = opp_dir;
+            }
+        }
+    }
+
+    // Non-Windows drives are mount points: if the opposite pane already lives
+    // inside the selected mount, keep its directory instead of jumping to the
+    // mount root.
+    #[cfg(not(windows))]
+    {
+        let opposite_tab = match side {
+            PanelSide::Left => app.panels.right.active_tab(),
+            PanelSide::Right => app.panels.left.active_tab(),
+        };
+        if opposite_tab.provider.is_local() {
+            let opp_dir = opposite_tab.current_dir.clone();
+            if opp_dir.starts_with(&path) {
+                path = opp_dir;
+            }
         }
     }
 

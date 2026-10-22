@@ -127,7 +127,7 @@ fn build_help_categories(
         ("Move Tab Right", &keyboard.tab_move_right),
     ];
 
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     let navigation = {
         let mut v = base_nav;
         v.push(("Change Drive of Left Panel", &keyboard.change_drive_left));
@@ -135,7 +135,7 @@ fn build_help_categories(
         v
     };
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     let navigation = base_nav;
 
     vec![

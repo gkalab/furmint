@@ -25,7 +25,7 @@ pub use copy_move::{CopyMoveAction, CopyMoveState};
 pub use create_dir::CreateDirectoryState;
 pub use create_file::CreateFileState;
 pub use delete::DeleteState;
-pub use drive_select::DriveSelectState;
+pub use drive_select::{Drive, DriveSelectState};
 pub use empty_trash::EmptyTrashState;
 pub use error::ErrorState;
 pub use file_filter::{FileFilterState, compile_glob, effective_glob};
