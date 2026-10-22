@@ -106,6 +106,66 @@ async fn test_update_viewer_content_reads_text_file() {
     assert_eq!(app.file_viewer.text.content[0], "Hello, F3!");
 }
 
+/// An extension-less script must be highlighted by its shebang.
+#[tokio::test]
+async fn test_update_viewer_content_detects_language_from_shebang() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file_path = temp_dir.path().join("mytool");
+    std::fs::write(&file_path, "#!/usr/bin/env python\nprint('hi')\n").unwrap();
+    let mut app = test_app(vec![FileEntry {
+        name: "mytool".to_string(),
+        is_dir: false,
+        is_symlink: false,
+        size: Some(std::fs::metadata(&file_path).unwrap().len()),
+        modified: None,
+        attributes: String::new(),
+        selected: false,
+    }]);
+    app.panels.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
+    app.file_viewer.is_visible = true;
+    update_viewer_content(&mut app).await;
+
+    assert_eq!(
+        app.file_viewer.text.language,
+        lumis::languages::Language::Python,
+        "an extension-less script must be highlighted from its shebang"
+    );
+}
+
+/// The extension still names the language first, and a file with neither
+/// extension nor recognizable header stays plain text.
+#[tokio::test]
+async fn test_update_viewer_content_language_by_extension_and_default() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    for (name, body, expected) in [
+        ("script.py", "x = 1\n", lumis::languages::Language::Python),
+        (
+            "notes",
+            "just a plain note\n",
+            lumis::languages::Language::PlainText,
+        ),
+    ] {
+        let file_path = temp_dir.path().join(name);
+        std::fs::write(&file_path, body).unwrap();
+        let mut app = test_app(vec![FileEntry {
+            name: name.to_string(),
+            is_dir: false,
+            is_symlink: false,
+            size: Some(std::fs::metadata(&file_path).unwrap().len()),
+            modified: None,
+            attributes: String::new(),
+            selected: false,
+        }]);
+        app.panels.left.active_tab_mut().current_dir = temp_dir.path().to_path_buf();
+        app.file_viewer.is_visible = true;
+        update_viewer_content(&mut app).await;
+        assert_eq!(
+            app.file_viewer.text.language, expected,
+            "language for {name}"
+        );
+    }
+}
+
 /// Selecting `..` is a navigation shortcut, so the viewer names the entry
 /// instead of previewing (and listing) the parent directory.
 #[tokio::test]

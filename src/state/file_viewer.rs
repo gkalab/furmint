@@ -3,7 +3,6 @@ mod image;
 mod text;
 
 use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -248,9 +247,6 @@ impl FileViewerState {
             return;
         }
 
-        self.text.language =
-            lumis::languages::Language::from_str(&self.path.to_string_lossy()).unwrap_or_default();
-
         let limit = usize::try_from(limit_bytes).unwrap_or(usize::MAX);
         let limit_u64 = limit_bytes;
 
@@ -281,6 +277,14 @@ impl FileViewerState {
             self.text.content = vec!["Binary file detected".to_string()];
             return;
         }
+
+        // Text: name the language from the extension when it is known, and fall
+        // back to the content (shebang, Emacs mode header, HTML/XML doctype)
+        // when it is not, so an extension-less script still gets highlighted.
+        self.text.language = lumis::languages::Language::guess(
+            Some(&self.path.to_string_lossy()),
+            &String::from_utf8_lossy(&chunk),
+        );
 
         if let Some(s) = size
             && s > limit_u64
