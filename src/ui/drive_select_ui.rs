@@ -101,7 +101,6 @@ fn mount_capacity(path: &std::path::Path) -> Option<(u64, u64, u64)> {
 
 /// Formats mount capacity into the full ("930.4G, 146.2G free, 84% used")
 /// and compact ("930.4G/146.2G/84%") detail strings.
-#[cfg(target_os = "linux")]
 fn format_drive_detail(total: &str, free: &str, used_pct: u64) -> (String, String) {
     (
         format!("{total}, {free} free, {used_pct}% used"),
@@ -163,6 +162,25 @@ fn linux_available_drives() -> Vec<Drive> {
         .collect()
 }
 
+/// Returns `(total_bytes, free_bytes, used_pct)` for the drive at `path`.
+#[cfg(windows)]
+fn drive_capacity(path: &str) -> Option<(u64, u64, u64)> {
+    use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    use windows::core::HSTRING;
+
+    let wide = HSTRING::from(path);
+    let mut free = 0u64;
+    let mut total = 0u64;
+    let mut total_free = 0u64;
+    let free_ptr = std::ptr::addr_of_mut!(free);
+    let total_ptr = std::ptr::addr_of_mut!(total);
+    let total_free_ptr = std::ptr::addr_of_mut!(total_free);
+    unsafe { GetDiskFreeSpaceExW(&wide, Some(free_ptr), Some(total_ptr), Some(total_free_ptr)) }
+        .ok()?;
+    let used_pct = total.saturating_sub(total_free) * 100 / total.max(1);
+    Some((total, free, used_pct))
+}
+
 #[must_use]
 pub fn get_available_drives() -> Vec<Drive> {
     #[cfg(windows)]
@@ -174,10 +192,17 @@ pub fn get_available_drives() -> Vec<Drive> {
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let drive_letter = (b'A' + i as u8) as char;
                 let path = format!("{drive_letter}:\\");
+                let (detail, detail_short) = drive_capacity(&path)
+                    .map(|(total, free, used_pct)| {
+                        let total = crate::fs::utils::format_size(Some(total), false, false);
+                        let free = crate::fs::utils::format_size(Some(free), false, false);
+                        format_drive_detail(total.trim(), free.trim(), used_pct)
+                    })
+                    .unwrap_or_default();
                 drives.push(Drive {
                     path,
-                    detail: String::new(),
-                    detail_short: String::new(),
+                    detail,
+                    detail_short,
                 });
             }
         }
@@ -332,10 +357,11 @@ pub fn draw_drive_select_popup(f: &mut Frame, app: &mut AppState, palette: &Them
     f.render_widget(table, inner_area);
 }
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn test_unescape_mount_component() {
         assert_eq!(unescape_mount_component("home").unwrap(), "home");
@@ -352,6 +378,7 @@ mod tests {
         assert_eq!(short, "930.4G/146.2G/84%");
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn test_root_is_offered_and_virtual_mounts_are_skipped() {
         let drives = get_available_drives();
