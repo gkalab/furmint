@@ -6,7 +6,12 @@ use std::hash::BuildHasher;
 use std::path::{Component, Path, PathBuf};
 use std::time::SystemTime;
 
-/// Standardizes a path string by replacing backslashes and trimming trailing slashes.
+/// Standardizes an archive entry path to a root-relative form: backslashes
+/// become `/`, a leading `/` or `./` is dropped, and `.` components are
+/// removed. The archive root (`.`, `./`, `/` or an empty name) maps to `.`.
+///
+/// `..` components are kept verbatim; extraction resolves them against the
+/// destination root, so a hostile name cannot escape it.
 ///
 /// # Panics
 ///
@@ -14,8 +19,19 @@ use std::time::SystemTime;
 #[must_use]
 pub fn normalize_path(name: &str) -> PathBuf {
     let path_str = name.replace('\\', "/");
-    let normalized_path_str = path_str.trim_end_matches('/');
-    PathBuf::from(normalized_path_str)
+    let mut normalized = PathBuf::new();
+    for component in Path::new(&path_str).components() {
+        match component {
+            Component::Normal(part) => normalized.push(part),
+            Component::ParentDir => normalized.push(".."),
+            Component::CurDir | Component::RootDir | Component::Prefix(_) => {}
+        }
+    }
+    if normalized.as_os_str().is_empty() {
+        PathBuf::from(".")
+    } else {
+        normalized
+    }
 }
 
 /// Maximum number of symbolic links followed while resolving one path.
@@ -144,6 +160,14 @@ pub fn add_to_tree<S: BuildHasher + Default>(
     entries_map: &mut HashMap<PathBuf, FileEntry, S>,
     tree_map: &mut HashMap<PathBuf, HashSet<PathBuf, S>, S>,
 ) {
+    // Tar archives commonly start with a `./` root entry. It describes the
+    // archive root, which is implicit in the tree; adding it as a normal entry
+    // would make the root its own child (and the entry's name empty), which
+    // makes every walk of the tree recurse forever.
+    if path == Path::new(".") {
+        return;
+    }
+
     let entry = FileEntry {
         name: path
             .file_name()
@@ -369,6 +393,10 @@ pub struct ExtractionEntryMetadata<'a> {
     pub name_raw: &'a str,
     pub is_dir: bool,
     pub is_symlink: bool,
+    /// Target of a symbolic link when the format stores it in the entry
+    /// header (tar) instead of the entry data (cpio/rpm). `None` means the
+    /// target must be read from the entry's content.
+    pub link_target: Option<&'a str>,
     pub size: u64,
     pub mtime: Option<SystemTime>,
     /// Unix permission bits as stored in the archive header (zip external
@@ -632,26 +660,40 @@ const MAX_SYMLINK_TARGET: u64 = 8 * 1024;
 #[cfg(unix)]
 fn extract_symlink_entry<R: std::io::Read>(
     reader: R,
+    link_target: Option<&str>,
     target: &Path,
     dest: &Path,
     name: &str,
 ) -> anyhow::Result<()> {
-    let mut link_target = Vec::new();
-    {
-        let mut limited = reader.take(MAX_SYMLINK_TARGET + 1);
-        std::io::Read::read_to_end(&mut limited, &mut link_target)?;
-    }
     let max_symlink_target =
         usize::try_from(MAX_SYMLINK_TARGET).expect("symlink limit fits in usize");
-    if link_target.len() > max_symlink_target {
-        return Err(anyhow!("unsafe symlink target in archive: {name}"));
-    }
-    let link_target_str = String::from_utf8_lossy(&link_target);
+
+    // Tar stores the target in the header; cpio and rpm store it as the
+    // entry's content. Accept either representation.
+    let link_target = if let Some(link_target) = link_target {
+        if link_target.len() > max_symlink_target {
+            return Err(anyhow!("unsafe symlink target in archive: {name}"));
+        }
+        link_target.to_string()
+    } else {
+        let mut data = Vec::new();
+        {
+            let mut limited = reader.take(MAX_SYMLINK_TARGET + 1);
+            std::io::Read::read_to_end(&mut limited, &mut data)?;
+        }
+        if data.len() > max_symlink_target {
+            return Err(anyhow!("unsafe symlink target in archive: {name}"));
+        }
+        String::from_utf8_lossy(&data).into_owned()
+    };
+
     ensure_parent_safe(target, dest, name)?;
-    if target.exists() {
+    // Use `symlink_metadata` so an existing dangling link is replaced too;
+    // `exists` follows the link and reports false for one.
+    if std::fs::symlink_metadata(target).is_ok() {
         let _ = std::fs::remove_file(target);
     }
-    std::os::unix::fs::symlink(link_target_str.as_ref(), target)?;
+    std::os::unix::fs::symlink(link_target.as_str(), target)?;
     Ok(())
 }
 
@@ -672,14 +714,17 @@ pub fn handle_extraction_entry<R: std::io::Read>(
     pending_dirs: &mut Vec<PendingDirMeta>,
     last_update: &mut std::time::Instant,
 ) -> anyhow::Result<bool> {
-    let name = entry_meta.name_raw.replace('\\', "/");
-    let name = name.trim_end_matches('/');
-    let is_root = opts.src_str.is_empty() || opts.src_str == ".";
+    let name = normalize_path(entry_meta.name_raw)
+        .to_string_lossy()
+        .into_owned();
+    let src = normalize_path(opts.src_str);
+    let src_str = src.to_string_lossy();
+    let is_root = src_str == ".";
 
     let should_extract = if is_root {
         true
     } else {
-        name == opts.src_str || name.starts_with(&format!("{}/", opts.src_str))
+        name == src_str || name.starts_with(&format!("{src_str}/"))
     };
 
     if !should_extract {
@@ -688,11 +733,11 @@ pub fn handle_extraction_entry<R: std::io::Read>(
 
     let dest = opts.dest;
     let rel_raw = if is_root {
-        name.to_string()
+        name.clone()
     } else {
-        Path::new(name)
-            .strip_prefix(opts.src_str)
-            .map_or_else(|_| name.to_string(), |p| p.to_string_lossy().to_string())
+        Path::new(&name)
+            .strip_prefix(&src)
+            .map_or_else(|_| name.clone(), |p| p.to_string_lossy().to_string())
     };
 
     let Some(rel) = normalize_relative(&rel_raw) else {
@@ -717,11 +762,11 @@ pub fn handle_extraction_entry<R: std::io::Read>(
         extract_dir_entry(&target, entry_meta, pending_dirs)?;
     } else if entry_meta.is_symlink {
         #[cfg(unix)]
-        extract_symlink_entry(reader, &target, dest, name)?;
+        extract_symlink_entry(reader, entry_meta.link_target, &target, dest, &name)?;
         #[cfg(not(unix))]
-        let _ = (reader, &target, dest, name);
+        let _ = (reader, entry_meta.link_target, &target, dest, &name);
     } else {
-        extract_file_entry(reader, &target, dest, name, entry_meta, opts.progress)?;
+        extract_file_entry(reader, &target, dest, &name, entry_meta, opts.progress)?;
     }
 
     let now = std::time::Instant::now();

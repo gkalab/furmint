@@ -196,7 +196,9 @@ impl SevenZHandler {
     ) -> Result<()> {
         let mut reader = self.open_reader()?;
 
-        let is_root = src_str.is_empty() || src_str == ".";
+        let src_norm = common::normalize_path(src_str);
+        let src_norm_str = src_norm.to_string_lossy();
+        let is_root = src_norm_str == ".";
         let mut pending_dirs = Vec::new();
         let mut last_update = std::time::Instant::now();
         let dest = common::canonicalize_dest(dest);
@@ -214,11 +216,12 @@ impl SevenZHandler {
                     return Ok(false);
                 }
 
-                let name = entry.name().replace('\\', "/");
-                let name_trimmed = name.trim_end_matches('/').to_string();
+                let name_norm = common::normalize_path(entry.name())
+                    .to_string_lossy()
+                    .into_owned();
                 let should_extract = is_root
-                    || name_trimmed == src_str
-                    || name_trimmed.starts_with(&format!("{src_str}/"));
+                    || name_norm == src_norm_str
+                    || name_norm.starts_with(&format!("{src_norm_str}/"));
                 if !should_extract {
                     return Ok(true);
                 }
@@ -240,6 +243,7 @@ impl SevenZHandler {
                         name_raw: entry.name(),
                         is_dir: entry.is_directory,
                         is_symlink: false,
+                        link_target: None,
                         size: entry.size,
                         mtime,
                         mode,

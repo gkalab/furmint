@@ -106,3 +106,60 @@ fn resolve_symlink_entries_gives_linked_file_the_target_size() {
     assert!(link.is_symlink);
     assert_eq!(link.size, Some(7));
 }
+
+#[test]
+fn normalize_path_makes_entry_names_root_relative() {
+    assert_eq!(normalize_path("./"), PathBuf::from("."));
+    assert_eq!(normalize_path("."), PathBuf::from("."));
+    assert_eq!(normalize_path(""), PathBuf::from("."));
+    assert_eq!(normalize_path("/"), PathBuf::from("."));
+    assert_eq!(normalize_path("./README.md"), PathBuf::from("README.md"));
+    assert_eq!(
+        normalize_path("./dir/sub.txt"),
+        PathBuf::from("dir/sub.txt")
+    );
+    assert_eq!(normalize_path("dir/./sub/"), PathBuf::from("dir/sub"));
+    assert_eq!(normalize_path("dir\\sub"), PathBuf::from("dir/sub"));
+}
+
+#[test]
+fn add_to_tree_ignores_the_archive_root_entry() {
+    let mut entries = HashMap::new();
+    let mut tree = HashMap::new();
+
+    add_to_tree(
+        PathBuf::from("."),
+        ArchiveEntryMetadata {
+            is_dir: true,
+            is_symlink: false,
+            size: None,
+            modified: None,
+            attributes: String::new(),
+        },
+        &mut entries,
+        &mut tree,
+    );
+
+    assert!(
+        entries.is_empty(),
+        "the root must not become a listing entry"
+    );
+    assert!(tree.is_empty(), "the root must not become its own child");
+
+    add_to_tree(
+        PathBuf::from("README.md"),
+        ArchiveEntryMetadata {
+            is_dir: false,
+            is_symlink: false,
+            size: Some(7),
+            modified: None,
+            attributes: String::new(),
+        },
+        &mut entries,
+        &mut tree,
+    );
+
+    let children = tree.get(Path::new(".")).unwrap();
+    assert_eq!(children.len(), 1);
+    assert!(children.contains(Path::new("README.md")));
+}

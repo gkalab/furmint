@@ -558,3 +558,187 @@ async fn test_archive_fs_read_and_download_rpm() {
         "hello rpm"
     );
 }
+
+#[tokio::test]
+async fn test_tar_gz_dot_prefixed_entries_are_browsable_readable_and_extractable() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive_path = temp_dir.path().join("dot.tar.gz");
+
+    {
+        let file = File::create(&archive_path).unwrap();
+        let enc = GzEncoder::new(file, Compression::default());
+        let mut tar = tar::Builder::new(enc);
+
+        let mut root = tar::Header::new_gnu();
+        root.set_entry_type(tar::EntryType::Directory);
+        root.set_mode(0o755);
+        root.set_size(0);
+        root.set_cksum();
+        tar.append_data(&mut root, "./", &[] as &[u8]).unwrap();
+
+        let mut dir = tar::Header::new_gnu();
+        dir.set_entry_type(tar::EntryType::Directory);
+        dir.set_mode(0o755);
+        dir.set_size(0);
+        dir.set_cksum();
+        tar.append_data(&mut dir, "./dir/", &[] as &[u8]).unwrap();
+
+        for (name, data) in [
+            ("./README.md", b"readme".as_slice()),
+            ("./dir/sub.txt", b"nested".as_slice()),
+        ] {
+            let mut header = tar::Header::new_gnu();
+            header.set_mode(0o644);
+            header.set_size(data.len() as u64);
+            tar.append_data(&mut header, name, data).unwrap();
+        }
+
+        tar.finish().unwrap();
+    }
+
+    let archive_fs = ArchiveFs::new(&archive_path).unwrap();
+    let root = archive_fs.list_dir(Path::new(".")).await.unwrap();
+    assert!(
+        root.iter().all(|e| !e.name.is_empty()),
+        "the archive root must not be listed as an entry: {root:?}"
+    );
+    assert!(
+        root.iter()
+            .any(|e| e.name == "README.md" && !e.is_dir && !e.is_symlink)
+    );
+    assert!(root.iter().any(|e| e.name == "dir" && e.is_dir));
+
+    assert_eq!(
+        archive_fs.read_file(Path::new("README.md")).await.unwrap(),
+        b"readme"
+    );
+    assert_eq!(
+        archive_fs
+            .read_file(Path::new("dir/sub.txt"))
+            .await
+            .unwrap(),
+        b"nested"
+    );
+    assert_eq!(
+        archive_fs.calc_dir_size(Path::new(".")).await.unwrap(),
+        12,
+        "walking the root must terminate instead of revisiting it"
+    );
+
+    let (raw_tx, _rx) = tokio::sync::mpsc::unbounded_channel::<crate::tasks::UiEvent>();
+    let tx = crate::tasks::EventBus::new(raw_tx);
+    let progress = crate::fs::provider::TaskProgressContext {
+        id: 0,
+        tx,
+        cancel: Arc::new(AtomicBool::new(false)),
+        processed_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        total_bytes: 0,
+    };
+    let local_fs = LocalFs::new();
+
+    let all_dest = temp_dir.path().join("all");
+    archive_fs
+        .extract(Path::new("."), &local_fs, &all_dest, &progress)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        std::fs::read(all_dest.join("README.md")).unwrap(),
+        b"readme"
+    );
+    assert_eq!(
+        std::fs::read(all_dest.join("dir/sub.txt")).unwrap(),
+        b"nested"
+    );
+
+    let single_dest = temp_dir.path().join("single/README.md");
+    archive_fs
+        .extract(Path::new("README.md"), &local_fs, &single_dest, &progress)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(std::fs::read(single_dest).unwrap(), b"readme");
+
+    let dir_dest = temp_dir.path().join("dir-out");
+    archive_fs
+        .extract(Path::new("dir"), &local_fs, &dir_dest, &progress)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(std::fs::read(dir_dest.join("sub.txt")).unwrap(), b"nested");
+
+    let scan = crate::fs::archive::get_archive_handler(&archive_path)
+        .unwrap()
+        .scan()
+        .unwrap();
+    let rows = crate::fs::archive::preview::build_archive_tree(&scan);
+    assert!(rows.iter().all(|row| !row.name.is_empty()));
+    assert!(rows.iter().any(|row| row.name == "README.md"));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_tar_gz_symlink_is_copied_out_as_a_link() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let archive_path = temp_dir.path().join("link.tar.gz");
+
+    {
+        let file = File::create(&archive_path).unwrap();
+        let enc = GzEncoder::new(file, Compression::default());
+        let mut tar = tar::Builder::new(enc);
+
+        let mut root = tar::Header::new_gnu();
+        root.set_entry_type(tar::EntryType::Directory);
+        root.set_mode(0o755);
+        root.set_size(0);
+        root.set_cksum();
+        tar.append_data(&mut root, "./", &[] as &[u8]).unwrap();
+
+        let mut header = tar::Header::new_gnu();
+        header.set_mode(0o755);
+        header.set_size(6);
+        tar.append_data(&mut header, "./rc", b"binary".as_slice())
+            .unwrap();
+
+        // `tar::Builder` strips a leading `./` from paths, but real-world tar
+        // archives (including the reported one) keep it. Write the header name
+        // directly so this reproduces that layout.
+        let mut link = tar::Header::new_gnu();
+        link.set_entry_type(tar::EntryType::Symlink);
+        link.set_mode(0o777);
+        link.set_size(0);
+        link.set_link_name("rc").unwrap();
+        link.as_mut_bytes()[..8].copy_from_slice(b"./rcedit");
+        link.set_cksum();
+        tar.append(&link, std::io::empty()).unwrap();
+
+        tar.finish().unwrap();
+    }
+
+    let archive_fs = ArchiveFs::new(&archive_path).unwrap();
+    let root = archive_fs.list_dir(Path::new(".")).await.unwrap();
+    assert!(
+        root.iter()
+            .any(|e| e.name == "rcedit" && e.is_symlink && !e.is_dir)
+    );
+
+    // Reading through the link follows it to the target entry.
+    assert_eq!(
+        archive_fs.read_file(Path::new("rcedit")).await.unwrap(),
+        b"binary"
+    );
+
+    let dest = temp_dir.path().join("copied-rcedit");
+    let processed = recursive_copy(&archive_fs, &LocalFs::new(), Path::new("rcedit"), &dest, 1)
+        .await
+        .unwrap();
+    assert_eq!(processed, 1);
+    assert!(
+        std::fs::symlink_metadata(&dest)
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "copying a link must create a link, not fail"
+    );
+    assert_eq!(std::fs::read_link(&dest).unwrap(), PathBuf::from("rc"));
+}

@@ -528,6 +528,7 @@ impl ArchiveFormat for RpmHandler {
                     name_raw: name,
                     is_dir: is_entry_dir,
                     is_symlink,
+                    link_target: None,
                     size,
                     mtime,
                     mode,

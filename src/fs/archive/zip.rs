@@ -3,7 +3,7 @@ use super::common::{self, ArchiveEntryMetadata};
 use super::{NewEntry, PlannedDir, PlannedFile};
 use crate::fs::provider::TaskProgressContext;
 use crate::fs::utils::mode_to_attributes;
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{Read, Seek, Write};
@@ -220,13 +220,28 @@ impl ZipHandler {
     fn read_file(&self, path_str: &str) -> Result<Vec<u8>> {
         let file = File::open(&self.path).context("Failed to open archive")?;
         let mut archive = zip::ZipArchive::new(file).context("Failed to read zip")?;
-        let mut zip_file = archive.by_name(path_str).context("File not found in zip")?;
+
         // Grow the buffer naturally instead of pre-reserving the central
         // directory's claimed size, which is untrusted and could be absurdly
         // large (e.g. a hostile archive claiming 4 GB).
         let mut buffer = Vec::new();
-        zip_file.read_to_end(&mut buffer)?;
-        Ok(buffer)
+        if let Ok(mut zip_file) = archive.by_name(path_str) {
+            zip_file.read_to_end(&mut buffer)?;
+            return Ok(buffer);
+        }
+
+        // Names written with a `./` prefix (or a different separator) are
+        // stored as-is but exposed normalized, so look the entry up by its
+        // normalized key before reporting it missing.
+        let path_key = Self::entry_key(path_str);
+        for i in 0..archive.len() {
+            let mut zip_file = archive.by_index(i)?;
+            if Self::entry_key(&zip_file.name()?) == path_key {
+                zip_file.read_to_end(&mut buffer)?;
+                return Ok(buffer);
+            }
+        }
+        Err(anyhow!("File not found in zip: {path_str}"))
     }
 
     fn extract(
@@ -269,6 +284,7 @@ impl ZipHandler {
                     name_raw: &name,
                     is_dir,
                     is_symlink: false,
+                    link_target: None,
                     size,
                     mtime: Some(mtime),
                     mode,
@@ -311,6 +327,7 @@ impl ZipHandler {
                     name_raw: &name,
                     is_dir,
                     is_symlink: false, // zip-rs doesn't easily support symlinks here
+                    link_target: None,
                     size,
                     mtime: Some(mtime),
                     mode,

@@ -194,10 +194,11 @@ impl ArchiveFormat for TarHandler {
     fn read_file(&self, path_str: &str) -> Result<Vec<u8>> {
         let reader = self.get_reader()?;
         let mut archive = tar::Archive::new(reader);
+        let path_norm = common::normalize_path(path_str);
         for entry in archive.entries()? {
             let mut entry = entry?;
-            let name = entry.path()?.to_string_lossy().replace('\\', "/");
-            if name == path_str || name.trim_end_matches('/') == path_str {
+            let name = entry.path()?.to_string_lossy().into_owned();
+            if common::normalize_path(&name) == path_norm {
                 // Grow the buffer naturally instead of pre-reserving the
                 // header's claimed size, which is untrusted (a hostile
                 // archive could claim gigabytes).
@@ -253,6 +254,15 @@ impl ArchiveFormat for TarHandler {
             let name_raw = entry.path()?.to_string_lossy().to_string();
             let is_entry_dir = entry.header().entry_type().is_dir();
             let is_symlink = entry.header().entry_type().is_symlink();
+            // Tar stores a symlink's target in the header, not in the entry
+            // data, so hand it to the shared extractor explicitly.
+            let link_target = if is_symlink {
+                entry
+                    .link_name()?
+                    .map(|target| target.to_string_lossy().into_owned())
+            } else {
+                None
+            };
             let size = entry.size();
             let mtime = entry
                 .header()
@@ -267,6 +277,7 @@ impl ArchiveFormat for TarHandler {
                     name_raw: &name_raw,
                     is_dir: is_entry_dir,
                     is_symlink,
+                    link_target: link_target.as_deref(),
                     size,
                     mtime,
                     mode,
@@ -361,7 +372,10 @@ impl TarHandler {
                 && let (Some(en), Some(_tn)) = (en, tn)
             {
                 let ep = working_dir.join(en);
-                if ep.exists() {
+                // A symlink entry has no target extracted alongside it, so
+                // `exists` (which follows the link) reports false for the
+                // link we just created. Check the link itself instead.
+                if std::fs::symlink_metadata(&ep).is_ok() {
                     std::fs::rename(ep, dest)?;
                 }
             }

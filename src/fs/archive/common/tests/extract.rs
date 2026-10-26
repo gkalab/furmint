@@ -51,6 +51,7 @@ fn extraction_single_file_to_final_path() {
             name_raw: "out.txt",
             is_dir: false,
             is_symlink: false,
+            link_target: None,
             size: 5,
             mtime: None,
             mode: None,
@@ -76,6 +77,7 @@ fn extraction_single_file_to_final_path() {
             name_raw: "a/b.txt",
             is_dir: false,
             is_symlink: false,
+            link_target: None,
             size: 5,
             mtime: None,
             mode: None,
@@ -128,6 +130,7 @@ fn extraction_fails_when_entry_exceeds_declared_size() {
             name_raw: "f.txt",
             is_dir: false,
             is_symlink: false,
+            link_target: None,
             size: 4,
             mtime: None,
             mode: None,
@@ -167,6 +170,7 @@ fn extraction_allows_unknown_declared_size() {
             name_raw: "g.txt",
             is_dir: false,
             is_symlink: false,
+            link_target: None,
             size: 0,
             mtime: None,
             mode: None,
@@ -192,4 +196,48 @@ fn extraction_allows_unknown_declared_size() {
 fn total_quota_is_enforced() {
     assert!(check_total_quota(MAX_TOTAL_EXTRACT_BYTES).is_ok());
     assert!(check_total_quota(MAX_TOTAL_EXTRACT_BYTES + 1).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn extraction_creates_symlink_from_a_header_target() {
+    let dir = tempfile::tempdir().unwrap();
+    let dest_dir = dir.path().join("dest");
+    std::fs::create_dir_all(&dest_dir).unwrap();
+    // A single-file extraction passes the final link path as `dest`.
+    let dest = canonicalize_dest(&dest_dir.join("rcedit"));
+
+    let opts_progress = test_progress();
+    let opts = ExtractOptions {
+        src_str: "rcedit",
+        dest: &dest,
+        progress: &opts_progress,
+    };
+
+    // Tar stores the target in the header (not the entry data) and may keep
+    // the `./` prefix on the link's name.
+    handle_extraction_entry(
+        &mut Cursor::new(&[][..]),
+        &ExtractionEntryMetadata {
+            name_raw: "./rcedit",
+            is_dir: false,
+            is_symlink: true,
+            link_target: Some("rc"),
+            size: 0,
+            mtime: None,
+            mode: None,
+        },
+        &opts,
+        &mut Vec::new(),
+        &mut std::time::Instant::now(),
+    )
+    .unwrap();
+
+    assert!(
+        std::fs::symlink_metadata(&dest)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(std::fs::read_link(dest).unwrap(), PathBuf::from("rc"));
 }
