@@ -53,8 +53,14 @@ pub async fn handle_drive_select_event(code: KeyCode, app: &mut AppState) -> boo
 
 async fn perform_drive_navigation(app: &mut AppState, path: String) {
     let side = app.popups.drive_select.side;
+    #[cfg(windows)]
     let mut path = std::path::PathBuf::from(path);
+    #[cfg(not(windows))]
+    let path = std::path::PathBuf::from(path);
 
+    // Windows: selecting the drive the opposite panel is already on keeps that
+    // panel's directory. Linux drives are mount points and the exact selected
+    // mount path is used.
     #[cfg(windows)]
     {
         let get_drive = |p: &std::path::Path| -> Option<char> {
@@ -89,23 +95,6 @@ async fn perform_drive_navigation(app: &mut AppState, path: String) {
             };
 
             if opp_drive == Some(sel_drive) {
-                path = opp_dir;
-            }
-        }
-    }
-
-    // Non-Windows drives are mount points: if the opposite pane already lives
-    // inside the selected mount, keep its directory instead of jumping to the
-    // mount root.
-    #[cfg(not(windows))]
-    {
-        let opposite_tab = match side {
-            PanelSide::Left => app.panels.right.active_tab(),
-            PanelSide::Right => app.panels.left.active_tab(),
-        };
-        if opposite_tab.provider.is_local() {
-            let opp_dir = opposite_tab.current_dir.clone();
-            if opp_dir.starts_with(&path) {
                 path = opp_dir;
             }
         }

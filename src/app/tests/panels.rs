@@ -269,7 +269,7 @@ async fn test_drive_navigation_matches_opposite_pane() {
 
 #[tokio::test]
 #[cfg(target_os = "linux")]
-async fn test_drive_navigation_matches_opposite_pane() {
+async fn test_drive_navigation_uses_exact_mount_path() {
     let provider = Arc::new(MockProvider::local());
 
     let local_tab = |dir: &str| Tab {
@@ -292,8 +292,8 @@ async fn test_drive_navigation_matches_opposite_pane() {
     };
 
     // Test Case 1: Selecting /mnt on Left (active) while Right is on /mnt/data.
-    // The opposite pane lives inside the selected mount, so Left should
-    // navigate to /mnt/data instead of the mount root.
+    // The opposite pane lives inside the selected mount, but on Linux the exact
+    // mount path is used, so Left navigates to the mount root.
     {
         let mut app = AppState::test_default();
         app.panels.left.tabs = vec![local_tab("/home/user/proj")];
@@ -325,7 +325,7 @@ async fn test_drive_navigation_matches_opposite_pane() {
 
         assert_eq!(
             app.panels.left.active_tab().current_dir,
-            PathBuf::from("/mnt/data")
+            PathBuf::from("/mnt")
         );
     }
 
