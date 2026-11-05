@@ -19,18 +19,25 @@ use std::time::SystemTime;
 #[must_use]
 pub fn normalize_path(name: &str) -> PathBuf {
     let path_str = name.replace('\\', "/");
-    let mut normalized = PathBuf::new();
+    // Build the normalized form as a string instead of pushing onto a
+    // `PathBuf`: `PathBuf::push` inserts the platform separator, which would
+    // turn archive paths into `dir\sub` on Windows.
+    let mut normalized = String::new();
     for component in Path::new(&path_str).components() {
-        match component {
-            Component::Normal(part) => normalized.push(part),
-            Component::ParentDir => normalized.push(".."),
-            Component::CurDir | Component::RootDir | Component::Prefix(_) => {}
+        let part = match component {
+            Component::Normal(part) => part.to_string_lossy(),
+            Component::ParentDir => std::borrow::Cow::Borrowed(".."),
+            Component::CurDir | Component::RootDir | Component::Prefix(_) => continue,
+        };
+        if !normalized.is_empty() {
+            normalized.push('/');
         }
+        normalized.push_str(&part);
     }
-    if normalized.as_os_str().is_empty() {
+    if normalized.is_empty() {
         PathBuf::from(".")
     } else {
-        normalized
+        PathBuf::from(normalized)
     }
 }
 

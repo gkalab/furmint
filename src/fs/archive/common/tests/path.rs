@@ -122,6 +122,17 @@ fn normalize_path_makes_entry_names_root_relative() {
     assert_eq!(normalize_path("dir\\sub"), PathBuf::from("dir/sub"));
 }
 
+/// `PathBuf` equality is component-based on Windows, so the assertions above
+/// pass even when the normalized path keeps the platform separator. Archive
+/// entry keys are compared as strings, so the separators themselves matter.
+#[test]
+fn normalize_path_keeps_forward_slashes_on_every_platform() {
+    assert_eq!(normalize_path("dir/sub").to_string_lossy(), "dir/sub");
+    assert_eq!(normalize_path("dir\\sub").to_string_lossy(), "dir/sub");
+    assert_eq!(normalize_path("./dir/./sub/").to_string_lossy(), "dir/sub");
+    assert_eq!(normalize_path("..").to_string_lossy(), "..");
+}
+
 #[test]
 fn add_to_tree_ignores_the_archive_root_entry() {
     let mut entries = HashMap::new();

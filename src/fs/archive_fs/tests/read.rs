@@ -560,6 +560,7 @@ async fn test_archive_fs_read_and_download_rpm() {
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
 async fn test_tar_gz_dot_prefixed_entries_are_browsable_readable_and_extractable() {
     let temp_dir = tempfile::tempdir().unwrap();
     let archive_path = temp_dir.path().join("dot.tar.gz");
