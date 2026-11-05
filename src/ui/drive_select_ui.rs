@@ -195,9 +195,18 @@ pub fn get_available_drives() -> Vec<Drive> {
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 let drive_letter = (b'A' + i as u8) as char;
                 let path = format!("{drive_letter}:\\");
-                let (detail, detail_short) = drive_capacity(&path)
-                    .map(|(total, free, used_pct)| drive_detail_strings(total, free, used_pct))
-                    .unwrap_or_default();
+                // Querying capacity of a network drive can block until the
+                // share responds, so don't show size/free/usage for it.
+                let (detail, detail_short) =
+                    if crate::fs::local::is_network_path(std::path::Path::new(&path)) {
+                        (String::new(), String::new())
+                    } else {
+                        drive_capacity(&path)
+                            .map(|(total, free, used_pct)| {
+                                drive_detail_strings(total, free, used_pct)
+                            })
+                            .unwrap_or_default()
+                    };
                 drives.push(Drive {
                     path,
                     detail,
