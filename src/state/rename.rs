@@ -27,8 +27,10 @@ impl RenameState {
         }
     }
 
-    /// Opens the rename popup for `original_name` in `parent_dir`, with the
-    /// cursor placed before the extension (or at the end when there is none).
+    /// Opens the rename popup for `original_name` in `parent_dir`, with the stem
+    /// (everything before the extension) selected and the cursor at the end of
+    /// the selection, right before the extension. A name without an extension is
+    /// selected in full.
     /// Visibility is set here, so a caller cannot show the popup without
     /// populating it.
     pub fn show(&mut self, original_name: String, parent_dir: PathBuf, is_dir: bool) {
@@ -40,7 +42,7 @@ impl RenameState {
                 |stem| stem.chars().count(),
             );
         self.new_name.set_text(original_name.clone());
-        self.new_name.set_cursor(stem_len);
+        self.new_name.select_range(0..stem_len);
         self.original_name = original_name;
         self.parent_dir = parent_dir;
         self.show_overwrite_confirm = false;

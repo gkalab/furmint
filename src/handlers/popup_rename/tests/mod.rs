@@ -60,11 +60,27 @@ async fn test_init_rename_skips_dotdot() {
 async fn test_rename_typing_and_backspace() {
     let mut app = test_app_with_entry("file.txt", false, &std::env::temp_dir()).await;
     handle_init_rename(&mut app);
+    // Collapse the stem selection so typing appends, as it did before the stem
+    // was selected on open.
+    handle_rename_event(KeyCode::End, Modifiers::NONE, &mut app).await;
     let orig = app.popups.rename.new_name.clone();
     handle_rename_event(KeyCode::Char('a'), Modifiers::NONE, &mut app).await;
     assert_ne!(app.popups.rename.new_name.text(), orig.text());
     handle_rename_event(KeyCode::Backspace, Modifiers::NONE, &mut app).await;
     assert_eq!(app.popups.rename.new_name.text(), orig.text());
+}
+
+#[tokio::test]
+async fn test_rename_typing_replaces_the_selected_stem() {
+    let mut app = test_app_with_entry("file.txt", false, &std::env::temp_dir()).await;
+    handle_init_rename(&mut app);
+    // The stem is selected on open, so typing replaces it and keeps the
+    // extension.
+    assert_eq!(app.popups.rename.new_name.selection(), Some(0..4));
+
+    handle_rename_event(KeyCode::Char('a'), Modifiers::NONE, &mut app).await;
+    assert_eq!(app.popups.rename.new_name.text(), "a.txt");
+    assert_eq!(app.popups.rename.new_name.cursor(), 1);
 }
 
 #[tokio::test]
@@ -303,6 +319,8 @@ async fn test_rename_typing_stays_at_cursor_after_multibyte_init() {
     // `handle_text_input` pushes at the end and keeps incrementing.
     let mut app = test_app_with_entry("héllo", false, &std::env::temp_dir()).await;
     handle_init_rename(&mut app);
+    // Drop the selection the popup opens with, leaving the caret at the end.
+    handle_rename_event(KeyCode::End, Modifiers::NONE, &mut app).await;
 
     for c in "abc".chars() {
         handle_rename_event(KeyCode::Char(c), Modifiers::NONE, &mut app).await;
@@ -320,6 +338,8 @@ async fn test_rename_typing_stays_at_cursor_after_multibyte_init() {
 async fn test_rename_backspace_after_multibyte_init() {
     let mut app = test_app_with_entry("héllo", false, &std::env::temp_dir()).await;
     handle_init_rename(&mut app);
+    // Collapse the whole-name selection so backspace deletes characters.
+    handle_rename_event(KeyCode::End, Modifiers::NONE, &mut app).await;
 
     handle_rename_event(KeyCode::Backspace, Modifiers::NONE, &mut app).await;
     handle_rename_event(KeyCode::Backspace, Modifiers::NONE, &mut app).await;
@@ -335,6 +355,12 @@ async fn test_rename_edit_at_stem_keeps_extension() {
     handle_init_rename(&mut app);
     assert_eq!(app.popups.rename.new_name.cursor(), 5);
 
+    // The stem is selected, so the first keystroke replaces it and the
+    // extension survives.
     handle_rename_event(KeyCode::Char('X'), Modifiers::NONE, &mut app).await;
-    assert_eq!(app.popups.rename.new_name.text(), "hélloX.txt");
+    assert_eq!(app.popups.rename.new_name.text(), "X.txt");
+
+    // Further typing goes in before the extension, at the caret.
+    handle_rename_event(KeyCode::Char('Y'), Modifiers::NONE, &mut app).await;
+    assert_eq!(app.popups.rename.new_name.text(), "XY.txt");
 }

@@ -97,6 +97,32 @@ fn select_all_then_backspace_clears() {
 }
 
 #[test]
+fn select_range_selects_prefix_and_leaves_caret_at_its_end() {
+    let mut st = TextEditState::with_text("file.ext");
+    st.select_range(0..4);
+    assert_eq!(st.selection(), Some(0..4));
+    assert_eq!(st.selected_text().as_deref(), Some("file"));
+    assert_eq!(st.cursor(), 4);
+
+    // Typing replaces the selection and keeps the extension.
+    press(&mut st, KeyCode::Char('X'), Modifiers::NONE);
+    assert_eq!(st.text(), "X.ext");
+}
+
+#[test]
+fn select_range_clamps_to_the_text() {
+    let mut st = TextEditState::with_text("abc");
+    st.select_range(1..99);
+    assert_eq!(st.selection(), Some(1..3));
+    assert_eq!(st.cursor(), 3);
+
+    // An empty range selects nothing.
+    st.select_range(2..2);
+    assert!(st.selection().is_none());
+    assert_eq!(st.cursor(), 2);
+}
+
+#[test]
 fn ctrl_arrows_move_by_word() {
     let mut st = TextEditState::with_text("foo bar baz");
     st.set_cursor(0);

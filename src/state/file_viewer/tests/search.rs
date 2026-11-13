@@ -136,3 +136,22 @@ fn test_search_prev() {
     state.search_prev(&geometry); // Wrap to bottom
     assert_eq!(state.text.current_search_match, Some((2, 0, 5)));
 }
+
+#[test]
+fn test_search_prompt_selects_the_previous_term() {
+    let mut prompt = crate::state::FileViewerSearchState::new();
+    prompt.show("needle".to_string());
+    assert!(prompt.is_visible);
+    assert_eq!(prompt.query.text(), "needle");
+    assert_eq!(prompt.query.selection(), Some(0..6));
+    assert_eq!(prompt.query.cursor(), 6);
+}
+
+#[test]
+fn test_search_prompt_selects_nothing_without_a_previous_term() {
+    let mut prompt = crate::state::FileViewerSearchState::new();
+    prompt.show(String::new());
+    assert!(prompt.is_visible);
+    assert!(prompt.query.selection().is_none());
+    assert_eq!(prompt.query.cursor(), 0);
+}

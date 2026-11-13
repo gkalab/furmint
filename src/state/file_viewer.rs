@@ -75,11 +75,12 @@ impl FileViewerSearchState {
         Self::default()
     }
 
-    /// Opens the viewer search prompt pre-filled with `query` and the cursor at
-    /// its end. Visibility is set here, so a caller cannot show the prompt
-    /// without populating it.
+    /// Opens the viewer search prompt pre-filled with `query` and the whole term
+    /// selected. Visibility is set here, so a caller cannot show the prompt without
+    /// populating it.
     pub fn show(&mut self, query: String) {
         self.query.set_text(query);
+        self.query.select_all();
         self.error = None;
         self.is_visible = true;
     }

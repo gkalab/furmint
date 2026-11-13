@@ -177,6 +177,17 @@ impl TextEditState {
         self.cursor = self.len();
     }
 
+    /// Selects `range` (char indices), leaving the caret at its end.
+    ///
+    /// The range is clamped to the field, so a caller can pass a computed
+    /// prefix length without checking it first.
+    pub fn select_range(&mut self, range: std::ops::Range<usize>) {
+        let start = range.start.min(self.len());
+        let end = range.end.min(self.len()).max(start);
+        self.anchor = Some(start);
+        self.cursor = end;
+    }
+
     /// Clears the selection, keeping the caret where it is.
     pub fn clear_selection(&mut self) {
         self.anchor = None;
