@@ -20,7 +20,7 @@ fuzzy-matcher = "0.3"
 globset = "0.4"
 image = { version = "0.25", features = ["default"] }
 libc = "0.2"
-lumis = { version = "0.17", default-features = false, features = [
+lumis = { version = "0.19", default-features = false, features = [
     "lang-bash",
     "lang-c",
     "lang-cmake",
@@ -49,24 +49,25 @@ ratatui = { version = "0.30.2", features = ["termina"] }
 ratatui-image = { version = "11.1", default-features = false, features = ["tokio", "image-defaults"] }
 regex = "1.13"
 ring = "0.17"
-russh = { version = "0.64", default-features = false, features = ["ring", "rsa", "flate2"] }
+russh = { version = "0.65", default-features = false, features = ["ring", "rsa", "flate2"] }
 russh-sftp = "3.0"
 secrecy = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sevenz-rust2 = { version = "0.24", features = ["deflate", "zstd"] }
+sevenz-rust2 = { version = "0.25", features = ["deflate", "zstd"] }
 shell-words = "1.1"
 tar = "0.4"
 tempfile = "3.27"
+# Must match ratatui's termina backend
 termina = "0.3"
-tokio = { version = "1.53", features = ["full"] }
-toml = "1.1"
-trash = "5.2"
+tokio = { version = "1.54", features = ["full"] }
+toml = "1.2"
+trash = "5.3"
 unicode-width = "0.2"
 walkdir = "2.5"
 xz2 = "0.1"
 zeroize = "1.9"
-zip = "9.0"
+zip = "9.5"
 zstd = "0.14"
 
 [target.'cfg(unix)'.dependencies]
